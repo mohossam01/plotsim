@@ -520,22 +520,22 @@ def _entity_groups(
     fact_table: Table,
     per_entity_dims: set[str],
 ) -> tuple[str, list[tuple[object, pd.DataFrame]]]:
-    """Group a fact table by its per_entity FK column, preserving entity order."""
+    """Group a fact table by its per_entity FK column, preserving entity order.
+
+    FIX-07 / SF-5: vectorized via ``groupby(sort=False)`` which iterates
+    groups in first-appearance order — the same ordering the prior
+    ``iterrows`` implementation produced. Each returned ``group`` is the
+    original DataFrame slice (views, not row-stacked copies), so callers
+    that iterate ``group.iterrows()`` see identical rows in identical
+    order.
+    """
     fk = _find_entity_fk_column(fact_table, per_entity_dims)
     if fk is None:
         raise ValueError(
             f"fact table {fact_table.name!r} has no per_entity FK; cannot group by entity"
         )
     entity_col = fk[0]
-    seen: list = []
-    groups: dict = {}
-    for _, row in fact_df.iterrows():
-        eid = row[entity_col]
-        if eid not in groups:
-            groups[eid] = []
-            seen.append(eid)
-        groups[eid].append(row)
-    grouped = [(eid, pd.DataFrame(groups[eid])) for eid in seen]
+    grouped = [(eid, group) for eid, group in fact_df.groupby(entity_col, sort=False)]
     return entity_col, grouped
 
 
@@ -750,16 +750,94 @@ def _find_entity_link_in_subentity(
 # --- Stage assignment --------------------------------------------------------
 
 
+def _monotonic_stage_walk(
+    values: np.ndarray,
+    thresholds: np.ndarray,
+    downgrade_delay: Optional[int],
+) -> np.ndarray:
+    """Per-entity stage walk — cursor advances monotonically, optional downgrade.
+
+    FIX-07 helper. ``values`` is a 1D float array (NaN marks null).
+    ``thresholds`` is the ascending ``threshold_enter`` list from
+    ``stages.sequence``. Returns a 1D int array of stage indices matching
+    the scalar path byte-for-byte.
+
+    * ``downgrade_delay is None`` — pure monotonic. ``actual`` per row is
+      ``searchsorted(thresholds, v, side='right') - 1``; NaN rows hold
+      ``actual=0`` and are dominated by the running max. Fully vectorized
+      via :func:`np.maximum.accumulate`.
+    * ``downgrade_delay`` is ``N`` — sequential cursor with consecutive
+      ``below-cursor`` counter. A short per-entity Python loop; the
+      per-entity size is the period count, so total work is
+      O(n_entities * n_periods) identical to the iterrows path but
+      without pandas row-materialization overhead.
+    """
+    n = len(values)
+    n_stages = len(thresholds)
+    if n == 0:
+        return np.empty(0, dtype=np.int64)
+    mask = ~np.isnan(values)
+    actual = np.zeros(n, dtype=np.int64)
+    if mask.any():
+        actual[mask] = np.searchsorted(thresholds, values[mask], side="right") - 1
+    np.clip(actual, 0, n_stages - 1, out=actual)
+
+    if downgrade_delay is None:
+        return np.maximum.accumulate(actual)
+
+    out = np.empty(n, dtype=np.int64)
+    cursor = 0
+    lower_streak = 0
+    for i in range(n):
+        if not mask[i]:
+            out[i] = cursor
+            continue
+        a = int(actual[i])
+        if a > cursor:
+            cursor = a
+            lower_streak = 0
+        elif a < cursor:
+            lower_streak += 1
+            if lower_streak >= downgrade_delay:
+                cursor = a
+                lower_streak = 0
+        else:
+            lower_streak = 0
+        out[i] = cursor
+    return out
+
+
+def _free_mode_stages(
+    values: np.ndarray,
+    thresholds: np.ndarray,
+) -> np.ndarray:
+    """Each row picks the highest stage its value satisfies; NaN stays at 0.
+
+    Scalar parity: when ``enforce_order=False``, the cursor never advances
+    (it's gated on ``enforce``); ``chosen`` starts at 0 per row. NaN rows
+    hit the null-valued branch and emit ``seq[cursor].name``, which in
+    free mode is always ``seq[0]``. Vectorized via a single masked
+    ``np.searchsorted`` over non-null rows.
+    """
+    n = len(values)
+    n_stages = len(thresholds)
+    mask = ~np.isnan(values)
+    out = np.zeros(n, dtype=np.int64)
+    if mask.any():
+        out[mask] = np.searchsorted(thresholds, values[mask], side="right") - 1
+    np.clip(out, 0, n_stages - 1, out=out)
+    return out
+
+
 def assign_stages(
     config: PlotsimConfig,
     fact_tables: dict[str, pd.DataFrame],
 ) -> dict[str, pd.DataFrame]:
     """Annotate the fact table that owns ``stages.field`` with a ``stage`` column.
 
-    Walks each entity's series in row order. With ``enforce_order=True``,
-    advances stage index whenever the value crosses the next stage's
-    ``threshold_enter``. Cursor reversal depends on FIX-06's
-    ``downgrade_delay``:
+    With ``enforce_order=True`` the cursor advances whenever the value
+    crosses the next stage's ``threshold_enter``. Cursor reversal depends
+    on FIX-06's ``downgrade_delay``:
 
       * ``downgrade_delay is None`` (default) — strict monotonic; the
         cursor never steps back. A brief dip stays in the higher stage.
@@ -769,6 +847,12 @@ def assign_stages(
 
     With ``enforce_order=False``, ``downgrade_delay`` is ignored and
     each period chooses the highest-enter stage that the value satisfies.
+
+    FIX-07 / SF-5: the implementation is vectorized via pandas
+    ``groupby`` + numpy walks (see :func:`_monotonic_stage_walk` and
+    :func:`_free_mode_stages`). Output is byte-identical to the prior
+    ``iterrows`` path; parity is locked in by
+    ``test_vectorized_assign_stages_matches_iterrows_output``.
     """
     if config.stages is None:
         return fact_tables
@@ -798,47 +882,37 @@ def assign_stages(
     entity_col = fk[0]
 
     df = fact_tables[target_name].copy()
-    stages_for_row = [None] * len(df)
-    seen_entities: set = set()
-    cursor: dict = {}
-    lower_streak: dict = {}
+    n = len(df)
 
-    for pos, (_, row) in enumerate(df.iterrows()):
-        eid = row[entity_col]
-        if eid not in seen_entities:
-            cursor[eid] = 0
-            lower_streak[eid] = 0
-            seen_entities.add(eid)
-        value = row[field]
-        if value is None or (isinstance(value, float) and np.isnan(value)):
-            stages_for_row[pos] = seq[cursor[eid]].name
-            continue
-        v = float(value)
-        if enforce:
-            while cursor[eid] < len(seq) - 1 and v >= seq[cursor[eid] + 1].threshold_enter:
-                cursor[eid] += 1
-                lower_streak[eid] = 0
-            if downgrade_delay is not None:
-                actual_stage = 0
-                for i, s in enumerate(seq):
-                    if v >= s.threshold_enter:
-                        actual_stage = i
-                if actual_stage < cursor[eid]:
-                    lower_streak[eid] += 1
-                    if lower_streak[eid] >= downgrade_delay:
-                        cursor[eid] = actual_stage
-                        lower_streak[eid] = 0
-                else:
-                    lower_streak[eid] = 0
-            stages_for_row[pos] = seq[cursor[eid]].name
+    thresholds = np.asarray(
+        [s.threshold_enter for s in seq], dtype=float,
+    )
+    stage_names = np.asarray([s.name for s in seq], dtype=object)
+
+    # Coerce the driving field to a numeric 1D array with NaN for nulls.
+    raw = df[field].to_numpy()
+    values = np.empty(n, dtype=float)
+    for i, v in enumerate(raw):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            values[i] = np.nan
         else:
-            chosen = 0
-            for i, s in enumerate(seq):
-                if v >= s.threshold_enter:
-                    chosen = i
-            stages_for_row[pos] = seq[chosen].name
+            values[i] = float(v)
 
-    df["stage"] = stages_for_row
+    stage_idx = np.empty(n, dtype=np.int64)
+    if not enforce:
+        stage_idx = _free_mode_stages(values, thresholds)
+    else:
+        # Per-entity walk — groupby.indices gives row positions per group,
+        # preserving first-appearance order.
+        for _eid, positions in df.groupby(
+            entity_col, sort=False,
+        ).indices.items():
+            pos_arr = np.asarray(positions, dtype=np.int64)
+            stage_idx[pos_arr] = _monotonic_stage_walk(
+                values[pos_arr], thresholds, downgrade_delay,
+            )
+
+    df["stage"] = stage_names[stage_idx]
     out = dict(fact_tables)
     out[target_name] = df
     return out

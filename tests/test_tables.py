@@ -926,3 +926,275 @@ def test_downgrade_delay_resets_counter_on_recovery():
     # only reaches 2 by the end, below the delay of 3.
     stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.1, 0.85, 0.1])
     assert stages == ["high", "high", "high", "high", "high", "high"], stages
+
+
+# --- FIX-07 / SF-5: vectorized assign_stages + _entity_groups ----------------
+
+
+def _assign_stages_scalar(cfg: PlotsimConfig, fact_tables):
+    """Scalar (pre-FIX-07) ``assign_stages`` reference. Lives here so the
+    vectorized library path can be verified against the iterrows behavior
+    byte-for-byte in :func:`test_vectorized_assign_stages_matches_iterrows_output`.
+    Kept in the test file rather than the library so it can't accidentally
+    become the production path."""
+    if cfg.stages is None:
+        return fact_tables
+    field = cfg.stages.field
+    seq = cfg.stages.sequence
+    enforce = cfg.stages.enforce_order
+    downgrade_delay = cfg.stages.downgrade_delay if enforce else None
+
+    from plotsim.tables import _find_entity_fk_column, _per_entity_dim_names
+    target_name = None
+    target_tbl = None
+    for tbl in cfg.tables:
+        if tbl.type != "fact":
+            continue
+        df = fact_tables.get(tbl.name)
+        if df is not None and field in df.columns:
+            target_name = tbl.name
+            target_tbl = tbl
+            break
+    if target_name is None:
+        return fact_tables
+    per_entity_dims = _per_entity_dim_names(cfg)
+    fk = _find_entity_fk_column(target_tbl, per_entity_dims)
+    if fk is None:
+        return fact_tables
+    entity_col = fk[0]
+
+    df = fact_tables[target_name].copy()
+    stages_for_row = [None] * len(df)
+    seen_entities: set = set()
+    cursor: dict = {}
+    lower_streak: dict = {}
+    for pos, (_, row) in enumerate(df.iterrows()):
+        eid = row[entity_col]
+        if eid not in seen_entities:
+            cursor[eid] = 0
+            lower_streak[eid] = 0
+            seen_entities.add(eid)
+        value = row[field]
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            stages_for_row[pos] = seq[cursor[eid]].name
+            continue
+        v = float(value)
+        if enforce:
+            while (cursor[eid] < len(seq) - 1
+                   and v >= seq[cursor[eid] + 1].threshold_enter):
+                cursor[eid] += 1
+                lower_streak[eid] = 0
+            if downgrade_delay is not None:
+                actual_stage = 0
+                for i, s in enumerate(seq):
+                    if v >= s.threshold_enter:
+                        actual_stage = i
+                if actual_stage < cursor[eid]:
+                    lower_streak[eid] += 1
+                    if lower_streak[eid] >= downgrade_delay:
+                        cursor[eid] = actual_stage
+                        lower_streak[eid] = 0
+                else:
+                    lower_streak[eid] = 0
+            stages_for_row[pos] = seq[cursor[eid]].name
+        else:
+            chosen = 0
+            for i, s in enumerate(seq):
+                if v >= s.threshold_enter:
+                    chosen = i
+            stages_for_row[pos] = seq[chosen].name
+    df["stage"] = stages_for_row
+    out = dict(fact_tables)
+    out[target_name] = df
+    return out
+
+
+def _entity_groups_scalar(fact_df, fact_table, per_entity_dims):
+    """Pre-FIX-07 iterrows reference for ``_entity_groups`` parity checks."""
+    from plotsim.tables import _find_entity_fk_column
+    fk = _find_entity_fk_column(fact_table, per_entity_dims)
+    entity_col = fk[0]
+    seen: list = []
+    groups: dict = {}
+    for _, row in fact_df.iterrows():
+        eid = row[entity_col]
+        if eid not in groups:
+            groups[eid] = []
+            seen.append(eid)
+        groups[eid].append(row)
+    grouped = [(eid, pd.DataFrame(groups[eid])) for eid in seen]
+    return entity_col, grouped
+
+
+def test_vectorized_assign_stages_matches_iterrows_output(saas_cfg, saas_tables):
+    """FIX-07: the vectorized library path produces byte-identical stages
+    to the pre-FIX-07 iterrows reference on the shipped SaaS sample —
+    covering the strict-monotonic path (no downgrade_delay) end-to-end."""
+    reference = _assign_stages_scalar(saas_cfg, saas_tables)
+    vectorized = assign_stages(saas_cfg, saas_tables)
+    # The staged fact is the one whose columns include the driving field.
+    field = saas_cfg.stages.field
+    target_name = next(
+        name for name, df in vectorized.items()
+        if field in df.columns and name.startswith("fct_")
+    )
+    pd.testing.assert_frame_equal(
+        reference[target_name].reset_index(drop=True),
+        vectorized[target_name].reset_index(drop=True),
+    )
+
+
+def test_vectorized_assign_stages_matches_iterrows_with_downgrade_delay():
+    """FIX-07: parity also holds for the FIX-06 downgrade_delay path."""
+    cfg = _three_stage_cfg(downgrade_delay=2)
+    rng = _rng(0)
+    dims = build_all_dimensions(cfg, rng)
+    trajs = compute_all_trajectories(cfg, len(dims["dim_date"]))
+    facts = build_fact_tables(cfg, trajs, dims, rng)
+    # Inject a known oscillating value sequence that will exercise advance,
+    # dip, and recovery branches across the 6-period window.
+    facts["fct_m"]["m"] = [0.85, 0.85, 0.1, 0.1, 0.85, 0.1]
+    reference = _assign_stages_scalar(cfg, facts)
+    vectorized = assign_stages(cfg, facts)
+    assert (
+        reference["fct_m"]["stage"].tolist()
+        == vectorized["fct_m"]["stage"].tolist()
+    )
+
+
+def test_vectorized_assign_stages_matches_iterrows_enforce_false():
+    """FIX-07: parity holds for the enforce_order=False free-mode path."""
+    cfg = _three_stage_cfg(enforce_order=False)
+    rng = _rng(0)
+    dims = build_all_dimensions(cfg, rng)
+    trajs = compute_all_trajectories(cfg, len(dims["dim_date"]))
+    facts = build_fact_tables(cfg, trajs, dims, rng)
+    facts["fct_m"]["m"] = [0.5, 0.85, 0.45, 0.1, 0.9, 0.6]
+    reference = _assign_stages_scalar(cfg, facts)
+    vectorized = assign_stages(cfg, facts)
+    assert (
+        reference["fct_m"]["stage"].tolist()
+        == vectorized["fct_m"]["stage"].tolist()
+    )
+
+
+def test_vectorized_assign_stages_handles_nan_values():
+    """FIX-07: NaN values hold the current cursor (monotonic) or stage 0
+    (free mode) — same semantics as the scalar iterrows path."""
+    cfg = _three_stage_cfg(downgrade_delay=None)
+    rng = _rng(0)
+    dims = build_all_dimensions(cfg, rng)
+    trajs = compute_all_trajectories(cfg, len(dims["dim_date"]))
+    facts = build_fact_tables(cfg, trajs, dims, rng)
+    facts["fct_m"]["m"] = facts["fct_m"]["m"].astype(object)
+    # Two NaNs around a mid-value — cursor should climb then hold.
+    facts["fct_m"]["m"] = [None, 0.5, float("nan"), 0.85, float("nan"), 0.1]
+    reference = _assign_stages_scalar(cfg, facts)
+    vectorized = assign_stages(cfg, facts)
+    assert (
+        reference["fct_m"]["stage"].tolist()
+        == vectorized["fct_m"]["stage"].tolist()
+    )
+
+
+def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables):
+    """FIX-07: the groupby-based ``_entity_groups`` emits groups in the
+    same first-appearance order as the prior iterrows implementation,
+    and each group DataFrame has the same rows in the same order."""
+    from plotsim.tables import _entity_groups, _per_entity_dim_names
+    fact_name = "fct_support_tickets"
+    fact_df = saas_tables[fact_name]
+    fact_tbl = next(t for t in saas_cfg.tables if t.name == fact_name)
+    per_entity_dims = _per_entity_dim_names(saas_cfg)
+
+    col_a, ref = _entity_groups_scalar(fact_df, fact_tbl, per_entity_dims)
+    col_b, vec = _entity_groups(fact_df, fact_tbl, per_entity_dims)
+
+    assert col_a == col_b
+    assert [eid for eid, _ in ref] == [eid for eid, _ in vec]
+    for (eid_a, df_a), (eid_b, df_b) in zip(ref, vec):
+        assert eid_a == eid_b
+        pd.testing.assert_frame_equal(
+            df_a.reset_index(drop=True),
+            df_b.reset_index(drop=True),
+        )
+
+
+def test_determinism_preserved_after_vectorization(saas_cfg):
+    """FIX-07: same (config, seed) twice yields identical ``stage`` output."""
+    a = generate_tables(saas_cfg, _rng(saas_cfg.seed))
+    b = generate_tables(saas_cfg, _rng(saas_cfg.seed))
+    # The stage-carrying fact is the one with the ``stage`` column.
+    staged = next(name for name, df in a.items() if "stage" in df.columns)
+    pd.testing.assert_frame_equal(a[staged], b[staged])
+
+
+def test_performance_improvement_on_large_config():
+    """FIX-07: the vectorized path stays under a generous wall-clock bound
+    at 500 entities × 365 daily periods (≈182k fact rows). The prior
+    iterrows implementation took multiple seconds on the same hardware;
+    we only assert it now finishes under 3s so CI variance doesn't make
+    the test flaky."""
+    import time
+    # 500 entities × 365 daily periods, strict-monotonic stages.
+    n_entities = 500
+    metrics = [
+        Metric(
+            name="m", label="m", distribution="beta",
+            params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+            value_range={"min": 0.0, "max": 1.0},
+        ),
+    ]
+    archetype = Archetype(
+        name="x", label="x", description="x",
+        curve_segments=[
+            CurveSegment(curve="plateau", params={"level": 0.5},
+                         start_pct=0.0, end_pct=1.0),
+        ],
+    )
+    cfg = PlotsimConfig(
+        domain=Domain(name="t", description="t", entity_type="x", entity_label="x"),
+        time_window=TimeWindow(start="2023-01", end="2023-12", granularity="daily"),
+        seed=0,
+        metrics=metrics,
+        archetypes=[archetype],
+        entities=[Entity(name=f"e{i}", archetype="x", size=1) for i in range(n_entities)],
+        tables=[
+            Table(name="dim_date", type="dim", grain="per_period",
+                  columns=[Column(name="date_key", dtype="id", source="pk")],
+                  primary_key="date_key"),
+            Table(name="dim_co", type="dim", grain="per_entity",
+                  columns=[Column(name="co_id", dtype="id", source="pk")],
+                  primary_key="co_id"),
+            Table(name="fct_m", type="fact", grain="per_entity_per_period",
+                  columns=[
+                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                      Column(name="m", dtype="float", source="metric:m"),
+                  ],
+                  primary_key=["date_key", "co_id"],
+                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+        ],
+        noise=NoiseConfig(),
+        output=OutputConfig(directory="out/test"),
+        stages=StageSequence(
+            field="m", enforce_order=True,
+            sequence=[
+                StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.4),
+                StageDefinition(name="mid", threshold_enter=0.4, threshold_exit=0.8),
+                StageDefinition(name="high", threshold_enter=0.8, threshold_exit=None),
+            ],
+        ),
+    )
+    rng = _rng(0)
+    dims = build_all_dimensions(cfg, rng)
+    trajs = compute_all_trajectories(cfg, len(dims["dim_date"]))
+    facts = build_fact_tables(cfg, trajs, dims, rng)
+    t0 = time.perf_counter()
+    out = assign_stages(cfg, facts)
+    elapsed = time.perf_counter() - t0
+    assert "stage" in out["fct_m"].columns
+    assert len(out["fct_m"]) == n_entities * len(dims["dim_date"])
+    # Generous bound — purpose is to catch accidental O(n^2) regressions,
+    # not to gate on exact timing.
+    assert elapsed < 3.0, f"vectorized assign_stages took {elapsed:.2f}s on 500×365"
