@@ -45,7 +45,7 @@ Mission-spec deviations (also flagged in the completion report):
 from __future__ import annotations
 
 import datetime as _dt
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -66,7 +66,7 @@ from plotsim.config import (
     ThresholdSource,
     parse_source,
 )
-from plotsim.dimensions import build_all_dimensions
+from plotsim.dimensions import build_all_dimensions, sample_fk_values
 from plotsim.metrics import generate_entity_metrics
 from plotsim.trajectory import compute_all_trajectories
 
@@ -184,7 +184,8 @@ def build_fact_tables(
             continue
         if tbl.grain == "per_entity_per_period":
             fact_out[tbl.name] = _build_per_entity_per_period_fact(
-                tbl, config, entity_metrics, dim_tables, per_entity_dims, fake,
+                tbl, config, entity_metrics, dim_tables, per_entity_dims,
+                fake, rng,
             )
         elif tbl.grain == "per_period":
             fact_out[tbl.name] = _build_per_period_fact(
@@ -206,6 +207,7 @@ def _build_per_entity_per_period_fact(
     dim_tables: dict[str, pd.DataFrame],
     per_entity_dims: set[str],
     fake: Faker,
+    rng: np.random.Generator,
 ) -> pd.DataFrame:
     entity_fk = _find_entity_fk_column(tbl, per_entity_dims)
     if entity_fk is None:
@@ -233,28 +235,53 @@ def _build_per_entity_per_period_fact(
     dim_date = dim_tables["dim_date"]
     n_periods = len(dim_date)
 
-    # Resolve any other FKs (e.g. fct_revenue → dim_plan): use parent row 0
-    # as a deterministic placeholder, mirroring dimensions.py's approach.
-    other_fks: dict[str, tuple[str, str]] = {}
+    # FIX-04: precompute cross-dim FK assignments per entity. Each entity's
+    # plan_id (or any other cross-dim FK) is drawn ONCE and broadcast across
+    # all periods — facts are time-series under fixed entity attributes.
+    # Resolution: Entity.cross_dim_fks pin → Column.distribution.weights
+    # → uniform → single PK if parent is 1-row.
+    other_fks: dict[str, tuple[Column, str, str]] = {}
     for col in tbl.columns:
         parsed = parse_source(col.source)
         if not isinstance(parsed, FKSource):
             continue
         if col.name in (local_entity_col, local_date_col):
             continue
-        other_fks[col.name] = (parsed.table, parsed.column)
+        other_fks[col.name] = (col, parsed.table, parsed.column)
+
+    entity_cross_fks: dict[str, dict[str, Any]] = {}
+    for entity in config.entities:
+        per_entity_assignments: dict[str, Any] = {}
+        for col_name, (col_cfg, parent_table, parent_pk_col) in other_fks.items():
+            parent_df = dim_tables.get(parent_table)
+            if parent_df is None or parent_df.empty:
+                per_entity_assignments[col_name] = None
+                continue
+            parent_pks = parent_df[parent_pk_col].tolist()
+            anchored = entity.cross_dim_fks.get(col_name)
+            if anchored is not None and anchored not in parent_pks:
+                raise ValueError(
+                    f"entity {entity.name!r} cross_dim_fks pins "
+                    f"{col_name!r}={anchored!r}, not in parent "
+                    f"{parent_table!r} PKs {parent_pks}"
+                )
+            per_entity_assignments[col_name] = sample_fk_values(
+                col_cfg, parent_pks, 1, rng, anchored_value=anchored,
+            )[0]
+        entity_cross_fks[entity.name] = per_entity_assignments
 
     rows: list[dict] = []
     for entity_idx, entity in enumerate(config.entities):
         entity_pk_value = parent_entity_dim.iloc[entity_idx][parent_entity_pk]
         metric_series = entity_metrics[entity.name]
+        cross_fks_for_entity = entity_cross_fks[entity.name]
         for period_idx in range(n_periods):
             row: dict = {}
             for col in tbl.columns:
                 row[col.name] = _resolve_fact_cell(
                     col, period_idx, entity_pk_value,
                     local_entity_col, local_date_col, parent_date_pk,
-                    metric_series, dim_date, other_fks, dim_tables, fake,
+                    metric_series, dim_date, cross_fks_for_entity, fake,
                 )
             rows.append(row)
 
@@ -270,8 +297,7 @@ def _resolve_fact_cell(
     parent_date_pk: str,
     metric_series: dict[str, np.ndarray],
     dim_date: pd.DataFrame,
-    other_fks: dict[str, tuple[str, str]],
-    dim_tables: dict[str, pd.DataFrame],
+    cross_fks_for_entity: dict[str, Any],
     fake: Faker,
 ):
     parsed = parse_source(col.source)
@@ -280,12 +306,10 @@ def _resolve_fact_cell(
             return entity_pk_value
         if col.name == local_date_col:
             return dim_date.iloc[period_idx][parent_date_pk]
-        # Cross-dim FK (e.g. plan_id) — placeholder from row 0 of parent.
-        parent_table, parent_col = other_fks[col.name]
-        parent_df = dim_tables.get(parent_table)
-        if parent_df is None or parent_df.empty:
-            return None
-        return parent_df.iloc[0][parent_col]
+        # Cross-dim FK (e.g. plan_id) — value precomputed once per entity by
+        # _build_per_entity_per_period_fact (FIX-04). Same value broadcast
+        # across all periods for this entity.
+        return cross_fks_for_entity.get(col.name)
     if isinstance(parsed, MetricSource):
         series = metric_series.get(parsed.metric)
         if series is None:

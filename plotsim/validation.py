@@ -55,6 +55,7 @@ CHECK_DATE_SPINE = "date_spine"
 CHECK_CAUSAL_COHERENCE = "causal_coherence"
 CHECK_NULL_POLICY = "null_policy"
 CHECK_EMPTY_EVENT_TABLE = "empty_event_table"
+CHECK_CROSS_DIM_FK_CARDINALITY = "cross_dim_fk_cardinality"
 
 ALL_CHECKS: tuple[str, ...] = (
     CHECK_CORRELATION_PSD,
@@ -64,6 +65,7 @@ ALL_CHECKS: tuple[str, ...] = (
     CHECK_CAUSAL_COHERENCE,
     CHECK_NULL_POLICY,
     CHECK_EMPTY_EVENT_TABLE,
+    CHECK_CROSS_DIM_FK_CARDINALITY,
 )
 
 # Sample size for "sample of offending values" in issue details. Keeps reports
@@ -814,6 +816,68 @@ def validate_empty_event_tables(
     return issues
 
 
+# --- Check 8: cross-dim FK cardinality (FIX-04 / MF-1) -----------------------
+
+
+def validate_cross_dim_fk_cardinality(
+    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+) -> list[ValidationIssue]:
+    """Warn when a multi-row parent dim's PK collapses to a single value
+    in any child column.
+
+    Pre-FIX-04, ``dimensions._backfill_fks`` and ``tables._resolve_fact_cell``
+    used ``parent.iloc[0]`` for every row, silently breaking realism the
+    moment a user expanded a reference dim beyond one row. The fix replaces
+    the row-0 collapse with distribution-driven sampling; this validator is
+    the regression guard. Pinned values via ``Entity.cross_dim_fks`` are
+    intentional and won't trigger the warning unless every entity in the
+    config pinned the same value (in which case the warning is still
+    accurate — variation IS missing).
+
+    Single-row parents are skipped (no choice to make).
+    """
+    issues: list[ValidationIssue] = []
+    for tbl in config.tables:
+        df = tables.get(tbl.name)
+        if df is None or df.empty:
+            continue
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if not isinstance(parsed, FKSource):
+                continue
+            parent_df = tables.get(parsed.table)
+            if parent_df is None or len(parent_df) <= 1:
+                continue
+            if col.name not in df.columns:
+                continue
+            child_unique = {
+                v for v in df[col.name].tolist() if not _is_nullish(v)
+            }
+            if len(child_unique) <= 1:
+                issues.append(ValidationIssue(
+                    check=CHECK_CROSS_DIM_FK_CARDINALITY,
+                    severity="warning",
+                    table=tbl.name,
+                    message=(
+                        f"FK column {col.name!r} carries {len(child_unique)} "
+                        f"unique value(s) despite parent {parsed.table!r} "
+                        f"having {len(parent_df)} rows. Add 'distribution: "
+                        f"uniform' or '{{weights: {{...}}}}' on the column, "
+                        f"or pin per cohort via Entity.cross_dim_fks."
+                    ),
+                    details={
+                        "column": col.name,
+                        "parent": f"{parsed.table}.{parsed.column}",
+                        "parent_row_count": int(len(parent_df)),
+                        "child_unique_count": len(child_unique),
+                        "child_unique_sample": _sample_sorted(
+                            list(child_unique)
+                        ),
+                    },
+                ))
+    return issues
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -833,4 +897,5 @@ def validate_tables(
     issues.extend(validate_causal_coherence(config, tables))
     issues.extend(validate_null_policy(config, tables))
     issues.extend(validate_empty_event_tables(config, tables))
+    issues.extend(validate_cross_dim_fk_cardinality(config, tables))
     return ValidationReport(issues=tuple(issues))

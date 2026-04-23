@@ -613,3 +613,203 @@ def test_orchestrator_returns_every_configured_table(saas_tables, saas_cfg):
 def test_orchestrator_returns_every_configured_table_hr(hr_tables, hr_cfg):
     expected = {t.name for t in hr_cfg.tables}
     assert set(hr_tables) == expected
+
+
+# --- FIX-04 acceptance: cross-dim FK distribution ----------------------------
+
+
+def _multiplan_config(
+    n_entities: int = 100,
+    plan_distribution=None,
+    cross_dim_anchor_first_cohort: bool = False,
+):
+    """Build a SaaS-shaped config with a 3-row dim_plan and many entities.
+
+    Used by the FIX-04 acceptance tests so the shipped sample_saas template
+    isn't mutated. ``n_entities`` becomes the number of size-1 cohorts.
+    """
+    plan_id_col = {
+        "name": "plan_id",
+        "dtype": "id",
+        "source": "fk:dim_plan.plan_id",
+    }
+    if plan_distribution is not None:
+        plan_id_col["distribution"] = plan_distribution
+
+    entities = []
+    if cross_dim_anchor_first_cohort:
+        entities.append({
+            "name": "enterprise_accounts",
+            "archetype": "flat",
+            "size": 1,
+            "cross_dim_fks": {"plan_id": "p-001"},
+        })
+        for i in range(n_entities - 1):
+            entities.append({
+                "name": f"cohort_{i:03d}",
+                "archetype": "flat",
+                "size": 1,
+            })
+    else:
+        for i in range(n_entities):
+            entities.append({
+                "name": f"cohort_{i:03d}",
+                "archetype": "flat",
+                "size": 1,
+            })
+
+    data = {
+        "domain": {
+            "name": "test", "description": "FIX-04 fixture",
+            "entity_type": "account", "entity_label": "Accounts",
+        },
+        "time_window": {
+            "start": "2024-01", "end": "2024-03", "granularity": "monthly",
+        },
+        "seed": 42,
+        "metrics": [{
+            "name": "mrr", "label": "MRR", "distribution": "lognorm",
+            "params": {"s": 0.3, "loc": 0.0, "scale": 100.0},
+            "polarity": "positive",
+        }],
+        "archetypes": [{
+            "name": "flat", "label": "Flat", "description": "-",
+            "curve_segments": [{
+                "curve": "plateau", "params": {"level": 0.5},
+                "start_pct": 0.0, "end_pct": 1.0,
+            }],
+        }],
+        "entities": entities,
+        "tables": [
+            {
+                "name": "dim_date", "type": "dim", "grain": "per_period",
+                "columns": [
+                    {"name": "date_key", "dtype": "id", "source": "pk"},
+                ],
+                "primary_key": "date_key",
+            },
+            {
+                "name": "dim_plan", "type": "dim", "grain": "per_reference",
+                "columns": [
+                    {"name": "plan_id", "dtype": "id", "source": "pk"},
+                    {"name": "plan_name", "dtype": "string",
+                     "source": "static:starter,pro,enterprise"},
+                ],
+                "primary_key": "plan_id",
+            },
+            {
+                "name": "dim_account", "type": "dim", "grain": "per_entity",
+                "columns": [
+                    {"name": "account_id", "dtype": "id", "source": "pk"},
+                ],
+                "primary_key": "account_id",
+            },
+            {
+                "name": "fct_revenue", "type": "fact",
+                "grain": "per_entity_per_period",
+                "columns": [
+                    {"name": "date_key", "dtype": "id",
+                     "source": "fk:dim_date.date_key"},
+                    {"name": "account_id", "dtype": "id",
+                     "source": "fk:dim_account.account_id"},
+                    plan_id_col,
+                    {"name": "mrr", "dtype": "float",
+                     "source": "metric:mrr"},
+                ],
+                "primary_key": ["date_key", "account_id"],
+                "foreign_keys": [
+                    "dim_date.date_key", "dim_account.account_id",
+                    "dim_plan.plan_id",
+                ],
+            },
+        ],
+        "noise": {"gaussian_sigma": 0.0, "outlier_rate": 0.0,
+                  "mcar_rate": 0.0},
+        "output": {"format": "csv", "directory": "out"},
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        return PlotsimConfig(**data)
+
+
+def test_multi_row_dim_plan_distributes_fks_uniformly():
+    """FIX-04 / MF-1: with 3 plans + ~100 entities + uniform distribution,
+    fct_revenue.plan_id covers all 3 plan IDs and is approximately uniform."""
+    from scipy.stats import chisquare
+    cfg = _multiplan_config(n_entities=100, plan_distribution="uniform")
+    tables = generate_tables(cfg, _rng(42))
+
+    assert {"p-001", "p-002", "p-003"} == set(tables["dim_plan"]["plan_id"])
+    plan_ids = tables["fct_revenue"]["plan_id"].tolist()
+    counts = pd.Series(plan_ids).value_counts()
+    assert set(counts.index) == {"p-001", "p-002", "p-003"}
+    expected = [len(plan_ids) / 3.0] * 3
+    observed = [counts.get(p, 0) for p in ("p-001", "p-002", "p-003")]
+    _, p_value = chisquare(observed, expected)
+    assert p_value > 0.01, (
+        f"plan_id distribution not uniform enough: "
+        f"observed={observed}, p={p_value:.4f}"
+    )
+
+
+def test_single_row_dim_preserves_current_behavior(saas_tables, saas_cfg):
+    """FIX-04: shipped SaaS has dim_plan with 1 row; every fct_revenue row
+    carries that single plan_id (pre-FIX-04 behavior preserved)."""
+    plan_pks = saas_tables["dim_plan"]["plan_id"].tolist()
+    assert len(plan_pks) == 1
+    fct_plans = set(saas_tables["fct_revenue"]["plan_id"].dropna().tolist())
+    assert fct_plans == {plan_pks[0]}
+
+
+def test_weighted_distribution_honors_config():
+    """FIX-04: weighted plan distribution {0.7, 0.2, 0.1} reproduced within
+    a 5pp band across 1000 entities."""
+    cfg = _multiplan_config(
+        n_entities=1000,
+        plan_distribution={
+            "weights": {"p-001": 0.7, "p-002": 0.2, "p-003": 0.1},
+        },
+    )
+    tables = generate_tables(cfg, _rng(123))
+    plans = tables["fct_revenue"]["plan_id"].tolist()
+    counts = pd.Series(plans).value_counts(normalize=True)
+    for pk, expected in [("p-001", 0.7), ("p-002", 0.2), ("p-003", 0.1)]:
+        observed = float(counts.get(pk, 0.0))
+        assert abs(observed - expected) < 0.05, (
+            f"weighted plan_id {pk}: observed {observed:.3f} vs "
+            f"expected {expected}"
+        )
+
+
+def test_entity_level_fk_anchoring():
+    """FIX-04: cross_dim_fks={plan_id: p-001} on the first cohort pins it
+    while the rest still see varied distribution-driven assignments."""
+    cfg = _multiplan_config(
+        n_entities=50, plan_distribution="uniform",
+        cross_dim_anchor_first_cohort=True,
+    )
+    tables = generate_tables(cfg, _rng(7))
+    fct = tables["fct_revenue"]
+
+    first_account = tables["dim_account"]["account_id"].iloc[0]
+    first_rows = fct[fct["account_id"] == first_account]
+    assert len(first_rows) > 0
+    assert set(first_rows["plan_id"]) == {"p-001"}, (
+        f"anchored cohort should be all p-001, "
+        f"got {set(first_rows['plan_id'])}"
+    )
+
+    other_rows = fct[fct["account_id"] != first_account]
+    other_plans = set(other_rows["plan_id"])
+    assert "p-002" in other_plans or "p-003" in other_plans, (
+        "non-anchored cohorts collapsed to p-001; distribution not active"
+    )
+
+
+def test_determinism_preserved_with_fk_distribution():
+    """FIX-04: same seed twice yields identical plan_id assignments."""
+    cfg = _multiplan_config(n_entities=20, plan_distribution="uniform")
+    t1 = generate_tables(cfg, _rng(99))
+    t2 = generate_tables(cfg, _rng(99))
+    pd.testing.assert_frame_equal(t1["fct_revenue"], t2["fct_revenue"])
+    pd.testing.assert_frame_equal(t1["dim_account"], t2["dim_account"])

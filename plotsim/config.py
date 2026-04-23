@@ -417,6 +417,41 @@ class Entity(_Frozen):
     archetype: str
     size: int = Field(ge=1)
     overrides: dict[str, Any] = Field(default_factory=dict)
+    # FIX-04: per-cohort cross-dim FK anchoring. Maps a child column name
+    # to a parent PK value. Every entity in this cohort gets that exact
+    # value for the named FK column, overriding any Column.distribution.
+    # Use case: bind expansion-champion accounts to the enterprise plan,
+    # connecting archetype narrative to reference data.
+    cross_dim_fks: dict[str, str] = Field(default_factory=dict)
+
+
+class FKDistribution(_Frozen):
+    """Optional sampling spec for FK columns whose parent dim has > 1 row.
+
+    Only meaningful on FK columns. ``weights=None`` means uniform sampling.
+    ``weights={pk_value: weight, ...}`` means weighted sampling — keys must
+    match parent PK values exactly, and weights must be non-negative with a
+    positive sum.
+
+    Schema accepts either a bare ``"uniform"`` string or a full mapping;
+    ``Column._normalize_distribution`` coerces the string form to
+    ``FKDistribution(weights=None)`` before validation.
+    """
+    weights: Optional[dict[str, float]] = None
+
+    @model_validator(mode="after")
+    def _weights_valid(self) -> "FKDistribution":
+        if self.weights is not None:
+            if not self.weights:
+                raise ValueError("FKDistribution.weights cannot be empty dict")
+            for k, v in self.weights.items():
+                if v < 0.0:
+                    raise ValueError(
+                        f"FKDistribution weight for {k!r} is negative ({v})"
+                    )
+            if sum(self.weights.values()) <= 0.0:
+                raise ValueError("FKDistribution weights sum must be > 0")
+        return self
 
 
 class Column(_Frozen):
@@ -429,6 +464,12 @@ class Column(_Frozen):
     # filter or replace these columns before publishing. See README "Generated
     # data and PII".
     pii_note: Optional[str] = None
+    # FIX-04: per-FK-column sampling spec. Only consumed when source is
+    # ``fk:<table>.<col>``. Accepts a bare string ``"uniform"`` (uniform random
+    # over parent PKs) or ``{weights: {pk: weight, ...}}`` (weighted). When
+    # absent, the default is uniform if the parent has > 1 row, else the
+    # single PK value (preserves the pre-FIX-04 single-row behavior).
+    distribution: Optional[FKDistribution] = None
 
     @field_validator("source")
     @classmethod
@@ -436,6 +477,23 @@ class Column(_Frozen):
         # Delegate format validation to parse_source. Cross-reference
         # checks (metric/table names exist) happen in PlotsimConfig.
         parse_source(v)
+        return v
+
+    @field_validator("distribution", mode="before")
+    @classmethod
+    def _normalize_distribution(cls, v):
+        # Accept the YAML shorthand ``distribution: "uniform"`` and coerce
+        # it to ``FKDistribution(weights=None)``. Anything else falls
+        # through to Pydantic's normal model parsing.
+        if v is None:
+            return None
+        if isinstance(v, str):
+            if v == "uniform":
+                return {"weights": None}
+            raise ValueError(
+                f"Column.distribution string must be 'uniform', got {v!r}; "
+                f"use a mapping {{weights: {{pk: weight, ...}}}} for weighted"
+            )
         return v
 
 

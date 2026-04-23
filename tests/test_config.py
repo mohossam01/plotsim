@@ -1003,3 +1003,90 @@ def test_readme_contains_pii_section():
     assert "pii_note" in text
     assert "Faker" in text or "faker" in text
 
+
+
+# --- FIX-04 acceptance: Column.distribution + Entity.cross_dim_fks schema ----
+
+
+def test_column_distribution_string_uniform_normalizes():
+    """FIX-04: bare string 'uniform' coerces to FKDistribution(weights=None)."""
+    from plotsim.config import Column, FKDistribution
+    col = Column(
+        name="plan_id", dtype="id", source="fk:dim_plan.plan_id",
+        distribution="uniform",
+    )
+    assert isinstance(col.distribution, FKDistribution)
+    assert col.distribution.weights is None
+
+
+def test_column_distribution_weighted_loads():
+    """FIX-04: weighted distribution preserves keys and values."""
+    from plotsim.config import Column
+    col = Column(
+        name="plan_id", dtype="id", source="fk:dim_plan.plan_id",
+        distribution={"weights": {"starter": 0.5, "pro": 0.3, "enterprise": 0.2}},
+    )
+    assert col.distribution is not None
+    assert col.distribution.weights == {
+        "starter": 0.5, "pro": 0.3, "enterprise": 0.2,
+    }
+
+
+def test_column_distribution_unknown_string_rejected():
+    """FIX-04: any string other than 'uniform' is invalid."""
+    from plotsim.config import Column
+    with pytest.raises(ValidationError):
+        Column(
+            name="x", dtype="id", source="fk:y.z",
+            distribution="bogus",
+        )
+
+
+def test_fk_distribution_negative_weight_rejected():
+    """FIX-04: weights must be non-negative."""
+    from plotsim.config import FKDistribution
+    with pytest.raises(ValidationError):
+        FKDistribution(weights={"a": -1.0, "b": 0.5})
+
+
+def test_fk_distribution_zero_sum_weights_rejected():
+    """FIX-04: weights must sum to a positive value."""
+    from plotsim.config import FKDistribution
+    with pytest.raises(ValidationError):
+        FKDistribution(weights={"a": 0.0, "b": 0.0})
+
+
+def test_entity_cross_dim_fks_defaults_empty():
+    """FIX-04: Entity.cross_dim_fks defaults to {} so existing configs load."""
+    from plotsim.config import Entity
+    e = Entity(name="x", archetype="a", size=1)
+    assert e.cross_dim_fks == {}
+
+
+def test_entity_cross_dim_fks_accepts_mapping():
+    """FIX-04: per-cohort FK pinning round-trips."""
+    from plotsim.config import Entity
+    e = Entity(
+        name="enterprise_accounts", archetype="expansion_champion",
+        size=10, cross_dim_fks={"plan_id": "enterprise"},
+    )
+    assert e.cross_dim_fks == {"plan_id": "enterprise"}
+
+
+def test_column_distribution_roundtrip_through_yaml():
+    """FIX-04: distribution and pii_note both survive dump_config round-trip."""
+    data = _minimal_valid()
+    data["tables"][0]["columns"].append({
+        "name": "plan_id",
+        "dtype": "id",
+        "source": "fk:dim_widget.widget_id",  # fake FK; cross-ref only checks tables
+        "distribution": {"weights": {"a": 0.7, "b": 0.3}},
+    })
+    cfg = PlotsimConfig(**data)
+    dumped = dump_config(cfg)
+    cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
+    plan_col = next(
+        c for c in cfg2.tables[0].columns if c.name == "plan_id"
+    )
+    assert plan_col.distribution is not None
+    assert plan_col.distribution.weights == {"a": 0.7, "b": 0.3}

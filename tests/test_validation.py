@@ -47,11 +47,13 @@ from plotsim.tables import generate_tables
 from plotsim.validation import (
     ALL_CHECKS,
     CHECK_CORRELATION_PSD,
+    CHECK_CROSS_DIM_FK_CARDINALITY,
     CHECK_EMPTY_EVENT_TABLE,
     CHECK_FK_INTEGRITY,
     ValidationReport,
     validate_causal_coherence,
     validate_correlation_psd,
+    validate_cross_dim_fk_cardinality,
     validate_date_spine,
     validate_empty_event_tables,
     validate_fk_integrity,
@@ -401,6 +403,45 @@ def test_validate_tables_report_accessors(saas_cfg, saas_tables):
     assert any(i.severity == "error" for i in fk_issues)
     assert not report.ok
     assert set(i.check for i in report.issues).issubset(set(ALL_CHECKS))
+
+
+# --- FIX-04 acceptance: cross-dim FK cardinality warning ---------------------
+
+
+def test_validation_warns_on_collapsed_fk(saas_cfg, saas_tables):
+    """FIX-04 / MF-1: regression guard. If a future change re-introduces
+    the row-0 collapse on a multi-row parent dim, this validator must
+    surface a WARNING. We synthesize the broken state by mutating
+    fct_revenue.plan_id to a single value and inflating dim_plan to
+    multiple rows.
+    """
+    plan = saas_tables["dim_plan"].copy()
+    extra_row = plan.iloc[0].to_dict()
+    extra_row["plan_id"] = "p-002"
+    plan = pd.concat([plan, pd.DataFrame([extra_row])], ignore_index=True)
+
+    fct = saas_tables["fct_revenue"].copy()
+    fct["plan_id"] = plan["plan_id"].iloc[0]
+
+    broken = {**saas_tables, "dim_plan": plan, "fct_revenue": fct}
+    issues = validate_cross_dim_fk_cardinality(saas_cfg, broken)
+    fct_issues = [
+        i for i in issues
+        if i.table == "fct_revenue" and i.details.get("column") == "plan_id"
+    ]
+    assert len(fct_issues) == 1
+    assert fct_issues[0].severity == "warning"
+    assert fct_issues[0].check == CHECK_CROSS_DIM_FK_CARDINALITY
+
+
+def test_cross_dim_fk_skipped_for_single_row_parent(saas_cfg, saas_tables):
+    """FIX-04: shipped SaaS has dim_plan with 1 row; collapse is the only
+    correct outcome, so no warning fires."""
+    issues = validate_cross_dim_fk_cardinality(saas_cfg, saas_tables)
+    assert all(
+        i.details.get("parent", "").split(".")[0] != "dim_plan"
+        for i in issues
+    )
 
 
 # --- FIX-03 acceptance: empty event tables surface as warnings ---------------

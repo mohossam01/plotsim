@@ -284,19 +284,70 @@ def _column_value_for_entity(
     )
 
 
+def sample_fk_values(
+    column: Column,
+    parent_pks: list[Any],
+    n: int,
+    rng: np.random.Generator,
+    anchored_value: Optional[Any] = None,
+) -> list[Any]:
+    """Draw ``n`` FK values for ``column`` against the parent's PK list.
+
+    FIX-04 sampler. Resolution order:
+
+      1. ``anchored_value`` not None → broadcast it for every row. Caller
+         supplies this when an Entity's ``cross_dim_fks`` pinned the value.
+         No randomness consumed.
+      2. ``len(parent_pks) == 1`` → broadcast that single PK. Preserves the
+         pre-FIX-04 single-row behavior. No randomness consumed.
+      3. ``column.distribution.weights`` is set → weighted sample over the
+         keys named in ``weights``; keys must exist in ``parent_pks``.
+      4. Otherwise (uniform default) → uniform random over ``parent_pks``.
+
+    All randomness flows through ``rng`` so determinism is preserved.
+    """
+    if anchored_value is not None:
+        return [anchored_value] * n
+    if len(parent_pks) == 1:
+        return [parent_pks[0]] * n
+    spec = column.distribution
+    if spec is not None and spec.weights is not None:
+        keys = list(spec.weights.keys())
+        unknown = [k for k in keys if k not in parent_pks]
+        if unknown:
+            raise ValueError(
+                f"FK column {column.name!r} distribution.weights references "
+                f"PK value(s) {unknown} not present in parent (known: "
+                f"{parent_pks})"
+            )
+        weights = np.array([spec.weights[k] for k in keys], dtype=float)
+        probs = weights / weights.sum()
+        idx = rng.choice(len(keys), size=n, p=probs)
+        return [keys[i] for i in idx]
+    # Uniform random over parent PKs (default for multi-row parent).
+    idx = rng.integers(0, len(parent_pks), size=n)
+    return [parent_pks[i] for i in idx]
+
+
 def _backfill_fks(
     df: pd.DataFrame,
     table: Table,
     dims: dict[str, pd.DataFrame],
+    rng: np.random.Generator,
+    entities: Optional[list[Entity]] = None,
 ) -> pd.DataFrame:
-    """Populate FK columns that were left None at build time.
+    """Populate FK columns left None at build time.
 
-    Strategy: the parent table is already built (reference dims build before
-    entity dims in ``build_all_dimensions``). Resolve each FK column to the
-    parent's PK value at row 0 — tiny reference tables, row-0 is a stable
-    deterministic choice and keeps the output purely archive-grade without
-    needing random assignment logic that M006 will redo properly anyway.
+    Single-row parent dim → broadcast the lone PK (pre-FIX-04 behavior).
+    Multi-row parent dim → distribute via ``sample_fk_values``: uniform by
+    default, or weighted when the column declares ``distribution.weights``.
+
+    When ``entities`` is supplied (per_entity dims), each row's
+    ``Entity.cross_dim_fks[col.name]`` overrides distribution sampling for
+    that row — used to anchor a cohort to a specific reference value
+    (e.g. enterprise_accounts → plan_id=enterprise).
     """
+    n_rows = len(df)
     for col in table.columns:
         parsed = parse_source(col.source)
         if not isinstance(parsed, FKSource):
@@ -312,7 +363,29 @@ def _backfill_fks(
                 f"table {table.name!r} FK column {col.name!r} references "
                 f"{parsed.table}.{parsed.column}, but that column does not exist"
             )
-        df[col.name] = parent[parsed.column].iloc[0]
+        parent_pks = parent[parsed.column].tolist()
+        if entities is not None and len(entities) == n_rows and any(
+            col.name in e.cross_dim_fks for e in entities
+        ):
+            # Per-row dispatch so each entity can pin its own value or fall
+            # back to distribution sampling. Single rng draw per uncolumned
+            # row keeps determinism predictable.
+            values: list[Any] = []
+            for entity in entities:
+                anchored = entity.cross_dim_fks.get(col.name)
+                if anchored is not None:
+                    if anchored not in parent_pks:
+                        raise ValueError(
+                            f"entity {entity.name!r} cross_dim_fks pins "
+                            f"{col.name!r}={anchored!r}, not in parent "
+                            f"{parsed.table!r} PKs {parent_pks}"
+                        )
+                    values.append(anchored)
+                else:
+                    values.extend(sample_fk_values(col, parent_pks, 1, rng))
+            df[col.name] = values
+        else:
+            df[col.name] = sample_fk_values(col, parent_pks, n_rows, rng)
     return df
 
 
@@ -536,10 +609,13 @@ def build_all_dimensions(
             dims[tbl.name] = build_dim_reference(tbl, rng)
 
     # 3. per_entity dims — FK backfill from any reference dims built above.
+    # Pass entities so per-cohort cross_dim_fks anchoring takes effect.
     for tbl in config.tables:
         if tbl.type == "dim" and tbl.grain == "per_entity":
             df = build_dim_entity(tbl, list(config.entities), rng)
-            dims[tbl.name] = _backfill_fks(df, tbl, dims)
+            dims[tbl.name] = _backfill_fks(
+                df, tbl, dims, rng, entities=list(config.entities),
+            )
 
     # 4. sub-entity dims.
     for tbl in config.tables:
