@@ -614,7 +614,218 @@ def test_cli_subprocess_template_to_stdout():
     assert "domain" in parsed and "tables" in parsed
 
 
-# --- Part 6: public API stability --------------------------------------------
+# --- Part 6: archetype statistical distinguishability (FIX-09) ---------------
+#
+# SF-7 capstone: prove the shipped archetypes produce statistically recoverable
+# behavioral patterns. Project each entity's primary metric time series into a
+# 4D feature space (mean, slope, last-first, std), cluster with KMeans, compare
+# the clustering to ground-truth archetype labels via adjusted_rand_score.
+#
+# A future change to curves, noise, or correlations that silently destroys
+# archetype distinguishability trips these tests — not the per-archetype shape
+# assertions in Part 3, which only check each archetype in isolation.
+
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.metrics import adjusted_rand_score
+    from sklearn.preprocessing import StandardScaler
+    _HAS_SKLEARN = True
+except ImportError:  # pragma: no cover — optional test dep
+    _HAS_SKLEARN = False
+
+needs_sklearn = pytest.mark.skipif(
+    not _HAS_SKLEARN,
+    reason="scikit-learn not installed; `pip install plotsim[test]`",
+)
+
+# template → (yaml path, primary fact table, per_entity FK column, metric column)
+#
+# Metric choice: first continuous (beta/normal/gamma/lognorm) metric in the
+# primary fact table. Integer poisson counts (session_count, visit_count)
+# are the first-listed metric for ecommerce/healthcare but carry too much
+# sampling noise at their configured λ values (sqrt(λ) ≈ 2.5–3 ticks on a
+# 0–15 value range) to discriminate trajectory shape with only 24 periods.
+# The continuous siblings on the same fact table preserve archetype signal.
+DISTINGUISHABILITY_SPEC: dict[str, tuple[Path, str, str, str]] = {
+    "saas":       (SAAS_YAML,       "fct_engagement",  "company_id",  "engagement_score"),
+    "hr":         (HR_YAML,         "fct_performance", "employee_id", "performance_score"),
+    "ecommerce":  (ECOMMERCE_YAML,  "fct_sessions",    "segment_id",  "conversion_rate"),
+    "education":  (EDUCATION_YAML,  "fct_grades",      "student_id",  "assignment_score"),
+    "healthcare": (HEALTHCARE_YAML, "fct_visits",      "group_id",    "treatment_adherence"),
+}
+
+
+def _mutate_template(
+    tmp_path: Path,
+    yaml_path: Path,
+    mutate_fn,
+    out_name: str = "mutated.yaml",
+) -> PlotsimConfig:
+    data = load_yaml(yaml_path)
+    mutate_fn(data)
+    return load_config(write_yaml(data, tmp_path / out_name))
+
+
+def _expand_entities_per_archetype(data: dict, n_per_archetype: int = 5) -> None:
+    """Replace ``entities`` with ``n`` rows per originally-assigned archetype.
+
+    Pure in-place mutation. Ground truth is recovered later via
+    ``config.entities[i].archetype`` — row ordering is preserved by the
+    dim_entity builder (_make_ids walks config.entities in order).
+    """
+    assigned = [e["archetype"] for e in data["entities"]]
+    expanded = [
+        {"name": f"{arch}_{i:02d}", "archetype": arch, "size": 1}
+        for arch in assigned
+        for i in range(n_per_archetype)
+    ]
+    data["entities"] = expanded
+
+
+def _distinguishability_ari(
+    config: PlotsimConfig,
+    tables_dict: dict[str, pd.DataFrame],
+    fact_name: str,
+    entity_col: str,
+    metric_col: str,
+) -> float:
+    """Cluster entities on (mean, slope, last-first, std) of their metric series,
+    compare to ground-truth archetype labels, return adjusted_rand_score.
+    """
+    entity_dim_name = next(
+        t.name for t in config.tables
+        if t.grain == "per_entity" and any(c.name == entity_col for c in t.columns)
+    )
+    entity_dim = tables_dict[entity_dim_name]
+    fact = tables_dict[fact_name].sort_values(["date_key"]).reset_index(drop=True)
+
+    n_entities = len(config.entities)
+    feats = np.zeros((n_entities, 4), dtype=float)
+    for i in range(n_entities):
+        pk = entity_dim.iloc[i][entity_col]
+        series = fact.loc[fact[entity_col] == pk, metric_col].astype(float).to_numpy()
+        finite = series[np.isfinite(series)]
+        if finite.size < 2:
+            continue
+        t_axis = np.arange(finite.size, dtype=float)
+        slope = float(np.polyfit(t_axis, finite, 1)[0])
+        feats[i] = (
+            float(np.mean(finite)),
+            slope,
+            float(finite[-1] - finite[0]),
+            float(np.std(finite)),
+        )
+
+    scaled = StandardScaler().fit_transform(feats)
+    labels_true = np.array([e.archetype for e in config.entities])
+    n_clusters = len(np.unique(labels_true))
+    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=0).fit(scaled)
+    return float(adjusted_rand_score(labels_true, km.labels_))
+
+
+def _assert_distinguishable(domain: str, tmp_path: Path) -> None:
+    """Generate 5-per-archetype entities for ``domain``, cluster their primary
+    continuous metric in a 4D feature space, and assert ARI > 0.5.
+
+    ARI: 1.0 = perfect, 0.0 = chance. The 0.5 threshold is well above chance
+    but loose enough to tolerate per-entity noise and correlation jitter.
+    """
+    yaml_path, fact_name, entity_col, metric_col = DISTINGUISHABILITY_SPEC[domain]
+    cfg = _mutate_template(
+        tmp_path, yaml_path,
+        lambda d: _expand_entities_per_archetype(d, n_per_archetype=5),
+    )
+    tables = generate(cfg)
+    ari = _distinguishability_ari(cfg, tables, fact_name, entity_col, metric_col)
+    assert ari > 0.5, (
+        f"{domain}: archetypes not distinguishable — ARI={ari:.3f}. "
+        f"Either curves collapsed, noise overwhelmed signal, or correlations "
+        f"pulled every series toward the same shape."
+    )
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_saas(tmp_path: Path):
+    _assert_distinguishable("saas", tmp_path)
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_hr(tmp_path: Path):
+    _assert_distinguishable("hr", tmp_path)
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_ecommerce(tmp_path: Path):
+    _assert_distinguishable("ecommerce", tmp_path)
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_education(tmp_path: Path):
+    _assert_distinguishable("education", tmp_path)
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_healthcare(tmp_path: Path):
+    _assert_distinguishable("healthcare", tmp_path)
+
+
+@needs_sklearn
+def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
+    """Cranking noise must reduce ARI (the test is noise-sensitive, not vacuous)
+    without breaking the pipeline or destroying the signal entirely.
+
+    Uses the healthcare template because its archetypes (``recovering`` /
+    ``chronic_stable`` / ``relapsing``) share a mean near 0.5 and differ
+    mostly in slope and variability — the signal is structurally more
+    fragile under noise than SaaS's rocket-vs-grower-vs-zombie set.
+
+    Three assertions:
+      1. Low-noise control clears the 0.5 bar (matches per-template tests).
+      2. High-noise run still produces a finite ARI — pipeline degrades
+         gracefully, no NaN / exception.
+      3. High-noise ARI is strictly lower than low-noise ARI — proves the
+         assertion is noise-sensitive and not a vacuous pass.
+    """
+    fact_name, entity_col, metric_col = (
+        "fct_visits", "group_id", "treatment_adherence",
+    )
+
+    def low_noise(data):
+        _expand_entities_per_archetype(data, n_per_archetype=5)
+        data["noise"] = {
+            "gaussian_sigma": 0.05,
+            "outlier_rate": 0.01,
+            "mcar_rate": 0.005,
+        }
+
+    def high_noise(data):
+        _expand_entities_per_archetype(data, n_per_archetype=5)
+        data["noise"] = {
+            "gaussian_sigma": 0.50,
+            "outlier_rate": 0.20,
+            "mcar_rate": 0.15,
+        }
+
+    low_cfg = _mutate_template(tmp_path, HEALTHCARE_YAML, low_noise, "low.yaml")
+    high_cfg = _mutate_template(tmp_path, HEALTHCARE_YAML, high_noise, "high.yaml")
+    low_ari = _distinguishability_ari(
+        low_cfg, generate(low_cfg), fact_name, entity_col, metric_col,
+    )
+    high_ari = _distinguishability_ari(
+        high_cfg, generate(high_cfg), fact_name, entity_col, metric_col,
+    )
+
+    assert low_ari > 0.5, (
+        f"control: low-noise ARI {low_ari:.3f} below 0.5 — test setup is broken"
+    )
+    assert np.isfinite(high_ari), f"high-noise ARI non-finite: {high_ari}"
+    assert high_ari < low_ari, (
+        f"noise did not reduce ARI (low={low_ari:.3f}, high={high_ari:.3f}) — "
+        f"assertion is not noise-sensitive"
+    )
+
+
+# --- Part 7: public API stability --------------------------------------------
 
 
 def test_public_api_surface_matches_readme():
