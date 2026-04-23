@@ -111,6 +111,26 @@ class GeneratedSource(_Frozen):
     provider: str
 
 
+class FakerSource(_Frozen):
+    """A Faker provider call, optionally parameterized.
+
+    FIX-05 / MF-2. Grammar:
+
+      * ``generated:faker.name`` → ``FakerSource(method="name", kwargs={})``
+      * ``generated:faker.date_between:start_date:2020-01-01:end_date:2024-12-31``
+        → ``FakerSource(method="date_between",
+                        kwargs={"start_date": "2020-01-01",
+                                "end_date": "2024-12-31"})``
+
+    Non-faker providers (``timestamp``, ``date_key``, ``period_label``,
+    ``entity_name``) continue to parse as :class:`GeneratedSource`. The
+    split exists so parameter parsing and type coercion live on faker
+    calls only, where they're meaningful.
+    """
+    method: str
+    kwargs: dict[str, str] = Field(default_factory=dict)
+
+
 class StaticSource(_Frozen):
     value: str
 
@@ -140,14 +160,15 @@ class LagSource(_Frozen):
 
 
 ParsedSource = (
-    PKSource | FKSource | MetricSource | GeneratedSource
+    PKSource | FKSource | MetricSource | GeneratedSource | FakerSource
     | StaticSource | DerivedSource
     | ThresholdSource | ProportionalSource | LagSource
 )
 
 _SOURCE_FORMAT_HELP = (
     "source must be one of: 'pk', 'fk:<table>.<column>', 'metric:<name>', "
-    "'generated:<provider>', 'static:<value>', 'derived:<field>', "
+    "'generated:<provider>', 'generated:faker.<method>[:<key>:<value>]*', "
+    "'static:<value>', 'derived:<field>', "
     "'threshold:<metric>:<above|below>:<value>:for:<consecutive>', "
     "'proportional:<metric>:scale:<multiplier>', "
     "'lag:<metric>:periods:<N>'"
@@ -182,9 +203,47 @@ def parse_source(source: str) -> ParsedSource:
             )
         return FKSource(table=table, column=column)
 
+    if source.startswith("generated:"):
+        body = source[len("generated:"):]
+        if not body:
+            raise ValueError(
+                f"source {source!r}: prefix 'generated:' requires a value"
+            )
+        if body.startswith("faker."):
+            rest = body[len("faker."):]
+            if not rest:
+                raise ValueError(
+                    f"source {source!r}: 'generated:faker.' requires a method"
+                )
+            parts = rest.split(":")
+            method = parts[0]
+            if not method:
+                raise ValueError(
+                    f"source {source!r}: empty faker method"
+                )
+            param_parts = parts[1:]
+            if len(param_parts) % 2 != 0:
+                raise ValueError(
+                    f"source {source!r}: parameterized faker requires "
+                    f"matched 'key:value' pairs after the method name"
+                )
+            kwargs: dict[str, str] = {}
+            for i in range(0, len(param_parts), 2):
+                key = param_parts[i]
+                if not key:
+                    raise ValueError(
+                        f"source {source!r}: empty parameter name"
+                    )
+                if key in kwargs:
+                    raise ValueError(
+                        f"source {source!r}: duplicate parameter {key!r}"
+                    )
+                kwargs[key] = param_parts[i + 1]
+            return FakerSource(method=method, kwargs=kwargs)
+        return GeneratedSource(provider=body)
+
     for prefix, ctor_kw in (
         ("metric:", ("metric", MetricSource)),
-        ("generated:", ("provider", GeneratedSource)),
         ("static:", ("value", StaticSource)),
         ("derived:", ("field", DerivedSource)),
     ):
@@ -470,6 +529,10 @@ class Column(_Frozen):
     # absent, the default is uniform if the parent has > 1 row, else the
     # single PK value (preserves the pre-FIX-04 single-row behavior).
     distribution: Optional[FKDistribution] = None
+    # FIX-05: opt out of ``validate_temporal_coherence``. True means the
+    # column's date values may legitimately fall outside ``time_window``
+    # (hire dates, birth dates, trial-ended-before-start). Default False.
+    allow_outside_window: bool = False
 
     @field_validator("source")
     @classmethod
@@ -609,10 +672,18 @@ class StageSequence(_Frozen):
     stage N's exit <= stage (N+1)'s enter (no overlap; contiguous allowed).
     `field` reference is checked against metrics in PlotsimConfig.
     `enforce_order` is stored for Mission 006 to consume at generation time.
+
+    FIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity under
+    ``enforce_order=True`` by letting the cursor step backwards once an
+    entity has sat in a lower-stage value range for ``downgrade_delay``
+    consecutive periods. ``None`` (default) preserves the pre-FIX-06
+    strict-monotonic behavior. Ignored when ``enforce_order=False``
+    (stages already oscillate freely in that mode).
     """
     field: str
     sequence: list[StageDefinition] = Field(min_length=2)
     enforce_order: bool = True
+    downgrade_delay: Optional[int] = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _sequence_is_valid(self) -> "StageSequence":
@@ -657,6 +728,10 @@ class PlotsimConfig(_Frozen):
     noise: NoiseConfig = Field(default_factory=NoiseConfig)
     output: OutputConfig
     stages: Optional[StageSequence] = None
+    # FIX-05 / SF-3: locale threaded to every Faker instance built by the
+    # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
+    # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
+    locale: str | list[str] = "en_US"
 
     @model_validator(mode="after")
     def _cross_reference_integrity(self) -> "PlotsimConfig":

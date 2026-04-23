@@ -55,6 +55,7 @@ from plotsim.config import (
     Column,
     DerivedSource,
     FKSource,
+    FakerSource,
     GeneratedSource,
     LagSource,
     MetricSource,
@@ -66,7 +67,11 @@ from plotsim.config import (
     ThresholdSource,
     parse_source,
 )
-from plotsim.dimensions import build_all_dimensions, sample_fk_values
+from plotsim.dimensions import (
+    _call_faker,
+    build_all_dimensions,
+    sample_fk_values,
+)
 from plotsim.metrics import generate_entity_metrics
 from plotsim.trajectory import compute_all_trajectories
 
@@ -74,8 +79,11 @@ from plotsim.trajectory import compute_all_trajectories
 # --- Helpers -----------------------------------------------------------------
 
 
-def _make_faker(rng: np.random.Generator) -> Faker:
-    fake = Faker()
+def _make_faker(
+    rng: np.random.Generator,
+    locale: str | list[str] = "en_US",
+) -> Faker:
+    fake = Faker(locale)
     fake.seed_instance(int(rng.integers(0, 2**31 - 1)))
     return fake
 
@@ -177,7 +185,7 @@ def build_fact_tables(
         )
 
     fact_out: dict[str, pd.DataFrame] = {}
-    fake = _make_faker(rng)
+    fake = _make_faker(rng, config.locale)
 
     for tbl in config.tables:
         if tbl.type != "fact":
@@ -340,6 +348,8 @@ def _resolve_fact_cell(
         return f"{col.name}-{period_idx:04d}-{entity_pk_value}"
     if isinstance(parsed, GeneratedSource):
         return _resolve_generated(parsed.provider, period_idx, dim_date, fake)
+    if isinstance(parsed, FakerSource):
+        return _call_faker(fake, parsed.method, parsed.kwargs)
     if isinstance(parsed, StaticSource):
         return parsed.value
     if isinstance(parsed, DerivedSource):
@@ -393,6 +403,8 @@ def _build_per_period_fact(
                 row[col.name] = f"{col.name}-{period_idx:04d}"
             elif isinstance(parsed, GeneratedSource):
                 row[col.name] = _resolve_generated(parsed.provider, period_idx, dim_date, fake)
+            elif isinstance(parsed, FakerSource):
+                row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
             elif isinstance(parsed, StaticSource):
                 row[col.name] = parsed.value
             else:
@@ -402,11 +414,17 @@ def _build_per_period_fact(
 
 
 def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, fake: Faker):
-    """Resolve a `generated:<provider>` cell.
+    """Resolve a non-faker ``generated:<provider>`` cell.
 
-    Recognised non-faker providers: ``timestamp``, ``date_key``,
-    ``period_label``. ``faker.<method>`` falls through to Faker.
+    Recognised providers: ``timestamp``, ``date_key``, ``period_label``.
+    Faker providers parse as :class:`FakerSource` and are dispatched
+    separately via :func:`_call_faker` — callers shouldn't reach here
+    for a faker source.
+
+    ``fake`` is retained in the signature for callers that still pass it
+    (it's harmless here).
     """
+    del fake
     if provider == "timestamp":
         d = dim_date.iloc[period_idx]["date"]
         if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
@@ -416,14 +434,6 @@ def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, f
         return dim_date.iloc[period_idx]["date_key"]
     if provider == "period_label":
         return dim_date.iloc[period_idx]["period_label"]
-    if provider.startswith("faker."):
-        method = provider[len("faker."):]
-        fn = getattr(fake, method, None)
-        if fn is None or not callable(fn):
-            raise ValueError(
-                f"Faker has no provider method {method!r} (source 'generated:{provider}')"
-            )
-        return fn()
     raise ValueError(
         f"unsupported generated provider {provider!r} on fact/event tables"
     )
@@ -454,7 +464,7 @@ def build_event_tables(
     declares no driver) emit an empty DataFrame with the configured columns.
     """
     per_entity_dims = _per_entity_dim_names(config)
-    fake = _make_faker(rng)
+    fake = _make_faker(rng, config.locale)
     out: dict[str, pd.DataFrame] = {}
 
     for tbl in config.tables:
@@ -705,6 +715,8 @@ def _resolve_event_row(
                 parsed.provider, date_idx if date_idx is not None else 0,
                 dim_date, fake,
             )
+        elif isinstance(parsed, FakerSource):
+            row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
         elif isinstance(parsed, StaticSource):
             row[col.name] = parsed.value
         elif isinstance(parsed, DerivedSource):
@@ -746,8 +758,17 @@ def assign_stages(
 
     Walks each entity's series in row order. With ``enforce_order=True``,
     advances stage index whenever the value crosses the next stage's
-    ``threshold_enter`` and never reverts. With ``enforce_order=False``,
-    chooses the highest-enter stage that the current value satisfies.
+    ``threshold_enter``. Cursor reversal depends on FIX-06's
+    ``downgrade_delay``:
+
+      * ``downgrade_delay is None`` (default) — strict monotonic; the
+        cursor never steps back. A brief dip stays in the higher stage.
+      * ``downgrade_delay == N`` — after ``N`` consecutive periods at a
+        lower stage, the cursor decrements to match. Reset on any
+        period that matches the current cursor or above.
+
+    With ``enforce_order=False``, ``downgrade_delay`` is ignored and
+    each period chooses the highest-enter stage that the value satisfies.
     """
     if config.stages is None:
         return fact_tables
@@ -755,6 +776,7 @@ def assign_stages(
     field = config.stages.field
     seq = config.stages.sequence
     enforce = config.stages.enforce_order
+    downgrade_delay = config.stages.downgrade_delay if enforce else None
 
     target_name = None
     target_tbl = None
@@ -779,11 +801,13 @@ def assign_stages(
     stages_for_row = [None] * len(df)
     seen_entities: set = set()
     cursor: dict = {}
+    lower_streak: dict = {}
 
     for pos, (_, row) in enumerate(df.iterrows()):
         eid = row[entity_col]
         if eid not in seen_entities:
             cursor[eid] = 0
+            lower_streak[eid] = 0
             seen_entities.add(eid)
         value = row[field]
         if value is None or (isinstance(value, float) and np.isnan(value)):
@@ -793,6 +817,19 @@ def assign_stages(
         if enforce:
             while cursor[eid] < len(seq) - 1 and v >= seq[cursor[eid] + 1].threshold_enter:
                 cursor[eid] += 1
+                lower_streak[eid] = 0
+            if downgrade_delay is not None:
+                actual_stage = 0
+                for i, s in enumerate(seq):
+                    if v >= s.threshold_enter:
+                        actual_stage = i
+                if actual_stage < cursor[eid]:
+                    lower_streak[eid] += 1
+                    if lower_streak[eid] >= downgrade_delay:
+                        cursor[eid] = actual_stage
+                        lower_streak[eid] = 0
+                else:
+                    lower_streak[eid] = 0
             stages_for_row[pos] = seq[cursor[eid]].name
         else:
             chosen = 0

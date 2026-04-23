@@ -242,6 +242,7 @@ def write_tables(
     report: Optional[ValidationReport] = None,
     output_dir: str | Path | None = None,
     float_format: str = FLOAT_FORMAT,
+    base_dir: str | Path | None = None,
 ) -> Path:
     """Write every generated table, the config copy, and the validation report.
 
@@ -259,11 +260,18 @@ def write_tables(
     that want to block on invalid output should check ``report.ok`` before
     calling this function.
 
+    FIX-08 / SF-2: ``base_dir`` is an optional sandbox root for hosted
+    deployments (Streamlit, FastAPI). When set, the resolved target must
+    live under ``base_dir`` — absolute-path overrides and ``..`` traversal
+    are rejected with :class:`ValueError`. The CLI default (``base_dir=None``)
+    preserves full user control over the filesystem.
+
     Returns the output directory path.
     """
     if report is None:
         report = validate_tables(config, tables)
-    target = Path(output_dir) if output_dir is not None else Path(config.output.directory)
+    raw_target = Path(output_dir) if output_dir is not None else Path(config.output.directory)
+    target = _resolve_target(raw_target, base_dir)
     target.mkdir(parents=True, exist_ok=True)
 
     for name, df in tables.items():
@@ -272,3 +280,43 @@ def write_tables(
     write_config_copy(config, target)
     write_validation_report(report, target)
     return target
+
+
+def _resolve_target(
+    raw_target: Path,
+    base_dir: str | Path | None,
+) -> Path:
+    """Resolve ``raw_target`` against an optional sandbox ``base_dir``.
+
+    When ``base_dir`` is ``None``, the target is returned as-is (the CLI
+    contract — the user owns their filesystem). When ``base_dir`` is set:
+
+      * Absolute targets are rejected — the caller supplies a relative
+        subpath under the sandbox.
+      * ``..`` segments that escape ``base_dir`` are rejected after
+        normalization.
+      * The nested directory is created as needed inside ``base_dir``.
+
+    Paths are compared after ``Path.resolve()`` on ``base_dir`` so symlinks
+    in the sandbox root itself resolve consistently; the target is joined
+    into the resolved base and re-resolved to catch traversal.
+    """
+    if base_dir is None:
+        return raw_target
+    sandbox = Path(base_dir).resolve()
+    sandbox.mkdir(parents=True, exist_ok=True)
+    if raw_target.is_absolute():
+        raise ValueError(
+            f"write_tables: output_dir {str(raw_target)!r} is an absolute "
+            f"path, which is not allowed when base_dir={str(base_dir)!r} "
+            f"is set; pass a relative subpath under base_dir instead"
+        )
+    resolved = (sandbox / raw_target).resolve()
+    try:
+        resolved.relative_to(sandbox)
+    except ValueError:
+        raise ValueError(
+            f"write_tables: output_dir {str(raw_target)!r} escapes "
+            f"base_dir {str(base_dir)!r}; parent-traversal is not allowed"
+        ) from None
+    return resolved

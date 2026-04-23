@@ -136,7 +136,7 @@ tables:
       - {name: "employee_id", dtype: "id", source: "pk"}
       - {name: "dept_id", dtype: "id", source: "fk:dim_department.dept_id"}
       - {name: "full_name", dtype: "string", source: "generated:faker.name"}
-      - {name: "hire_date", dtype: "date", source: "generated:faker.date"}
+      - {name: "hire_date", dtype: "date", source: "generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31"}
       - {name: "level", dtype: "string", source: "static:IC"}
     primary_key: "employee_id"
     foreign_keys: ["dim_department.dept_id"]

@@ -487,3 +487,123 @@ def test_different_seed_different_faker_same_structure():
     # Faker-generated company names should differ at least once across seeds.
     assert not (a["dim_company"]["company_name"]
                 .eq(b["dim_company"]["company_name"]).all())
+
+
+# --- FIX-05: parameterized Faker + locale ------------------------------------
+
+
+def test_parameterized_faker_date_between_stays_in_range():
+    """date_between with start_date/end_date stays inside the declared bounds."""
+    tbl = _table(
+        "dim_employee", "per_entity",
+        [
+            Column(name="employee_id", dtype="id", source="pk"),
+            Column(
+                name="hire_date", dtype="date",
+                source=(
+                    "generated:faker.date_between:"
+                    "start_date:2022-01-01:end_date:2024-12-31"
+                ),
+            ),
+        ],
+        "employee_id",
+    )
+    df = build_dim_entity(tbl, _saas_entities(), _rng(42))
+    from datetime import date as _d
+    lower, upper = _d(2022, 1, 1), _d(2024, 12, 31)
+    for value in df["hire_date"]:
+        assert isinstance(value, _d), f"expected date, got {type(value).__name__}"
+        assert lower <= value <= upper, f"{value} outside [2022-01-01, 2024-12-31]"
+
+
+def test_unparameterized_faker_still_works():
+    """Non-parameterized ``generated:faker.X`` remains backward compatible."""
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="company_name", dtype="string", source="generated:faker.company"),
+        ],
+        "company_id",
+    )
+    df = build_dim_entity(tbl, _saas_entities(), _rng(7))
+    assert (df["company_name"].str.len() > 0).all()
+
+
+def test_hr_template_hire_dates_within_window():
+    """The shipped HR template's hire_date column falls inside time_window."""
+    from datetime import date as _d
+    cfg = load_config(HR_YAML)
+    dims = build_all_dimensions(cfg, _rng(cfg.seed))
+    hire_dates = dims["dim_employee"]["hire_date"].tolist()
+    lower, upper = _d(2022, 1, 1), _d(2024, 12, 31)
+    for value in hire_dates:
+        assert lower <= value <= upper, (
+            f"hire_date {value!r} is outside HR time_window "
+            f"[2022-01, 2024-12]"
+        )
+
+
+def test_locale_defaults_to_en_us_faker_output():
+    """Default Faker locale is en_US — names use ASCII letters."""
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="full_name", dtype="string", source="generated:faker.name"),
+        ],
+        "company_id",
+    )
+    df = build_dim_entity(tbl, _saas_entities(), _rng(3))
+    for name in df["full_name"]:
+        assert name.isascii(), f"expected ASCII name under en_US, got {name!r}"
+
+
+def test_locale_ja_jp_produces_japanese_names():
+    """ja_JP locale yields non-ASCII Japanese characters in Faker names."""
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="full_name", dtype="string", source="generated:faker.name"),
+        ],
+        "company_id",
+    )
+    df = build_dim_entity(tbl, _saas_entities(), _rng(3), locale="ja_JP")
+    # At least one name should include a non-ASCII character.
+    any_non_ascii = any(not name.isascii() for name in df["full_name"])
+    assert any_non_ascii, (
+        f"expected some Japanese characters in names, got {df['full_name'].tolist()}"
+    )
+
+
+def test_locale_list_mixes_languages():
+    """A list locale instantiates Faker with multiple locales without error."""
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="full_name", dtype="string", source="generated:faker.name"),
+        ],
+        "company_id",
+    )
+    df = build_dim_entity(
+        tbl, _saas_entities(), _rng(3), locale=["en_US", "de_DE"],
+    )
+    assert len(df) == len(_saas_entities())
+    assert (df["full_name"].str.len() > 0).all()
+
+
+def test_determinism_preserved_with_locale():
+    """Same (config, seed, locale) produces byte-identical output."""
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="full_name", dtype="string", source="generated:faker.name"),
+        ],
+        "company_id",
+    )
+    a = build_dim_entity(tbl, _saas_entities(), _rng(99), locale="ja_JP")
+    b = build_dim_entity(tbl, _saas_entities(), _rng(99), locale="ja_JP")
+    pd.testing.assert_frame_equal(a, b)

@@ -15,6 +15,7 @@ from plotsim.config import (
     NOISE_PRESETS,
     DerivedSource,
     FKSource,
+    FakerSource,
     GeneratedSource,
     LagSource,
     MetricSource,
@@ -24,6 +25,8 @@ from plotsim.config import (
     ProportionalSource,
     REALISTIC,
     SLIGHTLY_MESSY,
+    StageDefinition,
+    StageSequence,
     StaticSource,
     SurrogateKeyWarning,
     Table,
@@ -497,9 +500,27 @@ def test_parse_source_metric():
     assert parse_source("metric:engagement") == MetricSource(metric="engagement")
 
 
-def test_parse_source_generated():
-    assert parse_source("generated:faker.company") == GeneratedSource(
-        provider="faker.company"
+def test_parse_source_generated_non_faker():
+    assert parse_source("generated:timestamp") == GeneratedSource(
+        provider="timestamp"
+    )
+
+
+def test_parse_source_generated_faker_unparameterized():
+    # FIX-05: bare faker providers parse as FakerSource with empty kwargs.
+    assert parse_source("generated:faker.company") == FakerSource(
+        method="company", kwargs={}
+    )
+
+
+def test_parse_source_generated_faker_parameterized():
+    # FIX-05 / MF-2: kwargs are parsed out of the colon-delimited grammar.
+    parsed = parse_source(
+        "generated:faker.date_between:start_date:2020-01-01:end_date:2024-12-31"
+    )
+    assert parsed == FakerSource(
+        method="date_between",
+        kwargs={"start_date": "2020-01-01", "end_date": "2024-12-31"},
     )
 
 
@@ -1090,3 +1111,109 @@ def test_column_distribution_roundtrip_through_yaml():
     )
     assert plan_col.distribution is not None
     assert plan_col.distribution.weights == {"a": 0.7, "b": 0.3}
+
+
+# --- FIX-05 acceptance: locale + allow_outside_window ------------------------
+
+
+def test_locale_defaults_to_en_us():
+    cfg = PlotsimConfig(**_minimal_valid())
+    assert cfg.locale == "en_US"
+
+
+def test_locale_single_string_accepted():
+    data = _minimal_valid()
+    data["locale"] = "ja_JP"
+    cfg = PlotsimConfig(**data)
+    assert cfg.locale == "ja_JP"
+
+
+def test_locale_list_accepted():
+    data = _minimal_valid()
+    data["locale"] = ["en_US", "de_DE"]
+    cfg = PlotsimConfig(**data)
+    assert cfg.locale == ["en_US", "de_DE"]
+
+
+def test_locale_round_trips_through_yaml():
+    data = _minimal_valid()
+    data["locale"] = ["en_US", "de_DE"]
+    cfg = PlotsimConfig(**data)
+    dumped = dump_config(cfg)
+    cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
+    assert cfg2.locale == ["en_US", "de_DE"]
+
+
+def test_column_allow_outside_window_defaults_false():
+    cfg = PlotsimConfig(**_minimal_valid())
+    for tbl in cfg.tables:
+        for col in tbl.columns:
+            assert col.allow_outside_window is False
+
+
+def test_column_allow_outside_window_roundtrips():
+    data = _minimal_valid()
+    data["tables"][0]["columns"].append({
+        "name": "birth_date",
+        "dtype": "date",
+        "source": "generated:faker.date_of_birth",
+        "allow_outside_window": True,
+    })
+    cfg = PlotsimConfig(**data)
+    dumped = dump_config(cfg)
+    cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
+    col = next(c for c in cfg2.tables[0].columns if c.name == "birth_date")
+    assert col.allow_outside_window is True
+
+
+def test_parameterized_faker_rejects_odd_param_list():
+    # Grammar requires matched key:value pairs after the method.
+    with pytest.raises(ValueError, match="matched 'key:value' pairs"):
+        parse_source("generated:faker.date_between:start_date")
+
+
+# --- FIX-06 acceptance: StageSequence.downgrade_delay ------------------------
+
+
+def test_downgrade_delay_defaults_to_none():
+    seq = StageSequence(
+        field="m1",
+        sequence=[
+            StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+            StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+        ],
+    )
+    assert seq.downgrade_delay is None
+
+
+def test_downgrade_delay_accepts_positive_int():
+    seq = StageSequence(
+        field="m1",
+        sequence=[
+            StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+            StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+        ],
+        downgrade_delay=3,
+    )
+    assert seq.downgrade_delay == 3
+
+
+def test_downgrade_delay_rejects_zero_and_negative():
+    with pytest.raises(ValidationError):
+        StageSequence(
+            field="m1",
+            sequence=[
+                StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+                StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+            ],
+            downgrade_delay=0,
+        )
+    with pytest.raises(ValidationError):
+        StageSequence(
+            field="m1",
+            sequence=[
+                StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+                StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+            ],
+            downgrade_delay=-1,
+        )

@@ -50,6 +50,7 @@ from plotsim.validation import (
     CHECK_CROSS_DIM_FK_CARDINALITY,
     CHECK_EMPTY_EVENT_TABLE,
     CHECK_FK_INTEGRITY,
+    CHECK_TEMPORAL_COHERENCE,
     ValidationReport,
     validate_causal_coherence,
     validate_correlation_psd,
@@ -60,6 +61,7 @@ from plotsim.validation import (
     validate_null_policy,
     validate_pk_uniqueness,
     validate_tables,
+    validate_temporal_coherence,
 )
 
 
@@ -586,3 +588,96 @@ def _minimal_config(correlations):
         noise=NoiseConfig(),
         output=OutputConfig(format="csv", directory="out"),
     )
+
+
+# --- FIX-05 / MF-2: temporal coherence ---------------------------------------
+
+
+def _temporal_cfg(
+    allow_outside_window: bool = False,
+) -> PlotsimConfig:
+    """Minimal config with a dim_employee carrying a hire_date column."""
+    return PlotsimConfig(
+        domain=Domain(name="t", description="t", entity_type="e", entity_label="Es"),
+        time_window=TimeWindow(start="2023-01", end="2023-12", granularity="monthly"),
+        seed=0,
+        metrics=[
+            Metric(
+                name="m", label="m", distribution="beta",
+                params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+                value_range={"min": 0.0, "max": 1.0},
+            ),
+        ],
+        archetypes=[
+            Archetype(
+                name="x", label="x", description="x",
+                curve_segments=[
+                    CurveSegment(curve="plateau", params={"level": 0.5},
+                                 start_pct=0.0, end_pct=1.0),
+                ],
+            ),
+        ],
+        entities=[Entity(name="e1", archetype="x", size=1)],
+        tables=[
+            Table(
+                name="dim_date", type="dim", grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+            Table(
+                name="dim_employee", type="dim", grain="per_entity",
+                columns=[
+                    Column(name="employee_id", dtype="id", source="pk"),
+                    Column(
+                        name="hire_date", dtype="date",
+                        source="generated:faker.date",
+                        allow_outside_window=allow_outside_window,
+                    ),
+                ],
+                primary_key="employee_id",
+            ),
+        ],
+        noise=NoiseConfig(),
+        output=OutputConfig(format="csv", directory="out"),
+    )
+
+
+def test_temporal_coherence_validator_warns_on_out_of_range():
+    """FIX-05 / MF-2: hire dates outside time_window → warning."""
+    import datetime as _dt
+    cfg = _temporal_cfg(allow_outside_window=False)
+    dim_employee = pd.DataFrame({
+        "employee_id": ["e-001", "e-002", "e-003"],
+        # First is inside the 2023 window, others are well outside.
+        "hire_date": [
+            _dt.date(2023, 6, 1),
+            _dt.date(1995, 3, 4),
+            _dt.date(2030, 11, 7),
+        ],
+    })
+    tables = {"dim_date": pd.DataFrame({"date_key": []}), "dim_employee": dim_employee}
+    issues = validate_temporal_coherence(cfg, tables)
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.check == CHECK_TEMPORAL_COHERENCE
+    assert issue.severity == "warning"
+    assert issue.table == "dim_employee"
+    assert issue.details["out_of_range_count"] == 2
+
+
+def test_temporal_coherence_allows_outside_window_when_marked():
+    """FIX-05 / MF-2: allow_outside_window=true suppresses the warning."""
+    import datetime as _dt
+    cfg = _temporal_cfg(allow_outside_window=True)
+    dim_employee = pd.DataFrame({
+        "employee_id": ["e-001", "e-002"],
+        "hire_date": [_dt.date(1995, 3, 4), _dt.date(2030, 11, 7)],
+    })
+    tables = {"dim_date": pd.DataFrame({"date_key": []}), "dim_employee": dim_employee}
+    assert validate_temporal_coherence(cfg, tables) == []
+
+
+def test_temporal_coherence_clean_on_hr_sample(hr_cfg, hr_tables):
+    """FIX-05: the shipped HR template (post-fix) has every hire_date in-window."""
+    issues = validate_temporal_coherence(hr_cfg, hr_tables)
+    assert issues == [], f"HR template should be temporally coherent, got {issues}"

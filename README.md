@@ -213,6 +213,17 @@ post, dataset registry), consider:
 
 - Filtering or replacing PII-shaped columns (names, emails, addresses) with
   obviously-fake placeholders before publication
+- Setting `locale` at the top of the config to match the region your
+  dataset pretends to describe (`locale: "ja_JP"`, `locale: ["en_US",
+  "de_DE"]`). Faker draws names, addresses, and phone numbers from the
+  locale's source vocabulary — an English-only dataset describing a
+  German company leaks the leak by default:
+
+  ```yaml
+  locale: "ja_JP"   # single locale
+  # or:
+  locale: ["en_US", "de_DE"]   # multi-locale mix
+  ```
 - Adding a `pii_note` to columns that need explicit handling — plotsim's
   config schema accepts an optional `pii_note: str` per `Column` so that
   downstream consumers and reviewers can find PII-bearing columns at a

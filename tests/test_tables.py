@@ -813,3 +813,116 @@ def test_determinism_preserved_with_fk_distribution():
     t2 = generate_tables(cfg, _rng(99))
     pd.testing.assert_frame_equal(t1["fct_revenue"], t2["fct_revenue"])
     pd.testing.assert_frame_equal(t1["dim_account"], t2["dim_account"])
+
+
+# --- FIX-06: StageSequence.downgrade_delay -----------------------------------
+
+
+def _three_stage_cfg(downgrade_delay=None, enforce_order=True):
+    """Minimal config with a 3-stage sequence driven by metric ``m``."""
+    metrics = [
+        Metric(
+            name="m", label="m", distribution="beta",
+            params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+            value_range={"min": 0.0, "max": 1.0},
+        ),
+    ]
+    archetype = Archetype(
+        name="x", label="x", description="x",
+        curve_segments=[
+            CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0),
+        ],
+    )
+    return PlotsimConfig(
+        domain=Domain(name="t", description="t", entity_type="x", entity_label="x"),
+        time_window=TimeWindow(start="2024-01", end="2024-06", granularity="monthly"),
+        seed=0,
+        metrics=metrics,
+        archetypes=[archetype],
+        entities=[Entity(name="e1", archetype="x", size=1)],
+        tables=[
+            Table(name="dim_date", type="dim", grain="per_period",
+                  columns=[Column(name="date_key", dtype="id", source="pk")],
+                  primary_key="date_key"),
+            Table(name="dim_co", type="dim", grain="per_entity",
+                  columns=[Column(name="co_id", dtype="id", source="pk")],
+                  primary_key="co_id"),
+            Table(name="fct_m", type="fact", grain="per_entity_per_period",
+                  columns=[
+                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                      Column(name="m", dtype="float", source="metric:m"),
+                  ],
+                  primary_key=["date_key", "co_id"],
+                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+        ],
+        noise=NoiseConfig(),
+        output=OutputConfig(directory="out/test"),
+        stages=StageSequence(
+            field="m", enforce_order=enforce_order,
+            sequence=[
+                StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.4),
+                StageDefinition(name="mid", threshold_enter=0.4, threshold_exit=0.8),
+                StageDefinition(name="high", threshold_enter=0.8, threshold_exit=None),
+            ],
+            downgrade_delay=downgrade_delay,
+        ),
+    )
+
+
+def _stages_for_values(cfg: PlotsimConfig, values: list[float]) -> list[str]:
+    """Build fact frame, inject ``values`` into column ``m``, return stages."""
+    rng = _rng(0)
+    dims = build_all_dimensions(cfg, rng)
+    trajs = compute_all_trajectories(cfg, len(dims["dim_date"]))
+    facts = build_fact_tables(cfg, trajs, dims, rng)
+    facts["fct_m"]["m"] = values
+    out = assign_stages(cfg, facts)
+    return out["fct_m"]["stage"].tolist()
+
+
+def test_strict_monotonicity_unchanged_when_downgrade_delay_is_none():
+    """FIX-06: no downgrade_delay → the pre-FIX-06 strict-monotonic path."""
+    cfg = _three_stage_cfg(downgrade_delay=None)
+    stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.1, 0.1, 0.1])
+    assert stages == ["high", "high", "high", "high", "high", "high"]
+
+
+def test_downgrade_after_delay_periods():
+    """FIX-06: after ``downgrade_delay`` consecutive lower periods, cursor drops."""
+    cfg = _three_stage_cfg(downgrade_delay=2)
+    stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.1, 0.1, 0.1])
+    # Periods 3 and 4 are the first two consecutive-low; downgrade fires at
+    # period 4. Period 5 and 6 should sit in the matching lower stage.
+    assert stages[:2] == ["high", "high"]
+    assert stages[2] == "high"  # streak of 1 — still high
+    assert stages[3] == "low"   # streak hits 2 → cursor drops to the
+                                # actual stage for value 0.1 (low)
+    assert stages[4] == "low"
+    assert stages[5] == "low"
+
+
+def test_brief_dip_does_not_trigger_downgrade():
+    """FIX-06: a single low period followed by recovery stays at the high cursor."""
+    cfg = _three_stage_cfg(downgrade_delay=3)
+    stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.85, 0.85, 0.85])
+    # 1-period dip, delay=3 → never downgrades.
+    assert stages == ["high", "high", "high", "high", "high", "high"]
+
+
+def test_downgrade_delay_ignored_when_enforce_order_false():
+    """FIX-06: under enforce_order=False, downgrade_delay is a no-op — each
+    period picks the highest stage its value satisfies."""
+    cfg = _three_stage_cfg(downgrade_delay=2, enforce_order=False)
+    stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.1, 0.1, 0.1])
+    # Free oscillation: 0.85 → high, 0.1 → low, no delay window.
+    assert stages == ["high", "high", "low", "low", "low", "low"]
+
+
+def test_downgrade_delay_resets_counter_on_recovery():
+    """FIX-06: a recovery period resets the consecutive-low counter."""
+    cfg = _three_stage_cfg(downgrade_delay=3)
+    # Two lows, one high, two more lows — streak resets at period 5 and
+    # only reaches 2 by the end, below the delay of 3.
+    stages = _stages_for_values(cfg, [0.85, 0.85, 0.1, 0.1, 0.85, 0.1])
+    assert stages == ["high", "high", "high", "high", "high", "high"], stages

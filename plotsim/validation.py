@@ -36,6 +36,7 @@ import pandas as pd
 from plotsim.config import (
     DerivedSource,
     FKSource,
+    FakerSource,
     GeneratedSource,
     LagSource,
     MetricSource,
@@ -56,6 +57,7 @@ CHECK_CAUSAL_COHERENCE = "causal_coherence"
 CHECK_NULL_POLICY = "null_policy"
 CHECK_EMPTY_EVENT_TABLE = "empty_event_table"
 CHECK_CROSS_DIM_FK_CARDINALITY = "cross_dim_fk_cardinality"
+CHECK_TEMPORAL_COHERENCE = "temporal_coherence"
 
 ALL_CHECKS: tuple[str, ...] = (
     CHECK_CORRELATION_PSD,
@@ -66,6 +68,7 @@ ALL_CHECKS: tuple[str, ...] = (
     CHECK_NULL_POLICY,
     CHECK_EMPTY_EVENT_TABLE,
     CHECK_CROSS_DIM_FK_CARDINALITY,
+    CHECK_TEMPORAL_COHERENCE,
 )
 
 # Sample size for "sample of offending values" in issue details. Keeps reports
@@ -746,7 +749,8 @@ def validate_null_policy(
                 continue
             if isinstance(
                 parsed,
-                (FKSource, PKSource, GeneratedSource, StaticSource, DerivedSource, LagSource),
+                (FKSource, PKSource, GeneratedSource, FakerSource,
+                 StaticSource, DerivedSource, LagSource),
             ):
                 if null_count > 0:
                     issues.append(ValidationIssue(
@@ -813,6 +817,111 @@ def validate_empty_event_tables(
             ),
             details={"table": tbl.name, "row_count": 0},
         ))
+    return issues
+
+
+# --- Check 9: temporal coherence (FIX-05 / MF-2) -----------------------------
+
+
+def _time_window_bounds(config: PlotsimConfig) -> tuple[_dt.date, _dt.date]:
+    """Return the inclusive date bounds spanned by ``config.time_window``.
+
+    The YAML schema stores ``start`` / ``end`` as ``YYYY-MM`` strings.
+    Lower bound is the first day of the start month; upper bound is the
+    last day of the end month — so a column with ``dtype: date`` that
+    targets any day within the window is considered in-range at
+    granularity-independent resolution.
+    """
+    import calendar
+    start_year, start_month = (int(p) for p in config.time_window.start.split("-"))
+    end_year, end_month = (int(p) for p in config.time_window.end.split("-"))
+    lower = _dt.date(start_year, start_month, 1)
+    last_day = calendar.monthrange(end_year, end_month)[1]
+    upper = _dt.date(end_year, end_month, last_day)
+    return lower, upper
+
+
+def _as_date_value(value: Any) -> Optional[_dt.date]:
+    if value is None:
+        return None
+    if isinstance(value, float) and np.isnan(value):
+        return None
+    if isinstance(value, _dt.datetime):
+        return value.date()
+    if isinstance(value, _dt.date):
+        return value
+    if isinstance(value, str):
+        try:
+            return _dt.date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def validate_temporal_coherence(
+    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+) -> list[ValidationIssue]:
+    """Warn when a dim column with ``dtype: date`` holds values outside ``time_window``.
+
+    FIX-05 / MF-2 regression guard: catches configs that emit dates
+    from an unparameterized Faker provider (e.g. ``faker.date``) whose
+    uniform 1970–2030 range silently drifts outside the configured
+    window. Columns that legitimately reach outside (birth dates,
+    hire dates, trial timestamps) can set ``allow_outside_window:
+    true`` on the column to suppress the warning.
+
+    Only dimension tables are checked — fact-table date-FK columns are
+    already covered by ``validate_date_spine``, and event tables store
+    ``date_key`` integers rather than raw dates.
+    """
+    issues: list[ValidationIssue] = []
+    lower, upper = _time_window_bounds(config)
+    for tbl in config.tables:
+        if tbl.type != "dim":
+            continue
+        df = tables.get(tbl.name)
+        if df is None or df.empty:
+            continue
+        for col in tbl.columns:
+            if col.dtype != "date":
+                continue
+            if col.allow_outside_window:
+                continue
+            if col.name not in df.columns:
+                continue
+            out_of_range: list[_dt.date] = []
+            for raw in df[col.name].tolist():
+                d = _as_date_value(raw)
+                if d is None:
+                    continue
+                if d < lower or d > upper:
+                    out_of_range.append(d)
+            if out_of_range:
+                issues.append(ValidationIssue(
+                    check=CHECK_TEMPORAL_COHERENCE,
+                    severity="warning",
+                    table=tbl.name,
+                    message=(
+                        f"column {col.name!r} has {len(out_of_range)} date "
+                        f"value(s) outside time_window "
+                        f"[{lower.isoformat()}, {upper.isoformat()}]. "
+                        f"Parameterize the source (e.g. "
+                        f"'generated:faker.date_between:start_date:"
+                        f"{lower.isoformat()}:end_date:{upper.isoformat()}'), "
+                        f"or set 'allow_outside_window: true' on the column "
+                        f"if out-of-window dates are intentional."
+                    ),
+                    details={
+                        "column": col.name,
+                        "lower": lower.isoformat(),
+                        "upper": upper.isoformat(),
+                        "out_of_range_count": len(out_of_range),
+                        "out_of_range_sample": [
+                            d.isoformat() for d in
+                            _sample_sorted(out_of_range)
+                        ],
+                    },
+                ))
     return issues
 
 
@@ -898,4 +1007,5 @@ def validate_tables(
     issues.extend(validate_null_policy(config, tables))
     issues.extend(validate_empty_event_tables(config, tables))
     issues.extend(validate_cross_dim_fk_cardinality(config, tables))
+    issues.extend(validate_temporal_coherence(config, tables))
     return ValidationReport(issues=tuple(issues))

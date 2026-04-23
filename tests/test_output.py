@@ -395,3 +395,68 @@ def test_write_config_copy_produces_valid_yaml(saas_cfg, tmp_path):
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         reloaded = load_config(path)
     assert dump_config(reloaded) == dump_config(saas_cfg)
+
+
+# --- FIX-08 / SF-2: path-traversal guard -------------------------------------
+
+
+def test_base_dir_none_allows_any_path(saas_bundle, tmp_path):
+    """FIX-08: with base_dir=None the CLI contract is preserved — arbitrary
+    (absolute) paths are accepted."""
+    cfg, tables, report = saas_bundle
+    target = tmp_path / "freely_chosen" / "deep"
+    out = write_tables(tables, cfg, report, output_dir=target, base_dir=None)
+    assert out == target
+    assert any(target.glob("*.csv"))
+
+
+def test_base_dir_set_allows_subdirectory(saas_bundle, tmp_path):
+    """FIX-08: a relative subpath under base_dir resolves cleanly."""
+    cfg, tables, report = saas_bundle
+    sandbox = tmp_path / "sandbox"
+    out = write_tables(
+        tables, cfg, report,
+        output_dir="runs/first", base_dir=sandbox,
+    )
+    assert out == (sandbox / "runs" / "first").resolve()
+    assert any(out.glob("*.csv"))
+
+
+def test_base_dir_rejects_parent_traversal(saas_bundle, tmp_path):
+    """FIX-08: ``..`` escaping base_dir raises ValueError, nothing is written."""
+    cfg, tables, report = saas_bundle
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    sibling = tmp_path / "sibling"
+    with pytest.raises(ValueError, match="escapes base_dir"):
+        write_tables(
+            tables, cfg, report,
+            output_dir="../sibling", base_dir=sandbox,
+        )
+    # No CSVs leaked into the sibling directory.
+    assert not sibling.exists() or not any(sibling.glob("*.csv"))
+
+
+def test_base_dir_rejects_absolute_path_override(saas_bundle, tmp_path):
+    """FIX-08: an absolute output_dir is rejected when base_dir is set."""
+    cfg, tables, report = saas_bundle
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    rogue = tmp_path / "rogue"
+    with pytest.raises(ValueError, match="absolute path"):
+        write_tables(
+            tables, cfg, report,
+            output_dir=str(rogue), base_dir=sandbox,
+        )
+
+
+def test_base_dir_allows_nested_subdirectory(saas_bundle, tmp_path):
+    """FIX-08: deep nested relative paths inside base_dir are permitted."""
+    cfg, tables, report = saas_bundle
+    sandbox = tmp_path / "sandbox"
+    out = write_tables(
+        tables, cfg, report,
+        output_dir="2026/04/run-01", base_dir=sandbox,
+    )
+    assert out == (sandbox / "2026" / "04" / "run-01").resolve()
+    assert any(out.glob("*.csv"))

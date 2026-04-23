@@ -49,6 +49,7 @@ from plotsim.config import (
     DerivedSource,
     Entity,
     FKSource,
+    FakerSource,
     GeneratedSource,
     PlotsimConfig,
     PKSource,
@@ -61,8 +62,7 @@ from plotsim.config import (
 
 # --- Helpers ----------------------------------------------------------------
 
-# Providers the dim layer knows how to resolve without going through Faker.
-# Anything prefixed "faker." is dispatched dynamically via getattr.
+# Providers the dim layer resolves without going through Faker.
 _NON_FAKER_GENERATED = {"entity_name"}
 
 
@@ -71,8 +71,11 @@ def _faker_seed_from_rng(rng: np.random.Generator) -> int:
     return int(rng.integers(0, 2**31 - 1))
 
 
-def _make_faker(rng: np.random.Generator) -> Faker:
-    fake = Faker()
+def _make_faker(
+    rng: np.random.Generator,
+    locale: str | list[str] = "en_US",
+) -> Faker:
+    fake = Faker(locale)
     fake.seed_instance(_faker_seed_from_rng(rng))
     return fake
 
@@ -134,35 +137,66 @@ _EXTENDED_PROVIDERS = {
 }
 
 
-def _call_faker(fake: Faker, provider: str) -> Any:
-    """Look up ``fake.<method>()`` dynamically. Raises at build time on typos.
+def _coerce_faker_kwarg(value: str) -> Any:
+    """Best-effort string → int/date coercion for parameterized faker kwargs.
 
-    Mission 005 V1 advertises a short whitelist (company, name, email, city,
-    job, date_of_birth, phone_number), but the sample YAMLs already reach
-    beyond it (``faker.industry``, ``faker.year``, ``faker.date``,
-    ``faker.sentence``). Dynamic lookup keeps the whitelist as guidance while
-    letting any real faker provider work; extended providers defined above
-    cover the gaps. Unknown providers still surface a clear error at build
-    time, per the mission's stated failure mode.
+    FIX-05 / MF-2. Applied to every kwarg value parsed out of a
+    ``generated:faker.<method>:<key>:<value>:...`` source. Heuristic:
+
+      * ``YYYY-MM-DD`` → ``datetime.date`` (covers ``date_between`` bounds).
+      * All-digit (with optional leading ``-``) → ``int`` (covers
+        ``random_int(min=N, max=M)``).
+      * Everything else → passthrough string.
+
+    Faker accepts strings for several providers natively, so when coercion
+    doesn't match, the string goes through untouched — users can still
+    pass provider-specific formats we don't recognize.
     """
-    if not provider.startswith("faker."):
-        raise ValueError(
-            f"unsupported generated provider {provider!r}: "
-            f"dimension tables only support 'faker.<method>' or "
-            f"{sorted(_NON_FAKER_GENERATED)}"
-        )
-    method = provider[len("faker."):]
+    if len(value) == 10 and value[4] == "-" and value[7] == "-":
+        try:
+            return _dt.date.fromisoformat(value)
+        except ValueError:
+            pass
+    trimmed = value[1:] if value.startswith("-") else value
+    if trimmed.isdigit():
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return value
+
+
+def _call_faker(
+    fake: Faker,
+    method: str,
+    kwargs: Optional[dict[str, str]] = None,
+) -> Any:
+    """Invoke ``fake.<method>(**coerced_kwargs)``. Raises at build time on typos.
+
+    Extended providers (``industry``, ``year``) short-circuit the getattr
+    lookup and do not accept kwargs. Stock Faker methods accept any kwargs
+    the user supplied in the source string, coerced via
+    :func:`_coerce_faker_kwarg`.
+    """
     if not method:
-        raise ValueError(f"generated provider {provider!r} has empty faker method")
+        raise ValueError("faker method name cannot be empty")
+    kwargs = kwargs or {}
     extended = _EXTENDED_PROVIDERS.get(method)
     if extended is not None:
+        if kwargs:
+            raise ValueError(
+                f"extended faker provider {method!r} does not accept kwargs; "
+                f"got {sorted(kwargs)}"
+            )
         return extended(fake)
     fn = getattr(fake, method, None)
     if fn is None or not callable(fn):
         raise ValueError(
-            f"Faker has no provider method {method!r} (source 'generated:{provider}')"
+            f"Faker has no provider method {method!r} "
+            f"(source 'generated:faker.{method}')"
         )
-    return fn()
+    coerced = {k: _coerce_faker_kwarg(v) for k, v in kwargs.items()}
+    return fn(**coerced)
 
 
 # --- dim_date ----------------------------------------------------------------
@@ -269,7 +303,14 @@ def _column_value_for_entity(
     if isinstance(parsed, GeneratedSource):
         if parsed.provider == "entity_name":
             return entity.name
-        return _call_faker(fake, parsed.provider)
+        raise ValueError(
+            f"column {col.name!r} source {col.source!r} is not supported on "
+            f"per_entity dimension tables: non-faker 'generated:' providers "
+            f"other than 'entity_name' (e.g. 'timestamp', 'date_key') only "
+            f"make sense on fact/event tables"
+        )
+    if isinstance(parsed, FakerSource):
+        return _call_faker(fake, parsed.method, parsed.kwargs)
     if isinstance(parsed, FKSource):
         # dim_entity rows are 1:1 with entities, so FKs can't be populated
         # meaningfully here — the parent row this entity would point to is
@@ -393,9 +434,10 @@ def build_dim_entity(
     table_config: Table,
     entities: list[Entity],
     rng: np.random.Generator,
+    locale: str | list[str] = "en_US",
 ) -> pd.DataFrame:
     """Build a per_entity dim: one row per Entity, static attributes from Faker/derived."""
-    fake = _make_faker(rng)
+    fake = _make_faker(rng, locale)
     ids = _make_ids(table_config.name, len(entities))
 
     rows: list[dict[str, Any]] = []
@@ -447,6 +489,7 @@ def build_dim_subentity(
     rng: np.random.Generator,
     parent_pk_column: Optional[str] = None,
     local_fk_column: Optional[str] = None,
+    locale: str | list[str] = "en_US",
 ) -> pd.DataFrame:
     """Build a sub-entity dim: sum(entity.size) rows keyed back to dim_entity.
 
@@ -477,7 +520,7 @@ def build_dim_subentity(
         assert isinstance(parsed, FKSource)
         parent_pk_column = parsed.column
 
-    fake = _make_faker(rng)
+    fake = _make_faker(rng, locale)
     total_rows = sum(e.size for e in entities)
     ids = _make_ids(table_config.name, total_rows)
 
@@ -502,7 +545,13 @@ def build_dim_subentity(
                     if parsed.provider == "entity_name":
                         row[col.name] = entity.name
                     else:
-                        row[col.name] = _call_faker(fake, parsed.provider)
+                        raise ValueError(
+                            f"column {col.name!r} source {col.source!r} is "
+                            f"not supported on sub-entity dimension tables: "
+                            f"only 'entity_name' is resolved here"
+                        )
+                elif isinstance(parsed, FakerSource):
+                    row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
                 elif isinstance(parsed, StaticSource):
                     values = _split_static(parsed.value)
                     row[col.name] = _coerce_static(values[0], col.dtype)
@@ -525,9 +574,10 @@ def build_dim_subentity(
 def build_dim_reference(
     table_config: Table,
     rng: np.random.Generator,
+    locale: str | list[str] = "en_US",
 ) -> pd.DataFrame:
     """Build a static reference/lookup dim. Row count = longest static-CSV column."""
-    fake = _make_faker(rng)
+    fake = _make_faker(rng, locale)
 
     # Determine row count: max count across static columns; default 1 if none.
     n_rows = 1
@@ -550,8 +600,14 @@ def build_dim_reference(
                 # Broadcast single-value columns; index into multi-value columns.
                 pick = values[i] if len(values) > 1 else values[0]
                 row[col.name] = _coerce_static(pick, col.dtype)
+            elif isinstance(parsed, FakerSource):
+                row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
             elif isinstance(parsed, GeneratedSource):
-                row[col.name] = _call_faker(fake, parsed.provider)
+                raise ValueError(
+                    f"column {col.name!r} source {col.source!r} is not "
+                    f"supported on reference dimension tables: use "
+                    f"'generated:faker.<method>' or 'static:...' instead"
+                )
             elif isinstance(parsed, FKSource):
                 row[col.name] = None  # backfilled after dims are materialised
             else:
@@ -606,13 +662,15 @@ def build_all_dimensions(
         if tbl.type != "dim" or tbl.name == "dim_date":
             continue
         if tbl.grain == "per_reference":
-            dims[tbl.name] = build_dim_reference(tbl, rng)
+            dims[tbl.name] = build_dim_reference(tbl, rng, locale=config.locale)
 
     # 3. per_entity dims — FK backfill from any reference dims built above.
     # Pass entities so per-cohort cross_dim_fks anchoring takes effect.
     for tbl in config.tables:
         if tbl.type == "dim" and tbl.grain == "per_entity":
-            df = build_dim_entity(tbl, list(config.entities), rng)
+            df = build_dim_entity(
+                tbl, list(config.entities), rng, locale=config.locale,
+            )
             dims[tbl.name] = _backfill_fks(
                 df, tbl, dims, rng, entities=list(config.entities),
             )
@@ -637,6 +695,7 @@ def build_all_dimensions(
             rng,
             parent_pk_column=parent_pk,
             local_fk_column=local_fk,
+            locale=config.locale,
         )
 
     return dims
