@@ -836,4 +836,4 @@ def test_public_api_surface_matches_readme():
     assert callable(plotsim.write_tables)
     assert plotsim.ValidationReport is not None
     # Version stays where packaging metadata reads from.
-    assert plotsim.__version__ == "0.1.0"
+    assert plotsim.__version__ == "0.3.0"

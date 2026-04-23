@@ -1,6 +1,6 @@
 [project]
 name = "plotsim"
-version = "0.2.0"
+version = "0.3.0"
 description = "Generate realistic multi-table datasets from behavioral archetypes. No real data needed."
 readme = "README.md"
 license = { text = "Apache-2.0" }
