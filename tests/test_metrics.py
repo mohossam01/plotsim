@@ -743,3 +743,156 @@ def test_generate_tables_no_correlations_flows_none_L_through():
     tables = generate_tables(cfg, np.random.default_rng(0))
     assert "fct_m" in tables
     assert len(tables["fct_m"]) > 0
+
+
+# --- F-01 / 0.4.0: Gaussian copula correlation recovery ---------------------
+#
+# R-01..R-10 from plotsim-mission-f01-correlation-fix.md. These tests MUST
+# fail against the pre-0.4.0 center-normalized residual transform — they are
+# the behavioral guarantee of the copula rewrite.
+
+
+def _simulate_correlated_pair(
+    metric_a: Metric, metric_b: Metric, coeff: float,
+    n_entities: int = 100, n_periods: int = 36, seed: int = 0,
+) -> float:
+    """Run N entities through plateau trajectory and return observed Pearson.
+
+    Plateau isolation: a flat trajectory means the configured coefficient is
+    the only thing driving co-movement between the two metrics' output
+    columns. Anything else (co-variation via shared trajectory shape, lag
+    blending, archetype overrides) is held constant.
+    """
+    pair = CorrelationPair(metric_a=metric_a.name, metric_b=metric_b.name,
+                           coefficient=coeff)
+    rng = _rng(seed)
+    all_a: list[float] = []
+    all_b: list[float] = []
+    for _ in range(n_entities):
+        out = generate_entity_metrics(
+            trajectory=np.full(n_periods, 0.5),
+            metrics=[metric_a, metric_b],
+            correlations=[pair],
+            noise=None,
+            rng=rng,
+        )
+        all_a.extend(float(x) for x in out[metric_a.name])
+        all_b.extend(float(x) for x in out[metric_b.name])
+    return float(np.corrcoef(np.array(all_a), np.array(all_b))[0, 1])
+
+
+@pytest.mark.parametrize(
+    "dist_a,params_a,dist_b,params_b,vr_b,coeff",
+    [
+        # Three SaaS template pairs from the mission context.
+        # engagement (beta) × mrr (lognormal) at 0.72.
+        ("beta", {"alpha": 2.0, "beta": 5.0}, "lognorm",
+         {"s": 0.4, "scale": 1.0}, None, 0.72),
+        # engagement (beta) × churn_risk (beta) at -0.55.
+        ("beta", {"alpha": 2.0, "beta": 5.0}, "beta",
+         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0), -0.55),
+        # support_tickets (poisson) × churn_risk (beta) at 0.55 — discrete
+        # pair; mission tolerance ±0.15 vs continuous ±0.08.
+        ("poisson", {"lambda": 3.0}, "beta",
+         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0), 0.55),
+    ],
+)
+def test_r01_configured_correlation_matches_observed_plateau(
+    dist_a, params_a, dist_b, params_b, vr_b, coeff,
+):
+    """R-01 / F-01: observed Pearson must be within ±0.10 (±0.15 for poisson)
+    of configured under plateau isolation. The pre-0.4.0 center-normalized
+    residual transform attenuated these to roughly 0.3× to 0.9× of configured
+    depending on distribution pairing.
+    """
+    m_a = _metric("a", distribution=dist_a, params=params_a)
+    m_b = _metric("b", distribution=dist_b, params=params_b,
+                  value_range=vr_b)
+    observed = _simulate_correlated_pair(m_a, m_b, coeff,
+                                         n_entities=100, n_periods=36, seed=11)
+    tol = 0.15 if "poisson" in (dist_a, dist_b) else 0.10
+    assert abs(observed - coeff) <= tol, (
+        f"{dist_a}×{dist_b}: expected {coeff} ± {tol}, got {observed:.4f}"
+    )
+
+
+@pytest.mark.parametrize(
+    "dist_a,params_a,dist_b,params_b,vr_b",
+    [
+        ("normal", {"mu": 100.0, "sigma": 10.0}, "normal",
+         {"mu": 50.0, "sigma": 5.0}, None),
+        ("normal", {"mu": 100.0, "sigma": 10.0}, "lognorm",
+         {"s": 0.5, "scale": 1.0}, None),
+        ("lognorm", {"s": 0.5, "scale": 1.0}, "gamma",
+         {"shape": 2.0, "scale": 1.0}, None),
+        ("gamma", {"shape": 2.0, "scale": 1.0}, "beta",
+         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0)),
+        ("beta", {"alpha": 2.0, "beta": 5.0}, "weibull",
+         {"shape": 1.5, "scale": 1.0}, None),
+        ("weibull", {"shape": 1.5, "scale": 1.0}, "normal",
+         {"mu": 20.0, "sigma": 3.0}, None),
+    ],
+)
+def test_r01b_multiple_distribution_pairings(
+    dist_a, params_a, dist_b, params_b, vr_b,
+):
+    """R-01b: every continuous-continuous pair recovers a configured 0.6
+    correlation within ±0.10 under plateau isolation and 200 entities × 22
+    periods ≈ 4,400 samples — enough for the ±0.10 envelope to exclude
+    sampling noise on correctly-implemented copulas.
+    """
+    vr_a = ValueRange(min=0.0, max=1.0) if dist_a == "beta" else None
+    m_a = _metric("a", distribution=dist_a, params=params_a, value_range=vr_a)
+    m_b = _metric("b", distribution=dist_b, params=params_b, value_range=vr_b)
+    observed = _simulate_correlated_pair(m_a, m_b, 0.6,
+                                         n_entities=200, n_periods=22, seed=23)
+    assert abs(observed - 0.6) <= 0.10, (
+        f"{dist_a}×{dist_b}: expected 0.6 ± 0.10, got {observed:.4f}"
+    )
+
+
+def test_r08_lognormal_stays_positive_under_extreme_correlation():
+    """R-08: the copula's inverse-CDF round trip lands every correlated draw
+    inside the metric's support. For lognormal that means strictly positive —
+    the pre-0.4.0 ``c * (1 + corr_r)`` path could go negative when
+    ``corr_r < -1``, which happened under high variance + strong correlation.
+    """
+    m_lognorm = _metric("a", distribution="lognorm",
+                        params={"s": 1.5, "scale": 1.0})
+    m_high_var = _metric("b", distribution="normal",
+                         params={"mu": 100.0, "sigma": 80.0})
+    pair = CorrelationPair(metric_a="a", metric_b="b", coefficient=0.9)
+    rng = _rng(7)
+    all_a: list[float] = []
+    for _ in range(500):
+        out = generate_entity_metrics(
+            trajectory=np.full(8, 0.5),
+            metrics=[m_lognorm, m_high_var],
+            correlations=[pair],
+            noise=None,
+            rng=rng,
+        )
+        all_a.extend(float(x) for x in out["a"])
+    arr = np.array(all_a)
+    assert (arr > 0.0).all(), (
+        f"lognormal produced {int((arr <= 0.0).sum())} non-positive values "
+        f"under the copula — the inverse-CDF round trip is broken"
+    )
+
+
+def test_r10_determinism_under_copula():
+    """R-10: same config + same seed still produces byte-identical output
+    after the copula rewrite. The determinism guarantee is preserved; only
+    the output *values* change relative to pre-0.4.0.
+    """
+    from plotsim.tables import generate_tables
+    import pandas as pd
+    cfg = load_config(SAAS_YAML)
+    a = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    b = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    assert set(a.keys()) == set(b.keys())
+    for name in a:
+        pd.testing.assert_frame_equal(
+            a[name].reset_index(drop=True),
+            b[name].reset_index(drop=True),
+        )

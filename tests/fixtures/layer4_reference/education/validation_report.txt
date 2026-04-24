@@ -1,7 +1,12 @@
 Plotsim Validation Report
 ==========================
-Generated: 2026-04-23T11:39:17
-Errors: 0 | Warnings: 0 | Total: 0
+Generated: 2026-04-23T20:22:56
+Errors: 0 | Warnings: 1 | Total: 1
 Status: VALID
 
-All checks passed cleanly.
+[WARN ] cross_dim_fk_cardinality (evt_dropout) — FK column 'date_key' carries 1 unique value(s) despite parent 'dim_date' having 22 rows. Add 'distribution: uniform' or '{weights: {...}}' on the column, or pin per cohort via Entity.cross_dim_fks.
+        column: date_key
+        parent: dim_date.date_key
+        parent_row_count: 22
+        child_unique_count: 1
+        child_unique_sample: [20221001]

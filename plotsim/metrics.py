@@ -40,6 +40,8 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from scipy import stats as sp_stats
+from scipy.stats import norm as sp_norm
 
 from plotsim.config import (
     Archetype,
@@ -54,10 +56,17 @@ from plotsim.config import (
 # the current-period signal entirely.
 LAG_BLEND_WEIGHT = 0.6
 
-# Below this absolute value, a center is treated as zero for correlation/
-# residual purposes. Avoids amplifying floating-point noise by 1/epsilon
-# during Cholesky reconstruction.
+# Below this absolute value, a center is treated as zero for correlation
+# purposes. A degenerate distribution (poisson λ≈0, lognorm scale≈0) has no
+# meaningful CDF transform; the independent draw is preserved unchanged.
 _CENTER_EPS = 1e-9
+
+# F-01 / 0.4.0: clamp uniform values before norm.ppf. The exact 0.0 / 1.0
+# endpoints of a CDF map to ±inf under the inverse normal, which propagates
+# NaN through the Cholesky and back. 1e-10 is tight enough that the clipped
+# Gaussian value stays above |z| ≈ 6.36 — well beyond any configured
+# correlation's effective range — without introducing visible bias.
+_CDF_CLAMP = 1e-10
 
 
 # --- Polarity and position → center ------------------------------------------
@@ -160,6 +169,81 @@ def sample_single_metric(
     raise ValueError(f"unsupported distribution {dist!r}")
 
 
+def _get_scipy_dist(metric: Metric, center: float):
+    """Return a scipy.stats frozen distribution matching ``sample_single_metric``.
+
+    F-01 / 0.4.0. The copula transform in ``apply_correlations`` needs the
+    CDF/PPF of whatever distribution ``sample_single_metric`` drew from, with
+    the same parameters centered on the trajectory-derived ``center``. Each
+    branch below mirrors one in ``sample_single_metric`` — if that function
+    grows a new distribution family, this dispatch has to grow too.
+
+    Returns ``None`` when the distribution is degenerate (e.g. gamma with
+    ``shape <= 0`` or ``center <= 0``, lognorm with ``center`` below the
+    sample floor). Callers treat ``None`` as a bypass: the independent draw
+    passes through unchanged, same as the pre-0.4.0 near-zero-center branch.
+    """
+    dist = metric.distribution
+    params = metric.params
+
+    if dist == "lognorm":
+        s = float(params["s"])
+        if center <= _CENTER_EPS:
+            return None
+        return sp_stats.lognorm(s=s, scale=float(center))
+
+    if dist == "gamma":
+        shape = float(params["shape"])
+        if shape <= 0.0 or center <= 0.0:
+            return None
+        return sp_stats.gamma(a=shape, scale=float(center) / shape)
+
+    if dist == "poisson":
+        lam = max(float(center), 0.0)
+        if lam <= _CENTER_EPS:
+            return None
+        return sp_stats.poisson(mu=lam)
+
+    if dist == "beta":
+        alpha = float(params["alpha"])
+        beta = float(params["beta"])
+        base_mean = alpha / (alpha + beta)
+        vr = metric.value_range
+        # ``sample_single_metric`` produces ``c + (raw - base_mean) * span``
+        # when value_range is set, else ``(raw - base_mean + c) * scale``.
+        # Both are affine re-parameterizations of Beta(a, b); expressing
+        # them via scipy's (loc, scale) gives an exact CDF/PPF match.
+        if vr is not None and vr.min is not None and vr.max is not None:
+            span = float(vr.max - vr.min)
+            return sp_stats.beta(
+                a=alpha, b=beta,
+                loc=float(center) - base_mean * span,
+                scale=span,
+            )
+        scale = float(params.get("scale", 1.0))
+        return sp_stats.beta(
+            a=alpha, b=beta,
+            loc=scale * (float(center) - base_mean),
+            scale=scale,
+        )
+
+    if dist == "normal":
+        sigma = float(params["sigma"])
+        if sigma <= 0.0:
+            return None
+        return sp_stats.norm(loc=float(center), scale=sigma)
+
+    if dist == "weibull":
+        shape = float(params["shape"])
+        if shape <= 0.0 or center <= 0.0:
+            return None
+        # ``rng.weibull(a=shape)`` is standard-Weibull; the sampler then
+        # multiplies by ``center``. In scipy, that's scale=center.
+        return sp_stats.weibull_min(c=shape, scale=float(center))
+
+    raise ValueError(f"unsupported distribution {dist!r}")
+
+
 def _clamp_and_round(value: float, metric: Metric) -> float:
     vr = metric.value_range
     if vr is not None:
@@ -208,45 +292,83 @@ def apply_correlations(
 ) -> dict[str, float]:
     """Adjust independent samples so pairwise correlations match config.
 
-    Residuals are normalized by center so metrics on different scales are
-    comparable, then transformed through the Cholesky factor of the target
-    correlation matrix and reconstructed as ``c * (1 + corr_r)``.
+    F-01 / 0.4.0 — Gaussian copula. Each independent draw is pushed through
+    its own distribution's CDF to produce a uniform [0,1] value, then through
+    the standard normal inverse CDF to get a standard Gaussian. The Cholesky
+    factor ``L`` is applied in Gaussian space (where every residual has unit
+    variance by construction), then the transformed Gaussian is pushed back
+    through the standard normal CDF and the metric's inverse CDF to recover
+    a value in the original distribution's support.
 
-    Metrics whose center is near zero bypass the transform — their residual
-    would be undefined and the reconstruction would collapse to 0.
+    Why this replaces the pre-0.4.0 center-normalized-residual transform:
+    center-normalization made metrics scale-comparable but not variance-
+    comparable, so configured coefficients were attenuated by distribution-
+    pair-dependent factors (~0.29× to ~0.91× of configured on the shipped
+    templates). In Gaussian space the attenuation vanishes — the Cholesky
+    delivers exactly the configured correlation, and the inverse CDF round
+    trip preserves each metric's marginal distribution exactly. No sign
+    flips either: a lognormal cannot return negative after ``ppf``.
+
+    Bypass: if a metric's center is near zero (degenerate distribution —
+    gamma shape≤0, lognorm scale≈0, poisson λ≈0), ``_get_scipy_dist``
+    returns ``None`` and the independent draw passes through unchanged.
+    This preserves the pre-0.4.0 near-zero-center behaviour so identities
+    like ``position=0 → value≈0`` still hold.
+
+    Poisson note: scipy's ``poisson.cdf`` is a step function; ``ppf`` maps
+    a continuous uniform onto integer values. The copula still drives the
+    Gaussian-space correlation to the configured value, but the observed
+    Pearson on the resulting integers will be slightly below configured —
+    inherent to correlating discrete distributions, and still dramatically
+    closer than the pre-0.4.0 attenuation.
 
     A non-positive-semi-definite correlation matrix is a config defect, not
     a runtime condition. Callers should catch it upstream via
     ``validation.validate_correlation_psd`` (which ``generate_tables`` runs
-    unconditionally before sampling). If sampling reaches this function with
-    a bad matrix, we raise ``ValueError`` rather than silently fall back to
-    independent samples — silent fallback hides the defect from every
-    statistical test downstream.
+    unconditionally before sampling, and which is also promoted to
+    ``PlotsimConfig`` load-time via F-04). If sampling reaches this function
+    with a bad matrix, we raise ``ValueError`` rather than silently fall back
+    to independent samples.
 
     Category B Layer 3 (SEC-08): when the caller has already computed the
     Cholesky factor at the top of ``generate_tables``, they pass it as
     ``cholesky_L`` and this function skips the redundant matrix assembly +
-    ``np.linalg.cholesky`` call. Output is byte-identical between the two
-    paths — the matrix is config-invariant across the per-(cohort, period)
-    loop. Direct external callers that omit ``cholesky_L`` still work; the
-    in-function path builds the matrix on demand.
+    ``np.linalg.cholesky`` call. The matrix is config-invariant across the
+    per-(cohort, period) loop. Direct external callers that omit
+    ``cholesky_L`` still work; the in-function path builds the matrix on
+    demand.
     """
     if not correlations:
         return dict(independent)
 
     names = [m.name for m in metrics]
+    metric_by_name = {m.name: m for m in metrics}
     n = len(names)
 
-    r = np.zeros(n, dtype=float)
+    # Build the Gaussian-space residual vector. Bypass metrics contribute 0
+    # (the identity element under L @ · — they don't pull the other metrics'
+    # correlated draws off target), and their independent value is preserved
+    # unchanged at the end.
+    z = np.zeros(n, dtype=float)
     bypass = [False] * n
+    frozen_dists: list = [None] * n
     for i, name in enumerate(names):
         c = centers[name]
         v = independent[name]
-        if v is None or abs(c) < _CENTER_EPS:
+        if v is None:
             bypass[i] = True
-            r[i] = 0.0
-        else:
-            r[i] = (v - c) / c
+            continue
+        dist_obj = _get_scipy_dist(metric_by_name[name], c)
+        if dist_obj is None:
+            bypass[i] = True
+            continue
+        u = float(dist_obj.cdf(v))
+        if not np.isfinite(u):
+            bypass[i] = True
+            continue
+        u = min(max(u, _CDF_CLAMP), 1.0 - _CDF_CLAMP)
+        z[i] = float(sp_norm.ppf(u))
+        frozen_dists[i] = dist_obj
 
     if cholesky_L is not None:
         L = cholesky_L
@@ -264,14 +386,15 @@ def apply_correlations(
                 f"on it automatically."
             ) from exc
 
-    corr_r = L @ r
+    corr_z = L @ z
 
     out = dict(independent)
     for i, name in enumerate(names):
         if bypass[i]:
             continue
-        c = centers[name]
-        out[name] = c * (1.0 + corr_r[i])
+        u_corr = float(sp_norm.cdf(corr_z[i]))
+        u_corr = min(max(u_corr, _CDF_CLAMP), 1.0 - _CDF_CLAMP)
+        out[name] = float(frozen_dists[i].ppf(u_corr))
     return out
 
 

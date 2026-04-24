@@ -106,6 +106,17 @@ class SurrogateKeyWarning(UserWarning):
     """Warn when a composite-grain table uses a single-column surrogate PK."""
 
 
+class RedundantCorrelationWarning(UserWarning):
+    """Warn when a correlation entry has coefficient 0.0 (the default).
+
+    F-01 / 0.4.0. Unlisted metric pairs already get zero off-diagonal, so an
+    explicit ``coefficient: 0.0`` entry is either a mistake (the user meant
+    a different value and typed zero) or unnecessary (it has no effect). We
+    warn but don't reject — the entry is still structurally valid, and the
+    built matrix is unchanged.
+    """
+
+
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -990,6 +1001,16 @@ class PlotsimConfig(_Frozen):
                         f"correlation references unknown metric {m!r}; "
                         f"known: {sorted(metric_names)}"
                     )
+            # F-01 / 0.4.0: flag explicit zero-coefficient entries.
+            if corr.coefficient == 0.0:
+                warnings.warn(
+                    f"Correlation between {corr.metric_a!r} and "
+                    f"{corr.metric_b!r} is configured as 0.0, which is "
+                    f"already the default for unlisted pairs. This entry "
+                    f"has no effect.",
+                    RedundantCorrelationWarning,
+                    stacklevel=2,
+                )
 
         for m in self.metrics:
             if m.causal_lag is not None:

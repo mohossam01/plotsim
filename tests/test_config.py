@@ -1554,6 +1554,30 @@ def test_tables_list_above_limit_fails():
         PlotsimConfig(**raw)
 
 
+def test_r09_redundant_zero_correlation_warns():
+    """R-09 / F-01: an explicit ``coefficient: 0.0`` entry emits
+    ``RedundantCorrelationWarning`` but load still succeeds — unlisted pairs
+    are already zero by default, so the entry is a no-op. We warn instead of
+    rejecting because the entry remains structurally valid and rejecting a
+    previously-accepted config would be a silent breaking change.
+    """
+    from plotsim.config import RedundantCorrelationWarning
+    raw = _minimal_valid()
+    # Add a second metric so the zero-correlation pair references two known
+    # names; the _minimal_valid fixture only ships one.
+    raw["metrics"].append({
+        "name": "m2", "label": "M2", "distribution": "lognorm",
+        "params": {"s": 0.5, "scale": 1.0}, "polarity": "positive",
+    })
+    raw["correlations"] = [
+        {"metric_a": "m1", "metric_b": "m2", "coefficient": 0.0},
+    ]
+    with pytest.warns(RedundantCorrelationWarning, match="already the default"):
+        cfg = PlotsimConfig(**raw)
+    assert len(cfg.correlations) == 1
+    assert cfg.correlations[0].coefficient == 0.0
+
+
 def test_correlations_list_above_limit_fails():
     raw = _minimal_valid()
     raw["metrics"] = [_bulk_metric(i) for i in range(50)]
