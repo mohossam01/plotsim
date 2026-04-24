@@ -107,23 +107,25 @@ def _coerce_integer_columns(
     on poisson metrics hits this). ``pd.Int64Dtype`` is the nullable-integer
     equivalent and writes cleanly to CSV: integer cells render as ``5``, null
     cells render as the empty string (via ``na_rep=""``).
+
+    Category B Layer 4: the prior ``df.copy()`` doubled fact-table memory on
+    large runs. The Int64 promotion now runs in-place — acceptable because
+    the promotion is semantically no-op (same values, nullable-int instead
+    of float/object) and the resulting dtype is always the correct one for
+    this column's CSV rendering.
     """
-    out = df.copy()
     for col in tbl.columns:
-        if col.dtype != "int" or col.name not in out.columns:
+        if col.dtype != "int" or col.name not in df.columns:
             continue
-        series = out[col.name]
+        series = df[col.name]
         if pd.api.types.is_integer_dtype(series.dtype):
-            # Already an integer dtype; convert to nullable Int64 for
-            # consistency so to_csv na_rep behaves the same way across
-            # int-with-nulls and int-without-nulls columns.
-            out[col.name] = series.astype("Int64")
+            df[col.name] = series.astype("Int64")
             continue
         # Float, object, or bool — round trip through float → Int64, preserving
         # NaN as <NA>.
         coerced = pd.to_numeric(series, errors="coerce")
-        out[col.name] = coerced.round().astype("Int64")
-    return out
+        df[col.name] = coerced.round().astype("Int64")
+    return df
 
 
 # --- Single-table writer -----------------------------------------------------

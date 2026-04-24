@@ -72,7 +72,7 @@ from plotsim.dimensions import (
     build_all_dimensions,
     sample_fk_values,
 )
-from plotsim.metrics import generate_entity_metrics
+from plotsim.metrics import _build_correlation_matrix, generate_entity_metrics
 from plotsim.trajectory import compute_all_trajectories
 
 
@@ -143,6 +143,7 @@ def build_fact_tables(
     trajectories: dict[str, np.ndarray],
     dim_tables: dict[str, pd.DataFrame],
     rng: np.random.Generator,
+    cholesky_L: Optional[np.ndarray] = None,
 ) -> dict[str, pd.DataFrame]:
     """Generate every fact table in ``config.tables`` keyed by table name.
 
@@ -182,7 +183,15 @@ def build_fact_tables(
             config.noise,
             rng,
             archetype=arch_by_name.get(entity.archetype),
+            cholesky_L=cholesky_L,
         )
+
+    # Category B Layer 4: materialize metric series as a dense (E, P, M) float64
+    # ndarray keyed by config.entities order (not sorted name order — row order
+    # in the fact tables must match the config entity iteration order).
+    # Null values (MCAR / poisson-with-MCAR) become ``np.nan``. Downstream
+    # column builders index into this array instead of dict-of-dict lookups.
+    metrics_3d = _build_metrics_3d(config, entity_metrics, n_periods)
 
     fact_out: dict[str, pd.DataFrame] = {}
     fake = _make_faker(rng, config.locale)
@@ -193,11 +202,11 @@ def build_fact_tables(
         if tbl.grain == "per_entity_per_period":
             fact_out[tbl.name] = _build_per_entity_per_period_fact(
                 tbl, config, entity_metrics, dim_tables, per_entity_dims,
-                fake, rng,
+                fake, rng, metrics_3d,
             )
         elif tbl.grain == "per_period":
             fact_out[tbl.name] = _build_per_period_fact(
-                tbl, config, entity_metrics, dim_tables, fake,
+                tbl, config, entity_metrics, dim_tables, fake, metrics_3d,
             )
         else:
             raise ValueError(
@@ -208,6 +217,46 @@ def build_fact_tables(
     return fact_out
 
 
+def _build_metrics_3d(
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    n_periods: int,
+) -> np.ndarray:
+    """Pack per-entity per-metric series into a float64 ndarray shaped (E, P, M).
+
+    - E axis: indexed by ``config.entities`` order (preserves fact-row order).
+    - P axis: time.
+    - M axis: indexed by ``config.metrics`` order.
+
+    Null cells (MCAR, or poisson-with-MCAR) become ``np.nan``. Integer-typed
+    metrics pass through as float64 (the nullable ``Int64`` conversion happens
+    at CSV-write time in ``plotsim.output``, so the fact DataFrame stays
+    homogeneous float64 here).
+    """
+    entity_names_ordered = [e.name for e in config.entities]
+    n_entities = len(entity_names_ordered)
+    n_metrics = len(config.metrics)
+    out = np.full((n_entities, n_periods, n_metrics), np.nan, dtype=np.float64)
+    for i, ename in enumerate(entity_names_ordered):
+        per_metric = entity_metrics[ename]
+        for j, m in enumerate(config.metrics):
+            arr = per_metric[m.name]
+            if arr.dtype == object:
+                # Object array with possible None values — explicit walk so
+                # None becomes NaN in the float slot.
+                for p in range(n_periods):
+                    v = arr[p]
+                    if v is None:
+                        out[i, p, j] = np.nan
+                    elif isinstance(v, float) and np.isnan(v):
+                        out[i, p, j] = np.nan
+                    else:
+                        out[i, p, j] = float(v)
+            else:
+                out[i, :, j] = arr.astype(np.float64)
+    return out
+
+
 def _build_per_entity_per_period_fact(
     tbl: Table,
     config: PlotsimConfig,
@@ -216,7 +265,17 @@ def _build_per_entity_per_period_fact(
     per_entity_dims: set[str],
     fake: Faker,
     rng: np.random.Generator,
+    metrics_3d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
+    """Build one per_entity_per_period fact table.
+
+    Category B Layer 4 took this from list-of-dict + per-cell Python calls to
+    column-oriented numpy construction. Shape invariant preserved: rows are
+    in ``config.entities`` × ``range(n_periods)`` order (entity-major). The
+    scalar path is retained as a fallback for columns whose resolution either
+    consumes the RNG at fact-build time (``FakerSource``) or needs Python
+    ``bool()`` coercion on a metric value.
+    """
     entity_fk = _find_entity_fk_column(tbl, per_entity_dims)
     if entity_fk is None:
         raise ValueError(
@@ -243,14 +302,19 @@ def _build_per_entity_per_period_fact(
     dim_date = dim_tables["dim_date"]
     n_periods = len(dim_date)
 
+    # Hoist parse_source() out of every loop — every column's source string is
+    # parsed exactly once.
+    parsed_cols = [(col, parse_source(col.source)) for col in tbl.columns]
+
     # FIX-04: precompute cross-dim FK assignments per entity. Each entity's
     # plan_id (or any other cross-dim FK) is drawn ONCE and broadcast across
     # all periods — facts are time-series under fixed entity attributes.
     # Resolution: Entity.cross_dim_fks pin → Column.distribution.weights
-    # → uniform → single PK if parent is 1-row.
+    # → uniform → single PK if parent is 1-row. This block always runs in
+    # config.entities order so RNG consumption is preserved irrespective of
+    # the downstream path (vectorized or scalar fallback).
     other_fks: dict[str, tuple[Column, str, str]] = {}
-    for col in tbl.columns:
-        parsed = parse_source(col.source)
+    for col, parsed in parsed_cols:
         if not isinstance(parsed, FKSource):
             continue
         if col.name in (local_entity_col, local_date_col):
@@ -278,6 +342,49 @@ def _build_per_entity_per_period_fact(
             )[0]
         entity_cross_fks[entity.name] = per_entity_assignments
 
+    # Fallback path: any column whose resolution consumes RNG at fact-build
+    # time, or requires Python bool() coercion, forces the scalar per-row loop
+    # so call order is preserved. No shipped template exercises this branch.
+    has_faker = any(isinstance(p, FakerSource) for _, p in parsed_cols)
+    has_bool_metric = any(
+        col.dtype == "boolean" and isinstance(p, (MetricSource, LagSource))
+        for col, p in parsed_cols
+    )
+    if has_faker or has_bool_metric or metrics_3d is None:
+        return _scalar_per_entity_per_period_fact(
+            tbl, config, entity_metrics, dim_date, n_periods,
+            parent_entity_dim, parent_entity_pk,
+            local_entity_col, local_date_col, parent_date_pk,
+            entity_cross_fks, fake, parsed_cols,
+        )
+
+    return _vectorized_per_entity_per_period_fact(
+        tbl, config, dim_date, n_periods,
+        parent_entity_dim, parent_entity_pk,
+        local_entity_col, local_date_col, parent_date_pk,
+        entity_cross_fks, parsed_cols, metrics_3d,
+    )
+
+
+def _scalar_per_entity_per_period_fact(
+    tbl: Table,
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    dim_date: pd.DataFrame,
+    n_periods: int,
+    parent_entity_dim: pd.DataFrame,
+    parent_entity_pk: str,
+    local_entity_col: str,
+    local_date_col: str,
+    parent_date_pk: str,
+    entity_cross_fks: dict[str, dict[str, Any]],
+    fake: Faker,
+    parsed_cols: list[tuple[Column, Any]],
+) -> pd.DataFrame:
+    """Pre-Layer-4 row-by-row builder, kept as a fallback for fact tables that
+    use ``FakerSource`` or ``boolean``-typed metric columns (paths where
+    vectorization would reorder RNG draws or drop a Python coercion)."""
+    del parsed_cols  # not used here; scalar path walks tbl.columns directly
     rows: list[dict] = []
     for entity_idx, entity in enumerate(config.entities):
         entity_pk_value = parent_entity_dim.iloc[entity_idx][parent_entity_pk]
@@ -292,8 +399,134 @@ def _build_per_entity_per_period_fact(
                     metric_series, dim_date, cross_fks_for_entity, fake,
                 )
             rows.append(row)
-
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
+
+
+def _vectorized_per_entity_per_period_fact(
+    tbl: Table,
+    config: PlotsimConfig,
+    dim_date: pd.DataFrame,
+    n_periods: int,
+    parent_entity_dim: pd.DataFrame,
+    parent_entity_pk: str,
+    local_entity_col: str,
+    local_date_col: str,
+    parent_date_pk: str,
+    entity_cross_fks: dict[str, dict[str, Any]],
+    parsed_cols: list[tuple[Column, Any]],
+    metrics_3d: np.ndarray,
+) -> pd.DataFrame:
+    """Column-oriented builder. Each column becomes a single ndarray built via
+    slicing / repeating / tiling on shared broadcast axes, then all columns
+    are assembled into one ``pd.DataFrame({name: ndarray, ...})`` — skipping
+    the ~3× memory spike that ``pd.DataFrame(list[dict])`` creates.
+    """
+    n_entities = len(config.entities)
+    total_rows = n_entities * n_periods
+
+    # Entity PK values, aligned 1:1 with config.entities iteration order.
+    entity_pks = np.asarray(
+        [parent_entity_dim.iloc[i][parent_entity_pk] for i in range(n_entities)],
+        dtype=object,
+    )
+    entity_pk_repeated = np.repeat(entity_pks, n_periods)
+
+    # Date-FK values — one per period, tiled across entities.
+    date_keys = dim_date[parent_date_pk].to_numpy()
+    date_key_tiled = np.tile(date_keys, n_entities)
+
+    metric_name_to_idx = {m.name: i for i, m in enumerate(config.metrics)}
+
+    # Period index per row — for DerivedSource.period_index and PKSource.
+    period_idx_col = np.tile(np.arange(n_periods, dtype=np.int64), n_entities)
+
+    col_arrays: dict[str, np.ndarray] = {}
+    for col, parsed in parsed_cols:
+        if isinstance(parsed, FKSource):
+            if col.name == local_entity_col:
+                col_arrays[col.name] = entity_pk_repeated
+            elif col.name == local_date_col:
+                col_arrays[col.name] = date_key_tiled
+            else:
+                # Cross-dim FK precomputed once per entity.
+                cross_vals = np.asarray(
+                    [entity_cross_fks[e.name].get(col.name) for e in config.entities],
+                    dtype=object,
+                )
+                col_arrays[col.name] = np.repeat(cross_vals, n_periods)
+        elif isinstance(parsed, MetricSource):
+            if parsed.metric not in metric_name_to_idx:
+                raise ValueError(
+                    f"fact column {col.name!r} references metric "
+                    f"{parsed.metric!r}, which was not generated; check config.metrics"
+                )
+            m_idx = metric_name_to_idx[parsed.metric]
+            col_arrays[col.name] = metrics_3d[:, :, m_idx].ravel(order="C").copy()
+        elif isinstance(parsed, LagSource):
+            if parsed.metric not in metric_name_to_idx:
+                col_arrays[col.name] = np.full(total_rows, np.nan, dtype=np.float64)
+            else:
+                m_idx = metric_name_to_idx[parsed.metric]
+                n = parsed.periods
+                base = np.arange(n_periods, dtype=np.int64)
+                target_idx = base - n
+                # "If history too short, fall back to current period" — scalar
+                # semantics preserved by mapping out-of-range to the current
+                # period index.
+                target_idx = np.where(target_idx < 0, base, target_idx)
+                sliced = metrics_3d[:, target_idx, m_idx]  # (E, P)
+                col_arrays[col.name] = sliced.ravel(order="C").copy()
+        elif isinstance(parsed, PKSource):
+            # f"{col.name}-{period_idx:04d}-{entity_pk_value}" — build once.
+            pk_rows = [
+                f"{col.name}-{p:04d}-{entity_pks[i]}"
+                for i in range(n_entities)
+                for p in range(n_periods)
+            ]
+            col_arrays[col.name] = np.asarray(pk_rows, dtype=object)
+        elif isinstance(parsed, GeneratedSource):
+            provider = parsed.provider
+            if provider == "timestamp":
+                dates = dim_date["date"].tolist()
+                promoted: list[Any] = []
+                for d in dates:
+                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
+                        promoted.append(_dt.datetime(d.year, d.month, d.day))
+                    else:
+                        promoted.append(d)
+                promoted_arr = np.asarray(promoted, dtype=object)
+                col_arrays[col.name] = np.tile(promoted_arr, n_entities)
+            elif provider == "date_key":
+                col_arrays[col.name] = np.tile(
+                    dim_date["date_key"].to_numpy(), n_entities,
+                )
+            elif provider == "period_label":
+                col_arrays[col.name] = np.tile(
+                    dim_date["period_label"].to_numpy(), n_entities,
+                )
+            else:
+                raise ValueError(
+                    f"unsupported generated provider {provider!r} on fact/event tables"
+                )
+        elif isinstance(parsed, StaticSource):
+            col_arrays[col.name] = np.full(total_rows, parsed.value, dtype=object)
+        elif isinstance(parsed, DerivedSource):
+            if parsed.field == "period_index":
+                col_arrays[col.name] = period_idx_col.copy()
+            elif parsed.field == "entity_id":
+                col_arrays[col.name] = entity_pk_repeated
+            else:
+                raise ValueError(
+                    f"fact column {col.name!r} derived field "
+                    f"{parsed.field!r} not supported"
+                )
+        else:
+            raise ValueError(
+                f"fact column {col.name!r} source {col.source!r} is not "
+                f"supported on per_entity_per_period fact tables"
+            )
+
+    return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
 
 
 def _resolve_fact_cell(
@@ -372,20 +605,27 @@ def _build_per_period_fact(
     entity_metrics: dict[str, dict[str, np.ndarray]],
     dim_tables: dict[str, pd.DataFrame],
     fake: Faker,
+    metrics_3d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
-    """Per-period fact (no entity axis) — uses the cross-entity mean series."""
+    """Per-period fact (no entity axis) — uses the cross-entity mean series.
+
+    Category B Layer 4: the per-metric mean is now a single
+    ``np.nanmean(metrics_3d, axis=0)`` call (shape ``(P, M)``) that replaces
+    the prior per-metric ``np.vstack`` + list comprehension. None of the
+    shipped templates declare a per-period fact; the code path is kept for
+    library users that compose one.
+    """
     dim_date = dim_tables["dim_date"]
     n_periods = len(dim_date)
 
-    averaged: dict[str, np.ndarray] = {}
-    for m in config.metrics:
-        stacks = []
-        for entity in config.entities:
-            arr = entity_metrics[entity.name][m.name]
-            stacks.append(np.array([
-                np.nan if v is None else float(v) for v in arr
-            ], dtype=float))
-        averaged[m.name] = np.nanmean(np.vstack(stacks), axis=0)
+    # Build (P, M) mean array — prefer metrics_3d if caller supplied one.
+    if metrics_3d is None:
+        # Scalar-path fallback — re-materialize the (P, M) mean without a
+        # prebuilt 3D array so this helper still works when called directly
+        # from tests.
+        metrics_3d = _build_metrics_3d(config, entity_metrics, n_periods)
+    period_mean = np.nanmean(metrics_3d, axis=0)  # shape: (P, M)
+    metric_idx_by_name = {m.name: i for i, m in enumerate(config.metrics)}
 
     date_fk = _find_date_fk_column(tbl)
     rows: list[dict] = []
@@ -396,9 +636,15 @@ def _build_per_period_fact(
             if isinstance(parsed, FKSource) and date_fk and col.name == date_fk[0]:
                 row[col.name] = dim_date.iloc[period_idx][date_fk[2]]
             elif isinstance(parsed, MetricSource):
-                row[col.name] = _coerce_metric_value(
-                    averaged[parsed.metric][period_idx], col.dtype
-                )
+                if parsed.metric not in metric_idx_by_name:
+                    row[col.name] = None
+                    continue
+                m_idx = metric_idx_by_name[parsed.metric]
+                raw_val = period_mean[period_idx, m_idx]
+                if np.isnan(raw_val):
+                    row[col.name] = None
+                else:
+                    row[col.name] = _coerce_metric_value(float(raw_val), col.dtype)
             elif isinstance(parsed, PKSource):
                 row[col.name] = f"{col.name}-{period_idx:04d}"
             elif isinstance(parsed, GeneratedSource):
@@ -549,6 +795,23 @@ def _build_proportional_event(
     fake: Faker,
     rng: np.random.Generator,
 ) -> pd.DataFrame:
+    """Build a proportional event table with hybrid vectorization.
+
+    Category B Layer 5 splits event columns into two categories:
+
+      * **Deterministic** (no RNG draws): PK, FK to ``dim_date``, FK to a
+        ``per_entity`` dim, ``ThresholdSource`` cells (always ``None`` in
+        the proportional path), ``GeneratedSource``, ``StaticSource``,
+        ``DerivedSource``. These are materialized once as numpy arrays via
+        ``np.repeat`` / ``np.tile`` + index lookups.
+      * **Stochastic** (consumes RNG or advances faker state): ``FakerSource``
+        and sub-entity/reference ``FKSource``. These still go through a
+        per-row scalar loop in the same cell order as the pre-Layer-5 path,
+        so RNG consumption order is preserved byte-for-byte.
+
+    When an event table has zero stochastic columns (e.g. a pure counts
+    export), the per-row loop is skipped entirely.
+    """
     located = _find_metric_column_in_facts(rc.metric, fact_tables, config)
     if located is None:
         raise ValueError(
@@ -559,35 +822,182 @@ def _build_proportional_event(
     fact_table_cfg = next(t for t in config.tables if t.name == fact_name)
     fact_df = fact_tables[fact_name]
 
-    _, groups = _entity_groups(fact_df, fact_table_cfg, per_entity_dims)
+    fact_entity_fk = _find_entity_fk_column(fact_table_cfg, per_entity_dims)
+    if fact_entity_fk is None:
+        raise ValueError(
+            f"fact {fact_name!r} has no per_entity FK; cannot group events"
+        )
+    fact_entity_col_name = fact_entity_fk[0]
+
     fact_date_col = _find_date_fk_column(fact_table_cfg)
     if fact_date_col is None:
-        raise ValueError(f"fact {fact_name!r} has no dim_date FK; cannot derive event dates")
+        raise ValueError(
+            f"fact {fact_name!r} has no dim_date FK; cannot derive event dates"
+        )
     fact_date_col_name = fact_date_col[0]
 
     dim_date = dim_tables["dim_date"]
-    rows: list[dict] = []
-    pk_counter = 0
+    parsed_cols = [(col, parse_source(col.source)) for col in tbl.columns]
 
-    for entity_pk_value, group in groups:
-        for _, fact_row in group.iterrows():
-            value = fact_row[metric_col]
-            if value is None or (isinstance(value, float) and np.isnan(value)):
-                continue
-            count = int(round(float(value) * rc.scale))
-            if count <= 0:
-                continue
-            date_key_value = fact_row[fact_date_col_name]
-            for _ in range(count):
-                row = _resolve_event_row(
-                    tbl, pk_counter, date_key_value, entity_pk_value,
-                    None, None,
-                    dim_date, dim_tables, config, fake, rng,
+    # Per-cell vectors — fact rows are already in entity-major order from the
+    # Layer 4 builder (or the scalar fallback, which also emits in that
+    # order), so column-reading the fact DataFrame preserves the exact cell
+    # order that the pre-Layer-5 groupby-then-iterrows walk used.
+    entity_ids_arr = fact_df[fact_entity_col_name].to_numpy()
+    date_keys_arr = fact_df[fact_date_col_name].to_numpy()
+    # Coerce to float64 with NaN for nulls — handles both vectorized fact
+    # output (float64) and scalar-fallback output (object with None).
+    values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy()
+
+    # NaN-as-null cells contribute zero rows. Replace NaN before the cast so
+    # np.int64 doesn't emit a garbage-value RuntimeWarning on the NaN lane.
+    values_nonan = np.where(np.isnan(values_arr), 0.0, values_arr)
+    counts = np.rint(values_nonan * rc.scale).astype(np.int64)
+    counts = np.maximum(counts, 0)
+    total_rows = int(counts.sum())
+
+    if total_rows == 0:
+        return pd.DataFrame(columns=[c.name for c in tbl.columns])
+
+    event_entity_ids = np.repeat(entity_ids_arr, counts)
+    event_date_keys = np.repeat(date_keys_arr, counts)
+
+    # Map each event row to its period index in dim_date so GeneratedSource
+    # lookups have an O(1) path. Scalar path falls back to index 0 when the
+    # date_key isn't found — mirror that exactly.
+    date_key_idx = {k: i for i, k in enumerate(dim_date["date_key"].tolist())}
+    event_date_idx = np.fromiter(
+        (date_key_idx.get(k, 0) for k in event_date_keys),
+        dtype=np.int64, count=total_rows,
+    )
+
+    # PK serial: scalar path writes pk_counter+1 starting from 0 → 1..total_rows.
+    pk_prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
+    pk_width = _id_pad(10_000)
+    pk_first_char = pk_prefix[0]
+
+    # Classify columns. Any FK that points to a non-per_entity, non-dim_date
+    # table may draw RNG; FakerSource always advances faker state.
+    def _is_stochastic(col: Column, parsed: Any) -> bool:
+        if isinstance(parsed, FakerSource):
+            return True
+        if isinstance(parsed, FKSource):
+            return parsed.table not in per_entity_dims and parsed.table != "dim_date"
+        return False
+
+    stochastic_cols = {
+        col.name for col, parsed in parsed_cols if _is_stochastic(col, parsed)
+    }
+
+    col_arrays: dict[str, np.ndarray] = {}
+    for col, parsed in parsed_cols:
+        if col.name in stochastic_cols:
+            col_arrays[col.name] = np.empty(total_rows, dtype=object)
+            continue
+        if isinstance(parsed, PKSource):
+            col_arrays[col.name] = np.asarray([
+                f"{pk_first_char}-{i + 1:0{pk_width}d}"
+                for i in range(total_rows)
+            ], dtype=object)
+        elif isinstance(parsed, FKSource):
+            if parsed.table == "dim_date":
+                col_arrays[col.name] = event_date_keys
+            elif parsed.table in per_entity_dims:
+                col_arrays[col.name] = event_entity_ids
+            else:
+                # Classified as deterministic above only when back-link path
+                # would not execute — but we kept the conservative
+                # classification. This branch is unreachable for shipped
+                # templates; keep the fallback for defensive completeness.
+                col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+        elif isinstance(parsed, ThresholdSource):
+            # Proportional path passes threshold_col_name=None, so every
+            # ThresholdSource cell resolves to None in the scalar path.
+            col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+        elif isinstance(parsed, GeneratedSource):
+            provider = parsed.provider
+            if provider == "timestamp":
+                dates = dim_date["date"].tolist()
+                promoted: list[Any] = []
+                for d in dates:
+                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
+                        promoted.append(_dt.datetime(d.year, d.month, d.day))
+                    else:
+                        promoted.append(d)
+                col_arrays[col.name] = np.asarray(
+                    [promoted[i] for i in event_date_idx], dtype=object,
                 )
-                rows.append(row)
-                pk_counter += 1
+            elif provider == "date_key":
+                dk = dim_date["date_key"].tolist()
+                col_arrays[col.name] = np.asarray(
+                    [dk[i] for i in event_date_idx], dtype=object,
+                )
+            elif provider == "period_label":
+                pl = dim_date["period_label"].tolist()
+                col_arrays[col.name] = np.asarray(
+                    [pl[i] for i in event_date_idx], dtype=object,
+                )
+            else:
+                raise ValueError(
+                    f"unsupported generated provider {provider!r} on fact/event tables"
+                )
+        elif isinstance(parsed, StaticSource):
+            col_arrays[col.name] = np.full(total_rows, parsed.value, dtype=object)
+        elif isinstance(parsed, DerivedSource):
+            if parsed.field == "entity_id":
+                col_arrays[col.name] = event_entity_ids
+            elif parsed.field == "date_key":
+                col_arrays[col.name] = event_date_keys
+            else:
+                col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+        else:
+            col_arrays[col.name] = np.full(total_rows, None, dtype=object)
 
-    return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
+    # Stochastic columns: iterate per (cell, row) exactly as the scalar path
+    # did, so RNG + faker consumption order is byte-identical. Source parsing
+    # is already hoisted; the inner work is a dict write per stochastic column.
+    if stochastic_cols:
+        row_idx = 0
+        n_cells = len(counts)
+        cell_entity_ids = entity_ids_arr
+        stochastic_parsed = [
+            (col, parsed) for col, parsed in parsed_cols
+            if col.name in stochastic_cols
+        ]
+        for cell_idx in range(n_cells):
+            c = int(counts[cell_idx])
+            if c == 0:
+                continue
+            entity_pk_value = cell_entity_ids[cell_idx]
+            for _ in range(c):
+                for col, parsed in stochastic_parsed:
+                    if isinstance(parsed, FakerSource):
+                        col_arrays[col.name][row_idx] = _call_faker(
+                            fake, parsed.method, parsed.kwargs,
+                        )
+                    elif isinstance(parsed, FKSource):
+                        parent = dim_tables.get(parsed.table)
+                        if parent is None or parent.empty:
+                            col_arrays[col.name][row_idx] = None
+                            continue
+                        back_link = _find_entity_link_in_subentity(
+                            parsed.table, config, per_entity_dims,
+                        )
+                        if back_link is not None:
+                            candidates = parent[parent[back_link] == entity_pk_value]
+                            if len(candidates) > 0:
+                                if rng is not None:
+                                    pick = int(rng.integers(0, len(candidates)))
+                                else:
+                                    pick = 0
+                                col_arrays[col.name][row_idx] = (
+                                    candidates.iloc[pick][parsed.column]
+                                )
+                                continue
+                        col_arrays[col.name][row_idx] = parent.iloc[0][parsed.column]
+                row_idx += 1
+
+    return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
 
 
 def _build_threshold_event(
@@ -956,7 +1366,23 @@ def generate_tables(
     n_periods = len(dim_tables["dim_date"])
     trajectories = compute_all_trajectories(config, n_periods)
 
-    fact_tables = build_fact_tables(config, trajectories, dim_tables, rng)
+    # Category B Layer 3 (SEC-08): hoist the Cholesky factor out of the
+    # per-(cohort, period) hot loop. The correlation matrix is config-
+    # invariant across the run (depends only on metric name order and
+    # correlations list), so computing L once saves N_cohorts × N_periods
+    # matrix+Cholesky rebuilds. The PSD gate above guarantees this Cholesky
+    # succeeds; if the call ever surfaces an error here it means an external
+    # caller bypassed ``validate_correlation_psd``.
+    cholesky_L: Optional[np.ndarray] = None
+    if config.correlations:
+        mat = _build_correlation_matrix(
+            list(config.metrics), list(config.correlations),
+        )
+        cholesky_L = np.linalg.cholesky(mat)
+
+    fact_tables = build_fact_tables(
+        config, trajectories, dim_tables, rng, cholesky_L=cholesky_L,
+    )
     fact_tables = assign_stages(config, fact_tables)
     event_tables = build_event_tables(config, fact_tables, dim_tables, rng)
 

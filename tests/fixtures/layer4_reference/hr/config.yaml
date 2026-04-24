@@ -1,0 +1,415 @@
+domain:
+  name: HR talent analytics
+  description: Employee performance and attrition patterns across tenure
+  entity_type: employee
+  entity_label: Employees
+time_window:
+  start: 2022-01
+  end: 2024-12
+  granularity: monthly
+seed: 17
+metrics:
+- name: performance_score
+  label: Performance score
+  distribution: normal
+  params:
+    mu: 3.5
+    sigma: 0.6
+  polarity: positive
+  value_range:
+    min: 1.0
+    max: 5.0
+  causal_lag: null
+- name: engagement_index
+  label: Engagement index
+  distribution: beta
+  params:
+    alpha: 3.0
+    beta: 3.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: training_hours
+  label: Monthly training hours
+  distribution: gamma
+  params:
+    shape: 2.0
+    scale: 3.0
+  polarity: positive
+  value_range: null
+  causal_lag: null
+- name: absence_rate
+  label: Monthly absence rate
+  distribution: beta
+  params:
+    alpha: 1.2
+    beta: 8.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag:
+    driver: engagement_index
+    lag_periods: 1
+- name: attrition_risk
+  label: Attrition risk score
+  distribution: beta
+  params:
+    alpha: 2.0
+    beta: 6.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+archetypes:
+- name: fast_riser
+  label: Rapid growth
+  description: Compound growth in performance over tenure
+  curve_segments:
+  - curve: compound
+    params:
+      base_rate: 0.08
+      acceleration: 0.03
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: steady_performer
+  label: Consistent high performance
+  description: Sustained high plateau throughout tenure
+  curve_segments:
+  - curve: plateau
+    params:
+      level: 0.8
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: quiet_quitter
+  label: Gradually disengages
+  description: Exponential decline across the window
+  curve_segments:
+  - curve: exp_decay
+    params:
+      rate: 1.5
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: burnout_risk
+  label: Peaks then crashes
+  description: Rapid rise, sharp fall, recovery plateau
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.25
+      steepness: 8.0
+    start_pct: 0.0
+    end_pct: 0.5
+  - curve: step
+    params:
+      threshold: 0.5
+      before: 1.0
+      after: 0.3
+    start_pct: 0.5
+    end_pct: 0.6
+  - curve: plateau
+    params:
+      level: 0.3
+    start_pct: 0.6
+    end_pct: 1.0
+  metric_overrides: {}
+- name: new_hire_ramp
+  label: Starts low then ramps up
+  description: Low initial performance, sigmoid rise to plateau
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.4
+      steepness: 7.0
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+entities:
+- name: high_flyers
+  archetype: fast_riser
+  size: 20
+  overrides: {}
+  cross_dim_fks: {}
+- name: core_team
+  archetype: steady_performer
+  size: 50
+  overrides: {}
+  cross_dim_fks: {}
+- name: disengaged_pool
+  archetype: quiet_quitter
+  size: 10
+  overrides: {}
+  cross_dim_fks: {}
+- name: burnout_cohort
+  archetype: burnout_risk
+  size: 5
+  overrides: {}
+  cross_dim_fks: {}
+tables:
+- name: dim_date
+  type: dim
+  grain: per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date
+    dtype: date
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: year
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: month
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: date_key
+  foreign_keys: []
+  row_count_source: null
+- name: dim_department
+  type: dim
+  grain: per_reference
+  columns:
+  - name: dept_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: dept_name
+    dtype: string
+    source: static:engineering
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cost_center
+    dtype: string
+    source: static:R&D
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: dept_id
+  foreign_keys: []
+  row_count_source: null
+- name: dim_employee
+  type: dim
+  grain: per_entity
+  columns:
+  - name: employee_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: dept_id
+    dtype: id
+    source: fk:dim_department.dept_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: full_name
+    dtype: string
+    source: generated:faker.name
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: hire_date
+    dtype: date
+    source: generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: level
+    dtype: string
+    source: static:IC
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: employee_id
+  foreign_keys:
+  - dim_department.dept_id
+  row_count_source: null
+- name: fct_performance
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: employee_id
+    dtype: id
+    source: fk:dim_employee.employee_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: performance_score
+    dtype: float
+    source: metric:performance_score
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: engagement_index
+    dtype: float
+    source: metric:engagement_index
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - employee_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_employee.employee_id
+  row_count_source: null
+- name: fct_training
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: employee_id
+    dtype: id
+    source: fk:dim_employee.employee_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: training_hours
+    dtype: float
+    source: metric:training_hours
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - employee_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_employee.employee_id
+  row_count_source: null
+- name: fct_attendance
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: employee_id
+    dtype: id
+    source: fk:dim_employee.employee_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: absence_rate
+    dtype: float
+    source: metric:absence_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: attrition_risk
+    dtype: float
+    source: metric:attrition_risk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - employee_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_employee.employee_id
+  row_count_source: null
+- name: evt_attrition
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: employee_id
+    dtype: id
+    source: fk:dim_employee.employee_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: reason
+    dtype: string
+    source: generated:faker.sentence
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_employee.employee_id
+  row_count_source: null
+correlations:
+- metric_a: engagement_index
+  metric_b: attrition_risk
+  coefficient: -0.65
+- metric_a: performance_score
+  metric_b: attrition_risk
+  coefficient: -0.5
+- metric_a: absence_rate
+  metric_b: attrition_risk
+  coefficient: 0.55
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
+  mcar_rate: 0.01
+output:
+  format: csv
+  directory: out/hr
+stages:
+  field: attrition_risk
+  sequence:
+  - name: new_hire
+    threshold_enter: 0.0
+    threshold_exit: 0.15
+  - name: established
+    threshold_enter: 0.15
+    threshold_exit: 0.4
+  - name: disengaging
+    threshold_enter: 0.4
+    threshold_exit: 0.7
+  - name: exited
+    threshold_enter: 0.7
+    threshold_exit: null
+  enforce_order: true
+  downgrade_delay: null
+locale: en_US

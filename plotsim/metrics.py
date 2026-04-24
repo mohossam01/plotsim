@@ -174,11 +174,37 @@ def _clamp_and_round(value: float, metric: Metric) -> float:
 
 # --- Correlated noise via Cholesky ------------------------------------------
 
+def _build_correlation_matrix(
+    metrics: list[Metric],
+    correlations: list[CorrelationPair],
+) -> np.ndarray:
+    """Assemble the n×n correlation matrix from metrics + pairs.
+
+    The matrix depends only on metric name ORDER and the correlation pairs —
+    not on trajectory, archetype, cohort, lag state, or any runtime value.
+    Category B Layer 3 hoists the Cholesky factor to the top of
+    ``generate_tables`` using this helper; fallback callers inside
+    ``apply_correlations`` use the same helper so the math stays in one place.
+    """
+    names = [m.name for m in metrics]
+    idx = {n: i for i, n in enumerate(names)}
+    n = len(names)
+    mat = np.eye(n)
+    for pair in correlations:
+        if pair.metric_a in idx and pair.metric_b in idx:
+            i = idx[pair.metric_a]
+            j = idx[pair.metric_b]
+            mat[i, j] = pair.coefficient
+            mat[j, i] = pair.coefficient
+    return mat
+
+
 def apply_correlations(
     independent: dict[str, float],
     centers: dict[str, float],
     correlations: list[CorrelationPair],
     metrics: list[Metric],
+    cholesky_L: Optional[np.ndarray] = None,
 ) -> dict[str, float]:
     """Adjust independent samples so pairwise correlations match config.
 
@@ -196,12 +222,19 @@ def apply_correlations(
     a bad matrix, we raise ``ValueError`` rather than silently fall back to
     independent samples — silent fallback hides the defect from every
     statistical test downstream.
+
+    Category B Layer 3 (SEC-08): when the caller has already computed the
+    Cholesky factor at the top of ``generate_tables``, they pass it as
+    ``cholesky_L`` and this function skips the redundant matrix assembly +
+    ``np.linalg.cholesky`` call. Output is byte-identical between the two
+    paths — the matrix is config-invariant across the per-(cohort, period)
+    loop. Direct external callers that omit ``cholesky_L`` still work; the
+    in-function path builds the matrix on demand.
     """
     if not correlations:
         return dict(independent)
 
     names = [m.name for m in metrics]
-    idx = {n: i for i, n in enumerate(names)}
     n = len(names)
 
     r = np.zeros(n, dtype=float)
@@ -215,25 +248,21 @@ def apply_correlations(
         else:
             r[i] = (v - c) / c
 
-    mat = np.eye(n)
-    for pair in correlations:
-        if pair.metric_a in idx and pair.metric_b in idx:
-            i = idx[pair.metric_a]
-            j = idx[pair.metric_b]
-            mat[i, j] = pair.coefficient
-            mat[j, i] = pair.coefficient
-
-    try:
-        L = np.linalg.cholesky(mat)
-    except np.linalg.LinAlgError as exc:
-        eigvals = np.linalg.eigvalsh(mat).tolist()
-        raise ValueError(
-            f"Configured correlation matrix is not positive semi-definite "
-            f"for metrics {names}. Min eigenvalue: {min(eigvals):.6f}. "
-            f"Run plotsim.validation.validate_correlation_psd(config) before "
-            f"generation, or call validate_tables/generate_tables which gate "
-            f"on it automatically."
-        ) from exc
+    if cholesky_L is not None:
+        L = cholesky_L
+    else:
+        mat = _build_correlation_matrix(metrics, correlations)
+        try:
+            L = np.linalg.cholesky(mat)
+        except np.linalg.LinAlgError as exc:
+            eigvals = np.linalg.eigvalsh(mat).tolist()
+            raise ValueError(
+                f"Configured correlation matrix is not positive semi-definite "
+                f"for metrics {names}. Min eigenvalue: {min(eigvals):.6f}. "
+                f"Run plotsim.validation.validate_correlation_psd(config) before "
+                f"generation, or call validate_tables/generate_tables which gate "
+                f"on it automatically."
+            ) from exc
 
     corr_r = L @ r
 
@@ -346,6 +375,7 @@ def generate_metrics_for_period(
     period_index: int,
     rng: np.random.Generator,
     archetype: Optional[Archetype] = None,
+    cholesky_L: Optional[np.ndarray] = None,
 ) -> dict[str, Optional[float]]:
     """Generate every metric for one entity at one time step.
 
@@ -372,7 +402,10 @@ def generate_metrics_for_period(
         independent[em.name] = sample_single_metric(center, em, rng)
 
     if correlations:
-        correlated = apply_correlations(independent, centers, correlations, effective)
+        correlated = apply_correlations(
+            independent, centers, correlations, effective,
+            cholesky_L=cholesky_L,
+        )
     else:
         correlated = dict(independent)
 
@@ -399,6 +432,7 @@ def generate_entity_metrics(
     noise: Optional[NoiseConfig],
     rng: np.random.Generator,
     archetype: Optional[Archetype] = None,
+    cholesky_L: Optional[np.ndarray] = None,
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
@@ -427,7 +461,7 @@ def generate_entity_metrics(
         pos = float(trajectory[t])
         period_out = generate_metrics_for_period(
             pos, metrics, correlations, noise, lag_buffer, t, rng,
-            archetype=archetype,
+            archetype=archetype, cholesky_L=cholesky_L,
         )
         for m in metrics:
             collected[m.name].append(period_out[m.name])

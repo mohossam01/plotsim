@@ -1,0 +1,349 @@
+domain:
+  name: E-commerce customer segments
+  description: Shopper segment behavior across sessions, purchases, and retention
+  entity_type: customer_segment
+  entity_label: Customer segments
+time_window:
+  start: 2023-01
+  end: 2024-12
+  granularity: monthly
+seed: 7
+metrics:
+- name: session_count
+  label: Monthly sessions per segment
+  distribution: poisson
+  params:
+    lambda: 8.0
+  polarity: positive
+  value_range: null
+  causal_lag: null
+- name: cart_value
+  label: Average cart value
+  distribution: lognorm
+  params:
+    s: 0.6
+    loc: 0.0
+    scale: 80.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 10000.0
+  causal_lag: null
+- name: conversion_rate
+  label: Session-to-purchase conversion
+  distribution: beta
+  params:
+    alpha: 2.0
+    beta: 8.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: return_rate
+  label: Purchase return rate
+  distribution: beta
+  params:
+    alpha: 1.5
+    beta: 10.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: loyalty_score
+  label: Segment loyalty index
+  distribution: beta
+  params:
+    alpha: 3.0
+    beta: 4.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+archetypes:
+- name: holiday_surge
+  label: Spikes around holidays
+  description: Cyclical ramps driven by seasonal demand
+  curve_segments:
+  - curve: oscillating
+    params:
+      period: 0.5
+      amplitude: 0.35
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: steady_growth
+  label: Builds loyalty over time
+  description: Sigmoid growth to a sustained plateau
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.5
+      steepness: 5.0
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: one_and_done
+  label: Shops once, then fades
+  description: Rapid rise, abrupt drop, then dormant
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.2
+      steepness: 12.0
+    start_pct: 0.0
+    end_pct: 0.35
+  - curve: step
+    params:
+      threshold: 0.5
+      before: 1.0
+      after: 0.15
+    start_pct: 0.35
+    end_pct: 0.5
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.5
+    end_pct: 1.0
+  metric_overrides: {}
+entities:
+- name: power_buyers
+  archetype: steady_growth
+  size: 25
+  overrides: {}
+  cross_dim_fks: {}
+- name: holiday_shoppers
+  archetype: holiday_surge
+  size: 40
+  overrides: {}
+  cross_dim_fks: {}
+- name: browsers
+  archetype: one_and_done
+  size: 15
+  overrides: {}
+  cross_dim_fks: {}
+tables:
+- name: dim_date
+  type: dim
+  grain: per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date
+    dtype: date
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: year
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: month
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: quarter
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: date_key
+  foreign_keys: []
+  row_count_source: null
+- name: dim_customer
+  type: dim
+  grain: per_entity
+  columns:
+  - name: segment_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: segment_name
+    dtype: string
+    source: generated:faker.company
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cohort_size
+    dtype: int
+    source: derived:size
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: segment_id
+  foreign_keys: []
+  row_count_source: null
+- name: dim_product_category
+  type: dim
+  grain: per_reference
+  columns:
+  - name: category_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: category_name
+    dtype: string
+    source: static:apparel
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: margin_tier
+    dtype: string
+    source: static:standard
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: category_id
+  foreign_keys: []
+  row_count_source: null
+- name: fct_sessions
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: segment_id
+    dtype: id
+    source: fk:dim_customer.segment_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: session_count
+    dtype: int
+    source: metric:session_count
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: conversion_rate
+    dtype: float
+    source: metric:conversion_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - segment_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_customer.segment_id
+  row_count_source: null
+- name: fct_purchases
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: segment_id
+    dtype: id
+    source: fk:dim_customer.segment_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: category_id
+    dtype: id
+    source: fk:dim_product_category.category_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cart_value
+    dtype: float
+    source: metric:cart_value
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: return_rate
+    dtype: float
+    source: metric:return_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: loyalty_score
+    dtype: float
+    source: metric:loyalty_score
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - segment_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_customer.segment_id
+  - dim_product_category.category_id
+  row_count_source: null
+- name: evt_cart_abandonment
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: segment_id
+    dtype: id
+    source: fk:dim_customer.segment_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: event_ts
+    dtype: date
+    source: generated:timestamp
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_customer.segment_id
+  row_count_source: proportional:return_rate:scale:3
+correlations:
+- metric_a: session_count
+  metric_b: conversion_rate
+  coefficient: 0.45
+- metric_a: conversion_rate
+  metric_b: loyalty_score
+  coefficient: 0.4
+- metric_a: return_rate
+  metric_b: loyalty_score
+  coefficient: -0.35
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
+  mcar_rate: 0.01
+output:
+  format: csv
+  directory: out/ecommerce
+stages: null
+locale: en_US

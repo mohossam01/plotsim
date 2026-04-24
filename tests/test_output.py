@@ -495,3 +495,33 @@ def test_write_single_table_accepts_plain_identifier(tmp_path):
     path = write_single_table("fct_engagement", df, tmp_path)
     assert path == tmp_path / "fct_engagement.csv"
     assert path.exists()
+
+
+# --- Category B Layer 4: _coerce_integer_columns no-copy ---------------------
+
+
+def test_coerce_integer_columns_does_not_deep_copy():
+    """Layer 4: the pre-vectorization implementation always did ``df.copy()``
+    to protect the input. With fact tables now materialized in column-
+    oriented form, the promotion is done in-place — verified by identity
+    (the returned DataFrame IS the input) and by the dtype landing on Int64.
+    """
+    from plotsim.config import Column, Table
+    from plotsim.output import _coerce_integer_columns
+    tbl = Table(
+        name="fct_t", type="fact", grain="per_entity_per_period",
+        columns=[
+            Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+            Column(name="count_m", dtype="int", source="metric:m"),
+        ],
+        primary_key=["date_key"],
+        foreign_keys=["dim_date.date_key"],
+    )
+    df = pd.DataFrame({
+        "date_key": ["d1", "d2", "d3"],
+        "count_m": np.array([3.0, np.nan, 7.0], dtype=np.float64),
+    })
+    out = _coerce_integer_columns(tbl, df)
+    assert out is df
+    assert str(out["count_m"].dtype) == "Int64"
+    assert out["count_m"].tolist() == [3, pd.NA, 7]

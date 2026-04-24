@@ -1,0 +1,341 @@
+domain:
+  name: University student cohorts
+  description: Academic performance and engagement across student cohorts over time
+  entity_type: student_cohort
+  entity_label: Student cohorts
+time_window:
+  start: 2022-09
+  end: 2024-06
+  granularity: monthly
+seed: 11
+metrics:
+- name: assignment_score
+  label: Average assignment score (0-100)
+  distribution: normal
+  params:
+    mu: 75.0
+    sigma: 10.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 100.0
+  causal_lag: null
+- name: attendance_rate
+  label: Class attendance rate
+  distribution: beta
+  params:
+    alpha: 6.0
+    beta: 2.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: study_hours
+  label: Weekly study hours
+  distribution: gamma
+  params:
+    shape: 2.5
+    scale: 2.0
+  polarity: positive
+  value_range: null
+  causal_lag: null
+- name: participation_index
+  label: Class participation index
+  distribution: beta
+  params:
+    alpha: 2.5
+    beta: 3.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: dropout_risk
+  label: Dropout risk score
+  distribution: beta
+  params:
+    alpha: 1.5
+    beta: 6.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+archetypes:
+- name: late_bloomer
+  label: Struggles early, excels late
+  description: Sigmoid with a late midpoint - slow start then strong finish
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.65
+      steepness: 7.0
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: steady_learner
+  label: Consistent throughout
+  description: High plateau maintained across the term
+  curve_segments:
+  - curve: plateau
+    params:
+      level: 0.75
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: burnout_trajectory
+  label: Strong start, gradual decline
+  description: Exponential decay after initial ramp
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.15
+      steepness: 10.0
+    start_pct: 0.0
+    end_pct: 0.3
+  - curve: exp_decay
+    params:
+      rate: 2.0
+    start_pct: 0.3
+    end_pct: 1.0
+  metric_overrides: {}
+entities:
+- name: freshmen
+  archetype: late_bloomer
+  size: 60
+  overrides: {}
+  cross_dim_fks: {}
+- name: transfer_students
+  archetype: steady_learner
+  size: 20
+  overrides: {}
+  cross_dim_fks: {}
+- name: at_risk_cohort
+  archetype: burnout_trajectory
+  size: 15
+  overrides: {}
+  cross_dim_fks: {}
+tables:
+- name: dim_date
+  type: dim
+  grain: per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date
+    dtype: date
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: year
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: month
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: date_key
+  foreign_keys: []
+  row_count_source: null
+- name: dim_student
+  type: dim
+  grain: per_entity
+  columns:
+  - name: student_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cohort_name
+    dtype: string
+    source: generated:faker.company
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cohort_size
+    dtype: int
+    source: derived:size
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: student_id
+  foreign_keys: []
+  row_count_source: null
+- name: dim_course
+  type: dim
+  grain: per_reference
+  columns:
+  - name: course_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: course_name
+    dtype: string
+    source: static:intro_cs
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: credits
+    dtype: int
+    source: static:3
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: course_id
+  foreign_keys: []
+  row_count_source: null
+- name: fct_grades
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: student_id
+    dtype: id
+    source: fk:dim_student.student_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: course_id
+    dtype: id
+    source: fk:dim_course.course_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: assignment_score
+    dtype: float
+    source: metric:assignment_score
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: participation_index
+    dtype: float
+    source: metric:participation_index
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - student_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_student.student_id
+  - dim_course.course_id
+  row_count_source: null
+- name: fct_engagement
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: student_id
+    dtype: id
+    source: fk:dim_student.student_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: attendance_rate
+    dtype: float
+    source: metric:attendance_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: study_hours
+    dtype: float
+    source: metric:study_hours
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: dropout_risk
+    dtype: float
+    source: metric:dropout_risk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - student_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_student.student_id
+  row_count_source: null
+- name: evt_dropout
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: student_id
+    dtype: id
+    source: fk:dim_student.student_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: reason
+    dtype: string
+    source: generated:faker.sentence
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: dropout_flag
+    dtype: boolean
+    source: threshold:dropout_risk:above:0.6:for:2
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_student.student_id
+  row_count_source: null
+correlations:
+- metric_a: attendance_rate
+  metric_b: assignment_score
+  coefficient: 0.5
+- metric_a: assignment_score
+  metric_b: dropout_risk
+  coefficient: -0.45
+- metric_a: participation_index
+  metric_b: dropout_risk
+  coefficient: -0.4
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.01
+  mcar_rate: 0.01
+output:
+  format: csv
+  directory: out/education
+stages: null
+locale: en_US

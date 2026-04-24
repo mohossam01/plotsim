@@ -1,0 +1,9 @@
+Plotsim Validation Report
+==========================
+Generated: 2026-04-23T11:39:17
+Errors: 0 | Warnings: 1 | Total: 1
+Status: VALID
+
+[WARN ] empty_event_table (evt_attrition) — event table 'evt_attrition' produced 0 rows because no driver is configured. Add a 'row_count_source: proportional:<metric>:scale:<x>' on the table or a 'threshold:<metric>:...' column to drive emission.
+        table: evt_attrition
+        row_count: 0

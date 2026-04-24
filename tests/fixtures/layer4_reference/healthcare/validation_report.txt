@@ -1,0 +1,7 @@
+Plotsim Validation Report
+==========================
+Generated: 2026-04-23T11:39:18
+Errors: 0 | Warnings: 0 | Total: 0
+Status: VALID
+
+All checks passed cleanly.

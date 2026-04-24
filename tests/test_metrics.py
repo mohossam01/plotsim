@@ -600,3 +600,146 @@ def test_sample_hr_every_metric_generates():
         numeric = np.array([v for v in arr if v is not None], dtype=float)
         assert not np.isnan(numeric).any()
         assert not np.isinf(numeric).any()
+
+
+# --- Category B Layer 3: Cholesky hoist (SEC-08) -----------------------------
+
+
+def test_build_correlation_matrix_structure():
+    """The helper returns a symmetric matrix with 1s on the diagonal, the
+    configured coefficients at (i, j) / (j, i), and 0s elsewhere. Metric
+    order determines index; pairs referencing unknown metrics are skipped
+    (matches the pre-hoist behavior).
+    """
+    from plotsim.metrics import _build_correlation_matrix
+    metrics = [
+        Metric(name="a", label="A", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+        Metric(name="b", label="B", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+        Metric(name="c", label="C", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+    ]
+    correlations = [
+        CorrelationPair(metric_a="a", metric_b="b", coefficient=0.5),
+        CorrelationPair(metric_a="a", metric_b="c", coefficient=-0.3),
+    ]
+    mat = _build_correlation_matrix(metrics, correlations)
+    assert mat.shape == (3, 3)
+    for i in range(3):
+        assert mat[i, i] == 1.0
+    assert mat[0, 1] == 0.5
+    assert mat[1, 0] == 0.5
+    assert mat[0, 2] == -0.3
+    assert mat[2, 0] == -0.3
+    assert mat[1, 2] == 0.0
+
+
+def test_apply_correlations_cholesky_L_matches_unhoisted():
+    """apply_correlations must return identical output whether it computes
+    Cholesky internally or receives a pre-computed L."""
+    from plotsim.metrics import _build_correlation_matrix, apply_correlations
+    metrics = [
+        Metric(name="a", label="A", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+        Metric(name="b", label="B", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+    ]
+    correlations = [
+        CorrelationPair(metric_a="a", metric_b="b", coefficient=0.7),
+    ]
+    centers = {"a": 10.0, "b": 5.0}
+    independent = {"a": 11.0, "b": 4.5}
+
+    mat = _build_correlation_matrix(metrics, correlations)
+    L = np.linalg.cholesky(mat)
+
+    out_internal = apply_correlations(independent, centers, correlations, metrics)
+    out_hoisted = apply_correlations(
+        independent, centers, correlations, metrics, cholesky_L=L,
+    )
+    assert set(out_internal.keys()) == set(out_hoisted.keys())
+    for k in out_internal:
+        assert out_internal[k] == pytest.approx(out_hoisted[k], rel=1e-12)
+
+
+def test_apply_correlations_empty_list_ignores_cholesky_L():
+    """When correlations is empty, apply_correlations short-circuits and never
+    touches cholesky_L — even a deliberately bogus L must not affect output.
+    """
+    from plotsim.metrics import apply_correlations
+    metrics = [
+        Metric(name="a", label="A", distribution="normal",
+               params={"sigma": 1.0}, polarity="positive"),
+    ]
+    bogus_L = np.array([[999.0]])
+    out = apply_correlations({"a": 1.0}, {"a": 1.0}, [], metrics, cholesky_L=bogus_L)
+    assert out == {"a": 1.0}
+
+
+def test_generate_tables_byte_identical_across_runs():
+    """Same (config, seed) must produce frame-equal output end-to-end after
+    the hoist. The hoist is semantically null: same RNG consumption order,
+    same numerical path.
+    """
+    from plotsim.tables import generate_tables
+    import pandas as pd
+    cfg = load_config(SAAS_YAML)
+    a = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    b = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    assert set(a.keys()) == set(b.keys())
+    for name in a:
+        pd.testing.assert_frame_equal(
+            a[name].reset_index(drop=True),
+            b[name].reset_index(drop=True),
+        )
+
+
+def test_generate_tables_no_correlations_flows_none_L_through():
+    """A config with no correlations must flow cholesky_L=None through the
+    chain without attempting any matrix construction."""
+    from plotsim.config import PlotsimConfig
+    from plotsim.tables import generate_tables
+    raw = {
+        "domain": {"name": "t", "description": "t",
+                   "entity_type": "x", "entity_label": "x"},
+        "time_window": {"start": "2024-01", "end": "2024-06",
+                         "granularity": "monthly"},
+        "seed": 1,
+        "metrics": [{
+            "name": "m", "label": "M", "distribution": "lognorm",
+            "params": {"s": 0.5, "scale": 1.0}, "polarity": "positive",
+        }],
+        "archetypes": [{
+            "name": "a", "label": "A", "description": "-",
+            "curve_segments": [{
+                "curve": "plateau", "params": {"level": 0.5},
+                "start_pct": 0.0, "end_pct": 1.0,
+            }],
+        }],
+        "entities": [{"name": "e", "archetype": "a", "size": 3}],
+        "tables": [
+            {"name": "dim_date", "type": "dim", "grain": "per_period",
+             "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
+             "primary_key": "date_key"},
+            {"name": "dim_x", "type": "dim", "grain": "per_entity",
+             "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
+             "primary_key": "x_id"},
+            {"name": "fct_m", "type": "fact", "grain": "per_entity_per_period",
+             "columns": [
+                 {"name": "date_key", "dtype": "id",
+                  "source": "fk:dim_date.date_key"},
+                 {"name": "x_id", "dtype": "id",
+                  "source": "fk:dim_x.x_id"},
+                 {"name": "m", "dtype": "float", "source": "metric:m"},
+             ],
+             "primary_key": ["date_key", "x_id"],
+             "foreign_keys": ["dim_date.date_key", "dim_x.x_id"]},
+        ],
+        # correlations deliberately omitted — default factory gives empty list.
+        "output": {"format": "csv", "directory": "out"},
+    }
+    cfg = PlotsimConfig(**raw)
+    tables = generate_tables(cfg, np.random.default_rng(0))
+    assert "fct_m" in tables
+    assert len(tables["fct_m"]) > 0

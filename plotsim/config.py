@@ -24,8 +24,11 @@ Output:
 
 from __future__ import annotations
 
+import calendar
 import re
+import sys
 import warnings
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -169,9 +172,15 @@ class ThresholdSource(_Frozen):
 
 
 class ProportionalSource(_Frozen):
-    """Number of event rows per entity per period = metric_value * scale."""
+    """Number of event rows per entity per period = metric_value * scale.
+
+    ``scale`` is capped at 100 per Category B / SEC-07: the scalability report
+    (§6) showed that event-row construction dominates wall-clock and RSS at
+    high scales. The cap preserves legitimate event-per-period multipliers
+    while keeping the per-run row count bounded.
+    """
     metric: str
-    scale: float = Field(gt=0.0)
+    scale: float = Field(gt=0.0, le=100.0)
 
 
 class LagSource(_Frozen):
@@ -361,6 +370,17 @@ class Domain(_Frozen):
     entity_label: str
 
 
+# Category B / SEC-06: per-granularity span ceilings. Matches the envelope
+# measured in plotsim-scalability-report.md §6: monthly/weekly get 30 years,
+# daily gets 10 years (daily is the granularity that dominates period counts
+# and was observed to time out at long spans in the benchmark).
+_SPAN_LIMITS: dict[str, int] = {
+    "monthly": 360,
+    "weekly": 1_560,
+    "daily": 3_650,
+}
+
+
 class TimeWindow(_Frozen):
     start: str
     end: str
@@ -391,6 +411,44 @@ class TimeWindow(_Frozen):
             )
         return self
 
+    def period_count(self) -> int:
+        """Number of periods the engine will emit for this window+granularity.
+
+        Matches :func:`plotsim.trajectory.compute_time_steps` exactly:
+          - monthly: inclusive month span
+          - daily: first-of-start-month through last-of-end-month, inclusive
+          - weekly: count of distinct ISO-week labels across the daily span
+        """
+        sy, sm = int(self.start[:4]), int(self.start[5:7])
+        ey, em = int(self.end[:4]), int(self.end[5:7])
+        if self.granularity == "monthly":
+            return (ey - sy) * 12 + (em - sm) + 1
+        start_d = date(sy, sm, 1)
+        end_d = date(ey, em, calendar.monthrange(ey, em)[1])
+        if self.granularity == "daily":
+            return (end_d - start_d).days + 1
+        seen: set[tuple[int, int]] = set()
+        d = start_d
+        one_day = timedelta(days=1)
+        while d <= end_d:
+            iso_year, iso_week, _ = d.isocalendar()
+            seen.add((iso_year, iso_week))
+            d += one_day
+        return len(seen)
+
+    @model_validator(mode="after")
+    def _span_within_limit(self) -> "TimeWindow":
+        n = self.period_count()
+        limit = _SPAN_LIMITS[self.granularity]
+        if n > limit:
+            raise ValueError(
+                f"TimeWindow spans {n:,} {self.granularity} periods "
+                f"({self.start}..{self.end}). Maximum for "
+                f"{self.granularity} granularity is {limit:,}. Use monthly "
+                f"or weekly granularity for longer ranges."
+            )
+        return self
+
 
 class ValueRange(_Frozen):
     min: Optional[float] = None
@@ -412,7 +470,7 @@ class CausalLag(_Frozen):
     not the metric itself; the induced lag graph has no cycles.
     """
     driver: str
-    lag_periods: int = Field(ge=1)
+    lag_periods: int = Field(ge=1, le=120)
 
 
 class Metric(_Frozen):
@@ -462,7 +520,7 @@ class Archetype(_Frozen):
     name: str
     label: str
     description: str
-    curve_segments: list[CurveSegment]
+    curve_segments: list[CurveSegment] = Field(max_length=10)
     metric_overrides: dict[str, MetricOverride] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -495,7 +553,7 @@ class Archetype(_Frozen):
 class Entity(_Frozen):
     name: str
     archetype: str
-    size: int = Field(ge=1)
+    size: int = Field(ge=1, le=5_000)
     overrides: dict[str, Any] = Field(default_factory=dict)
     # FIX-04: per-cohort cross-dim FK anchoring. Maps a child column name
     # to a parent PK value. Every entity in this cohort gets that exact
@@ -590,7 +648,7 @@ class Table(_Frozen):
     name: str
     type: TableType
     grain: Grain
-    columns: list[Column]
+    columns: list[Column] = Field(max_length=100)
     primary_key: str | list[str]
     foreign_keys: list[str] = Field(default_factory=list)
     row_count_source: Optional[str] = None
@@ -664,7 +722,7 @@ class CorrelationPair(_Frozen):
 
 
 class NoiseConfig(_Frozen):
-    gaussian_sigma: float = Field(default=0.0, ge=0.0)
+    gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -712,9 +770,9 @@ class StageSequence(_Frozen):
     (stages already oscillate freely in that mode).
     """
     field: str
-    sequence: list[StageDefinition] = Field(min_length=2)
+    sequence: list[StageDefinition] = Field(min_length=2, max_length=10)
     enforce_order: bool = True
-    downgrade_delay: Optional[int] = Field(default=None, ge=1)
+    downgrade_delay: Optional[int] = Field(default=None, ge=1, le=120)
 
     @model_validator(mode="after")
     def _sequence_is_valid(self) -> "StageSequence":
@@ -751,11 +809,14 @@ class PlotsimConfig(_Frozen):
     domain: Domain
     time_window: TimeWindow
     seed: int
-    metrics: list[Metric]
-    archetypes: list[Archetype]
-    entities: list[Entity]
-    tables: list[Table]
-    correlations: list[CorrelationPair] = Field(default_factory=list)
+    metrics: list[Metric] = Field(max_length=50)
+    archetypes: list[Archetype] = Field(max_length=20)
+    entities: list[Entity] = Field(max_length=100)
+    tables: list[Table] = Field(max_length=50)
+    # 1_225 = 50 choose 2 — the upper bound on unique pairwise correlations
+    # given the 50-metric cap. Anything larger is either duplicates (rejected
+    # at matrix assembly) or references to non-existent metrics.
+    correlations: list[CorrelationPair] = Field(default_factory=list, max_length=1_225)
     noise: NoiseConfig = Field(default_factory=NoiseConfig)
     output: OutputConfig
     stages: Optional[StageSequence] = None
@@ -763,6 +824,88 @@ class PlotsimConfig(_Frozen):
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
     locale: str | list[str] = "en_US"
+
+    @model_validator(mode="after")
+    def _total_entity_size_within_limit(self) -> "PlotsimConfig":
+        total = sum(e.size for e in self.entities)
+        if total > 100_000:
+            raise ValueError(
+                f"Total entity count across all groups is {total:,}. "
+                f"Maximum is 100,000."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _combined_scale_estimator(self) -> "PlotsimConfig":
+        """Category B Layer 2: detect multiplicative compounding at load.
+
+        Per-field bounds (Layer 1) don't catch configs where every field is
+        within its cap but the product ``sum(entities.size) × period_count``
+        is ruinously large. The scalability report (§6) identified that product
+        as the dominant predictor of wall-clock and memory.
+
+        Behavior:
+          * Always prints a summary line to stderr.
+          * Appends a warning line when ``cell_count > 500_000``.
+          * Raises ``ValueError`` when ``cell_count > 2_000_000``.
+
+        Event-row estimate is informational only — metric values can exceed
+        ``ValueRange.max`` once noise is applied, so it is not a reliable gate.
+        The reject threshold uses the exact ``cell_count`` from the config.
+        """
+        n_entities = sum(e.size for e in self.entities)
+        n_periods = self.time_window.period_count()
+        cell_count = n_entities * n_periods
+
+        n_fact_fields = sum(
+            len(t.columns) for t in self.tables if t.type == "fact"
+        )
+        metrics_bytes = n_entities * n_periods * len(self.metrics) * 8
+        fact_bytes = n_entities * n_periods * n_fact_fields * 8
+        peak_mb = (metrics_bytes + fact_bytes) / 1_000_000 + 100
+
+        event_rows_upper = 0
+        for tbl in self.tables:
+            if tbl.type != "event" or tbl.row_count_source is None:
+                continue
+            if not tbl.row_count_source.startswith("proportional"):
+                continue
+            parsed_rc = parse_source(tbl.row_count_source)
+            if not isinstance(parsed_rc, ProportionalSource):
+                continue
+            driver = next(
+                (m for m in self.metrics if m.name == parsed_rc.metric), None,
+            )
+            if driver is None or driver.value_range is None:
+                continue
+            v_max = driver.value_range.max
+            if v_max is None:
+                continue
+            event_rows_upper += int(
+                n_entities * n_periods * v_max * parsed_rc.scale
+            )
+
+        summary = (
+            f"Config summary: {n_entities:,} entities × {n_periods:,} periods "
+            f"= {cell_count:,} cells, {len(self.metrics)} metrics, "
+            f"{len(self.tables)} tables. Estimated peak memory: ~{peak_mb:.0f} MB."
+        )
+        if event_rows_upper > 0:
+            summary += f" Expected event rows (upper bound): ~{event_rows_upper:,}."
+        sys.stderr.write(summary + "\n")
+
+        if cell_count > 2_000_000:
+            raise ValueError(
+                f"Config produces {cell_count:,} cells (entities × periods), "
+                f"which exceeds the maximum of 2,000,000. Reduce entity count, "
+                f"time window span, or switch to a coarser granularity."
+            )
+        if cell_count > 500_000:
+            sys.stderr.write(
+                f"Warning: {cell_count:,} cells exceeds 500,000. Generation "
+                f"may take several minutes and use significant memory.\n"
+            )
+        return self
 
     @model_validator(mode="after")
     def _cross_reference_integrity(self) -> "PlotsimConfig":

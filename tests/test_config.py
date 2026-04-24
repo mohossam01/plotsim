@@ -1315,3 +1315,477 @@ def test_all_bundled_templates_pass_name_validation():
         with _w.catch_warnings():
             _w.simplefilter("ignore", SurrogateKeyWarning)
             load_config(path)
+
+
+# --- Category B Layer 1: per-field bounds ------------------------------------
+
+from plotsim.config import (
+    Archetype,
+    CausalLag,
+    CurveSegment,
+    Entity,
+    NoiseConfig,
+    ProportionalSource,
+    TimeWindow,
+)
+
+
+def test_entity_size_at_limit_passes():
+    e = Entity(name="e", archetype="a", size=5_000)
+    assert e.size == 5_000
+
+
+def test_entity_size_above_limit_fails():
+    with pytest.raises(ValidationError, match="size"):
+        Entity(name="e", archetype="a", size=5_001)
+
+
+def test_proportional_source_scale_at_limit_passes():
+    ps = ProportionalSource(metric="m", scale=100.0)
+    assert ps.scale == 100.0
+
+
+def test_proportional_source_scale_above_limit_fails():
+    with pytest.raises(ValidationError, match="scale"):
+        ProportionalSource(metric="m", scale=100.1)
+
+
+def test_noise_gaussian_sigma_at_limit_passes():
+    n = NoiseConfig(gaussian_sigma=5.0)
+    assert n.gaussian_sigma == 5.0
+
+
+def test_noise_gaussian_sigma_above_limit_fails():
+    with pytest.raises(ValidationError, match="gaussian_sigma"):
+        NoiseConfig(gaussian_sigma=5.1)
+
+
+def test_causal_lag_periods_at_limit_passes():
+    cl = CausalLag(driver="x", lag_periods=120)
+    assert cl.lag_periods == 120
+
+
+def test_causal_lag_periods_above_limit_fails():
+    with pytest.raises(ValidationError, match="lag_periods"):
+        CausalLag(driver="x", lag_periods=121)
+
+
+def test_downgrade_delay_at_limit_passes():
+    ss = StageSequence(
+        field="m1",
+        sequence=[
+            StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+            StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+        ],
+        downgrade_delay=120,
+    )
+    assert ss.downgrade_delay == 120
+
+
+def test_downgrade_delay_above_limit_fails():
+    with pytest.raises(ValidationError, match="downgrade_delay"):
+        StageSequence(
+            field="m1",
+            sequence=[
+                StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+                StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+            ],
+            downgrade_delay=121,
+        )
+
+
+# --- Layer 1: list-length bounds ---------------------------------------------
+
+
+def _bulk_metric(i: int) -> dict:
+    return {
+        "name": f"m{i}",
+        "label": f"M{i}",
+        "distribution": "lognorm",
+        "params": {"s": 0.5, "scale": 1.0},
+        "polarity": "positive",
+    }
+
+
+def _bulk_archetype(i: int) -> dict:
+    return {
+        "name": f"a{i}",
+        "label": f"A{i}",
+        "description": "x",
+        "curve_segments": [
+            {"curve": "plateau", "params": {"level": 0.5},
+             "start_pct": 0.0, "end_pct": 1.0},
+        ],
+    }
+
+
+def test_metrics_list_at_limit_passes():
+    raw = _minimal_valid()
+    raw["metrics"] = [_bulk_metric(i) for i in range(50)]
+    # keep fct_m1 column's metric source pointing at an existing metric
+    raw["tables"][1]["columns"][2]["source"] = "metric:m0"
+    c = PlotsimConfig(**raw)
+    assert len(c.metrics) == 50
+
+
+def test_metrics_list_above_limit_fails():
+    raw = _minimal_valid()
+    raw["metrics"] = [_bulk_metric(i) for i in range(51)]
+    raw["tables"][1]["columns"][2]["source"] = "metric:m0"
+    with pytest.raises(ValidationError, match="metrics"):
+        PlotsimConfig(**raw)
+
+
+def test_archetypes_list_at_limit_passes():
+    raw = _minimal_valid()
+    raw["archetypes"] = [_bulk_archetype(i) for i in range(20)]
+    raw["entities"][0]["archetype"] = "a0"
+    c = PlotsimConfig(**raw)
+    assert len(c.archetypes) == 20
+
+
+def test_archetypes_list_above_limit_fails():
+    raw = _minimal_valid()
+    raw["archetypes"] = [_bulk_archetype(i) for i in range(21)]
+    raw["entities"][0]["archetype"] = "a0"
+    with pytest.raises(ValidationError, match="archetypes"):
+        PlotsimConfig(**raw)
+
+
+def test_entities_list_at_limit_passes():
+    raw = _minimal_valid()
+    raw["entities"] = [
+        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100)
+    ]
+    c = PlotsimConfig(**raw)
+    assert len(c.entities) == 100
+
+
+def test_entities_list_above_limit_fails():
+    raw = _minimal_valid()
+    raw["entities"] = [
+        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(101)
+    ]
+    with pytest.raises(ValidationError, match="entities"):
+        PlotsimConfig(**raw)
+
+
+def test_tables_list_at_limit_passes():
+    # 3 load-bearing tables from _minimal_valid + 47 extra dim tables = 50
+    raw = _minimal_valid()
+    extras = [
+        {
+            "name": f"dim_extra_{i}",
+            "type": "dim",
+            "grain": "per_reference",
+            "columns": [{"name": "extra_id", "dtype": "id", "source": "pk"}],
+            "primary_key": "extra_id",
+        }
+        for i in range(47)
+    ]
+    raw["tables"].extend(extras)
+    c = PlotsimConfig(**raw)
+    assert len(c.tables) == 50
+
+
+def test_tables_list_above_limit_fails():
+    raw = _minimal_valid()
+    extras = [
+        {
+            "name": f"dim_extra_{i}",
+            "type": "dim",
+            "grain": "per_reference",
+            "columns": [{"name": "extra_id", "dtype": "id", "source": "pk"}],
+            "primary_key": "extra_id",
+        }
+        for i in range(48)
+    ]
+    raw["tables"].extend(extras)
+    with pytest.raises(ValidationError, match="tables"):
+        PlotsimConfig(**raw)
+
+
+def test_correlations_list_above_limit_fails():
+    raw = _minimal_valid()
+    raw["metrics"] = [_bulk_metric(i) for i in range(50)]
+    raw["tables"][1]["columns"][2]["source"] = "metric:m0"
+    # 1226 correlation entries (> 1225 cap).
+    raw["correlations"] = [
+        {"metric_a": "m0", "metric_b": "m1", "coefficient": 0.0}
+        for _ in range(1_226)
+    ]
+    with pytest.raises(ValidationError, match="correlations"):
+        PlotsimConfig(**raw)
+
+
+def test_table_columns_at_limit_passes():
+    # Dim table with 100 columns (1 PK + 99 static) should pass.
+    raw = _minimal_valid()
+    extra_cols = [
+        {"name": f"col_{i}", "dtype": "string", "source": "static:x"}
+        for i in range(99)
+    ]
+    raw["tables"][0]["columns"].extend(extra_cols)
+    c = PlotsimConfig(**raw)
+    assert len(c.tables[0].columns) == 100
+
+
+def test_table_columns_above_limit_fails():
+    raw = _minimal_valid()
+    extra_cols = [
+        {"name": f"col_{i}", "dtype": "string", "source": "static:x"}
+        for i in range(100)
+    ]
+    raw["tables"][0]["columns"].extend(extra_cols)
+    with pytest.raises(ValidationError, match="columns"):
+        PlotsimConfig(**raw)
+
+
+def test_archetype_curve_segments_at_limit_passes():
+    segs = []
+    step = 1.0 / 10
+    for i in range(10):
+        segs.append(CurveSegment(
+            curve="plateau", params={"level": 0.5},
+            start_pct=i * step, end_pct=(i + 1) * step,
+        ))
+    a = Archetype(name="a", label="A", description="x", curve_segments=segs)
+    assert len(a.curve_segments) == 10
+
+
+def test_archetype_curve_segments_above_limit_fails():
+    segs = []
+    step = 1.0 / 11
+    for i in range(11):
+        segs.append({
+            "curve": "plateau", "params": {"level": 0.5},
+            "start_pct": i * step, "end_pct": (i + 1) * step,
+        })
+    with pytest.raises(ValidationError, match="curve_segments"):
+        Archetype(
+            name="a", label="A", description="x", curve_segments=segs,
+        )
+
+
+def test_stage_sequence_at_limit_passes():
+    # 10 stages: 9 non-terminal (enter in [0.0, 0.9) with overlap-safe exits)
+    # + 1 terminal at 0.9.
+    stages = []
+    for i in range(9):
+        stages.append(StageDefinition(
+            name=f"s{i}", threshold_enter=i / 10,
+            threshold_exit=(i + 1) / 10,
+        ))
+    stages.append(StageDefinition(
+        name="terminal", threshold_enter=0.9, threshold_exit=None,
+    ))
+    ss = StageSequence(field="m1", sequence=stages)
+    assert len(ss.sequence) == 10
+
+
+def test_stage_sequence_above_limit_fails():
+    stages = []
+    for i in range(10):
+        stages.append(StageDefinition(
+            name=f"s{i}", threshold_enter=i / 11,
+            threshold_exit=(i + 1) / 11,
+        ))
+    stages.append(StageDefinition(
+        name="terminal", threshold_enter=10 / 11, threshold_exit=None,
+    ))
+    with pytest.raises(ValidationError, match="sequence"):
+        StageSequence(field="m1", sequence=stages)
+
+
+# --- Layer 1: TimeWindow span + total entity size ----------------------------
+
+
+def test_time_window_monthly_at_limit_passes():
+    tw = TimeWindow(start="2020-01", end="2049-12", granularity="monthly")
+    assert tw.period_count() == 360
+
+
+def test_time_window_monthly_above_limit_fails():
+    with pytest.raises(ValidationError, match="360"):
+        TimeWindow(start="2020-01", end="2050-01", granularity="monthly")
+
+
+def test_time_window_daily_above_limit_fails():
+    # 2020-01 to 2029-12 daily is 3,653 periods — one over the 3,650 cap.
+    with pytest.raises(ValidationError, match="daily"):
+        TimeWindow(start="2020-01", end="2029-12", granularity="daily")
+
+
+def test_time_window_weekly_above_limit_fails():
+    # 2020-01 to 2049-12 weekly overflows the 1,560 cap.
+    with pytest.raises(ValidationError, match="weekly"):
+        TimeWindow(start="2020-01", end="2049-12", granularity="weekly")
+
+
+def test_time_window_daily_at_limit_passes():
+    # Pick an end month where the inclusive daily span is <= 3,650.
+    tw = TimeWindow(start="2020-01", end="2029-10", granularity="daily")
+    assert tw.period_count() <= 3_650
+
+
+def test_time_window_period_count_matches_trajectory_engine():
+    # Parity check against compute_time_steps — the whole point of the span
+    # validator is that it rejects what the engine would actually build.
+    from plotsim.trajectory import compute_time_steps
+    for start, end, gran in (
+        ("2020-01", "2022-06", "monthly"),
+        ("2020-01", "2020-12", "daily"),
+        ("2020-01", "2021-06", "weekly"),
+    ):
+        tw = TimeWindow(start=start, end=end, granularity=gran)
+        assert tw.period_count() == len(compute_time_steps(tw))
+
+
+def test_total_entity_size_at_limit_passes():
+    raw = _minimal_valid()
+    # 100 cohorts × 1000 each = 100,000 at the limit.
+    raw["entities"] = [
+        {"name": f"e{i}", "archetype": "a1", "size": 1000} for i in range(100)
+    ]
+    c = PlotsimConfig(**raw)
+    assert sum(e.size for e in c.entities) == 100_000
+
+
+def test_total_entity_size_above_limit_fails():
+    raw = _minimal_valid()
+    # 100 cohorts × 1001 each = 100,100, just over.
+    raw["entities"] = [
+        {"name": f"e{i}", "archetype": "a1", "size": 1001} for i in range(100)
+    ]
+    with pytest.raises(ValidationError, match="100,000"):
+        PlotsimConfig(**raw)
+
+
+def test_all_bundled_templates_pass_layer1_bounds():
+    # The five shipped templates were audited against every Layer 1 bound
+    # before the cap landed. Regression test that they keep loading cleanly.
+    import warnings as _w
+    configs_dir = ROOT / "plotsim" / "configs"
+    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", SurrogateKeyWarning)
+            load_config(configs_dir / f"sample_{stem}.yaml")
+
+
+# --- Category B Layer 2: config-time estimator -------------------------------
+
+
+def _cells(n_entities_total: int, n_periods: int, raw: "dict | None" = None) -> dict:
+    """Shape ``_minimal_valid`` so that sum(entity.size) × period_count hits
+    ``n_entities_total * n_periods``. Uses 50 cohort groups × size=K so the
+    individual bounds (100 cohort cap, 5_000 size cap) remain satisfied for
+    any totals <= 250_000.
+    """
+    if raw is None:
+        raw = _minimal_valid()
+    k_cohorts = 50
+    # Ceiling division so the actual total is >= n_entities_total (tests that
+    # want "above threshold" stay above after rounding).
+    per_cohort = max(1, -(-n_entities_total // k_cohorts))
+    raw["entities"] = [
+        {"name": f"e{i}", "archetype": "a1", "size": per_cohort}
+        for i in range(k_cohorts)
+    ]
+    # Monthly span sized so period_count == n_periods.
+    # _start_before_end requires start < end, so n_periods >= 2.
+    assert n_periods >= 2
+    months_past = n_periods - 1
+    start_year = 2020
+    start_month = 1
+    end_month_total = start_month - 1 + months_past
+    end_year = start_year + end_month_total // 12
+    end_month = end_month_total % 12 + 1
+    raw["time_window"] = {
+        "start": f"{start_year}-{start_month:02d}",
+        "end": f"{end_year}-{end_month:02d}",
+        "granularity": "monthly",
+    }
+    return raw
+
+
+def test_estimator_prints_summary_at_any_scale(capsys):
+    PlotsimConfig(**_minimal_valid())
+    captured = capsys.readouterr()
+    assert "Config summary" in captured.err
+    assert "cells" in captured.err
+    assert captured.out == ""  # must NOT go to stdout
+
+
+def test_estimator_summary_not_on_stdout(capsys):
+    PlotsimConfig(**_minimal_valid())
+    out = capsys.readouterr().out
+    assert "Config summary" not in out
+
+
+def test_estimator_below_warn_threshold_no_warning(capsys):
+    # 499,950 cells — below the 500,000 warn threshold.
+    raw = _cells(n_entities_total=25_000, n_periods=20)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Config summary" in err
+    assert "Warning" not in err
+
+
+def test_estimator_warns_above_500k(capsys):
+    # 500,050 cells — one small step over the warn threshold.
+    raw = _cells(n_entities_total=25_002, n_periods=20)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Warning" in err
+    # 25_002 rounded up: 50 cohorts × 500 = 25_000 (integer div) — not exact.
+    # Use the actually-emitted cell count from the summary; the warning line
+    # should mention the threshold or the cell count.
+    assert "500,000" in err or "cells" in err
+
+
+def test_estimator_passes_at_2m_cells_boundary(capsys):
+    # Exactly 2_000_000 cells — boundary is exclusive (reject above, not at).
+    # 50 cohorts × 400 = 20_000 entities; 20_000 × 100 = 2_000_000.
+    raw = _cells(n_entities_total=20_000, n_periods=100)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Config summary" in err
+    assert "exceeds the maximum" not in err
+
+
+def test_estimator_rejects_above_2m_cells():
+    # 2_100_000 cells — 50 cohorts × 420 = 21_000 entities; 21_000 × 100.
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    with pytest.raises(ValidationError, match="2,000,000"):
+        PlotsimConfig(**raw)
+
+
+def test_estimator_event_upper_bound_prints_when_derivable(capsys):
+    # Sample SaaS declares a proportional event with a ValueRange-bearing
+    # driver; its summary line should include an event-row estimate.
+    from plotsim.config import load_config as _lc
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter("ignore", SurrogateKeyWarning)
+        _lc(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
+    err = capsys.readouterr().err
+    assert "Expected event rows" in err
+
+
+def test_estimator_event_upper_bound_absent_when_no_range(capsys):
+    # _minimal_valid has no event tables, so no event estimate should appear.
+    PlotsimConfig(**_minimal_valid())
+    err = capsys.readouterr().err
+    assert "Expected event rows" not in err
+
+
+def test_estimator_all_bundled_templates_have_no_warning(capsys):
+    import warnings as _w
+    configs_dir = ROOT / "plotsim" / "configs"
+    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", SurrogateKeyWarning)
+            load_config(configs_dir / f"sample_{stem}.yaml")
+    err = capsys.readouterr().err
+    assert "Warning:" not in err
+    assert "exceeds the maximum" not in err

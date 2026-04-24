@@ -1,0 +1,329 @@
+domain:
+  name: Clinic patient groups
+  description: Visit volume, treatment adherence, and outcomes across patient groups
+  entity_type: patient_group
+  entity_label: Patient groups
+time_window:
+  start: 2023-01
+  end: 2024-12
+  granularity: monthly
+seed: 23
+metrics:
+- name: visit_frequency
+  label: Monthly visits per group
+  distribution: poisson
+  params:
+    lambda: 6.0
+  polarity: positive
+  value_range: null
+  causal_lag: null
+- name: treatment_adherence
+  label: Treatment plan adherence
+  distribution: beta
+  params:
+    alpha: 4.0
+    beta: 2.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: symptom_severity
+  label: Average symptom severity (0-10)
+  distribution: gamma
+  params:
+    shape: 2.0
+    scale: 1.2
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 10.0
+  causal_lag: null
+- name: recovery_index
+  label: Recovery progress index
+  distribution: beta
+  params:
+    alpha: 3.0
+    beta: 3.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+- name: readmission_risk
+  label: 30-day readmission risk
+  distribution: beta
+  params:
+    alpha: 1.5
+    beta: 8.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+archetypes:
+- name: recovering
+  label: Steadily improves
+  description: Sigmoid recovery curve over the window
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.4
+      steepness: 6.0
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: chronic_stable
+  label: Stable chronic state
+  description: Moderate plateau maintained throughout
+  curve_segments:
+  - curve: plateau
+    params:
+      level: 0.5
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: relapsing
+  label: Cyclical flare-ups
+  description: Oscillating pattern of symptom recurrence
+  curve_segments:
+  - curve: oscillating
+    params:
+      period: 0.33
+      amplitude: 0.3
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+entities:
+- name: post_op_patients
+  archetype: recovering
+  size: 30
+  overrides: {}
+  cross_dim_fks: {}
+- name: chronic_condition_group
+  archetype: chronic_stable
+  size: 45
+  overrides: {}
+  cross_dim_fks: {}
+- name: flare_up_patients
+  archetype: relapsing
+  size: 20
+  overrides: {}
+  cross_dim_fks: {}
+tables:
+- name: dim_date
+  type: dim
+  grain: per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date
+    dtype: date
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: year
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: month
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: date_key
+  foreign_keys: []
+  row_count_source: null
+- name: dim_patient
+  type: dim
+  grain: per_entity
+  columns:
+  - name: group_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: group_name
+    dtype: string
+    source: generated:faker.company
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: cohort_size
+    dtype: int
+    source: derived:size
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: group_id
+  foreign_keys: []
+  row_count_source: null
+- name: dim_treatment_type
+  type: dim
+  grain: per_reference
+  columns:
+  - name: treatment_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: treatment_name
+    dtype: string
+    source: static:standard_care
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: category
+    dtype: string
+    source: static:outpatient
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: treatment_id
+  foreign_keys: []
+  row_count_source: null
+- name: fct_visits
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: group_id
+    dtype: id
+    source: fk:dim_patient.group_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: treatment_id
+    dtype: id
+    source: fk:dim_treatment_type.treatment_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: visit_count
+    dtype: int
+    source: metric:visit_frequency
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: treatment_adherence
+    dtype: float
+    source: metric:treatment_adherence
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - group_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_patient.group_id
+  - dim_treatment_type.treatment_id
+  row_count_source: null
+- name: fct_outcomes
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: group_id
+    dtype: id
+    source: fk:dim_patient.group_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: symptom_severity
+    dtype: float
+    source: metric:symptom_severity
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: recovery_index
+    dtype: float
+    source: metric:recovery_index
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: readmission_risk
+    dtype: float
+    source: metric:readmission_risk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key:
+  - date_key
+  - group_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_patient.group_id
+  row_count_source: null
+- name: evt_readmission
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: group_id
+    dtype: id
+    source: fk:dim_patient.group_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: readmission_flag
+    dtype: boolean
+    source: threshold:readmission_risk:above:0.5:for:2
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_patient.group_id
+  row_count_source: null
+correlations:
+- metric_a: treatment_adherence
+  metric_b: recovery_index
+  coefficient: 0.5
+- metric_a: symptom_severity
+  metric_b: recovery_index
+  coefficient: -0.45
+- metric_a: symptom_severity
+  metric_b: readmission_risk
+  coefficient: 0.4
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
+  mcar_rate: 0.01
+output:
+  format: csv
+  directory: out/healthcare
+stages: null
+locale: en_US
