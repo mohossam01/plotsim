@@ -14,6 +14,7 @@ important lives only in argv-parsing land.
 from __future__ import annotations
 
 import argparse
+import calendar
 import datetime as _dt
 import shutil
 import sys
@@ -69,6 +70,13 @@ def find_template(name: str) -> Optional[Path]:
 
 
 def _estimate_periods(config: PlotsimConfig) -> int:
+    """Estimate the row count for dim_date / per_period facts.
+
+    Monthly/weekly arithmetic uses month-1 anchors (the established contract).
+    Daily granularity expands ``end`` to the last day of the end-month so
+    ``end: "2023-12"`` means "through Dec 31", not "through Dec 1" — otherwise
+    the count under-counts by ``(days_in_end_month - 1)``.
+    """
     tw = config.time_window
     start = _dt.date.fromisoformat(tw.start + "-01") if len(tw.start) == 7 else _dt.date.fromisoformat(tw.start)
     end = _dt.date.fromisoformat(tw.end + "-01") if len(tw.end) == 7 else _dt.date.fromisoformat(tw.end)
@@ -77,6 +85,9 @@ def _estimate_periods(config: PlotsimConfig) -> int:
     if tw.granularity == "weekly":
         return ((end - start).days // 7) + 1
     if tw.granularity == "daily":
+        if len(tw.end) == 7:
+            last_day = calendar.monthrange(end.year, end.month)[1]
+            end = _dt.date(end.year, end.month, last_day)
         return (end - start).days + 1
     return 0
 
@@ -143,6 +154,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(
             f"Wrote {len(tables)} table(s), {total_rows} total row(s) to {target}/"
         )
+        # FIX-03 / SF-9: surface event tables that emitted zero rows because
+        # no driver (row_count_source / threshold column) is configured. The
+        # validator owns the warning detection; the CLI mirrors it as a
+        # one-line note per offending table so users notice without having
+        # to open validation_report.txt.
+        from plotsim.validation import CHECK_EMPTY_EVENT_TABLE
+        for issue in report.by_check(CHECK_EMPTY_EVENT_TABLE):
+            print(f"  ! {issue.table}: 0 rows (no event driver configured)")
     return 0
 
 

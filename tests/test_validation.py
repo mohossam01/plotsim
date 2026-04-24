@@ -47,11 +47,13 @@ from plotsim.tables import generate_tables
 from plotsim.validation import (
     ALL_CHECKS,
     CHECK_CORRELATION_PSD,
+    CHECK_EMPTY_EVENT_TABLE,
     CHECK_FK_INTEGRITY,
     ValidationReport,
     validate_causal_coherence,
     validate_correlation_psd,
     validate_date_spine,
+    validate_empty_event_tables,
     validate_fk_integrity,
     validate_null_policy,
     validate_pk_uniqueness,
@@ -399,6 +401,102 @@ def test_validate_tables_report_accessors(saas_cfg, saas_tables):
     assert any(i.severity == "error" for i in fk_issues)
     assert not report.ok
     assert set(i.check for i in report.issues).issubset(set(ALL_CHECKS))
+
+
+# --- FIX-03 acceptance: empty event tables surface as warnings ---------------
+
+
+def test_driverless_event_table_produces_validation_warning(hr_cfg, hr_tables):
+    """FIX-03 / SF-9: HR's evt_attrition declares no driver and emits 0 rows.
+    Generation contract preserved (table exists with correct schema), but the
+    validator now flags it as a WARNING so the user knows it's silent.
+    """
+    issues = validate_empty_event_tables(hr_cfg, hr_tables)
+    assert len(issues) == 1
+    assert issues[0].table == "evt_attrition"
+    assert issues[0].severity == "warning"
+    assert issues[0].check == CHECK_EMPTY_EVENT_TABLE
+    # The DataFrame still exists, with the right columns, just empty.
+    df = hr_tables["evt_attrition"]
+    assert len(df) == 0
+    assert set(df.columns) == {"event_id", "date_key", "employee_id", "reason"}
+
+
+def test_driven_event_table_produces_no_warning(saas_cfg, saas_tables):
+    """FIX-03: SaaS templates' evt_login (proportional) and evt_churn (threshold)
+    have configured drivers, so no empty-event warning fires for them.
+    """
+    issues = validate_empty_event_tables(saas_cfg, saas_tables)
+    # Either zero issues, or only issues for tables that legitimately have a
+    # driver but produced no rows (which the validator skips). Assert that
+    # neither evt_login nor evt_churn show up.
+    flagged = {i.table for i in issues}
+    assert "evt_login" not in flagged
+    assert "evt_churn" not in flagged
+
+
+# --- FIX-01 acceptance: hard-raise on non-PSD correlation matrix -------------
+
+
+def test_non_psd_matrix_raises_at_generation_time():
+    """FIX-01: generate_tables raises on non-PSD before any sampling runs.
+
+    Replaces the silent-fallback path that ``apply_correlations`` used to take
+    on Cholesky failure. Catching the defect at pipeline entry is the contract
+    we want — partial output that silently dropped correlation hid every
+    statistical defect downstream.
+    """
+    cfg = _minimal_config(
+        correlations=[
+            CorrelationPair(metric_a="a", metric_b="b", coefficient=0.99),
+            CorrelationPair(metric_a="b", metric_b="c", coefficient=0.99),
+            CorrelationPair(metric_a="a", metric_b="c", coefficient=-0.99),
+        ],
+    )
+    with pytest.raises(ValueError, match="positive semi-definite"):
+        generate_tables(cfg, _rng(0))
+
+
+def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
+    """FIX-01 negative case: a valid PSD matrix produces correlated output.
+
+    Uses the shipped SaaS template (PD post-007a) and verifies that the
+    engagement/mrr correlation in fct_engagement+fct_revenue lands within
+    a generous ±0.30 band of the configured 0.72. The bound is generous
+    because per-entity sample size is small and we're computing across
+    pooled rows — this test asserts "correlation is applied", not "the
+    coefficient lands exactly".
+    """
+    # SaaS schema: metric "engagement" lives in fct_engagement.engagement_score;
+    # metric "mrr" lives in fct_revenue.mrr. MCAR may introduce None values,
+    # so drop nulls before computing the pairwise correlation.
+    eng = saas_tables["fct_engagement"][["date_key", "company_id", "engagement_score"]]
+    rev = saas_tables["fct_revenue"][["date_key", "company_id", "mrr"]]
+    joined = eng.merge(rev, on=["date_key", "company_id"], how="inner")
+    e = pd.to_numeric(joined["engagement_score"], errors="coerce")
+    m = pd.to_numeric(joined["mrr"], errors="coerce")
+    mask = e.notna() & m.notna()
+    obs_corr = float(np.corrcoef(e[mask].values, m[mask].values)[0, 1])
+    configured = next(
+        c.coefficient for c in saas_cfg.correlations
+        if {c.metric_a, c.metric_b} == {"engagement", "mrr"}
+    )
+    assert abs(obs_corr - configured) < 0.30, (
+        f"observed engagement/mrr correlation {obs_corr:.3f} too far from "
+        f"configured {configured}"
+    )
+
+
+def test_empty_correlations_skips_psd_check():
+    """FIX-01: a config with correlations=[] generates without invoking PSD.
+
+    Empty correlations is a legitimate "metrics are independent" config; the
+    PSD gate must be a no-op in that case (no spurious raise on degenerate
+    matrix shapes).
+    """
+    cfg = _minimal_config(correlations=[])
+    tables = generate_tables(cfg, _rng(0))
+    assert "dim_date" in tables  # generation completed at least to dims
 
 
 # --- Helper: minimal config for PSD tests ------------------------------------

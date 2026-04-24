@@ -54,6 +54,7 @@ CHECK_FK_INTEGRITY = "fk_integrity"
 CHECK_DATE_SPINE = "date_spine"
 CHECK_CAUSAL_COHERENCE = "causal_coherence"
 CHECK_NULL_POLICY = "null_policy"
+CHECK_EMPTY_EVENT_TABLE = "empty_event_table"
 
 ALL_CHECKS: tuple[str, ...] = (
     CHECK_CORRELATION_PSD,
@@ -62,6 +63,7 @@ ALL_CHECKS: tuple[str, ...] = (
     CHECK_DATE_SPINE,
     CHECK_CAUSAL_COHERENCE,
     CHECK_NULL_POLICY,
+    CHECK_EMPTY_EVENT_TABLE,
 )
 
 # Sample size for "sample of offending values" in issue details. Keeps reports
@@ -763,6 +765,55 @@ def validate_null_policy(
     return issues
 
 
+# --- Check 7: empty event tables (FIX-03 / SF-9) -----------------------------
+
+
+def validate_empty_event_tables(
+    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+) -> list[ValidationIssue]:
+    """Warn when an event table emits zero rows because no driver is configured.
+
+    ``tables.build_event_tables`` emits an empty DataFrame for any event table
+    that declares neither a ``row_count_source`` (proportional driver) nor a
+    column with a ``threshold:`` source. This preserves the contract that
+    every configured table appears in the output dict, but it's a silent
+    "you got nothing" for the user. This check surfaces it as a warning so
+    the validation report and the CLI summary can flag it.
+
+    Event tables with a configured driver that legitimately produce zero rows
+    (e.g. a threshold no entity ever crossed) are NOT flagged — that's a
+    valid generative outcome, not a config defect.
+    """
+    issues: list[ValidationIssue] = []
+    for tbl in config.tables:
+        if tbl.type != "event":
+            continue
+        df = tables.get(tbl.name)
+        if df is None or len(df) > 0:
+            continue
+        has_row_count_source = tbl.row_count_source is not None
+        has_threshold_col = any(
+            isinstance(parse_source(c.source), ThresholdSource)
+            for c in tbl.columns
+        )
+        if has_row_count_source or has_threshold_col:
+            # Driver configured; zero rows is a legitimate generative outcome.
+            continue
+        issues.append(ValidationIssue(
+            check=CHECK_EMPTY_EVENT_TABLE,
+            severity="warning",
+            table=tbl.name,
+            message=(
+                f"event table {tbl.name!r} produced 0 rows because no driver "
+                f"is configured. Add a 'row_count_source: proportional:<metric>:"
+                f"scale:<x>' on the table or a 'threshold:<metric>:...' column "
+                f"to drive emission."
+            ),
+            details={"table": tbl.name, "row_count": 0},
+        ))
+    return issues
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -781,4 +832,5 @@ def validate_tables(
     issues.extend(validate_date_spine(config, tables))
     issues.extend(validate_causal_coherence(config, tables))
     issues.extend(validate_null_policy(config, tables))
+    issues.extend(validate_empty_event_tables(config, tables))
     return ValidationReport(issues=tuple(issues))

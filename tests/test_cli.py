@@ -168,6 +168,76 @@ def test_info_hr_summary():
     assert "Seed: 17" in out
 
 
+# --- FIX-02 acceptance: _estimate_periods daily branch -----------------------
+
+
+def _estimate_cfg(start: str, end: str, granularity: str):
+    """Build a minimal PlotsimConfig covering only what _estimate_periods reads."""
+    from plotsim.config import (
+        Archetype, Column, CurveSegment, Domain, Entity, Metric, NoiseConfig,
+        OutputConfig, PlotsimConfig, Table, TimeWindow,
+    )
+    return PlotsimConfig(
+        domain=Domain(name="n", description="d", entity_type="e", entity_label="E"),
+        time_window=TimeWindow(start=start, end=end, granularity=granularity),
+        seed=1,
+        metrics=[Metric(name="a", label="A", distribution="normal",
+                        params={"mu": 0.0, "sigma": 1.0}, polarity="positive")],
+        archetypes=[Archetype(
+            name="flat", label="Flat", description="-",
+            curve_segments=[CurveSegment(curve="plateau", params={"level": 0.5},
+                                         start_pct=0.0, end_pct=1.0)],
+        )],
+        entities=[Entity(name="e1", archetype="flat", size=1)],
+        tables=[Table(
+            name="dim_date", type="dim", grain="per_period",
+            columns=[Column(name="date_key", dtype="id", source="pk")],
+            primary_key="date_key",
+        )],
+        noise=NoiseConfig(),
+        output=OutputConfig(format="csv", directory="out"),
+    )
+
+
+def test_estimate_periods_daily_jan_to_dec():
+    cfg = _estimate_cfg("2023-01", "2023-12", "daily")
+    assert cli._estimate_periods(cfg) == 365
+
+
+def test_estimate_periods_daily_jan_to_feb_leap_year():
+    cfg = _estimate_cfg("2024-01", "2024-02", "daily")
+    assert cli._estimate_periods(cfg) == 60  # 31 (Jan) + 29 (Feb 2024)
+
+
+def test_estimate_periods_monthly_unchanged():
+    cfg = _estimate_cfg("2023-01", "2023-12", "monthly")
+    assert cli._estimate_periods(cfg) == 12
+
+
+def test_estimate_periods_weekly_unchanged():
+    cfg = _estimate_cfg("2023-01", "2023-12", "weekly")
+    # Anchored to month-1: Jan 1 → Dec 1 = 334 days → 334 // 7 + 1 = 48.
+    # Pre-FIX-02 behavior preserved (weekly is unchanged by this fix).
+    assert cli._estimate_periods(cfg) == 48
+
+
+# --- FIX-03 acceptance: CLI summary lists empty event tables -----------------
+
+
+def test_cli_output_summary_lists_empty_tables(tmp_path: Path):
+    """FIX-03 / SF-9: `plotsim run sample_hr.yaml` without --quiet should call
+    out evt_attrition as 0 rows in the summary, since the HR template
+    declares it without a driver.
+    """
+    code, out, _err = run_cli(
+        "run", str(HR_YAML), "-o", str(tmp_path), "--seed", "1"
+    )
+    assert code == 0
+    assert "evt_attrition" in out
+    assert "0 rows" in out
+    assert "no event driver configured" in out
+
+
 # --- plotsim list-templates --------------------------------------------------
 
 

@@ -423,6 +423,12 @@ class Column(_Frozen):
     name: str
     dtype: Dtype
     source: str
+    # Optional human-readable note that this column may contain PII (names,
+    # emails, addresses generated via Faker). Pure metadata — no generation
+    # behavior change. Surfaces in dump_config so downstream consumers can
+    # filter or replace these columns before publishing. See README "Generated
+    # data and PII".
+    pii_note: Optional[str] = None
 
     @field_validator("source")
     @classmethod

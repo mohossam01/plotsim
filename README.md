@@ -186,12 +186,46 @@ The engine runs these checks after generation:
 - **Causal coherence** — lagged metrics inflect after their drivers
 - **Null policy** — no unexpected nulls outside configured missing rates
 - **Correlation PSD** — correlation matrix is positive semi-definite
+- **Empty event tables** — flags event tables that emit zero rows because no
+  driver (`row_count_source` or `threshold:` column) is configured
 
 ```bash
 plotsim run config.yaml --validate
 ```
 
 The validation report is written alongside the CSVs as `validation_report.txt`.
+
+## Generated data and PII
+
+plotsim uses [Faker](https://faker.readthedocs.io/) to fill string columns
+that need realistic values — names, emails, addresses, sentences. Faker
+generates plausible *shapes*, but it draws from real source vocabularies
+(common first/last names, real city names, real-looking email domains).
+Some generated rows will inevitably collide with real people, addresses, or
+businesses by coincidence.
+
+**Generated datasets are not anonymized data.** Treat plotsim output as
+synthetic-looking, not as PII-free or as a substitute for properly
+de-identified production data.
+
+If you publish a generated dataset (portfolio repo, demo notebook, blog
+post, dataset registry), consider:
+
+- Filtering or replacing PII-shaped columns (names, emails, addresses) with
+  obviously-fake placeholders before publication
+- Adding a `pii_note` to columns that need explicit handling — plotsim's
+  config schema accepts an optional `pii_note: str` per `Column` so that
+  downstream consumers and reviewers can find PII-bearing columns at a
+  glance:
+
+  ```yaml
+  - name: full_name
+    dtype: string
+    source: "generated:faker.name"
+    pii_note: "Faker-generated name; may collide with real people. Filter before publishing."
+  ```
+
+  The field is metadata only — it changes nothing about generation.
 
 ## Contributing
 
