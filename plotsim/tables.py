@@ -72,7 +72,11 @@ from plotsim.dimensions import (
     build_all_dimensions,
     sample_fk_values,
 )
-from plotsim.metrics import _build_correlation_matrix, generate_entity_metrics
+from plotsim.metrics import (
+    _build_correlation_matrix,
+    _toposort_metrics,
+    generate_entity_metrics,
+)
 from plotsim.trajectory import compute_all_trajectories
 
 
@@ -1373,10 +1377,23 @@ def generate_tables(
     # matrix+Cholesky rebuilds. The PSD gate above guarantees this Cholesky
     # succeeds; if the call ever surfaces an error here it means an external
     # caller bypassed ``validate_correlation_psd``.
+    #
+    # F-06 / 0.4.0: L must be indexed in the same order the downstream
+    # ``apply_correlations`` sees its z vector. ``generate_entity_metrics``
+    # runs ``_toposort_metrics`` on the incoming list before calling
+    # ``generate_metrics_for_period``, which passes the toposorted effective
+    # metrics to ``apply_correlations``. Pre-F-06 this hoist built L on the
+    # declaration-order list, so any config with ``causal_lag`` (which
+    # reshuffles metric positions) delivered each configured correlation
+    # to whichever metric pair happened to live at those index positions
+    # in the toposorted list — the wrong pair unless both swapped
+    # symmetrically. Building L in toposort order here restores the
+    # invariant "``L`` is indexed by the metric list passed downstream".
     cholesky_L: Optional[np.ndarray] = None
     if config.correlations:
+        sorted_metrics = _toposort_metrics(list(config.metrics))
         mat = _build_correlation_matrix(
-            list(config.metrics), list(config.correlations),
+            sorted_metrics, list(config.correlations),
         )
         cholesky_L = np.linalg.cholesky(mat)
 
