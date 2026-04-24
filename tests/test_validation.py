@@ -1,0 +1,449 @@
+"""Tests for plotsim.validation — Mission 007 acceptance.
+
+Covers:
+  - validate_correlation_psd: sample-config matrices pass; a hand-crafted
+    indefinite matrix is caught.
+  - validate_pk_uniqueness: single-column + composite PKs clean on both
+    sample domains; injected duplicates fire errors.
+  - validate_fk_integrity: clean on both sample domains; injected orphan
+    and null FK values fire error and warning respectively.
+  - validate_date_spine: clean on both sample domains; injected gap + missing
+    fact date_keys fire errors.
+  - validate_causal_coherence: SaaS config (support_tickets lags engagement)
+    passes; threshold events fire only at periods satisfying the condition;
+    a hand-injected event row at a below-threshold period fires an error.
+  - validate_null_policy: clean on both sample domains under the default
+    noise config; injected extra nulls over the 3σ bound fire an error.
+  - validate_tables orchestrator: deterministic issue list; clean run on
+    both sample domains.
+"""
+
+from __future__ import annotations
+
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from plotsim import load_config
+from plotsim.config import (
+    Archetype,
+    Column,
+    CorrelationPair,
+    CurveSegment,
+    Domain,
+    Entity,
+    Metric,
+    PlotsimConfig,
+    NoiseConfig,
+    OutputConfig,
+    SurrogateKeyWarning,
+    Table,
+    TimeWindow,
+)
+from plotsim.tables import generate_tables
+from plotsim.validation import (
+    ALL_CHECKS,
+    CHECK_CORRELATION_PSD,
+    CHECK_FK_INTEGRITY,
+    ValidationReport,
+    validate_causal_coherence,
+    validate_correlation_psd,
+    validate_date_spine,
+    validate_fk_integrity,
+    validate_null_policy,
+    validate_pk_uniqueness,
+    validate_tables,
+)
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SAAS_YAML = ROOT / "plotsim" / "configs" / "sample_saas.yaml"
+HR_YAML = ROOT / "plotsim" / "configs" / "sample_hr.yaml"
+
+
+def _rng(seed: int = 0) -> np.random.Generator:
+    return np.random.default_rng(seed)
+
+
+@pytest.fixture(scope="module")
+def saas_cfg():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        return load_config(SAAS_YAML)
+
+
+@pytest.fixture(scope="module")
+def hr_cfg():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        return load_config(HR_YAML)
+
+
+@pytest.fixture
+def saas_tables(saas_cfg):
+    return generate_tables(saas_cfg, _rng(saas_cfg.seed))
+
+
+@pytest.fixture
+def hr_tables(hr_cfg):
+    return generate_tables(hr_cfg, _rng(hr_cfg.seed))
+
+
+# --- correlation_psd ---------------------------------------------------------
+
+
+def test_psd_sample_saas_passes(saas_cfg):
+    # Post-M007a: SaaS correlation matrix is strictly PD under the tightened
+    # coefficients (0.72, -0.55, 0.55). See mission 007a for the original
+    # non-PD state and why it was caught.
+    assert validate_correlation_psd(saas_cfg) == []
+
+
+def test_psd_sample_hr_passes(hr_cfg):
+    # Post-M007a: HR correlation matrix is strictly PD under the tightened
+    # coefficients (-0.65, -0.50, 0.55).
+    assert validate_correlation_psd(hr_cfg) == []
+
+
+def test_psd_passes_on_identity_only():
+    cfg = _minimal_config(correlations=[])
+    assert validate_correlation_psd(cfg) == []
+
+
+def test_psd_passes_on_mild_correlations():
+    cfg = _minimal_config(
+        correlations=[
+            CorrelationPair(metric_a="a", metric_b="b", coefficient=0.3),
+        ],
+    )
+    assert validate_correlation_psd(cfg) == []
+
+
+def test_psd_no_correlations_is_noop():
+    cfg = _minimal_config(correlations=[])
+    assert validate_correlation_psd(cfg) == []
+
+
+def test_psd_catches_indefinite_matrix():
+    # Three metrics all pairwise correlated at 0.99 is fine; pushing one pair
+    # to -0.99 while the others stay +0.99 produces an indefinite matrix
+    # (transitivity violation).
+    cfg = _minimal_config(
+        correlations=[
+            CorrelationPair(metric_a="a", metric_b="b", coefficient=0.99),
+            CorrelationPair(metric_a="b", metric_b="c", coefficient=0.99),
+            CorrelationPair(metric_a="a", metric_b="c", coefficient=-0.99),
+        ],
+    )
+    issues = validate_correlation_psd(cfg)
+    assert len(issues) == 1
+    assert issues[0].check == CHECK_CORRELATION_PSD
+    assert issues[0].severity == "error"
+    assert issues[0].details["min_eigenvalue"] < 0
+
+
+# --- pk_uniqueness -----------------------------------------------------------
+
+
+def test_pk_uniqueness_saas_clean(saas_cfg, saas_tables):
+    assert validate_pk_uniqueness(saas_cfg, saas_tables) == []
+
+
+def test_pk_uniqueness_hr_clean(hr_cfg, hr_tables):
+    assert validate_pk_uniqueness(hr_cfg, hr_tables) == []
+
+
+def test_pk_uniqueness_flags_single_col_duplicate(saas_cfg, saas_tables):
+    # Duplicate the first event_id onto the second row of evt_login.
+    evt = saas_tables["evt_login"].copy()
+    assert len(evt) >= 2
+    evt.loc[evt.index[1], "event_id"] = evt.loc[evt.index[0], "event_id"]
+    broken = {**saas_tables, "evt_login": evt}
+    issues = validate_pk_uniqueness(saas_cfg, broken)
+    assert any(
+        i.table == "evt_login" and i.severity == "error"
+        for i in issues
+    ), issues
+
+
+def test_pk_uniqueness_flags_composite_duplicate(saas_cfg, saas_tables):
+    # fct_engagement PK = [date_key, company_id]. Duplicate row 0 onto row 1.
+    fct = saas_tables["fct_engagement"].copy()
+    assert len(fct) >= 2
+    fct.loc[fct.index[1], "date_key"] = fct.loc[fct.index[0], "date_key"]
+    fct.loc[fct.index[1], "company_id"] = fct.loc[fct.index[0], "company_id"]
+    broken = {**saas_tables, "fct_engagement": fct}
+    issues = validate_pk_uniqueness(saas_cfg, broken)
+    fct_issues = [i for i in issues if i.table == "fct_engagement"]
+    assert fct_issues, issues
+    assert fct_issues[0].details["duplicate_count"] >= 2
+
+
+# --- fk_integrity ------------------------------------------------------------
+
+
+def test_fk_integrity_saas_clean(saas_cfg, saas_tables):
+    errors = [i for i in validate_fk_integrity(saas_cfg, saas_tables) if i.severity == "error"]
+    assert errors == []
+
+
+def test_fk_integrity_hr_clean(hr_cfg, hr_tables):
+    errors = [i for i in validate_fk_integrity(hr_cfg, hr_tables) if i.severity == "error"]
+    assert errors == []
+
+
+def test_fk_integrity_flags_orphan_value(saas_cfg, saas_tables):
+    fct = saas_tables["fct_engagement"].copy()
+    fct.loc[fct.index[0], "company_id"] = "ghost-company-999"
+    broken = {**saas_tables, "fct_engagement": fct}
+    issues = validate_fk_integrity(saas_cfg, broken)
+    orphan_errors = [
+        i for i in issues
+        if i.severity == "error"
+        and i.table == "fct_engagement"
+        and "orphan" in i.message
+    ]
+    assert orphan_errors
+    assert "ghost-company-999" in orphan_errors[0].details["orphans_sample"]
+
+
+def test_fk_integrity_null_fk_is_warning(saas_cfg, saas_tables):
+    fct = saas_tables["fct_revenue"].copy()
+    # plan_id is an FK from fct_revenue → dim_plan
+    fct.loc[fct.index[0], "plan_id"] = None
+    broken = {**saas_tables, "fct_revenue": fct}
+    issues = validate_fk_integrity(saas_cfg, broken)
+    warns = [
+        i for i in issues
+        if i.severity == "warning"
+        and i.table == "fct_revenue"
+        and i.details.get("column") == "plan_id"
+    ]
+    assert warns, issues
+
+
+# --- date_spine --------------------------------------------------------------
+
+
+def test_date_spine_saas_clean(saas_cfg, saas_tables):
+    assert validate_date_spine(saas_cfg, saas_tables) == []
+
+
+def test_date_spine_hr_clean(hr_cfg, hr_tables):
+    assert validate_date_spine(hr_cfg, hr_tables) == []
+
+
+def test_date_spine_flags_dim_date_missing(saas_cfg, saas_tables):
+    broken = {k: v for k, v in saas_tables.items() if k != "dim_date"}
+    issues = validate_date_spine(saas_cfg, broken)
+    assert any(
+        i.table == "dim_date" and "missing or empty" in i.message
+        for i in issues
+    )
+
+
+def test_date_spine_flags_monthly_gap(saas_cfg, saas_tables):
+    # Delete the 3rd month from dim_date → creates a gap.
+    dd = saas_tables["dim_date"].drop(index=saas_tables["dim_date"].index[2]).reset_index(drop=True)
+    broken = {**saas_tables, "dim_date": dd}
+    issues = validate_date_spine(saas_cfg, broken)
+    assert any(
+        i.table == "dim_date" and "month gap" in i.message
+        for i in issues
+    ), issues
+
+
+def test_date_spine_flags_fact_date_key_not_in_dim(saas_cfg, saas_tables):
+    fct = saas_tables["fct_engagement"].copy()
+    fct.loc[fct.index[0], "date_key"] = 99990101
+    broken = {**saas_tables, "fct_engagement": fct}
+    issues = validate_date_spine(saas_cfg, broken)
+    assert any(
+        i.table == "fct_engagement" and "not present in dim_date" in i.message
+        for i in issues
+    )
+
+
+# --- causal_coherence --------------------------------------------------------
+
+
+def test_causal_coherence_saas_passes(saas_cfg, saas_tables):
+    # SaaS has support_tickets → causal_lag(engagement, 2), and evt_churn
+    # with a threshold:churn_risk:above:0.7:for:3 column. Both should pass
+    # on a fresh generation.
+    issues = validate_causal_coherence(saas_cfg, saas_tables)
+    assert issues == [], issues
+
+
+def test_causal_coherence_hr_passes(hr_cfg, hr_tables):
+    issues = validate_causal_coherence(hr_cfg, hr_tables)
+    assert issues == [], issues
+
+
+def test_causal_coherence_flags_fake_threshold_event(saas_cfg, saas_tables):
+    # Take fct_support_tickets' first row (period 0). churn_risk at row 0 is
+    # very unlikely to have satisfied a 3-period above-0.7 streak (the streak
+    # can't start before the series). Point evt_churn's first event there.
+    evt = saas_tables["evt_churn"].copy()
+    if evt.empty:
+        # Construct a single-row evt_churn at the earliest fct_support_tickets
+        # row so we always have something to invalidate.
+        fct = saas_tables["fct_support_tickets"]
+        evt = pd.DataFrame([{
+            "event_id": "e-0001",
+            "date_key": fct.iloc[0]["date_key"],
+            "company_id": fct.iloc[0]["company_id"],
+            "churn_reason": "synthetic",
+            "churn_flag": True,
+        }])
+    else:
+        fct = saas_tables["fct_support_tickets"]
+        evt.loc[evt.index[0], "date_key"] = fct.iloc[0]["date_key"]
+        evt.loc[evt.index[0], "company_id"] = fct.iloc[0]["company_id"]
+    broken = {**saas_tables, "evt_churn": evt}
+    issues = validate_causal_coherence(saas_cfg, broken)
+    assert any(
+        i.table == "evt_churn"
+        and i.severity == "error"
+        and "threshold event column" in i.message
+        for i in issues
+    ), issues
+
+
+# --- null_policy -------------------------------------------------------------
+
+
+def test_null_policy_saas_clean(saas_cfg, saas_tables):
+    issues = validate_null_policy(saas_cfg, saas_tables)
+    assert issues == [], issues
+
+
+def test_null_policy_hr_clean(hr_cfg, hr_tables):
+    issues = validate_null_policy(hr_cfg, hr_tables)
+    assert issues == [], issues
+
+
+def test_null_policy_flags_non_metric_null(saas_cfg, saas_tables):
+    # Null a generated column on dim_company (company_name = faker).
+    dc = saas_tables["dim_company"].copy()
+    dc.loc[dc.index[0], "company_name"] = None
+    broken = {**saas_tables, "dim_company": dc}
+    issues = validate_null_policy(saas_cfg, broken)
+    assert any(
+        i.table == "dim_company"
+        and i.severity == "error"
+        and "non-metric column" in i.message
+        for i in issues
+    ), issues
+
+
+def test_null_policy_flags_metric_over_bound(saas_cfg, saas_tables):
+    # mcar_rate=0.01, n=72 rows per metric column → upper bound ≈ 4 nulls.
+    # Inject 40 nulls into engagement_score, far over the bound.
+    fct = saas_tables["fct_engagement"].copy()
+    fct["engagement_score"] = fct["engagement_score"].astype("object")
+    fct.loc[fct.index[:40], "engagement_score"] = None
+    broken = {**saas_tables, "fct_engagement": fct}
+    issues = validate_null_policy(saas_cfg, broken)
+    metric_errors = [
+        i for i in issues
+        if i.table == "fct_engagement"
+        and i.details.get("column") == "engagement_score"
+    ]
+    assert metric_errors, issues
+    assert metric_errors[0].details["null_count"] == 40
+
+
+# --- Orchestrator + report ---------------------------------------------------
+
+
+def test_validate_tables_saas_is_ok(saas_cfg, saas_tables):
+    report = validate_tables(saas_cfg, saas_tables)
+    assert isinstance(report, ValidationReport)
+    assert report.ok, [f"{i.check}/{i.table}: {i.message}" for i in report.errors]
+
+
+def test_validate_tables_hr_is_ok(hr_cfg, hr_tables):
+    report = validate_tables(hr_cfg, hr_tables)
+    assert report.ok, [f"{i.check}/{i.table}: {i.message}" for i in report.errors]
+
+
+def test_validate_tables_deterministic(saas_cfg):
+    # Same (config, seed) → same issue set twice in a row. We also inject a
+    # single deterministic break so the issue list is non-empty.
+    t1 = generate_tables(saas_cfg, _rng(saas_cfg.seed))
+    t2 = generate_tables(saas_cfg, _rng(saas_cfg.seed))
+    t1["fct_engagement"] = t1["fct_engagement"].copy()
+    t2["fct_engagement"] = t2["fct_engagement"].copy()
+    t1["fct_engagement"].loc[0, "company_id"] = "orphan-1"
+    t2["fct_engagement"].loc[0, "company_id"] = "orphan-1"
+    r1 = validate_tables(saas_cfg, t1)
+    r2 = validate_tables(saas_cfg, t2)
+    assert [(i.check, i.table, i.message) for i in r1.issues] == \
+           [(i.check, i.table, i.message) for i in r2.issues]
+
+
+def test_validate_tables_report_accessors(saas_cfg, saas_tables):
+    # Sanity-check .errors / .warnings / .by_check on a report with a single
+    # injected warning (null FK) and a single injected error (orphan FK).
+    fct = saas_tables["fct_revenue"].copy()
+    fct.loc[fct.index[0], "plan_id"] = None
+    fct.loc[fct.index[1], "plan_id"] = "ghost-plan"
+    broken = {**saas_tables, "fct_revenue": fct}
+    report = validate_tables(saas_cfg, broken)
+    fk_issues = report.by_check(CHECK_FK_INTEGRITY)
+    assert any(i.severity == "warning" for i in fk_issues)
+    assert any(i.severity == "error" for i in fk_issues)
+    assert not report.ok
+    assert set(i.check for i in report.issues).issubset(set(ALL_CHECKS))
+
+
+# --- Helper: minimal config for PSD tests ------------------------------------
+
+
+def _minimal_config(correlations):
+    return PlotsimConfig(
+        domain=Domain(name="n", description="d", entity_type="e", entity_label="E"),
+        time_window=TimeWindow(start="2024-01", end="2024-06", granularity="monthly"),
+        seed=1,
+        metrics=[
+            Metric(
+                name="a", label="A", distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive", default_curve="plateau",
+            ),
+            Metric(
+                name="b", label="B", distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive", default_curve="plateau",
+            ),
+            Metric(
+                name="c", label="C", distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive", default_curve="plateau",
+            ),
+        ],
+        archetypes=[
+            Archetype(
+                name="flat", label="Flat", description="-",
+                curve_segments=[
+                    CurveSegment(curve="plateau", params={"level": 0.5},
+                                 start_pct=0.0, end_pct=1.0),
+                ],
+            ),
+        ],
+        entities=[Entity(name="e1", archetype="flat", size=1)],
+        tables=[
+            Table(
+                name="dim_date", type="dim", grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+        ],
+        correlations=correlations,
+        noise=NoiseConfig(),
+        output=OutputConfig(format="csv", directory="out"),
+    )
