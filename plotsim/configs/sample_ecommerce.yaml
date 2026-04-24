@@ -17,34 +17,29 @@ metrics:
     distribution: "poisson"
     params: {lambda: 8.0}
     polarity: "positive"
-    default_curve: "sigmoid"
   - name: "cart_value"
     label: "Average cart value"
     distribution: "lognorm"
     params: {s: 0.6, loc: 0.0, scale: 80.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 10000.0}
   - name: "conversion_rate"
     label: "Session-to-purchase conversion"
     distribution: "beta"
     params: {alpha: 2.0, beta: 8.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "return_rate"
     label: "Purchase return rate"
     distribution: "beta"
     params: {alpha: 1.5, beta: 10.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "loyalty_score"
     label: "Segment loyalty index"
     distribution: "beta"
     params: {alpha: 3.0, beta: 4.0}
     polarity: "positive"
-    default_curve: "logistic"
     value_range: {min: 0.0, max: 1.0}
 
 archetypes:
@@ -170,8 +165,6 @@ noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
   mcar_rate: 0.01
-  temporal_jitter_days: 2
-  duplicate_rate: 0.0
 
 output:
   format: "csv"

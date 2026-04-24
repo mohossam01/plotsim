@@ -413,17 +413,17 @@ def _minimal_config(correlations):
             Metric(
                 name="a", label="A", distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
-                polarity="positive", default_curve="plateau",
+                polarity="positive",
             ),
             Metric(
                 name="b", label="B", distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
-                polarity="positive", default_curve="plateau",
+                polarity="positive",
             ),
             Metric(
                 name="c", label="C", distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
-                polarity="positive", default_curve="plateau",
+                polarity="positive",
             ),
         ],
         archetypes=[

@@ -46,19 +46,15 @@ TABLE_TYPES: frozenset[str] = frozenset({"dim", "fact", "event"})
 #   per_period              dim_date: one row per time step, no entity axis
 #   per_reference           dim_plan, dim_department: static lookup (no time, no entity)
 #   per_entity_per_period   fct_engagement: entity × time step
-#   per_subentity_per_period user-level facts: sub-entity × time step
 #   variable                evt_login, evt_churn: trajectory-driven row count
 GRAINS: frozenset[str] = frozenset({
     "per_entity",
     "per_period",
     "per_reference",
     "per_entity_per_period",
-    "per_subentity_per_period",
     "variable",
 })
-COMPOSITE_GRAINS: frozenset[str] = frozenset({
-    "per_entity_per_period", "per_subentity_per_period",
-})
+COMPOSITE_GRAINS: frozenset[str] = frozenset({"per_entity_per_period"})
 DTYPES: frozenset[str] = frozenset({
     "int", "float", "string", "date", "boolean", "id",
 })
@@ -76,7 +72,6 @@ Grain = Literal[
     "per_period",
     "per_reference",
     "per_entity_per_period",
-    "per_subentity_per_period",
     "variable",
 ]
 Dtype = Literal["int", "float", "string", "date", "boolean", "id"]
@@ -346,7 +341,6 @@ class Metric(_Frozen):
     distribution: Distribution
     params: dict[str, float]
     polarity: Polarity
-    default_curve: CurveType
     value_range: Optional[ValueRange] = None
     causal_lag: Optional[CausalLag] = None
 
@@ -380,7 +374,6 @@ class CurveSegment(_Frozen):
 
 
 class MetricOverride(_Frozen):
-    curve: Optional[CurveType] = None
     distribution: Optional[Distribution] = None
     params: Optional[dict[str, float]] = None
 
@@ -516,8 +509,6 @@ class NoiseConfig(_Frozen):
     gaussian_sigma: float = Field(default=0.0, ge=0.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
-    temporal_jitter_days: int = Field(default=0, ge=0)
-    duplicate_rate: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class OutputConfig(_Frozen):
@@ -525,22 +516,10 @@ class OutputConfig(_Frozen):
     directory: str
 
 
-PERFECTLY_CLEAN = NoiseConfig(
-    gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0,
-    temporal_jitter_days=0, duplicate_rate=0.0,
-)
-SLIGHTLY_MESSY = NoiseConfig(
-    gaussian_sigma=0.03, outlier_rate=0.01, mcar_rate=0.005,
-    temporal_jitter_days=0, duplicate_rate=0.0,
-)
-REALISTIC = NoiseConfig(
-    gaussian_sigma=0.05, outlier_rate=0.02, mcar_rate=0.01,
-    temporal_jitter_days=2, duplicate_rate=0.0,
-)
-DIRTY = NoiseConfig(
-    gaussian_sigma=0.10, outlier_rate=0.05, mcar_rate=0.03,
-    temporal_jitter_days=5, duplicate_rate=0.01,
-)
+PERFECTLY_CLEAN = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
+SLIGHTLY_MESSY = NoiseConfig(gaussian_sigma=0.03, outlier_rate=0.01, mcar_rate=0.005)
+REALISTIC = NoiseConfig(gaussian_sigma=0.05, outlier_rate=0.02, mcar_rate=0.01)
+DIRTY = NoiseConfig(gaussian_sigma=0.10, outlier_rate=0.05, mcar_rate=0.03)
 
 NOISE_PRESETS: dict[str, NoiseConfig] = {
     "Perfectly clean": PERFECTLY_CLEAN,

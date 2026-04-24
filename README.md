@@ -1,55 +1,36 @@
 # plotsim
 
-**Generate realistic multi-table datasets from behavioral archetypes.
-No real data needed. No ML training. No cloud dependency. Seed in, tables out.**
+**A Python synthetic data generator for realistic multi-table relational
+datasets — with no real data required.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/mohossam-ae/plotsim/blob/main/LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](#)
 
-## The problem
+plotsim is a synthetic data generator that produces multi-table CSV files
+with foreign keys, temporal patterns, and cross-table consistency. Unlike
+field-level fakers, every metric for an entity (engagement, revenue, churn)
+moves together over time because they derive from the same behavioral
+trajectory.
 
-Analytics engineers, dbt learners, and portfolio builders need realistic
-multi-table datasets — not just a single CSV, but a fact/dim schema where
-the stories across tables line up. Existing tools don't fit:
-
-- **SDV, Gretel, MOSTLY AI, YData** need real data as training input.
-- **Faker, Mimesis** produce field-level randomness with no temporal or
-  cross-table coherence.
-- **Jaffle Shop, dbt-fake** are static snapshots — no behavior over time.
-
-The gap: nothing turns a plain YAML description of a domain into a
-causally-consistent multi-table dataset with no source data required.
-
-## How plotsim is different
-
-One trajectory drives every metric for an entity. When engagement drops,
-MRR drops, support tickets spike, churn risk rises, and churn events fire
-— not because of a post-hoc correlation matrix, but because all four
-metrics read from the same archetype-derived position at each time step.
-
-That's the core invariant: **every value is traceable to a trajectory
-position.** Correlations, noise, and distributions shape the numbers on
-top, but the causal spine is set once per entity.
-
-## Install
+Use it to generate test data for dbt projects, analytics portfolios,
+dashboard prototypes, training courses, or any scenario where you need
+realistic relational data but have no access to production systems.
 
 ```
 pip install plotsim
 ```
 
-Python 3.10 or newer. Core dependencies are `numpy`, `scipy`, `pandas`,
-`pyyaml`, `pydantic`, and `faker`.
+## Usage
 
-## Quick start
+### Generate from a template
 
-First, pull a template out:
-
-```
+```bash
 plotsim template saas -o config.yaml
+plotsim run config.yaml -o ./output --validate
 ```
 
-Then generate from Python — three lines:
+### Generate from Python
 
 ```python
 from plotsim import load_config, generate_tables, write_tables
@@ -59,181 +40,163 @@ tables = generate_tables(config)
 write_tables(tables, config)
 ```
 
-`generate_tables` seeds its RNG from `config.seed` when no generator is
-passed; `write_tables` runs the validator internally when no report is
-passed. Both can be supplied explicitly for tighter control — see
-[examples/quickstart.py](examples/quickstart.py) for an end-to-end version
-that branches on the validation report and prints a head of one table.
+Same config and seed produces identical output every run.
 
-The engine is fully offline and deterministic — same config + same seed
-produces byte-identical CSVs every time.
+## When to use plotsim
 
-## CLI
+- Building an **analytics portfolio** and need realistic data to showcase
+  dbt models, dashboards, or SQL analysis
+- Teaching a **data engineering course** and need students to work with
+  multi-table schemas that behave like production data
+- Prototyping a **dashboard or report** before production data is available
+- Writing **integration tests** for a data pipeline that expects relational
+  input with referential integrity
+- Practicing **dbt, SQL, or data modeling** with data that has temporal
+  patterns, not just random values
+
+## What it generates
+
+A single config produces a complete relational schema:
 
 ```
-# Pull a bundled template out and generate from it
-plotsim template saas -o my_config.yaml
-plotsim run my_config.yaml -o ./output --validate
-
-# Preview what a config would generate (no writes)
-plotsim info my_config.yaml
-
-# Validate a config without running the engine
-plotsim validate my_config.yaml
-
-# List every bundled template
-plotsim list-templates
+output/
+├── dim_date.csv                # date spine
+├── dim_company.csv             # entity attributes
+├── dim_user.csv                # sub-entity attributes
+├── dim_plan.csv                # reference lookup
+├── fct_engagement.csv          # entity × period metrics
+├── fct_revenue.csv             # entity × period metrics
+├── fct_support_tickets.csv     # entity × period metrics
+├── evt_login.csv               # behavioral events
+├── evt_churn.csv               # threshold-triggered events
+├── config.yaml                 # config that produced this output
+└── validation_report.txt       # integrity checks
 ```
 
-Run `plotsim --help` or `plotsim <command> --help` for flag detail.
+All foreign keys resolve. Event tables derive from fact values, not from
+independent random generation. If an entity's engagement declines, its
+login events decrease and churn events fire — across separate CSV files.
 
-## Available templates
+## Templates
 
-| Template     | Domain               | What you get                                           |
-|--------------|----------------------|--------------------------------------------------------|
-| `saas`       | B2B SaaS             | accounts, engagement, MRR, support tickets, churn      |
-| `hr`         | HR department        | employees, performance, training, attrition            |
-| `ecommerce`  | E-commerce           | customer segments, orders, returns, cart abandonment   |
-| `education`  | University           | student cohorts, grades, engagement                    |
-| `healthcare` | Clinic               | patient groups, visits, treatments, outcomes           |
+Five domain configs ship with the package:
 
-Every template is a plain YAML file you can copy, edit, and re-run. The
-engine is domain-agnostic — the templates are there for a fast start, not
-as a closed list.
+| Template | Domain | Entities | Tables |
+| --- | --- | --- | --- |
+| `saas` | B2B SaaS | accounts with users | 10 |
+| `hr` | HR department | employees in departments | 7 |
+| `ecommerce` | E-commerce | customer segments | 8 |
+| `education` | University | student cohorts | 7 |
+| `healthcare` | Clinic | patient groups | 8 |
+
+```bash
+plotsim list-templates          # see all available
+plotsim template hr -o hr.yaml  # export one to edit
+```
 
 ## Custom domains
 
-The config file is the contract. Copy a template, edit the `domain`,
-`metrics`, `archetypes`, and `tables` sections to your use case, then:
-
-```
-plotsim validate my_config.yaml
-plotsim run my_config.yaml
-```
-
-If you don't feel like editing YAML by hand, paste a template into
-ChatGPT/Claude and describe the transformation:
+The config file defines everything: entity types, metrics, behavioral
+archetypes, table schemas, correlations, and noise levels. Copy any
+template and modify it, or generate one with any LLM:
 
 > "Change this SaaS config to model a food delivery service with
 > restaurants, orders, delivery times, and customer ratings."
 
-Then validate and run. The Groq/Llama auto-scaffolder in the original
-design spec is deferred to V2; a clipboard and an LLM are enough for now.
+Or generate from scratch by feeding the schema to the LLM:
 
-## What gets generated
+```python
+import json
+from plotsim.config import PlotsimConfig
 
-Running `plotsim run configs/sample_saas.yaml -o ./out` produces:
-
-```
-out/
-├── dim_date.csv              # 24 rows — the date spine
-├── dim_company.csv           # one row per cohort
-├── dim_user.csv              # per-cohort user rows
-├── dim_plan.csv              # static reference
-├── fct_engagement.csv        # entity × period engagement + feature_adoption
-├── fct_revenue.csv           # entity × period MRR
-├── fct_support_tickets.csv   # entity × period ticket_count + churn_risk + nps
-├── evt_login.csv             # login events, count proportional to engagement
-├── evt_churn.csv             # churn events, fired when churn_risk stays high
-├── config.yaml               # exact config that produced this run
-└── validation_report.txt     # FK/PK/date_spine/causal/null checks
+schema = json.dumps(PlotsimConfig.model_json_schema(), indent=2)
+# Paste this schema into any LLM and describe the domain you need
 ```
 
-Fact columns carry a `stage` field if the config defines a lifecycle
-sequence (`onboarding → active → at_risk → churned` for SaaS). The
-validator enforces stage monotonicity when `enforce_order: true`.
+Validate before generating:
+
+```bash
+plotsim validate my_config.yaml
+plotsim run my_config.yaml -o ./output
+```
 
 ## How it works
 
+Each entity is assigned an archetype — a trajectory curve composed of
+segments like sigmoid, exponential decay, step, plateau, or oscillation.
+
+At each time step, the engine reads the entity's trajectory position
+(a value between 0 and 1) and derives every metric from it:
+
+- **Positive polarity** metrics (engagement, revenue) rise when the
+  trajectory rises.
+- **Negative polarity** metrics (churn risk, support tickets) rise when
+  the trajectory falls.
+
+Distributions (lognormal, gamma, poisson, beta, normal, weibull) shape
+the raw values. Correlated noise is applied via Cholesky decomposition
+on the configured correlation matrix. Causal lag lets one metric trail
+another by N periods.
+
+Dimension tables are generated first (dates, entities, reference lookups),
+then fact tables (trajectory-driven metrics per period), then event tables
+(derived from completed fact values, never from raw trajectories).
+
+## Config overview
+
+A plotsim config has these sections:
+
+- **domain** — name and entity label
+- **time_window** — start, end, granularity (monthly / weekly / daily)
+- **seed** — integer controlling all randomness
+- **metrics** — name, distribution, polarity, optional causal lag
+- **archetypes** — named trajectory shapes built from curve segments
+- **entities** — instances assigned to archetypes
+- **tables** — dim / fact / event schemas with typed columns
+- **correlations** — optional metric-pair coefficients
+- **noise** — gaussian sigma, outlier rate, missing data rate, temporal jitter
+- **stages** — optional lifecycle sequence with enforceable ordering
+
+Full schema with type annotations: [plotsim/config.py](https://github.com/mohossam-ae/plotsim/blob/main/plotsim/config.py)
+
+## CLI reference
+
 ```
-YAML config → Pydantic schema → PlotsimConfig (frozen)
-                                      │
-                      per-entity archetype curve segments
-                                      ▼
-                      trajectory engine → position arrays [0,1]
-                                      │
-                         polarity × distribution × correlation
-                                      ▼
-                      metric generator → per-metric series
-                                      │
-                            fact + event table builders
-                                      ▼
-                              dict[str, DataFrame]
-                                      │
-                                  write_tables
-                                      ▼
-                         CSV files + config.yaml + report
+plotsim run <config>              Generate dataset from config
+  -o, --output-dir <path>         Output directory (default: from config)
+  -s, --seed <int>                Override seed
+  -v, --validate                  Run validation after generation
+  --strict                        Fail on validation warnings
+  -q, --quiet                     Suppress output
+
+plotsim validate <config>         Check config without generating
+plotsim info <config>             Preview tables, rows, entities
+plotsim list-templates            Show bundled templates
+plotsim template <name>           Print template YAML to stdout
+  -o, --output <path>             Write to file instead
 ```
 
-Every randomness path flows through a single seeded
-`numpy.random.Generator`. Events consume completed fact values, never
-raw trajectories — that firewall is enforced by the function signature
-of `build_event_tables`. Correlations between metrics are applied via
-Cholesky decomposition on the configured coefficient matrix; the
-validator catches non-PSD matrices at config-load time.
+## Validation
 
-## Simple vs expert configs
+The engine runs these checks after generation:
 
-The same archetype can be described either way — the engine doesn't care:
+- **FK integrity** — every foreign key resolves to a parent row
+- **PK uniqueness** — no duplicate primary keys
+- **Date spine** — no gaps in the date dimension
+- **Causal coherence** — lagged metrics inflect after their drivers
+- **Null policy** — no unexpected nulls outside configured missing rates
+- **Correlation PSD** — correlation matrix is positive semi-definite
 
-| Control            | Simple label                     | Expert parameters                              |
-|--------------------|----------------------------------|------------------------------------------------|
-| Archetype          | "Grows fast then crashes"        | `sigmoid(0..0.55) → step(0.55..0.65) → plateau` |
-| Metric relationship| "Tightly linked"                 | `correlation_coefficient: 0.72`                |
-| Data messiness     | "Slightly messy"                 | `gaussian_sigma=0.03, mcar_rate=0.005`         |
-| Turning point      | "Midway through"                 | `inflection_month: 14`                         |
-| Value spread       | "Tight clustering"               | `lognorm(s=0.85, scale=1.2)`                   |
+```bash
+plotsim run config.yaml --validate
+```
 
-A UI layer (deferred to V2) swaps the labels on the same underlying
-parameters. Same data underneath.
-
-## Compared to alternatives
-
-| Feature                           | plotsim | SDV     | Faker | dbt-fake |
-|-----------------------------------|----------|---------|-------|----------|
-| Needs real data                   | No       | Yes     | No    | No       |
-| Multi-table with FKs              | Yes      | Yes     | No    | Limited  |
-| Temporal behavioral patterns      | Yes      | No      | No    | No       |
-| Causal chain enforcement          | Yes      | No      | No    | No       |
-| Domain-agnostic                   | Yes      | Yes     | N/A   | No       |
-| Deterministic (seeded)            | Yes      | Partial | Yes   | No       |
-
-## Config schema reference
-
-The full schema lives in [plotsim/config.py](plotsim/config.py) — it's
-a Pydantic v2 model, every field is typed, every cross-reference is
-validated at load time. The top-level sections are:
-
-- `domain` — name and entity label
-- `time_window` — start, end, granularity (monthly/weekly/daily)
-- `seed` — integer, drives every random decision
-- `metrics` — name, distribution, polarity, default curve, optional causal lag
-- `archetypes` — curve segments composed of sigmoid, step, plateau, etc.
-- `entities` — cohorts with an archetype and size
-- `tables` — dim/fact/event schemas with column-level `source` strings
-- `correlations` — optional metric-pair coefficients
-- `noise` — gaussian, outlier, MCAR, temporal jitter
-- `stages` — optional lifecycle sequence with enforceable ordering
-- `output` — CSV directory
-
-Start from a template (`plotsim template saas`) rather than from a
-blank file — the sample configs exercise every supported section.
-
-## Limitations (V1)
-
-- Output format is CSV only.
-- All randomness is deterministic given a seed; we don't simulate time-
-  varying noise rates.
-- The LLM auto-scaffolder (Groq + Llama) and the 4-page Streamlit UI
-  from the design spec are V2 features.
-- `per_subentity_per_period` facts aren't exercised by any bundled
-  template yet; sub-entity dim tables work, but sub-entity facts are
-  unvalidated against real configs.
+The validation report is written alongside the CSVs as `validation_report.txt`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup, test commands,
-and the checklist for adding a new domain template or curve type.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, test commands,
+and how to add templates or curve types.
 
 ## License
 

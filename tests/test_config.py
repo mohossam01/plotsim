@@ -102,7 +102,7 @@ def test_noise_presets_named_constants():
     assert PERFECTLY_CLEAN.gaussian_sigma == 0.0
     assert SLIGHTLY_MESSY.gaussian_sigma == 0.03
     assert REALISTIC.gaussian_sigma == 0.05
-    assert DIRTY.duplicate_rate == 0.01
+    assert DIRTY.gaussian_sigma == 0.10
 
 
 # --- Acceptance: round-trip load → dump → load → equal ---
@@ -141,7 +141,6 @@ def _minimal_valid() -> dict:
             "distribution": "lognorm",
             "params": {"s": 0.5, "scale": 1.0},
             "polarity": "positive",
-            "default_curve": "sigmoid",
         }],
         "archetypes": [{
             "name": "a1",
@@ -717,7 +716,6 @@ def _metric(name: str, **overrides) -> dict:
         "distribution": "lognorm",
         "params": {"s": 0.5, "scale": 1.0},
         "polarity": "positive",
-        "default_curve": "sigmoid",
     }
     base.update(overrides)
     return base

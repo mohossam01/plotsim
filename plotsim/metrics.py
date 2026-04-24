@@ -42,6 +42,7 @@ from typing import Optional
 import numpy as np
 
 from plotsim.config import (
+    Archetype,
     CorrelationPair,
     Metric,
     NoiseConfig,
@@ -303,6 +304,26 @@ def apply_noise(
 
 # --- Per-period and per-entity orchestration --------------------------------
 
+def _apply_archetype_overrides(
+    metric: Metric, archetype: Optional[Archetype],
+) -> Metric:
+    """Return `metric` with distribution/params substituted when the archetype
+    declares an override for it. Polarity, value_range, and causal_lag are
+    never overridable — only the distribution family and its shape params.
+    """
+    if archetype is None:
+        return metric
+    override = archetype.metric_overrides.get(metric.name)
+    if override is None:
+        return metric
+    updates: dict = {}
+    if override.distribution is not None:
+        updates["distribution"] = override.distribution
+    if override.params is not None:
+        updates["params"] = override.params
+    return metric.model_copy(update=updates) if updates else metric
+
+
 def generate_metrics_for_period(
     trajectory_position: float,
     metrics: list[Metric],
@@ -311,47 +332,50 @@ def generate_metrics_for_period(
     lag_buffer: Optional[dict[str, list[float]]],
     period_index: int,
     rng: np.random.Generator,
+    archetype: Optional[Archetype] = None,
 ) -> dict[str, Optional[float]]:
     """Generate every metric for one entity at one time step.
 
     Pipeline per metric:
-        1. current position → optional lag blend with driver's past position
-        2. (polarity + distribution-specific) position → center
-        3. sample independent value from the distribution
+        1. resolve archetype override (distribution/params) if any
+        2. current position → optional lag blend with driver's past position
+        3. (polarity + distribution-specific) position → center
+        4. sample independent value from the distribution
     Then once across all metrics:
-        4. apply Cholesky correlation on residuals (if correlations given)
-        5. apply noise (if noise config given): gaussian → outlier → MCAR
-        6. clamp to value_range, round poisson to int
+        5. apply Cholesky correlation on residuals (if correlations given)
+        6. apply noise (if noise config given): gaussian → outlier → MCAR
+        7. clamp to value_range, round poisson to int
     """
+    effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
     centers: dict[str, float] = {}
     independent: dict[str, Optional[float]] = {}
 
-    for m in metrics:
+    for em in effective:
         eff_pos = _compute_effective_position(
-            trajectory_position, m, lag_buffer, period_index,
+            trajectory_position, em, lag_buffer, period_index,
         )
-        center = position_to_center(eff_pos, m)
-        centers[m.name] = center
-        independent[m.name] = sample_single_metric(center, m, rng)
+        center = position_to_center(eff_pos, em)
+        centers[em.name] = center
+        independent[em.name] = sample_single_metric(center, em, rng)
 
     if correlations:
-        correlated = apply_correlations(independent, centers, correlations, metrics)
+        correlated = apply_correlations(independent, centers, correlations, effective)
     else:
         correlated = dict(independent)
 
     out: dict[str, Optional[float]] = {}
-    for m in metrics:
-        v = correlated[m.name]
+    for em in effective:
+        v = correlated[em.name]
         if v is None:
-            out[m.name] = None
+            out[em.name] = None
             continue
         if noise is not None:
             maybe_v = apply_noise(v, noise, rng)
             if maybe_v is None:
-                out[m.name] = None
+                out[em.name] = None
                 continue
             v = maybe_v
-        out[m.name] = _clamp_and_round(v, m)
+        out[em.name] = _clamp_and_round(v, em)
     return out
 
 
@@ -361,6 +385,7 @@ def generate_entity_metrics(
     correlations: Optional[list[CorrelationPair]],
     noise: Optional[NoiseConfig],
     rng: np.random.Generator,
+    archetype: Optional[Archetype] = None,
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
@@ -370,10 +395,17 @@ def generate_entity_metrics(
     another entity starts with an empty buffer, so lag history cannot leak
     across entities.
 
-    Return arrays are ``int`` for poisson, ``float`` otherwise. If any MCAR
-    null appears in a metric's series, that array becomes ``dtype=object`` to
+    When ``archetype`` is provided, any ``metric_overrides`` it declares are
+    applied per period (distribution family and shape params only).
+
+    Return arrays are ``int`` for poisson, ``float`` otherwise. Whether a
+    metric's series is poisson is decided on the (possibly overridden)
+    effective distribution, so an override from ``poisson`` → ``normal``
+    (or vice versa) correctly changes the output dtype. If any MCAR null
+    appears in a metric's series, that array becomes ``dtype=object`` to
     carry ``None`` alongside numbers.
     """
+    effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
     n_periods = len(trajectory)
     lag_buffer: dict[str, list[float]] = {m.name: [] for m in metrics}
     collected: dict[str, list] = {m.name: [] for m in metrics}
@@ -382,18 +414,19 @@ def generate_entity_metrics(
         pos = float(trajectory[t])
         period_out = generate_metrics_for_period(
             pos, metrics, correlations, noise, lag_buffer, t, rng,
+            archetype=archetype,
         )
         for m in metrics:
             collected[m.name].append(period_out[m.name])
             lag_buffer[m.name].append(pos)
 
     result: dict[str, np.ndarray] = {}
-    for m in metrics:
-        values = collected[m.name]
+    for em in effective:
+        values = collected[em.name]
         if any(v is None for v in values):
-            result[m.name] = np.array(values, dtype=object)
-        elif m.distribution == "poisson":
-            result[m.name] = np.array(values, dtype=int)
+            result[em.name] = np.array(values, dtype=object)
+        elif em.distribution == "poisson":
+            result[em.name] = np.array(values, dtype=int)
         else:
-            result[m.name] = np.array(values, dtype=float)
+            result[em.name] = np.array(values, dtype=float)
     return result

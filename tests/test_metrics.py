@@ -47,7 +47,6 @@ def _metric(
     distribution: str = "normal",
     params: dict | None = None,
     polarity: str = "positive",
-    default_curve: str = "sigmoid",
     value_range: ValueRange | None = None,
     causal_lag: CausalLag | None = None,
 ) -> Metric:
@@ -59,7 +58,6 @@ def _metric(
         distribution=distribution,  # type: ignore[arg-type]
         params=params,
         polarity=polarity,  # type: ignore[arg-type]
-        default_curve=default_curve,  # type: ignore[arg-type]
         value_range=value_range,
         causal_lag=causal_lag,
     )
@@ -129,7 +127,7 @@ def test_position_to_center_unsupported_raises():
     # Bypass Pydantic by mutating a dict; build a fake metric via model_construct.
     m = Metric.model_construct(
         name="x", label="x", distribution="bogus", params={},
-        polarity="positive", default_curve="sigmoid",
+        polarity="positive",
         value_range=None, causal_lag=None,
     )
     with pytest.raises(ValueError, match="unsupported distribution"):
@@ -164,7 +162,7 @@ def test_sample_gamma_zero_center_returns_zero():
 def test_sample_unsupported_raises():
     m = Metric.model_construct(
         name="x", label="x", distribution="bogus", params={},
-        polarity="positive", default_curve="sigmoid",
+        polarity="positive",
         value_range=None, causal_lag=None,
     )
     with pytest.raises(ValueError, match="unsupported distribution"):

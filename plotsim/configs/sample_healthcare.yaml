@@ -17,34 +17,29 @@ metrics:
     distribution: "poisson"
     params: {lambda: 6.0}
     polarity: "positive"
-    default_curve: "sigmoid"
   - name: "treatment_adherence"
     label: "Treatment plan adherence"
     distribution: "beta"
     params: {alpha: 4.0, beta: 2.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "symptom_severity"
     label: "Average symptom severity (0-10)"
     distribution: "gamma"
     params: {shape: 2.0, scale: 1.2}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 10.0}
   - name: "recovery_index"
     label: "Recovery progress index"
     distribution: "beta"
     params: {alpha: 3.0, beta: 3.0}
     polarity: "positive"
-    default_curve: "logistic"
     value_range: {min: 0.0, max: 1.0}
   - name: "readmission_risk"
     label: "30-day readmission risk"
     distribution: "beta"
     params: {alpha: 1.5, beta: 8.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
 
 archetypes:
@@ -160,8 +155,6 @@ noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
   mcar_rate: 0.01
-  temporal_jitter_days: 1
-  duplicate_rate: 0.0
 
 output:
   format: "csv"

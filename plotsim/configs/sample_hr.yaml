@@ -17,27 +17,23 @@ metrics:
     distribution: "normal"
     params: {mu: 3.5, sigma: 0.6}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 1.0, max: 5.0}
   - name: "engagement_index"
     label: "Engagement index"
     distribution: "beta"
     params: {alpha: 3.0, beta: 3.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "training_hours"
     label: "Monthly training hours"
     distribution: "gamma"
     params: {shape: 2.0, scale: 3.0}
     polarity: "positive"
-    default_curve: "logistic"
   - name: "absence_rate"
     label: "Monthly absence rate"
     distribution: "beta"
     params: {alpha: 1.2, beta: 8.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
     causal_lag:
       driver: "engagement_index"
@@ -47,7 +43,6 @@ metrics:
     distribution: "beta"
     params: {alpha: 2.0, beta: 6.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
 
 archetypes:
@@ -201,8 +196,6 @@ noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
   mcar_rate: 0.01
-  temporal_jitter_days: 1
-  duplicate_rate: 0.0
 
 output:
   format: "csv"

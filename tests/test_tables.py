@@ -206,12 +206,11 @@ def test_lag_metric_response_trails_driver_inflection():
         Metric(
             name="engagement", label="e", distribution="beta",
             params={"alpha": 2.0, "beta": 5.0}, polarity="positive",
-            default_curve="sigmoid", value_range={"min": 0.0, "max": 1.0},
+            value_range={"min": 0.0, "max": 1.0},
         ),
         Metric(
             name="support_tickets", label="s", distribution="poisson",
             params={"lambda": 5.0}, polarity="negative",
-            default_curve="sigmoid",
             causal_lag={"driver": "engagement", "lag_periods": 2},
         ),
     ]
@@ -319,7 +318,7 @@ def test_threshold_event_no_event_when_streak_short():
         Metric(
             name="churn_risk", label="c", distribution="beta",
             params={"alpha": 2.0, "beta": 5.0}, polarity="negative",
-            default_curve="sigmoid", value_range={"min": 0.0, "max": 1.0},
+            value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     # Plateau low → trajectory ~ 0.1 → negative polarity → churn_risk ~ 0.9 EVERY
@@ -473,7 +472,7 @@ def test_assign_stages_choose_highest_when_enforce_order_false():
         Metric(
             name="m", label="m", distribution="beta",
             params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
-            default_curve="sigmoid", value_range={"min": 0.0, "max": 1.0},
+            value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     archetype = Archetype(

@@ -158,6 +158,7 @@ def build_fact_tables(
 
     # Generate metric series per entity once. Each entity's RNG draws share
     # the top-level rng, so determinism is preserved across the whole run.
+    arch_by_name = {a.name: a for a in config.archetypes}
     entity_metrics: dict[str, dict[str, np.ndarray]] = {}
     for entity in config.entities:
         traj = trajectories[entity.name]
@@ -172,6 +173,7 @@ def build_fact_tables(
             list(config.correlations),
             config.noise,
             rng,
+            archetype=arch_by_name.get(entity.archetype),
         )
 
     fact_out: dict[str, pd.DataFrame] = {}

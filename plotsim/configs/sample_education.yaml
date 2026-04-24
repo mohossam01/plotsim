@@ -17,34 +17,29 @@ metrics:
     distribution: "normal"
     params: {mu: 75.0, sigma: 10.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 100.0}
   - name: "attendance_rate"
     label: "Class attendance rate"
     distribution: "beta"
     params: {alpha: 6.0, beta: 2.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "study_hours"
     label: "Weekly study hours"
     distribution: "gamma"
     params: {shape: 2.5, scale: 2.0}
     polarity: "positive"
-    default_curve: "logistic"
   - name: "participation_index"
     label: "Class participation index"
     distribution: "beta"
     params: {alpha: 2.5, beta: 3.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "dropout_risk"
     label: "Dropout risk score"
     distribution: "beta"
     params: {alpha: 1.5, beta: 6.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
 
 archetypes:
@@ -165,8 +160,6 @@ noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.01
   mcar_rate: 0.01
-  temporal_jitter_days: 1
-  duplicate_rate: 0.0
 
 output:
   format: "csv"

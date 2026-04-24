@@ -488,8 +488,6 @@ def test_zero_noise_produces_no_metric_nulls(tmp_path: Path):
             "gaussian_sigma": 0.0,
             "outlier_rate": 0.0,
             "mcar_rate": 0.0,
-            "temporal_jitter_days": 0,
-            "duplicate_rate": 0.0,
         }
     cfg = mutate_saas(tmp_path, zero_noise)
     tables = generate(cfg)
@@ -512,8 +510,6 @@ def test_maximum_noise_preserves_structural_checks(tmp_path: Path):
             "gaussian_sigma": 0.2,
             "outlier_rate": 0.1,
             "mcar_rate": 0.1,
-            "temporal_jitter_days": 5,
-            "duplicate_rate": 0.0,
         }
     cfg = mutate_saas(tmp_path, crank)
     tables = generate(cfg)

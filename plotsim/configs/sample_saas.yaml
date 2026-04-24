@@ -17,21 +17,18 @@ metrics:
     distribution: "beta"
     params: {alpha: 2.0, beta: 5.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "mrr"
     label: "Monthly recurring revenue"
     distribution: "lognorm"
     params: {s: 0.85, loc: 0.0, scale: 1200.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 100000.0}
   - name: "support_tickets"
     label: "Support ticket volume"
     distribution: "poisson"
     params: {lambda: 5.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     causal_lag:
       driver: "engagement"
       lag_periods: 2
@@ -40,21 +37,18 @@ metrics:
     distribution: "beta"
     params: {alpha: 3.0, beta: 4.0}
     polarity: "positive"
-    default_curve: "logistic"
     value_range: {min: 0.0, max: 1.0}
   - name: "churn_risk"
     label: "Churn risk score"
     distribution: "beta"
     params: {alpha: 2.0, beta: 5.0}
     polarity: "negative"
-    default_curve: "sigmoid"
     value_range: {min: 0.0, max: 1.0}
   - name: "nps"
     label: "Net promoter score"
     distribution: "normal"
     params: {mu: 30.0, sigma: 15.0}
     polarity: "positive"
-    default_curve: "sigmoid"
     value_range: {min: -100.0, max: 100.0}
 
 archetypes:
@@ -116,7 +110,6 @@ archetypes:
         end_pct: 1.0
     metric_overrides:
       mrr:
-        curve: "compound"
         distribution: "lognorm"
         params: {s: 0.6, scale: 2500.0}
 
@@ -246,8 +239,6 @@ noise:
   gaussian_sigma: 0.05
   outlier_rate: 0.02
   mcar_rate: 0.01
-  temporal_jitter_days: 2
-  duplicate_rate: 0.0
 
 output:
   format: "csv"
