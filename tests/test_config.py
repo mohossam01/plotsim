@@ -958,3 +958,48 @@ def test_hr_sample_roundtrip_preserves_new_fields():
     dumped = dump_config(c1)
     c2 = PlotsimConfig(**yaml.safe_load(dumped))
     assert c1 == c2
+
+
+# --- FIX-03 acceptance: Column.pii_note schema field + README PII section ----
+
+
+def test_pii_note_field_accepted_in_config():
+    """FIX-03 / SF-4: Column accepts an optional pii_note metadata string and
+    preserves it through load/dump round-trip."""
+    data = _minimal_valid()
+    data["tables"][0]["columns"].append({
+        "name": "full_name",
+        "dtype": "string",
+        "source": "generated:faker.name",
+        "pii_note": "Faker-generated name; may collide with real people.",
+    })
+    cfg = PlotsimConfig(**data)
+    name_col = next(c for c in cfg.tables[0].columns if c.name == "full_name")
+    assert name_col.pii_note == (
+        "Faker-generated name; may collide with real people."
+    )
+    # Round-trip through YAML preserves the field.
+    dumped = dump_config(cfg)
+    cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
+    name_col2 = next(c for c in cfg2.tables[0].columns if c.name == "full_name")
+    assert name_col2.pii_note == name_col.pii_note
+
+
+def test_pii_note_defaults_to_none_when_omitted():
+    """Backwards-compat: existing configs without pii_note still load."""
+    cfg = PlotsimConfig(**_minimal_valid())
+    for tbl in cfg.tables:
+        for col in tbl.columns:
+            assert col.pii_note is None
+
+
+def test_readme_contains_pii_section():
+    """FIX-03 / SF-4: The README must explain that Faker output is not
+    PII-safe and how pii_note can be used to mark columns for downstream
+    handling."""
+    readme = ROOT / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    assert "Generated data and PII" in text
+    assert "pii_note" in text
+    assert "Faker" in text or "faker" in text
+

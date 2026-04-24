@@ -318,8 +318,11 @@ def test_cholesky_handles_multi_metric_sizes(k):
         assert not np.isnan(arr).any()
 
 
-def test_non_psd_correlation_matrix_falls_back():
+def test_non_psd_correlation_matrix_raises():
     # 3 metrics with every off-diagonal at -1.0 → not positive semi-definite.
+    # Per FIX-01, apply_correlations now raises ValueError instead of silently
+    # falling back to independent samples — silent fallback hid configuration
+    # defects from every downstream statistical check.
     metrics = [_metric(f"m{i}", distribution="normal",
                        params={"mu": 10.0, "sigma": 1.0}) for i in range(3)]
     correlations = [
@@ -327,16 +330,14 @@ def test_non_psd_correlation_matrix_falls_back():
         CorrelationPair(metric_a="m0", metric_b="m2", coefficient=-1.0),
         CorrelationPair(metric_a="m1", metric_b="m2", coefficient=-1.0),
     ]
-    # Should not raise; falls back to independent samples.
-    out = generate_entity_metrics(
-        trajectory=np.full(20, 0.5),
-        metrics=metrics,
-        correlations=correlations,
-        noise=None,
-        rng=_rng(0),
-    )
-    for m in metrics:
-        assert not np.isnan(out[m.name].astype(float)).any()
+    with pytest.raises(ValueError, match="positive semi-definite"):
+        generate_entity_metrics(
+            trajectory=np.full(20, 0.5),
+            metrics=metrics,
+            correlations=correlations,
+            noise=None,
+            rng=_rng(0),
+        )
 
 
 def test_apply_correlations_empty_list_returns_input():

@@ -797,7 +797,24 @@ def generate_tables(
 
     If ``rng`` is omitted, a fresh generator is seeded from ``config.seed``
     so callers can stay on the three-line quickstart without importing numpy.
+
+    Gates the run on ``validate_correlation_psd(config)`` before any
+    randomness is consumed: a non-PSD correlation matrix raises ``ValueError``
+    here rather than producing partial output that silently drops correlation.
     """
+    # Local import: validation imports tables transitively, so a top-level
+    # import would create a cycle.
+    from plotsim.validation import validate_correlation_psd
+
+    psd_issues = validate_correlation_psd(config)
+    if psd_issues:
+        names = [m.name for m in config.metrics]
+        raise ValueError(
+            f"Configured correlation matrix is not positive semi-definite "
+            f"for metrics {names}. {psd_issues[0].message} "
+            f"(min eigenvalue: {psd_issues[0].details.get('min_eigenvalue')})"
+        )
+
     if rng is None:
         rng = np.random.default_rng(config.seed)
     dim_tables = build_all_dimensions(config, rng)

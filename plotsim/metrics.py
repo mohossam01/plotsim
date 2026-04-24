@@ -184,12 +184,18 @@ def apply_correlations(
 
     Residuals are normalized by center so metrics on different scales are
     comparable, then transformed through the Cholesky factor of the target
-    correlation matrix and reconstructed as ``c * (1 + corr_r)``. When the
-    matrix is non-PSD (bad user config), we fall back to independent samples
-    rather than crash.
+    correlation matrix and reconstructed as ``c * (1 + corr_r)``.
 
     Metrics whose center is near zero bypass the transform — their residual
     would be undefined and the reconstruction would collapse to 0.
+
+    A non-positive-semi-definite correlation matrix is a config defect, not
+    a runtime condition. Callers should catch it upstream via
+    ``validation.validate_correlation_psd`` (which ``generate_tables`` runs
+    unconditionally before sampling). If sampling reaches this function with
+    a bad matrix, we raise ``ValueError`` rather than silently fall back to
+    independent samples — silent fallback hides the defect from every
+    statistical test downstream.
     """
     if not correlations:
         return dict(independent)
@@ -219,8 +225,15 @@ def apply_correlations(
 
     try:
         L = np.linalg.cholesky(mat)
-    except np.linalg.LinAlgError:
-        return dict(independent)
+    except np.linalg.LinAlgError as exc:
+        eigvals = np.linalg.eigvalsh(mat).tolist()
+        raise ValueError(
+            f"Configured correlation matrix is not positive semi-definite "
+            f"for metrics {names}. Min eigenvalue: {min(eigvals):.6f}. "
+            f"Run plotsim.validation.validate_correlation_psd(config) before "
+            f"generation, or call validate_tables/generate_tables which gate "
+            f"on it automatically."
+        ) from exc
 
     corr_r = L @ r
 
