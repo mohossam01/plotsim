@@ -1,6 +1,6 @@
 [project]
 name = "plotsim"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generate realistic multi-table datasets from behavioral archetypes. No real data needed."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -52,10 +52,10 @@ dev = [
 plotsim = "plotsim.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mohossam/plotsim"
-Documentation = "https://github.com/mohossam/plotsim#readme"
-Repository = "https://github.com/mohossam/plotsim"
-Issues = "https://github.com/mohossam/plotsim/issues"
+Homepage = "https://github.com/mohossam-ae/plotsim"
+Documentation = "https://github.com/mohossam-ae/plotsim#readme"
+Repository = "https://github.com/mohossam-ae/plotsim"
+Issues = "https://github.com/mohossam-ae/plotsim/issues"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
@@ -65,7 +65,7 @@ build-backend = "setuptools.build_meta"
 include = ["plotsim*"]
 
 [tool.setuptools.package-data]
-plotsim = ["configs/*.yaml"]
+plotsim = ["configs/*.yaml", "py.typed"]
 
 [tool.ruff]
 line-length = 100
