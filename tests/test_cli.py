@@ -60,7 +60,7 @@ def run_cli(*argv: str) -> tuple[int, str, str]:
 
 
 def test_package_version_is_wired():
-    assert plotsim.__version__ == "0.3.0"
+    assert plotsim.__version__ == "0.4.0"
 
 
 def test_public_api_quick_start_import():
@@ -119,7 +119,7 @@ def test_unknown_command_exits_nonzero():
 def test_version_flag():
     code, out, _err = run_cli("--version")
     assert code == 0
-    assert "plotsim" in out and "0.3.0" in out
+    assert "plotsim" in out and "0.4.0" in out
 
 
 # --- plotsim validate --------------------------------------------------------

@@ -5,71 +5,180 @@ All notable changes to plotsim are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] — unreleased
+## [0.4.0] — 2026-04-23
 
-Behavior-breaking fix for F-02 (causal-lag semantics) from the runtime
-verification report. Output values change for any config with
-`causal_lag` entries.
+Correctness and hardening release. Configured correlations and causal
+lags now match their observed values in the generated output; a
+round of validation and resource-bound work catches malformed configs
+at load time rather than mid-generation.
+
+**Output values change** for any config that uses correlations or
+`causal_lag`. Same config + same seed remains byte-identical within
+0.4.0. Cross-version byte-matching against 0.3.x is not preserved.
+See Migration at the bottom.
 
 ### Added
-- **`CausalLag.blend_weight: float`** (default `1.0`, range `[0.0, 1.0]`)
-  — per-lag configurable blend between the metric's current trajectory
-  position and the driver's past effective position. At the new default
-  of `1.0` the blend collapses to `driver_past`, so metric-at-T equals
-  driver-at-(T-N) exactly and cross-correlation peaks at the configured
-  `lag_periods`. Pre-0.4.0 behavior (60% driver-past + 40% current) is
-  recovered with `blend_weight: 0.6`.
+
+- **`CausalLag.blend_weight`** — per-lag float in `[0.0, 1.0]`,
+  default `1.0`. Controls the blend between the metric's current
+  trajectory position and the driver's past position. At the default
+  the lag is a pure period shift, so a metric configured with
+  `lag_periods: N` reads the driver's value from exactly N periods
+  ago and cross-correlation peaks at that offset. Setting
+  `blend_weight: 0.6` recovers the pre-0.4.0 blend.
+- **`RedundantCorrelationWarning`** — emitted at `load_config` for
+  any `correlations` entry with `coefficient: 0.0`, which is
+  structurally valid but operationally a no-op.
+- **CLI `--allow-absolute-output` flag** — escape hatch for the new
+  `plotsim run` sandbox. Without the flag, `plotsim run` resolves
+  the output directory relative to the current working directory
+  and rejects `..` traversal.
+- **SQL-safe identifier validation** on `Table.name` and `Column.name`
+  (pattern `[A-Za-z_][A-Za-z0-9_]{0,127}`, enforced at `load_config`).
+- **Faker method allowlist** — 53 methods permitted, 11 denied
+  (seeding, provider mutation, `binary`, `format`, `parse`,
+  `pystr_format`). 4096-character cap on length-like kwargs.
+- **Numeric and list-length caps** on the config model:
+  `Entity.size <= 5000`, `ProportionalSource.scale <= 100`,
+  `NoiseConfig.gaussian_sigma <= 5.0`,
+  `CausalLag.lag_periods <= 120`,
+  `StageSequence.downgrade_delay <= 120`;
+  `PlotsimConfig.metrics <= 50 / archetypes <= 20 / entities <= 100 /
+  tables <= 50 / correlations <= 1225`,
+  `Table.columns <= 100`, `Archetype.curve_segments <= 10`,
+  `StageSequence.sequence <= 10`.
+- **Time-span caps** — 360 monthly / 1560 weekly / 3650 daily
+  periods, enforced on `TimeWindow.period_count()`.
+- **Total-entity cap** — `sum(Entity.size) > 100_000` rejected at
+  load.
+- **Config-time cell-count estimator** — prints a one-line stderr
+  summary at load (entities × periods, metrics, tables, estimated
+  peak memory). Warns above 500k cells; raises above 2M.
+- **Reference fixtures for all 5 shipped templates** at
+  `tests/fixtures/layer4_reference/<template>/` — the YAML and
+  validation report are tracked; regenerated CSVs remain gitignored.
+  A metadata canary catches generation-output regressions.
 
 ### Changed
-- **Causal lags compose across chains.** `lag_buffer` now stores
-  effective positions (post-blend) instead of raw trajectory positions,
-  and metrics are processed in topological driver→target order inside
-  `generate_entity_metrics`. A three-metric chain A→B→C with lags 2 and
-  3 now produces a C series that reads A's trajectory from 5 periods
-  ago, matching the causal DAG the config declares. Pre-0.4.0 the
-  `driver` field was vestigial (every buffer key held the same
-  trajectory slice) and lags did not compose.
+
+- **Configured correlations are now delivered exactly.** A Gaussian
+  copula replaces the pre-0.4.0 residual-transform. Each metric's
+  marginal distribution is preserved by a CDF round-trip; the
+  Cholesky factor delivers the configured correlation in Gaussian
+  space, so the observed coefficient matches the configured one
+  within ±0.10 for continuous pairings and ±0.15 for pairings that
+  include `poisson` (inherent discretization noise).
+- **Causal lags compose across chains.** The lag buffer now stores
+  effective (post-blend) positions, and metrics are processed in
+  topological driver → target order. A three-metric chain
+  `A → B(lag=2) → C(lag=3)` produces a `C` series that reads `A`'s
+  trajectory from 5 periods ago, matching the declared DAG. Before
+  0.4.0 the `driver` field was effectively vestigial and lags did
+  not compose.
 - **`causal_coherence` validator threshold** relaxed from strict
-  `|lagged| > |unlagged|` to a 50% ratio check. The strict inequality
-  was tuned for the pre-0.4.0 blend that carried a 40% same-period
-  component. Under `blend_weight=1.0` the lag is a pure period shift,
-  and on slow-varying trajectories the Iman-Conover same-period
-  correlation induced by any correlation pair on the lagged metric can
-  inflate `|unlagged|` above `|lagged|` even though the lag is
-  correctly implemented. The ratio still catches flagrantly broken
-  lags (where the shift drops correlation magnitude toward zero).
+  `|lagged| > |unlagged|` to a 50% ratio. Under the new pure-shift
+  blend, the Iman-Conover same-period correlation can inflate
+  `|unlagged|` above `|lagged|` on slow-varying trajectories even
+  when the lag is implemented correctly. The ratio still catches
+  flagrantly broken lags.
+- **`assign_stages` vectorized** — `np.searchsorted` +
+  `np.maximum.accumulate` for the strict-monotonic common case;
+  per-entity numpy walk preserves state for the `downgrade_delay`
+  branch. Measured 35–46× speedup across 85×365 / 500×365 /
+  2000×365 shapes. Byte-identical output is locked by parity tests.
+- **Cholesky factor computed once per generation** and threaded
+  through `build_fact_tables → generate_entity_metrics →
+  generate_metrics_for_period` so the per-(entity, period) inner
+  loop no longer rebuilds the correlation matrix.
+- **Fact-path vectorization.** Per-entity-per-period fact
+  construction materializes an `(E, P, M)` float ndarray and
+  dispatches between a vectorized path (shipped templates) and a
+  preserved scalar path (for `FakerSource` / `boolean` metric
+  columns, which need byte-identical RNG consumption).
+- **Event-path hybrid vectorization.** Deterministic event columns
+  go through `np.repeat` over per-row counts; stochastic columns
+  keep the per-row loop.
+- **Full-suite wall clock 48s → 31s** post-vectorization.
+
+### Fixed
+
+- **Non-positive-definite correlation matrices are rejected at
+  `load_config`** rather than at `generate_tables`. The
+  `generate_tables` gate is retained as defense-in-depth for
+  callers that construct `PlotsimConfig` programmatically.
+- **Empty `entities: []` configs raise at load.** Previously they
+  silently produced zero-row dim and fact tables.
+- **Cholesky indexing realigned with topological metric order.**
+  The Cholesky factor is now built from the topologically sorted
+  metric list, so its rows and columns match the z-vector the
+  correlation step produces. Before this fix, any pair whose
+  declaration index differed from its toposort index got its
+  configured coefficient applied to a different pair of metrics.
+  Among shipped templates, `saas` and `hr` were affected because
+  they use both `correlations` and `causal_lag`; ecommerce,
+  education, and healthcare were unaffected (no lag chains, so
+  toposort is a no-op). Reference fixtures for `saas` and `hr`
+  regenerated.
 
 ### Removed
-- **`plotsim.metrics.LAG_BLEND_WEIGHT`** module constant. No longer
-  read by any code path after `_compute_effective_position` switched
-  to `metric.causal_lag.blend_weight`. External imports of the
+
+- **`plotsim.metrics.LAG_BLEND_WEIGHT`** module constant. Per-lag
+  `CausalLag.blend_weight` replaces it. External imports of the
   constant will raise `ImportError`.
 
-### Migration notes
-- Any config with `causal_lag` produces different output values. The
-  two bundled templates affected are `sample_saas.yaml`
-  (`support_tickets.causal_lag` lag=2) and `sample_hr.yaml`
-  (`absence_rate.causal_lag` lag=1). Reference fixtures at
-  `tests/fixtures/layer4_reference/saas/` and `/hr/` have been
-  regenerated; users tracking byte-identical output against 0.3.x
-  should expect these two templates' CSVs to change.
-- `ecommerce`, `education`, and `healthcare` templates have no
-  `causal_lag` entries and produce byte-identical output to 0.3.x.
-- Users who want the pre-0.4.0 behavior can set
-  `causal_lag: {driver: ..., lag_periods: N, blend_weight: 0.6}`
-  explicitly.
-- Metric processing inside `generate_entity_metrics` is now
-  topological, not declaration-order. For configs without chains this
-  is a stable permutation (insertion order is preserved within each
-  ready-layer), so RNG consumption is unchanged. For configs with
-  chains, the order changes to put drivers before targets.
+### Dependencies
+
+- **`scipy>=1.11`** pinned in `pyproject.toml` (was implicit before).
+  All six shipped distributions (`lognorm`, `gamma`, `poisson`,
+  `beta`, `normal`, `weibull`) ship in scipy 1.11.
+
+### Migration
+
+- **Output values shift for configs with correlations.** The
+  Gaussian copula reconstructs configured correlations faithfully;
+  previously-attenuated coefficients now land where you configured
+  them. Reference fixtures for all 5 bundled templates regenerated.
+- **Output values shift for configs with `causal_lag`.** The new
+  `blend_weight=1.0` default is a pure period shift rather than a
+  60/40 blend. Two bundled templates are affected (`sample_saas.yaml`
+  `support_tickets` lag=2; `sample_hr.yaml` `absence_rate` lag=1).
+  Set `blend_weight: 0.6` explicitly to recover the pre-0.4.0 blend.
+- **Output values shift for configs with both correlations AND
+  `causal_lag`.** The Cholesky-indexing fix corrects which pair each
+  configured correlation applies to. Only `saas` and `hr` among
+  shipped templates have both features. There is no way to recover
+  pre-fix values from config — the pre-fix values were wrong.
+- **Non-PSD correlation matrices now raise at `load_config`**
+  instead of at `generate_tables`. Tighten the correlation triangle
+  so all eigenvalues are strictly positive.
+- **Configs with `entities: []` now raise at load.** Populate the
+  list with at least one entity.
+- **CLI default writes to cwd.** Pre-0.4.0 callers that relied on
+  absolute `output.directory` paths must add
+  `--allow-absolute-output` or switch to a relative path.
+- **Table and column names must be SQL-safe identifiers.**
+  Whitespace, punctuation, and path separators are rejected.
+- **Faker methods outside the allowlist raise at load.** The
+  denylist covers seeding, provider mutation, and `binary`.
+- **Configs above the new numeric / list / span / total-entity
+  limits raise at load.** Most hand-authored configs sit well
+  under these caps.
+- **Cell counts above 2M raise at load; 500k–2M warn.** A one-line
+  summary always prints to stderr.
+- **`CausalLag.blend_weight` is a new field on a frozen model.**
+  0.3.x configs without the field inherit the new default `1.0` on
+  load. Round-tripped configs (`dump_config` → YAML) now carry the
+  explicit `blend_weight: 1.0` under every `causal_lag`.
+- **Metric processing order inside `generate_entity_metrics` is
+  now topological** (driver → target). For configs without
+  `causal_lag` chains this is a stable permutation and RNG
+  consumption is unchanged; configs with chains will see different
+  per-period RNG consumption.
 
 ## [0.3.0] — 2026-04-22
 
-Post-launch hardening pass sourced from the 2026-04-22 read-only
-package audit (2 Must Fix, 9 Should Fix). Cumulative fix bundle from
-five commit groups (`bb6feb2` → `0af6b27` → `0aed106` → `2e63bac` →
-`78788cd`).
+Post-launch hardening pass. Two correctness fixes and seven quality
+improvements sourced from a read-only package audit.
 
 ### Added
 - **Parameterized Faker source grammar.** `generated:faker.<provider>[:k:v]*`
@@ -101,29 +210,30 @@ five commit groups (`bb6feb2` → `0af6b27` → `0aed106` → `2e63bac` →
   (suppressed by `Column.allow_outside_window=True`).
 - **`validate_cross_dim_fk_cardinality`** — warns when a cross-dim FK
   distribution references a dim with fewer rows than the assigned weights.
-- **Six archetype distinguishability tests** (FIX-09, SF-7). One per
-  shipped template plus a graceful-degradation test. Projects each
-  entity's primary continuous metric into (mean, slope, last-first, std),
-  clusters with KMeans, asserts `adjusted_rand_score > 0.5` vs. ground
-  truth. Catches regressions where curves/noise/correlations silently
-  destroy archetype separability.
+- **Six archetype distinguishability tests.** One per shipped
+  template plus a graceful-degradation test. Projects each entity's
+  primary continuous metric into (mean, slope, last-first, std),
+  clusters with KMeans, asserts `adjusted_rand_score > 0.5` vs.
+  ground truth. Catches regressions where curves, noise, or
+  correlations silently destroy archetype separability.
 
 ### Changed
-- **`apply_correlations` non-PSD is now a hard raise** (FIX-01, SF-1).
-  The M004-era silent fallback to independent samples is gone; a non-PD
-  correlation matrix raises at generation time. `generate_tables` gates
-  on `validate_correlation_psd` before sampling so the error surfaces
-  at the config boundary rather than mid-generation. **Behavior break**
-  for any 0.1.0/0.2.0 config whose correlations quietly degenerated.
-- **`assign_stages` + `_entity_groups` vectorized** (FIX-07, SF-5).
-  `np.searchsorted` + `np.maximum.accumulate` handle the strict-monotonic
-  case fully vectorized; a per-entity numpy walk preserves state for the
-  `downgrade_delay` branch. **35–46× speedup** benchmarked across
-  85×365 / 500×365 / 2000×365 shapes (mission target was ~5×).
-- **CLI `info` daily-granularity period estimate** (FIX-02, SF-6).
-  `_estimate_periods` now uses `calendar.monthrange(end.year, end.month)[1]`
-  to include the last-day-of-end-month; previously undercounted daily
-  granularity by (days-in-end-month − 1).
+- **`apply_correlations` non-PSD is now a hard raise.** The previous
+  silent fallback to independent samples is gone; a non-PD
+  correlation matrix raises at generation time, and
+  `generate_tables` gates on `validate_correlation_psd` before
+  sampling so the error surfaces at the config boundary rather than
+  mid-generation. **Behavior break** for any 0.1.0 / 0.2.0 config
+  whose correlations quietly degenerated.
+- **`assign_stages` and `_entity_groups` vectorized.**
+  `np.searchsorted` + `np.maximum.accumulate` handle the
+  strict-monotonic case fully vectorized; a per-entity numpy walk
+  preserves state for the `downgrade_delay` branch. **35–46×
+  speedup** benchmarked across 85×365 / 500×365 / 2000×365 shapes.
+- **CLI `info` daily-granularity period estimate.** Uses
+  `calendar.monthrange(end.year, end.month)[1]` to include the
+  last-day-of-end-month; previously undercounted daily granularity
+  by (days-in-end-month − 1).
 - **`apply_correlations` near-zero-center bypass** kept but no longer
   load-bearing (the pre-generation PSD gate means the Cholesky path
   never sees a non-PD matrix).
@@ -134,38 +244,37 @@ five commit groups (`bb6feb2` → `0af6b27` → `0aed106` → `2e63bac` →
   FK distribution documentation.
 
 ### Fixed
-- **Cross-dim FK collapse to parent row 0** (FIX-04, MF-1) — structural
-  fix. Fact tables now sample from the parent dim per-entity using the
-  configured `FKDistribution` instead of always returning row 0. Invisible
-  on shipped 1-row reference dims; realism-breaking the moment a user
-  expands `dim_plan` or `dim_department`.
-- **`hire_date` temporal incoherence** (FIX-05, MF-2) — HR sample's
-  `hire_date` could land outside `time_window`. The parameterized Faker
-  grammar + bounded `faker.date_between` produces in-window dates; the
-  new `validate_temporal_coherence` check catches the class of bug for
-  future configs.
+- **Cross-dim FK collapse to parent row 0** — structural fix. Fact
+  tables now sample from the parent dim per-entity using the
+  configured `FKDistribution` instead of always returning row 0.
+  Invisible on shipped 1-row reference dims; realism-breaking the
+  moment a user expands `dim_plan` or `dim_department`.
+- **`hire_date` temporal incoherence** — HR sample's `hire_date`
+  could land outside `time_window`. The parameterized Faker grammar
+  with bounded `faker.date_between` produces in-window dates; the
+  new `validate_temporal_coherence` check catches the class of bug
+  for future configs.
 - **`validate_null_policy` isinstance tuple** widened to include
-  `FakerSource` (discovered during Group 3 via a regression in the
-  existing null-policy test).
+  `FakerSource`.
 - **Stale `Metric.default_curve`-era constructor sites** swept across
-  tests (no runtime path, just call-site cleanup).
+  tests (no runtime path; call-site cleanup only).
 
 ### Performance
-- `assign_stages` 35–46× speedup across representative shapes (see
-  Changed / FIX-07 above).
+- `assign_stages` 35–46× speedup across representative shapes.
 
 ### Dependencies
-- **`scikit-learn>=1.3`** added to `[dev]` and a new `[test]` optional-
-  dependencies group for the FIX-09 distinguishability test suite. Core
-  runtime `dependencies` block unchanged — the shipped library keeps
-  its numpy / scipy / pandas / pyyaml / pydantic / faker footprint.
+- **`scikit-learn>=1.3`** added to `[dev]` and a new `[test]`
+  optional-dependencies group for the archetype distinguishability
+  tests. Core runtime `dependencies` block unchanged — the shipped
+  library keeps its numpy / scipy / pandas / pyyaml / pydantic /
+  faker footprint.
 
 ### Migration
 - Configs relying on `apply_correlations`' silent independent-sample
   fallback (non-PD matrices that previously generated anyway) will now
   raise. Fix is one-shot: tighten the correlation triangle so all
   eigenvalues are strictly positive. The five shipped samples are
-  already PD (007a fix).
+  already PD.
 - Configs using `generated:faker.date` with implicit open-ended date
   ranges still work but will warn via `validate_temporal_coherence` if
   generated values land outside `time_window`. Opt into the warning-free

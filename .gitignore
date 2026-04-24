@@ -8,8 +8,10 @@ __pycache__/
 .Python
 build/
 dist/
+eggs/
 *.egg-info/
 *.egg
+*.whl
 MANIFEST
 pip-wheel-metadata/
 
@@ -47,6 +49,7 @@ dmypy.json
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -78,4 +81,7 @@ AGENTS.md
 !CONTRIBUTING.md
 !LICENSE
 !LICENSE.md
-FEATURE_REPORT.md
+
+# Session / audit artifacts — only Python that ships lives under
+# plotsim/ and tests/, so root-level .py is scratch by definition.
+/*.py

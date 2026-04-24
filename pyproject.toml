@@ -1,7 +1,7 @@
 [project]
 name = "plotsim"
-version = "0.3.0"
-description = "Generate realistic multi-table datasets from behavioral archetypes. No real data needed."
+version = "0.4.0"
+description = "Generate multi-table synthetic datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -9,21 +9,38 @@ authors = [
     { name = "Mohamed Hossam" }
 ]
 keywords = [
-    "synthetic-data", "data-generation", "analytics",
-    "dbt", "portfolio", "simulation", "archetypes"
+    "synthetic-data",
+    "data-generator",
+    "test-data",
+    "fake-data",
+    "multi-table",
+    "relational-data",
+    "star-schema",
+    "dimensional-model",
+    "data-engineering",
+    "dbt",
+    "analytics",
+    "time-series",
+    "behavioral-simulation",
+    "dataset-generator",
+    "tabular-data",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
-    "Topic :: Software Development :: Testing :: Traffic Generation",
-    "Topic :: Database",
+    "Intended Audience :: Education",
     "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 
@@ -61,6 +78,7 @@ Homepage = "https://github.com/mohossam-ae/plotsim"
 Documentation = "https://github.com/mohossam-ae/plotsim#readme"
 Repository = "https://github.com/mohossam-ae/plotsim"
 Issues = "https://github.com/mohossam-ae/plotsim/issues"
+Changelog = "https://github.com/mohossam-ae/plotsim/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
