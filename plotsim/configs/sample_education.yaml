@@ -1,0 +1,173 @@
+domain:
+  name: "University student cohorts"
+  description: "Academic performance and engagement across student cohorts over time"
+  entity_type: "student_cohort"
+  entity_label: "Student cohorts"
+
+time_window:
+  start: "2022-09"
+  end: "2024-06"
+  granularity: "monthly"
+
+seed: 11
+
+metrics:
+  - name: "assignment_score"
+    label: "Average assignment score (0-100)"
+    distribution: "normal"
+    params: {mu: 75.0, sigma: 10.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 100.0}
+  - name: "attendance_rate"
+    label: "Class attendance rate"
+    distribution: "beta"
+    params: {alpha: 6.0, beta: 2.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "study_hours"
+    label: "Weekly study hours"
+    distribution: "gamma"
+    params: {shape: 2.5, scale: 2.0}
+    polarity: "positive"
+    default_curve: "logistic"
+  - name: "participation_index"
+    label: "Class participation index"
+    distribution: "beta"
+    params: {alpha: 2.5, beta: 3.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "dropout_risk"
+    label: "Dropout risk score"
+    distribution: "beta"
+    params: {alpha: 1.5, beta: 6.0}
+    polarity: "negative"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+
+archetypes:
+  - name: "late_bloomer"
+    label: "Struggles early, excels late"
+    description: "Sigmoid with a late midpoint - slow start then strong finish"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.65, steepness: 7.0}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "steady_learner"
+    label: "Consistent throughout"
+    description: "High plateau maintained across the term"
+    curve_segments:
+      - curve: "plateau"
+        params: {level: 0.75}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "burnout_trajectory"
+    label: "Strong start, gradual decline"
+    description: "Exponential decay after initial ramp"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.15, steepness: 10.0}
+        start_pct: 0.0
+        end_pct: 0.3
+      - curve: "exp_decay"
+        params: {rate: 2.0}
+        start_pct: 0.3
+        end_pct: 1.0
+
+entities:
+  - name: "freshmen"
+    archetype: "late_bloomer"
+    size: 60
+  - name: "transfer_students"
+    archetype: "steady_learner"
+    size: 20
+  - name: "at_risk_cohort"
+    archetype: "burnout_trajectory"
+    size: 15
+
+tables:
+  - name: "dim_date"
+    type: "dim"
+    grain: "per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "pk"}
+      - {name: "date", dtype: "date", source: "generated:date_key"}
+      - {name: "year", dtype: "int", source: "generated:date_key"}
+      - {name: "month", dtype: "int", source: "generated:date_key"}
+    primary_key: "date_key"
+
+  - name: "dim_student"
+    type: "dim"
+    grain: "per_entity"
+    columns:
+      - {name: "student_id", dtype: "id", source: "pk"}
+      - {name: "cohort_name", dtype: "string", source: "generated:faker.company"}
+      - {name: "cohort_size", dtype: "int", source: "derived:size"}
+    primary_key: "student_id"
+
+  - name: "dim_course"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "course_id", dtype: "id", source: "pk"}
+      - {name: "course_name", dtype: "string", source: "static:intro_cs"}
+      - {name: "credits", dtype: "int", source: "static:3"}
+    primary_key: "course_id"
+
+  - name: "fct_grades"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "student_id", dtype: "id", source: "fk:dim_student.student_id"}
+      - {name: "course_id", dtype: "id", source: "fk:dim_course.course_id"}
+      - {name: "assignment_score", dtype: "float", source: "metric:assignment_score"}
+      - {name: "participation_index", dtype: "float", source: "metric:participation_index"}
+    primary_key: ["date_key", "student_id"]
+    foreign_keys:
+      - "dim_date.date_key"
+      - "dim_student.student_id"
+      - "dim_course.course_id"
+
+  - name: "fct_engagement"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "student_id", dtype: "id", source: "fk:dim_student.student_id"}
+      - {name: "attendance_rate", dtype: "float", source: "metric:attendance_rate"}
+      - {name: "study_hours", dtype: "float", source: "metric:study_hours"}
+      - {name: "dropout_risk", dtype: "float", source: "metric:dropout_risk"}
+    primary_key: ["date_key", "student_id"]
+    foreign_keys: ["dim_date.date_key", "dim_student.student_id"]
+
+  - name: "evt_dropout"
+    type: "event"
+    grain: "variable"
+    columns:
+      - {name: "event_id", dtype: "id", source: "pk"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "student_id", dtype: "id", source: "fk:dim_student.student_id"}
+      - {name: "reason", dtype: "string", source: "generated:faker.sentence"}
+      - {name: "dropout_flag", dtype: "boolean", source: "threshold:dropout_risk:above:0.6:for:2"}
+    primary_key: "event_id"
+    foreign_keys: ["dim_date.date_key", "dim_student.student_id"]
+
+correlations:
+  - {metric_a: "attendance_rate", metric_b: "assignment_score", coefficient: 0.50}
+  - {metric_a: "assignment_score", metric_b: "dropout_risk", coefficient: -0.45}
+  - {metric_a: "participation_index", metric_b: "dropout_risk", coefficient: -0.40}
+
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.01
+  mcar_rate: 0.01
+  temporal_jitter_days: 1
+  duplicate_rate: 0.0
+
+output:
+  format: "csv"
+  directory: "out/education"

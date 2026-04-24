@@ -1,0 +1,263 @@
+domain:
+  name: "B2B SaaS customer success"
+  description: "Customer account behavior across the subscription lifecycle"
+  entity_type: "customer_account"
+  entity_label: "Customer accounts"
+
+time_window:
+  start: "2023-01"
+  end: "2024-12"
+  granularity: "monthly"
+
+seed: 42
+
+metrics:
+  - name: "engagement"
+    label: "Product engagement"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 5.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "mrr"
+    label: "Monthly recurring revenue"
+    distribution: "lognorm"
+    params: {s: 0.85, loc: 0.0, scale: 1200.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 100000.0}
+  - name: "support_tickets"
+    label: "Support ticket volume"
+    distribution: "poisson"
+    params: {lambda: 5.0}
+    polarity: "negative"
+    default_curve: "sigmoid"
+    causal_lag:
+      driver: "engagement"
+      lag_periods: 2
+  - name: "feature_adoption"
+    label: "Feature adoption rate"
+    distribution: "beta"
+    params: {alpha: 3.0, beta: 4.0}
+    polarity: "positive"
+    default_curve: "logistic"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "churn_risk"
+    label: "Churn risk score"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 5.0}
+    polarity: "negative"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "nps"
+    label: "Net promoter score"
+    distribution: "normal"
+    params: {mu: 30.0, sigma: 15.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: -100.0, max: 100.0}
+
+archetypes:
+  - name: "rocket_then_cliff"
+    label: "Grows fast then crashes"
+    description: "Rapid adoption then an abrupt drop and low plateau"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.3, steepness: 10.0}
+        start_pct: 0.0
+        end_pct: 0.55
+      - curve: "step"
+        params: {threshold: 0.5, before: 1.0, after: 0.2}
+        start_pct: 0.55
+        end_pct: 0.65
+      - curve: "plateau"
+        params: {level: 0.2}
+        start_pct: 0.65
+        end_pct: 1.0
+  - name: "steady_grower"
+    label: "Climbs steadily"
+    description: "S-curve growth across the full window"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.5, steepness: 6.0}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "slow_death"
+    label: "Slowly fades"
+    description: "Exponential decline across the full window"
+    curve_segments:
+      - curve: "exp_decay"
+        params: {rate: 2.0}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "seasonal_spiker"
+    label: "Pulses with the seasons"
+    description: "Cyclical periodic peaks across the window"
+    curve_segments:
+      - curve: "oscillating"
+        params: {period: 0.25, amplitude: 0.4}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "zombie_account"
+    label: "Present but inactive"
+    description: "Flat low level throughout — dormant account"
+    curve_segments:
+      - curve: "plateau"
+        params: {level: 0.15}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "expansion_champion"
+    label: "Keeps accelerating"
+    description: "Compound growth with increasing velocity"
+    curve_segments:
+      - curve: "compound"
+        params: {base_rate: 0.05, acceleration: 0.02}
+        start_pct: 0.0
+        end_pct: 1.0
+    metric_overrides:
+      mrr:
+        curve: "compound"
+        distribution: "lognorm"
+        params: {s: 0.6, scale: 2500.0}
+
+entities:
+  - name: "acme_corp_cohort"
+    archetype: "rocket_then_cliff"
+    size: 50
+  - name: "globex_cohort"
+    archetype: "steady_grower"
+    size: 30
+  - name: "hooli_cohort"
+    archetype: "zombie_account"
+    size: 10
+
+tables:
+  - name: "dim_date"
+    type: "dim"
+    grain: "per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "pk"}
+      - {name: "date", dtype: "date", source: "generated:date_key"}
+      - {name: "year", dtype: "int", source: "generated:date_key"}
+      - {name: "month", dtype: "int", source: "generated:date_key"}
+      - {name: "quarter", dtype: "int", source: "generated:date_key"}
+    primary_key: "date_key"
+
+  - name: "dim_company"
+    type: "dim"
+    grain: "per_entity"
+    columns:
+      - {name: "company_id", dtype: "id", source: "pk"}
+      - {name: "company_name", dtype: "string", source: "generated:faker.company"}
+      - {name: "industry", dtype: "string", source: "generated:faker.industry"}
+      - {name: "founded_year", dtype: "int", source: "generated:faker.year"}
+      - {name: "cohort_size", dtype: "int", source: "derived:size"}
+    primary_key: "company_id"
+
+  - name: "dim_user"
+    type: "dim"
+    grain: "variable"
+    columns:
+      - {name: "user_id", dtype: "id", source: "pk"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "user_name", dtype: "string", source: "generated:faker.name"}
+      - {name: "role", dtype: "string", source: "static:member"}
+    primary_key: "user_id"
+    foreign_keys: ["dim_company.company_id"]
+
+  - name: "dim_plan"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "plan_id", dtype: "id", source: "pk"}
+      - {name: "plan_name", dtype: "string", source: "static:starter"}
+      - {name: "monthly_price", dtype: "float", source: "static:99.00"}
+    primary_key: "plan_id"
+
+  - name: "fct_engagement"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "engagement_score", dtype: "float", source: "metric:engagement"}
+      - {name: "feature_adoption", dtype: "float", source: "metric:feature_adoption"}
+    primary_key: ["date_key", "company_id"]
+    foreign_keys: ["dim_date.date_key", "dim_company.company_id"]
+
+  - name: "fct_revenue"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "plan_id", dtype: "id", source: "fk:dim_plan.plan_id"}
+      - {name: "mrr", dtype: "float", source: "metric:mrr"}
+    primary_key: ["date_key", "company_id"]
+    foreign_keys: ["dim_date.date_key", "dim_company.company_id", "dim_plan.plan_id"]
+
+  - name: "fct_support_tickets"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "ticket_count", dtype: "int", source: "metric:support_tickets"}
+      - {name: "churn_risk", dtype: "float", source: "metric:churn_risk"}
+      - {name: "nps", dtype: "float", source: "metric:nps"}
+    primary_key: ["date_key", "company_id"]
+    foreign_keys: ["dim_date.date_key", "dim_company.company_id"]
+
+  - name: "evt_login"
+    type: "event"
+    grain: "variable"
+    row_count_source: "proportional:engagement:scale:5"
+    columns:
+      - {name: "event_id", dtype: "id", source: "pk"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "user_id", dtype: "id", source: "fk:dim_user.user_id"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "event_ts", dtype: "date", source: "generated:timestamp"}
+    primary_key: "event_id"
+    foreign_keys: ["dim_date.date_key", "dim_user.user_id", "dim_company.company_id"]
+
+  - name: "evt_churn"
+    type: "event"
+    grain: "variable"
+    columns:
+      - {name: "event_id", dtype: "id", source: "pk"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
+      - {name: "churn_reason", dtype: "string", source: "generated:faker.sentence"}
+      - {name: "churn_flag", dtype: "boolean", source: "threshold:churn_risk:above:0.7:for:3"}
+    primary_key: "event_id"
+    foreign_keys: ["dim_date.date_key", "dim_company.company_id"]
+
+correlations:
+  # Tightened from (0.82, -0.75, 0.68) to a strictly PD solution
+  # (min eigenvalue +0.02). The engagement ↔ mrr ↔ churn_risk triangle
+  # with r_em²+r_ec² already exceeds 1 at the originals, which is the
+  # root reason M004's Cholesky was falling back to independent samples.
+  - {metric_a: "engagement", metric_b: "mrr", coefficient: 0.72}
+  - {metric_a: "engagement", metric_b: "churn_risk", coefficient: -0.55}
+  - {metric_a: "support_tickets", metric_b: "churn_risk", coefficient: 0.55}
+
+noise:
+  gaussian_sigma: 0.05
+  outlier_rate: 0.02
+  mcar_rate: 0.01
+  temporal_jitter_days: 2
+  duplicate_rate: 0.0
+
+output:
+  format: "csv"
+  directory: "out/saas"
+
+stages:
+  field: "churn_risk"
+  sequence:
+    - {name: "onboarding", threshold_enter: 0.0, threshold_exit: 0.2}
+    - {name: "active", threshold_enter: 0.2, threshold_exit: 0.5}
+    - {name: "at_risk", threshold_enter: 0.5, threshold_exit: 0.8}
+    - {name: "churned", threshold_enter: 0.8, threshold_exit: null}
+  enforce_order: true

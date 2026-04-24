@@ -1,0 +1,566 @@
+"""plotsim.dimensions — dimension table builders (date spine, entity, sub-entity, reference).
+
+What it does:
+    Builds every non-behavioural table the engine needs before fact/event
+    generation can resolve foreign keys:
+
+      * dim_date          — true date spine at the configured granularity.
+                            Fixed schema, independent of the config's column
+                            declarations for that table. Consumers DATE-JOIN
+                            to this; we never inline DATE_TRUNC at fact time.
+      * dim_<entity>      — one row per Entity (per_entity grain), static
+                            attributes drawn from Faker / derived fields.
+      * dim_<subentity>   — variable-grain dim table: N = sum(entity.size)
+                            rows, each FK-linked to its parent dim_<entity>.
+                            (The schema enum has no ``per_subentity`` grain
+                            yet; we route on grain == "variable" + type ==
+                            "dim" + presence of an FK to a per_entity dim.
+                            Mission 005 completion report flags this.)
+      * dim_<reference>   — small lookup tables (plans, departments…). Row
+                            count is driven by static CSV values; the longest
+                            static-valued column wins.
+
+    Zero trajectory involvement — this module does not import from
+    ``plotsim.curves`` or ``plotsim.metrics``. It imports
+    ``compute_time_steps`` from trajectory.py only for date-label math.
+
+Input:
+    PlotsimConfig + a seeded ``numpy.random.Generator``. Faker is seeded
+    deterministically from that rng inside each builder, so a given
+    (config, seed) pair always yields the same company names.
+
+Output:
+    dict mapping table name → pandas.DataFrame. Build order is internal;
+    Mission 006 calls ``build_all_dimensions`` once.
+"""
+
+from __future__ import annotations
+
+import calendar
+import datetime as _dt
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+from faker import Faker
+
+from plotsim.config import (
+    Column,
+    DerivedSource,
+    Entity,
+    FKSource,
+    GeneratedSource,
+    PlotsimConfig,
+    PKSource,
+    StaticSource,
+    Table,
+    TimeWindow,
+    parse_source,
+)
+
+
+# --- Helpers ----------------------------------------------------------------
+
+# Providers the dim layer knows how to resolve without going through Faker.
+# Anything prefixed "faker." is dispatched dynamically via getattr.
+_NON_FAKER_GENERATED = {"entity_name"}
+
+
+def _faker_seed_from_rng(rng: np.random.Generator) -> int:
+    """Derive a stable 32-bit seed from ``rng`` and consume one draw to do it."""
+    return int(rng.integers(0, 2**31 - 1))
+
+
+def _make_faker(rng: np.random.Generator) -> Faker:
+    fake = Faker()
+    fake.seed_instance(_faker_seed_from_rng(rng))
+    return fake
+
+
+def _id_prefix(table_name: str, explicit: Optional[str] = None) -> str:
+    if explicit:
+        return explicit
+    base = table_name
+    if base.startswith("dim_"):
+        base = base[4:]
+    if not base:
+        raise ValueError(f"cannot derive ID prefix from table name {table_name!r}")
+    return base[0]
+
+
+def _id_pad_width(n_rows: int) -> int:
+    return max(3, len(str(max(n_rows, 1))))
+
+
+def _make_ids(table_name: str, n_rows: int) -> list[str]:
+    prefix = _id_prefix(table_name)
+    width = _id_pad_width(n_rows)
+    return [f"{prefix}-{i+1:0{width}d}" for i in range(n_rows)]
+
+
+def _coerce_static(value: str, dtype: str) -> Any:
+    """Cast a raw static-source string to the column's declared dtype."""
+    v = value.strip()
+    if dtype == "int":
+        return int(float(v))
+    if dtype == "float":
+        return float(v)
+    if dtype == "boolean":
+        return v.lower() in {"true", "1", "yes", "y"}
+    if dtype == "date":
+        try:
+            return _dt.date.fromisoformat(v)
+        except ValueError:
+            return v
+    return v
+
+
+def _split_static(raw: str) -> list[str]:
+    return [part.strip() for part in raw.split(",")]
+
+
+# Extended providers that fill gaps in stock Faker. The sample SaaS YAML
+# reaches for ``faker.industry`` and ``faker.year`` — neither is a core Faker
+# method. Rather than mutate the sample configs (out of M005 scope), we keep a
+# tiny shim here. Lookup order in ``_call_faker`` is: extended provider first,
+# then stock Faker's getattr.
+_EXTENDED_PROVIDERS = {
+    "industry": lambda fake: fake.random_element((
+        "Technology", "Healthcare", "Finance", "Retail", "Manufacturing",
+        "Education", "Energy", "Media", "Transportation", "Hospitality",
+        "Consulting", "Real Estate",
+    )),
+    "year": lambda fake: fake.random_int(min=1950, max=2020),
+}
+
+
+def _call_faker(fake: Faker, provider: str) -> Any:
+    """Look up ``fake.<method>()`` dynamically. Raises at build time on typos.
+
+    Mission 005 V1 advertises a short whitelist (company, name, email, city,
+    job, date_of_birth, phone_number), but the sample YAMLs already reach
+    beyond it (``faker.industry``, ``faker.year``, ``faker.date``,
+    ``faker.sentence``). Dynamic lookup keeps the whitelist as guidance while
+    letting any real faker provider work; extended providers defined above
+    cover the gaps. Unknown providers still surface a clear error at build
+    time, per the mission's stated failure mode.
+    """
+    if not provider.startswith("faker."):
+        raise ValueError(
+            f"unsupported generated provider {provider!r}: "
+            f"dimension tables only support 'faker.<method>' or "
+            f"{sorted(_NON_FAKER_GENERATED)}"
+        )
+    method = provider[len("faker."):]
+    if not method:
+        raise ValueError(f"generated provider {provider!r} has empty faker method")
+    extended = _EXTENDED_PROVIDERS.get(method)
+    if extended is not None:
+        return extended(fake)
+    fn = getattr(fake, method, None)
+    if fn is None or not callable(fn):
+        raise ValueError(
+            f"Faker has no provider method {method!r} (source 'generated:{provider}')"
+        )
+    return fn()
+
+
+# --- dim_date ----------------------------------------------------------------
+
+_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _iso_week_monday(label: str) -> _dt.date:
+    """Return the Monday of the ISO week named ``YYYY-Www``."""
+    year_s, week_s = label.split("-W")
+    return _dt.date.fromisocalendar(int(year_s), int(week_s), 1)
+
+
+def _label_to_anchor_date(label: str, granularity: str) -> _dt.date:
+    """Each period's canonical date: 1st-of-month, Monday-of-week, or the day."""
+    if granularity == "monthly":
+        y, m = label.split("-")
+        return _dt.date(int(y), int(m), 1)
+    if granularity == "weekly":
+        return _iso_week_monday(label)
+    if granularity == "daily":
+        return _dt.date.fromisoformat(label)
+    raise ValueError(f"unknown granularity {granularity!r}")
+
+
+def build_dim_date(time_window: TimeWindow) -> pd.DataFrame:
+    """Date spine covering ``time_window`` with no gaps and no duplicates.
+
+    Granularity-invariant columns (always present):
+      date_key, date, year, quarter, month, month_name, week,
+      period_label, period_index.
+
+    Daily-only columns: day_of_week, day_of_month, is_weekend.
+    """
+    # Imported lazily — keeping the dim module's import graph small is handy
+    # when someone is iterating on trajectory.py itself.
+    from plotsim.trajectory import compute_time_steps
+
+    labels = compute_time_steps(time_window)
+    granularity = time_window.granularity
+
+    rows: list[dict[str, Any]] = []
+    for idx, lbl in enumerate(labels):
+        d = _label_to_anchor_date(str(lbl), granularity)
+        row: dict[str, Any] = {
+            "date_key": d.year * 10000 + d.month * 100 + d.day,
+            "date": d,
+            "year": d.year,
+            "quarter": (d.month - 1) // 3 + 1,
+            "month": d.month,
+            "month_name": calendar.month_name[d.month],
+            "week": d.isocalendar().week,
+            "period_label": str(lbl),
+            "period_index": idx,
+        }
+        if granularity == "daily":
+            row["day_of_week"] = _DAY_NAMES[d.weekday()]
+            row["day_of_month"] = d.day
+            row["is_weekend"] = d.weekday() >= 5
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    # Enforce the column order the acceptance tests expect regardless of
+    # insertion ordering quirks.
+    base_cols = [
+        "date_key", "date", "year", "quarter", "month", "month_name",
+        "week", "period_label", "period_index",
+    ]
+    daily_cols = ["day_of_week", "day_of_month", "is_weekend"]
+    ordered = base_cols + (daily_cols if granularity == "daily" else [])
+    return df[ordered]
+
+
+# --- dim_entity --------------------------------------------------------------
+
+def _resolve_derived(field: str, entity: Entity) -> Any:
+    if field == "size":
+        return entity.size
+    if field == "archetype":
+        return entity.archetype
+    if field == "name" or field == "entity_name":
+        return entity.name
+    raise ValueError(
+        f"unsupported derived field {field!r}: expected one of "
+        f"'size', 'archetype', 'name'"
+    )
+
+
+def _column_value_for_entity(
+    col: Column,
+    entity: Entity,
+    entity_pk: str,
+    fake: Faker,
+) -> Any:
+    parsed = parse_source(col.source)
+    if isinstance(parsed, PKSource):
+        return entity_pk
+    if isinstance(parsed, StaticSource):
+        values = _split_static(parsed.value)
+        # Entity rows are 1:1; broadcast the first value regardless of count.
+        return _coerce_static(values[0], col.dtype)
+    if isinstance(parsed, DerivedSource):
+        return _resolve_derived(parsed.field, entity)
+    if isinstance(parsed, GeneratedSource):
+        if parsed.provider == "entity_name":
+            return entity.name
+        return _call_faker(fake, parsed.provider)
+    if isinstance(parsed, FKSource):
+        # dim_entity rows are 1:1 with entities, so FKs can't be populated
+        # meaningfully here — the parent row this entity would point to is
+        # itself. Reference tables with many-to-one FKs are built via
+        # dim_reference; cross-dim FKs on per_entity tables (e.g. dim_employee
+        # → dim_department) are resolved by broadcasting the first reference
+        # row's PK, since reference tables are tiny and row-0 is deterministic.
+        return None  # filled in by _backfill_fks
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is not supported on "
+        f"per_entity dimension tables"
+    )
+
+
+def _backfill_fks(
+    df: pd.DataFrame,
+    table: Table,
+    dims: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """Populate FK columns that were left None at build time.
+
+    Strategy: the parent table is already built (reference dims build before
+    entity dims in ``build_all_dimensions``). Resolve each FK column to the
+    parent's PK value at row 0 — tiny reference tables, row-0 is a stable
+    deterministic choice and keeps the output purely archive-grade without
+    needing random assignment logic that M006 will redo properly anyway.
+    """
+    for col in table.columns:
+        parsed = parse_source(col.source)
+        if not isinstance(parsed, FKSource):
+            continue
+        parent = dims.get(parsed.table)
+        if parent is None or parent.empty:
+            raise ValueError(
+                f"table {table.name!r} FK column {col.name!r} references "
+                f"{parsed.table!r}, which is not yet built or is empty"
+            )
+        if parsed.column not in parent.columns:
+            raise ValueError(
+                f"table {table.name!r} FK column {col.name!r} references "
+                f"{parsed.table}.{parsed.column}, but that column does not exist"
+            )
+        df[col.name] = parent[parsed.column].iloc[0]
+    return df
+
+
+def build_dim_entity(
+    table_config: Table,
+    entities: list[Entity],
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Build a per_entity dim: one row per Entity, static attributes from Faker/derived."""
+    fake = _make_faker(rng)
+    ids = _make_ids(table_config.name, len(entities))
+
+    rows: list[dict[str, Any]] = []
+    for entity, pk in zip(entities, ids):
+        row: dict[str, Any] = {}
+        for col in table_config.columns:
+            row[col.name] = _column_value_for_entity(col, entity, pk, fake)
+        rows.append(row)
+
+    df = pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
+    return df
+
+
+# --- dim_subentity -----------------------------------------------------------
+
+def _identify_parent_fk(
+    table_config: Table,
+    parent_dim_names: set[str],
+) -> tuple[str, str, str]:
+    """Find the column in ``table_config`` that FKs into a per_entity dim.
+
+    Returns (local_column_name, parent_table, parent_pk_column).
+    Raises if there's no such column (we shouldn't have routed here) or if
+    there are multiple (the parent is ambiguous — surface it).
+    """
+    matches: list[tuple[str, str, str]] = []
+    for col in table_config.columns:
+        parsed = parse_source(col.source)
+        if isinstance(parsed, FKSource) and parsed.table in parent_dim_names:
+            matches.append((col.name, parsed.table, parsed.column))
+    if not matches:
+        raise ValueError(
+            f"table {table_config.name!r} routed as sub-entity but has no FK "
+            f"to a per_entity dim; known per_entity dims: "
+            f"{sorted(parent_dim_names)}"
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"table {table_config.name!r} has multiple FKs to per_entity dims "
+            f"{[m[1] for m in matches]}; cannot infer the parent"
+        )
+    return matches[0]
+
+
+def build_dim_subentity(
+    table_config: Table,
+    entities: list[Entity],
+    dim_entity: pd.DataFrame,
+    rng: np.random.Generator,
+    parent_pk_column: Optional[str] = None,
+    local_fk_column: Optional[str] = None,
+) -> pd.DataFrame:
+    """Build a sub-entity dim: sum(entity.size) rows keyed back to dim_entity.
+
+    The parent FK column on this table is auto-detected (first FK whose target
+    is a per_entity dim). Callers who already know the parent can pass it
+    explicitly via ``local_fk_column`` / ``parent_pk_column``.
+    """
+    if len(entities) != len(dim_entity):
+        raise ValueError(
+            f"build_dim_subentity: {len(entities)} entities vs "
+            f"{len(dim_entity)} dim_entity rows; parent must be 1:1 with entities"
+        )
+    if local_fk_column is None or parent_pk_column is None:
+        # Single-parent auto-detection: whichever column FKs into a table
+        # whose name matches the sole parent we know about.
+        found = next(
+            ((col.name, parse_source(col.source))
+             for col in table_config.columns
+             if isinstance(parse_source(col.source), FKSource)),
+            None,
+        )
+        if found is None:
+            raise ValueError(
+                f"table {table_config.name!r} has no FK column to anchor "
+                f"sub-entity rows against a parent"
+            )
+        local_fk_column, parsed = found
+        assert isinstance(parsed, FKSource)
+        parent_pk_column = parsed.column
+
+    fake = _make_faker(rng)
+    total_rows = sum(e.size for e in entities)
+    ids = _make_ids(table_config.name, total_rows)
+
+    rows: list[dict[str, Any]] = []
+    cursor = 0
+    for entity, (_, parent_row) in zip(entities, dim_entity.iterrows()):
+        parent_pk_value = parent_row[parent_pk_column]
+        for _ in range(entity.size):
+            row: dict[str, Any] = {}
+            local_pk = ids[cursor]
+            for col in table_config.columns:
+                parsed = parse_source(col.source)
+                if isinstance(parsed, PKSource):
+                    row[col.name] = local_pk
+                elif isinstance(parsed, FKSource) and col.name == local_fk_column:
+                    row[col.name] = parent_pk_value
+                elif isinstance(parsed, FKSource):
+                    # Unrelated FK (e.g. to a dim_reference); fill with row-0
+                    # of that parent to keep the row valid. M006 may rewrite.
+                    row[col.name] = None
+                elif isinstance(parsed, GeneratedSource):
+                    if parsed.provider == "entity_name":
+                        row[col.name] = entity.name
+                    else:
+                        row[col.name] = _call_faker(fake, parsed.provider)
+                elif isinstance(parsed, StaticSource):
+                    values = _split_static(parsed.value)
+                    row[col.name] = _coerce_static(values[0], col.dtype)
+                elif isinstance(parsed, DerivedSource):
+                    row[col.name] = _resolve_derived(parsed.field, entity)
+                else:
+                    raise ValueError(
+                        f"column {col.name!r} source {col.source!r} is not "
+                        f"supported on sub-entity dimension tables"
+                    )
+            rows.append(row)
+            cursor += 1
+
+    df = pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
+    return df
+
+
+# --- dim_reference -----------------------------------------------------------
+
+def build_dim_reference(
+    table_config: Table,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Build a static reference/lookup dim. Row count = longest static-CSV column."""
+    fake = _make_faker(rng)
+
+    # Determine row count: max count across static columns; default 1 if none.
+    n_rows = 1
+    for col in table_config.columns:
+        parsed = parse_source(col.source)
+        if isinstance(parsed, StaticSource):
+            n_rows = max(n_rows, len(_split_static(parsed.value)))
+
+    ids = _make_ids(table_config.name, n_rows)
+
+    rows: list[dict[str, Any]] = []
+    for i in range(n_rows):
+        row: dict[str, Any] = {}
+        for col in table_config.columns:
+            parsed = parse_source(col.source)
+            if isinstance(parsed, PKSource):
+                row[col.name] = ids[i]
+            elif isinstance(parsed, StaticSource):
+                values = _split_static(parsed.value)
+                # Broadcast single-value columns; index into multi-value columns.
+                pick = values[i] if len(values) > 1 else values[0]
+                row[col.name] = _coerce_static(pick, col.dtype)
+            elif isinstance(parsed, GeneratedSource):
+                row[col.name] = _call_faker(fake, parsed.provider)
+            elif isinstance(parsed, FKSource):
+                row[col.name] = None  # backfilled after dims are materialised
+            else:
+                raise ValueError(
+                    f"column {col.name!r} source {col.source!r} is not "
+                    f"supported on reference dimension tables"
+                )
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
+
+
+# --- Orchestrator ------------------------------------------------------------
+
+def _is_subentity_table(table: Table, per_entity_names: set[str]) -> bool:
+    """Heuristic routing: dim + variable + FK into a per_entity dim."""
+    if table.type != "dim" or table.grain != "variable":
+        return False
+    for col in table.columns:
+        parsed = parse_source(col.source)
+        if isinstance(parsed, FKSource) and parsed.table in per_entity_names:
+            return True
+    return False
+
+
+def build_all_dimensions(
+    config: PlotsimConfig,
+    rng: np.random.Generator,
+) -> dict[str, pd.DataFrame]:
+    """Build every dim table in ``config.tables``, returning {name: DataFrame}.
+
+    Build order (enforced internally):
+        1. dim_date             (no deps)
+        2. reference dims       (no deps)
+        3. per_entity dims      (FK-backfilled from reference dims)
+        4. sub-entity dims      (FK to per_entity dim)
+    """
+    per_entity_names = {
+        t.name for t in config.tables
+        if t.type == "dim" and t.grain == "per_entity"
+    }
+
+    dims: dict[str, pd.DataFrame] = {}
+
+    # 1. dim_date — fixed schema, routed by name.
+    for tbl in config.tables:
+        if tbl.type == "dim" and tbl.name == "dim_date":
+            dims[tbl.name] = build_dim_date(config.time_window)
+
+    # 2. reference dims.
+    for tbl in config.tables:
+        if tbl.type != "dim" or tbl.name == "dim_date":
+            continue
+        if tbl.grain == "per_reference":
+            dims[tbl.name] = build_dim_reference(tbl, rng)
+
+    # 3. per_entity dims — FK backfill from any reference dims built above.
+    for tbl in config.tables:
+        if tbl.type == "dim" and tbl.grain == "per_entity":
+            df = build_dim_entity(tbl, list(config.entities), rng)
+            dims[tbl.name] = _backfill_fks(df, tbl, dims)
+
+    # 4. sub-entity dims.
+    for tbl in config.tables:
+        if tbl.type != "dim":
+            continue
+        if not _is_subentity_table(tbl, per_entity_names):
+            continue
+        local_fk, parent_table, parent_pk = _identify_parent_fk(tbl, per_entity_names)
+        parent_df = dims.get(parent_table)
+        if parent_df is None:
+            raise ValueError(
+                f"sub-entity table {tbl.name!r} needs parent "
+                f"{parent_table!r}, which has not been built"
+            )
+        dims[tbl.name] = build_dim_subentity(
+            tbl,
+            list(config.entities),
+            parent_df,
+            rng,
+            parent_pk_column=parent_pk,
+            local_fk_column=local_fk,
+        )
+
+    return dims

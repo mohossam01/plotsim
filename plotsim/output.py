@@ -1,0 +1,274 @@
+"""plotsim.output — CSV file writing.
+
+What it does:
+    Takes the dict of DataFrames returned by ``plotsim.tables.generate_tables``
+    and writes one CSV per table into the configured output directory, plus a
+    YAML copy of the driving config (for round-trippable reproducibility) and
+    a human-readable validation report.
+
+    The writer is deliberately the only filesystem-touching module in plotsim.
+    Every other module returns DataFrames / reports in memory so callers can
+    use the engine programmatically without touching disk.
+
+CSV conventions (all tables):
+    - encoding: utf-8
+    - DataFrame index is NOT written
+    - float precision: ``%.4f`` (configurable via ``float_format``)
+    - NaN / None renders as the empty string
+    - non-numeric fields are quoted (``csv.QUOTE_NONNUMERIC``)
+    - integer-typed columns (config ``dtype: int``) render without a ``.0``
+      suffix even when pandas has promoted them to float for NaN handling
+    - column order follows the table's config: PK(s) first, then FKs in the
+      order they appear in config, then remaining columns in config order.
+      Any DataFrame columns not declared in the config (for example
+      ``stage`` added by ``assign_stages``) are appended last.
+
+Input:
+    ``tables`` (dict[str, pd.DataFrame]), ``PlotsimConfig``, ``ValidationReport``.
+
+Output:
+    Side effect: CSV files + ``config.yaml`` + ``validation_report.txt`` on
+    disk. ``write_tables`` returns the output directory ``Path``.
+"""
+
+from __future__ import annotations
+
+import csv
+import datetime as _dt
+from pathlib import Path
+from typing import Optional
+
+import pandas as pd
+
+from plotsim.config import (
+    FKSource,
+    PlotsimConfig,
+    PKSource,
+    Table,
+    dump_config,
+    parse_source,
+)
+from plotsim.validation import ValidationReport, validate_tables
+
+
+FLOAT_FORMAT = "%.4f"
+NA_REP = ""
+CSV_ENCODING = "utf-8"
+CONFIG_FILENAME = "config.yaml"
+REPORT_FILENAME = "validation_report.txt"
+
+
+# --- Helpers -----------------------------------------------------------------
+
+
+def _table_by_name(config: PlotsimConfig, name: str) -> Optional[Table]:
+    for tbl in config.tables:
+        if tbl.name == name:
+            return tbl
+    return None
+
+
+def _ordered_columns(tbl: Table, df_columns: list[str]) -> list[str]:
+    """PK → FK (config order) → remaining config columns → extras (e.g. stage).
+
+    Columns declared in config but absent from the DataFrame are dropped (a
+    builder chose not to emit them). Columns in the DataFrame but not in
+    config go last in DataFrame insertion order — that's where ``stage`` ends
+    up.
+    """
+    pk_cols = [c for c in tbl.primary_key_cols if c in df_columns]
+    fk_cols: list[str] = []
+    other_cols: list[str] = []
+    for col in tbl.columns:
+        if col.name in pk_cols:
+            continue
+        if col.name not in df_columns:
+            continue
+        parsed = parse_source(col.source)
+        if isinstance(parsed, FKSource):
+            fk_cols.append(col.name)
+        elif isinstance(parsed, PKSource):
+            # A column flagged source:"pk" that isn't in primary_key_cols is
+            # malformed config — still keep it at the front group.
+            pk_cols.append(col.name)
+        else:
+            other_cols.append(col.name)
+    placed = set(pk_cols) | set(fk_cols) | set(other_cols)
+    extras = [c for c in df_columns if c not in placed]
+    return pk_cols + fk_cols + other_cols + extras
+
+
+def _coerce_integer_columns(
+    tbl: Table, df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Ensure columns declared as ``dtype: int`` render without ``.0`` suffix.
+
+    Pandas promotes int columns to float64 when any row is NaN (MCAR noise
+    on poisson metrics hits this). ``pd.Int64Dtype`` is the nullable-integer
+    equivalent and writes cleanly to CSV: integer cells render as ``5``, null
+    cells render as the empty string (via ``na_rep=""``).
+    """
+    out = df.copy()
+    for col in tbl.columns:
+        if col.dtype != "int" or col.name not in out.columns:
+            continue
+        series = out[col.name]
+        if pd.api.types.is_integer_dtype(series.dtype):
+            # Already an integer dtype; convert to nullable Int64 for
+            # consistency so to_csv na_rep behaves the same way across
+            # int-with-nulls and int-without-nulls columns.
+            out[col.name] = series.astype("Int64")
+            continue
+        # Float, object, or bool — round trip through float → Int64, preserving
+        # NaN as <NA>.
+        coerced = pd.to_numeric(series, errors="coerce")
+        out[col.name] = coerced.round().astype("Int64")
+    return out
+
+
+# --- Single-table writer -----------------------------------------------------
+
+
+def write_single_table(
+    name: str,
+    df: pd.DataFrame,
+    output_dir: Path,
+    config: Optional[PlotsimConfig] = None,
+    float_format: str = FLOAT_FORMAT,
+) -> Path:
+    """Write one DataFrame to ``<output_dir>/<name>.csv``.
+
+    If ``config`` is provided and declares ``name``, columns are reordered
+    PK → FK → others (config order) and ``dtype: int`` columns are coerced
+    to nullable integer so the CSV has no ``.0`` suffixes. Without config,
+    the DataFrame is written as-is with the same encoding / quoting / NaN
+    conventions.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{name}.csv"
+
+    tbl = _table_by_name(config, name) if config is not None else None
+    to_write = df
+    if tbl is not None:
+        to_write = _coerce_integer_columns(tbl, df)
+        ordered = _ordered_columns(tbl, list(to_write.columns))
+        to_write = to_write.loc[:, ordered]
+
+    to_write.to_csv(
+        path,
+        index=False,
+        encoding=CSV_ENCODING,
+        quoting=csv.QUOTE_NONNUMERIC,
+        float_format=float_format,
+        na_rep=NA_REP,
+    )
+    return path
+
+
+# --- Config copy -------------------------------------------------------------
+
+
+def write_config_copy(
+    config: PlotsimConfig,
+    output_dir: Path,
+) -> Path:
+    """Serialize ``config`` back to YAML at ``<output_dir>/config.yaml``.
+
+    Round-trips through ``plotsim.config.dump_config``; the emitted file is
+    valid input to ``load_config`` and regenerates the same dataset under the
+    same plotsim version.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / CONFIG_FILENAME
+    path.write_text(dump_config(config), encoding=CSV_ENCODING)
+    return path
+
+
+# --- Validation report -------------------------------------------------------
+
+
+def _format_report(report: ValidationReport) -> str:
+    errors = report.errors
+    warnings = report.warnings
+    status = "VALID" if report.ok else "INVALID"
+    header = [
+        "Plotsim Validation Report",
+        "==========================",
+        f"Generated: {_dt.datetime.now().isoformat(timespec='seconds')}",
+        f"Errors: {len(errors)} | Warnings: {len(warnings)} | Total: {len(report.issues)}",
+        f"Status: {status}",
+        "",
+    ]
+    if not report.issues:
+        header.append("All checks passed cleanly.")
+        return "\n".join(header) + "\n"
+
+    lines: list[str] = list(header)
+    for issue in report.issues:
+        tag = "ERROR" if issue.severity == "error" else "WARN "
+        table = issue.table or "-"
+        lines.append(f"[{tag}] {issue.check} ({table}) — {issue.message}")
+        if issue.details:
+            for key, value in issue.details.items():
+                lines.append(f"        {key}: {value}")
+    return "\n".join(lines) + "\n"
+
+
+def write_validation_report(
+    report: ValidationReport,
+    output_dir: Path,
+) -> Path:
+    """Write ``report`` as a human-readable text file.
+
+    Header shows error/warning counts and overall VALID/INVALID status;
+    body is one line per issue with the check name, table (or ``-``),
+    the message, and a details block.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / REPORT_FILENAME
+    path.write_text(_format_report(report), encoding=CSV_ENCODING)
+    return path
+
+
+# --- Top-level orchestrator --------------------------------------------------
+
+
+def write_tables(
+    tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    report: Optional[ValidationReport] = None,
+    output_dir: str | Path | None = None,
+    float_format: str = FLOAT_FORMAT,
+) -> Path:
+    """Write every generated table, the config copy, and the validation report.
+
+    If ``output_dir`` is ``None``, uses ``config.output.directory``. The
+    directory is created if missing. Existing files at the same paths are
+    overwritten (no append; no timestamped subdirs).
+
+    If ``report`` is ``None``, the full validation suite is run on
+    ``(config, tables)`` before writing. Callers that already have a
+    report (for example, to branch on ``report.ok`` first) should pass
+    it through to avoid re-running the checks.
+
+    Generation failures are not masked: if ``report.ok`` is False the CSVs
+    are still written so the operator can inspect the broken data. Callers
+    that want to block on invalid output should check ``report.ok`` before
+    calling this function.
+
+    Returns the output directory path.
+    """
+    if report is None:
+        report = validate_tables(config, tables)
+    target = Path(output_dir) if output_dir is not None else Path(config.output.directory)
+    target.mkdir(parents=True, exist_ok=True)
+
+    for name, df in tables.items():
+        write_single_table(name, df, target, config=config, float_format=float_format)
+
+    write_config_copy(config, target)
+    write_validation_report(report, target)
+    return target

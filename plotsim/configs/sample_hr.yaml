@@ -1,0 +1,218 @@
+domain:
+  name: "HR talent analytics"
+  description: "Employee performance and attrition patterns across tenure"
+  entity_type: "employee"
+  entity_label: "Employees"
+
+time_window:
+  start: "2022-01"
+  end: "2024-12"
+  granularity: "monthly"
+
+seed: 17
+
+metrics:
+  - name: "performance_score"
+    label: "Performance score"
+    distribution: "normal"
+    params: {mu: 3.5, sigma: 0.6}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 1.0, max: 5.0}
+  - name: "engagement_index"
+    label: "Engagement index"
+    distribution: "beta"
+    params: {alpha: 3.0, beta: 3.0}
+    polarity: "positive"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "training_hours"
+    label: "Monthly training hours"
+    distribution: "gamma"
+    params: {shape: 2.0, scale: 3.0}
+    polarity: "positive"
+    default_curve: "logistic"
+  - name: "absence_rate"
+    label: "Monthly absence rate"
+    distribution: "beta"
+    params: {alpha: 1.2, beta: 8.0}
+    polarity: "negative"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+    causal_lag:
+      driver: "engagement_index"
+      lag_periods: 1
+  - name: "attrition_risk"
+    label: "Attrition risk score"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 6.0}
+    polarity: "negative"
+    default_curve: "sigmoid"
+    value_range: {min: 0.0, max: 1.0}
+
+archetypes:
+  - name: "fast_riser"
+    label: "Rapid growth"
+    description: "Compound growth in performance over tenure"
+    curve_segments:
+      - curve: "compound"
+        params: {base_rate: 0.08, acceleration: 0.03}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "steady_performer"
+    label: "Consistent high performance"
+    description: "Sustained high plateau throughout tenure"
+    curve_segments:
+      - curve: "plateau"
+        params: {level: 0.8}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "quiet_quitter"
+    label: "Gradually disengages"
+    description: "Exponential decline across the window"
+    curve_segments:
+      - curve: "exp_decay"
+        params: {rate: 1.5}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "burnout_risk"
+    label: "Peaks then crashes"
+    description: "Rapid rise, sharp fall, recovery plateau"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.25, steepness: 8.0}
+        start_pct: 0.0
+        end_pct: 0.5
+      - curve: "step"
+        params: {threshold: 0.5, before: 1.0, after: 0.3}
+        start_pct: 0.5
+        end_pct: 0.6
+      - curve: "plateau"
+        params: {level: 0.3}
+        start_pct: 0.6
+        end_pct: 1.0
+  - name: "new_hire_ramp"
+    label: "Starts low then ramps up"
+    description: "Low initial performance, sigmoid rise to plateau"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.4, steepness: 7.0}
+        start_pct: 0.0
+        end_pct: 1.0
+
+entities:
+  - name: "high_flyers"
+    archetype: "fast_riser"
+    size: 20
+  - name: "core_team"
+    archetype: "steady_performer"
+    size: 50
+  - name: "disengaged_pool"
+    archetype: "quiet_quitter"
+    size: 10
+  - name: "burnout_cohort"
+    archetype: "burnout_risk"
+    size: 5
+
+tables:
+  - name: "dim_date"
+    type: "dim"
+    grain: "per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "pk"}
+      - {name: "date", dtype: "date", source: "generated:date_key"}
+      - {name: "year", dtype: "int", source: "generated:date_key"}
+      - {name: "month", dtype: "int", source: "generated:date_key"}
+    primary_key: "date_key"
+
+  - name: "dim_department"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "dept_id", dtype: "id", source: "pk"}
+      - {name: "dept_name", dtype: "string", source: "static:engineering"}
+      - {name: "cost_center", dtype: "string", source: "static:R&D"}
+    primary_key: "dept_id"
+
+  - name: "dim_employee"
+    type: "dim"
+    grain: "per_entity"
+    columns:
+      - {name: "employee_id", dtype: "id", source: "pk"}
+      - {name: "dept_id", dtype: "id", source: "fk:dim_department.dept_id"}
+      - {name: "full_name", dtype: "string", source: "generated:faker.name"}
+      - {name: "hire_date", dtype: "date", source: "generated:faker.date"}
+      - {name: "level", dtype: "string", source: "static:IC"}
+    primary_key: "employee_id"
+    foreign_keys: ["dim_department.dept_id"]
+
+  - name: "fct_performance"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "employee_id", dtype: "id", source: "fk:dim_employee.employee_id"}
+      - {name: "performance_score", dtype: "float", source: "metric:performance_score"}
+      - {name: "engagement_index", dtype: "float", source: "metric:engagement_index"}
+    primary_key: ["date_key", "employee_id"]
+    foreign_keys: ["dim_date.date_key", "dim_employee.employee_id"]
+
+  - name: "fct_training"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "employee_id", dtype: "id", source: "fk:dim_employee.employee_id"}
+      - {name: "training_hours", dtype: "float", source: "metric:training_hours"}
+    primary_key: ["date_key", "employee_id"]
+    foreign_keys: ["dim_date.date_key", "dim_employee.employee_id"]
+
+  - name: "fct_attendance"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "employee_id", dtype: "id", source: "fk:dim_employee.employee_id"}
+      - {name: "absence_rate", dtype: "float", source: "metric:absence_rate"}
+      - {name: "attrition_risk", dtype: "float", source: "metric:attrition_risk"}
+    primary_key: ["date_key", "employee_id"]
+    foreign_keys: ["dim_date.date_key", "dim_employee.employee_id"]
+
+  - name: "evt_attrition"
+    type: "event"
+    grain: "variable"
+    columns:
+      - {name: "event_id", dtype: "id", source: "pk"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "employee_id", dtype: "id", source: "fk:dim_employee.employee_id"}
+      - {name: "reason", dtype: "string", source: "generated:faker.sentence"}
+    primary_key: "event_id"
+    foreign_keys: ["dim_date.date_key", "dim_employee.employee_id"]
+
+correlations:
+  # Tightened from (-0.72, -0.55, 0.61) to strictly PD (min eigenvalue +0.01).
+  # All three pairs point into attrition_risk; their squared sum was just
+  # over 1, so Cholesky was falling back to independent samples.
+  - {metric_a: "engagement_index", metric_b: "attrition_risk", coefficient: -0.65}
+  - {metric_a: "performance_score", metric_b: "attrition_risk", coefficient: -0.50}
+  - {metric_a: "absence_rate", metric_b: "attrition_risk", coefficient: 0.55}
+
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
+  mcar_rate: 0.01
+  temporal_jitter_days: 1
+  duplicate_rate: 0.0
+
+output:
+  format: "csv"
+  directory: "out/hr"
+
+stages:
+  field: "attrition_risk"
+  sequence:
+    - {name: "new_hire", threshold_enter: 0.0, threshold_exit: 0.15}
+    - {name: "established", threshold_enter: 0.15, threshold_exit: 0.4}
+    - {name: "disengaging", threshold_enter: 0.4, threshold_exit: 0.7}
+    - {name: "exited", threshold_enter: 0.7, threshold_exit: null}
+  enforce_order: true
