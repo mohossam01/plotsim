@@ -25,10 +25,14 @@ Output:
 Mission-spec deviations (flagged in M004 completion report):
     1. ``generate_metrics_for_period`` takes an explicit ``noise`` param; the
        spec signature omitted it, but step 5 (apply noise) needs access.
-    2. ``lag_buffer`` holds trajectory positions, not generated values. The
-       blend formula ``current*(1-w) + driver_past*w`` is only dimensionally
-       coherent on [0,1] positions — blending a raw MRR value against a
-       position is not meaningful.
+    2. ``lag_buffer`` holds effective positions (trajectory position
+       optionally blended with the driver's past effective position via
+       ``CausalLag.blend_weight``). Effective positions stay in [0,1] so
+       the blend formula remains dimensionally coherent. Populated inside
+       ``generate_metrics_for_period`` in topological order (drivers
+       before targets), which makes multi-hop chains A→B→C compose
+       truthfully. 0.4.0 behavior; pre-0.4.0 stored raw trajectory
+       positions.
     3. For beta, the spec's ``rng.beta(α,β)*scale`` ignores center, which
        breaks the "higher position → higher mean" acceptance criterion. We
        shift-to-center instead: the beta shape's variance is preserved but
@@ -37,6 +41,7 @@ Mission-spec deviations (flagged in M004 completion report):
 
 from __future__ import annotations
 
+from graphlib import CycleError, TopologicalSorter
 from typing import Optional
 
 import numpy as np
@@ -50,11 +55,6 @@ from plotsim.config import (
     NoiseConfig,
 )
 
-
-# 60% driver-past + 40% current. V1 constant — future work may expose this
-# per-metric. Chosen so lag has a visible effect in tests without overwhelming
-# the current-period signal entirely.
-LAG_BLEND_WEIGHT = 0.6
 
 # Below this absolute value, a center is treated as zero for correlation
 # purposes. A degenerate distribution (poisson λ≈0, lognorm scale≈0) has no
@@ -406,15 +406,21 @@ def _compute_effective_position(
     lag_buffer: Optional[dict[str, list[float]]],
     period_index: int,
 ) -> float:
-    """Blend the current trajectory position with the driver's past position.
+    """Blend the current trajectory position with the driver's past
+    effective position.
 
     Operates on pre-polarity positions in [0,1] so both operands share the
     same semantic axis ("how well is this entity doing"). The metric's own
     polarity is applied afterwards in ``position_to_center``.
 
+    Blend weight comes from ``metric.causal_lag.blend_weight`` (0.4.0
+    default 1.0). At ``w=1`` the blend collapses to ``driver_past`` —
+    metric at ``T`` equals driver at ``T-N`` and cross-correlation peaks
+    at exactly ``lag_periods``. Values below 1.0 soften the lag.
+
     Falls back to the unmodified current position when: no causal_lag is
-    configured, insufficient history exists, or the driver isn't in the
-    buffer.
+    configured, ``period_index < lag_periods``, the lag buffer is
+    ``None``, or the driver isn't in the buffer / has too short a history.
     """
     if metric.causal_lag is None:
         return current_position
@@ -428,7 +434,7 @@ def _compute_effective_position(
     if driver_history is None or len(driver_history) < period_index - lag + 1:
         return current_position
     driver_past = driver_history[period_index - lag]
-    w = LAG_BLEND_WEIGHT
+    w = metric.causal_lag.blend_weight
     return current_position * (1.0 - w) + driver_past * w
 
 
@@ -468,6 +474,47 @@ def apply_noise(
 
 
 # --- Per-period and per-entity orchestration --------------------------------
+
+def _toposort_metrics(metrics: list[Metric]) -> list[Metric]:
+    """Reorder metrics so each causal_lag driver comes before its target.
+
+    The buffer-write-inside-the-per-metric-loop design in
+    ``generate_metrics_for_period`` only composes chains truthfully when
+    drivers are computed before targets. This helper produces that order.
+
+    Uses ``graphlib.TopologicalSorter`` (stdlib, Python 3.9+). Nodes
+    within a ready-layer are emitted in insertion order, so a config
+    with no causal_lag entries returns its metrics in declaration order
+    — preserving RNG consumption order for configs that don't use the
+    lag feature.
+
+    A driver that isn't in the input metric list (possible via
+    programmatic ``Metric`` construction that bypasses
+    ``PlotsimConfig._cross_reference_integrity``) is treated as absent:
+    the target has no ordering constraint, matching
+    ``_compute_effective_position``'s "driver not in buffer" fallback.
+
+    Config-time cycle detection at
+    ``PlotsimConfig._cross_reference_integrity`` (config.py) catches
+    cycles before they reach here. The ``CycleError`` re-raise is
+    defensive for direct library callers who construct metrics outside
+    a validated config.
+    """
+    by_name = {m.name: m for m in metrics}
+    ts: TopologicalSorter[str] = TopologicalSorter()
+    for m in metrics:
+        if m.causal_lag is not None and m.causal_lag.driver in by_name:
+            ts.add(m.name, m.causal_lag.driver)
+        else:
+            ts.add(m.name)
+    try:
+        ordered = list(ts.static_order())
+    except CycleError as exc:
+        raise ValueError(
+            f"causal_lag metrics form a cycle: {exc.args[1]!r}"
+        ) from exc
+    return [by_name[name] for name in ordered]
+
 
 def _apply_archetype_overrides(
     metric: Metric, archetype: Optional[Archetype],
@@ -520,6 +567,14 @@ def generate_metrics_for_period(
         eff_pos = _compute_effective_position(
             trajectory_position, em, lag_buffer, period_index,
         )
+        if lag_buffer is not None:
+            # Append this metric's effective position BEFORE moving on to
+            # the next metric, so later metrics in the same period that
+            # depend on this one (multi-hop chains) see a fully resolved
+            # value at index period_index-lag. Caller must iterate
+            # metrics in topological driver→target order for chains to
+            # compose correctly; ``generate_entity_metrics`` does this.
+            lag_buffer[em.name].append(eff_pos)
         center = position_to_center(eff_pos, em)
         centers[em.name] = center
         independent[em.name] = sample_single_metric(center, em, rng)
@@ -559,36 +614,46 @@ def generate_entity_metrics(
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
-    Walks forward through the trajectory, feeding the trajectory position at
-    each step into a fresh lag buffer so later periods can look backwards
-    through ``causal_lag``. The buffer is local to this call — generating
-    another entity starts with an empty buffer, so lag history cannot leak
-    across entities.
+    Walks forward through the trajectory, feeding each period's effective
+    position (post-lag-blend) into a fresh lag buffer so later periods
+    can look backwards through ``causal_lag``. The buffer is local to
+    this call — generating another entity starts with an empty buffer,
+    so lag history cannot leak across entities.
 
-    When ``archetype`` is provided, any ``metric_overrides`` it declares are
-    applied per period (distribution family and shape params only).
+    Metrics are processed in topological driver→target order
+    (``_toposort_metrics``). For configs without causal_lag chains this
+    is a stable permutation of declaration order, so RNG consumption
+    order is preserved. For configs with chains, drivers are guaranteed
+    to have their effective position buffered before any target reads
+    it, which is what makes multi-hop lags compose.
 
-    Return arrays are ``int`` for poisson, ``float`` otherwise. Whether a
-    metric's series is poisson is decided on the (possibly overridden)
-    effective distribution, so an override from ``poisson`` → ``normal``
-    (or vice versa) correctly changes the output dtype. If any MCAR null
-    appears in a metric's series, that array becomes ``dtype=object`` to
-    carry ``None`` alongside numbers.
+    When ``archetype`` is provided, any ``metric_overrides`` it declares
+    are applied per period (distribution family and shape params only).
+
+    Return arrays are ``int`` for poisson, ``float`` otherwise. Whether
+    a metric's series is poisson is decided on the (possibly
+    overridden) effective distribution, so an override from ``poisson``
+    → ``normal`` (or vice versa) correctly changes the output dtype. If
+    any MCAR null appears in a metric's series, that array becomes
+    ``dtype=object`` to carry ``None`` alongside numbers.
     """
-    effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
+    sorted_metrics = _toposort_metrics(list(metrics))
+    effective = [_apply_archetype_overrides(m, archetype) for m in sorted_metrics]
     n_periods = len(trajectory)
-    lag_buffer: dict[str, list[float]] = {m.name: [] for m in metrics}
-    collected: dict[str, list] = {m.name: [] for m in metrics}
+    lag_buffer: dict[str, list[float]] = {m.name: [] for m in sorted_metrics}
+    collected: dict[str, list] = {m.name: [] for m in sorted_metrics}
 
     for t in range(n_periods):
         pos = float(trajectory[t])
+        # lag_buffer is now populated inline inside generate_metrics_for_period
+        # — no outer-loop append. Effective positions (not raw trajectory) land
+        # in the buffer, so chains A→B→C compose.
         period_out = generate_metrics_for_period(
-            pos, metrics, correlations, noise, lag_buffer, t, rng,
+            pos, sorted_metrics, correlations, noise, lag_buffer, t, rng,
             archetype=archetype, cholesky_L=cholesky_L,
         )
-        for m in metrics:
+        for m in sorted_metrics:
             collected[m.name].append(period_out[m.name])
-            lag_buffer[m.name].append(pos)
 
     result: dict[str, np.ndarray] = {}
     for em in effective:

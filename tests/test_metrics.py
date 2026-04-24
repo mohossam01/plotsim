@@ -24,7 +24,7 @@ from plotsim.config import (
     ValueRange,
 )
 from plotsim.metrics import (
-    LAG_BLEND_WEIGHT,
+    _toposort_metrics,
     apply_correlations,
     apply_noise,
     generate_entity_metrics,
@@ -385,16 +385,15 @@ def test_causal_lag_shifts_inflection():
     )
     driver_arr = out["driver"].astype(float)
     lagged_arr = out["lagged"].astype(float)
-    # Driver jumps exactly at t=15. Lagged inflection location ≈ argmax of
-    # differences; should be at t=15 (lag_buffer reads trajectory, and the
-    # blend at t=15 already sees trajectory[12]=low for driver + trajectory[15]=high
-    # for self, pulling the value between them — but at t=18, both are high).
+    # 0.4.0 default blend_weight=1.0 collapses the blend to driver_past, so
+    # the lagged series is a 3-period shift of the driver series. Driver
+    # jumps between t=14→15; lagged reads lag_buffer[driver][t-3], which
+    # transitions between t=17 (reads index 14, still 0.1) and t=18 (reads
+    # index 15, now 0.9). Weak assertion below survives any blend_weight
+    # in (0, 1] since the lagged inflection is always strictly later than
+    # the driver's.
     driver_inflection = int(np.argmax(np.diff(driver_arr)))
     lagged_inflection = int(np.argmax(np.diff(lagged_arr)))
-    # Driver step at index 14. Lagged step should be later (because before
-    # t=15 the blend is 0.4*low + 0.6*low = low, and at t=15 the blend becomes
-    # 0.4*high + 0.6*low which is partial rise; the FULL rise completes at t=18
-    # when both operands are high).
     assert lagged_inflection > driver_inflection
 
 
@@ -447,9 +446,187 @@ def test_causal_lag_no_entity_leak():
     assert arr1.mean() == pytest.approx(90.0, abs=1.0)
 
 
-def test_lag_blend_weight_exposed():
-    """LAG_BLEND_WEIGHT is a module constant available for downstream tuning."""
-    assert 0.0 < LAG_BLEND_WEIGHT < 1.0
+def test_causal_lag_blend_weight_default_is_full_override():
+    """0.4.0: CausalLag.blend_weight defaults to 1.0 — metric-at-T equals
+    driver-at-(T-N), xcorr peaks at exactly lag_periods."""
+    lag = CausalLag(driver="driver", lag_periods=2)
+    assert lag.blend_weight == 1.0
+
+
+# --- F-02 / 0.4.0: chain composition, blend weight, topological order -------
+
+
+def test_causal_lag_full_override_equals_shifted_driver():
+    """R-11: blend_weight=1.0 makes lagged[t] pointwise equal driver[t-N].
+
+    With sigma=0 the normal distribution collapses to a delta on ``center``,
+    so driver[t] = mu * traj[t] and lagged[t] = mu * traj[t-N] for t >= N.
+    """
+    driver = _metric("driver", distribution="normal",
+                     params={"mu": 100.0, "sigma": 0.0})
+    lagged = _metric(
+        "lagged", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="driver", lag_periods=3, blend_weight=1.0),
+    )
+    traj = np.linspace(0.1, 0.9, 30)
+    out = generate_entity_metrics(
+        trajectory=traj, metrics=[driver, lagged],
+        correlations=None, noise=None, rng=_rng(0),
+    )
+    d = out["driver"].astype(float)
+    l = out["lagged"].astype(float)
+    np.testing.assert_allclose(l[3:], d[:-3], atol=1e-9)
+
+
+def test_causal_lag_blend_weight_06_recovers_prior_behavior():
+    """R-12: blend_weight=0.6 reproduces the pre-0.4.0 hardcoded blend.
+
+    lagged[t] = mu * (0.4*traj[t] + 0.6*traj[t-N]) for t >= N. Users who want
+    the softer behavior set blend_weight explicitly rather than getting it
+    silently as a default.
+    """
+    driver = _metric("driver", distribution="normal",
+                     params={"mu": 100.0, "sigma": 0.0})
+    lagged = _metric(
+        "lagged", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="driver", lag_periods=3, blend_weight=0.6),
+    )
+    traj = np.linspace(0.1, 0.9, 30)
+    out = generate_entity_metrics(
+        trajectory=traj, metrics=[driver, lagged],
+        correlations=None, noise=None, rng=_rng(0),
+    )
+    l = out["lagged"].astype(float)
+    mu = 100.0
+    expected = mu * (0.4 * traj[3:] + 0.6 * traj[:-3])
+    np.testing.assert_allclose(l[3:], expected, atol=1e-9)
+
+
+def test_causal_lag_chain_composes():
+    """R-13: A → B(lag=2) → C(lag=3), all blend_weight=1.0.
+
+    With effective-position buffering + topological processing order, C at
+    period t reads B's effective position at t-3, which was itself buffered
+    as A at (t-3)-2 = t-5. So C[t] = A[t-5] for t >= 5.
+    """
+    a = _metric("a", distribution="normal",
+                params={"mu": 100.0, "sigma": 0.0})
+    b = _metric(
+        "b", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="a", lag_periods=2, blend_weight=1.0),
+    )
+    c = _metric(
+        "c", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="b", lag_periods=3, blend_weight=1.0),
+    )
+    traj = np.linspace(0.1, 0.9, 30)
+    out = generate_entity_metrics(
+        trajectory=traj, metrics=[a, b, c],
+        correlations=None, noise=None, rng=_rng(0),
+    )
+    a_arr = out["a"].astype(float)
+    c_arr = out["c"].astype(float)
+    np.testing.assert_allclose(c_arr[5:], a_arr[:-5], atol=1e-9)
+
+
+def test_causal_lag_driver_field_is_meaningful():
+    """R-14: naming a lagged metric as driver vs a non-lagged one changes output.
+
+    Pre-0.4.0, buffer stored raw trajectory for every key, so the driver
+    field was a no-op (all targets with the same lag_periods produced
+    identical series). After the fix, driver's own lag propagates through
+    the buffer and the target reads the chained value.
+
+    Setup:
+      base            — no lag (effective = trajectory)
+      intermediate    — lag=5 on base (effective = trajectory shifted by 5)
+      target_base     — lag=2 on base          → target[t] = traj[t-2]
+      target_intermed — lag=2 on intermediate  → target[t] = traj[t-7] for t >= 7
+    """
+    base = _metric("base", distribution="normal",
+                   params={"mu": 100.0, "sigma": 0.0})
+    intermediate = _metric(
+        "intermediate", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="base", lag_periods=5, blend_weight=1.0),
+    )
+    target_base = _metric(
+        "target_base", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="base", lag_periods=2, blend_weight=1.0),
+    )
+    target_intermed = _metric(
+        "target_intermed", distribution="normal",
+        params={"mu": 100.0, "sigma": 0.0},
+        causal_lag=CausalLag(driver="intermediate", lag_periods=2, blend_weight=1.0),
+    )
+    traj = np.linspace(0.1, 0.9, 30)
+    out = generate_entity_metrics(
+        trajectory=traj,
+        metrics=[base, intermediate, target_base, target_intermed],
+        correlations=None, noise=None, rng=_rng(0),
+    )
+    t_base = out["target_base"].astype(float)
+    t_inter = out["target_intermed"].astype(float)
+    # Post-resolution window: target_intermed reads through the 5-period
+    # upstream lag plus its own 2-period, so t >= 7 is where both are fully
+    # resolved to a shifted trajectory read.
+    np.testing.assert_allclose(t_base[7:], 100.0 * traj[5:-2], atol=1e-9)
+    np.testing.assert_allclose(t_inter[7:], 100.0 * traj[:-7], atol=1e-9)
+    # Sanity: the two targets disagree (pre-fix they would be identical).
+    assert np.max(np.abs(t_base[7:] - t_inter[7:])) > 1.0
+
+
+def test_toposort_metrics_orders_driver_before_target():
+    """R-15: _toposort_metrics yields driver-before-target order even when
+    metrics are declared in reverse."""
+    a = _metric("a")
+    b = _metric(
+        "b",
+        causal_lag=CausalLag(driver="a", lag_periods=1, blend_weight=1.0),
+    )
+    c = _metric(
+        "c",
+        causal_lag=CausalLag(driver="b", lag_periods=1, blend_weight=1.0),
+    )
+    # Input order [c, b, a]; expected output has a < b < c.
+    names = [m.name for m in _toposort_metrics([c, b, a])]
+    assert names.index("a") < names.index("b") < names.index("c")
+
+
+def test_toposort_metrics_preserves_declaration_order_without_chains():
+    """Independent metrics must land in insertion order, so configs without
+    causal_lag keep byte-identical RNG consumption vs pre-0.4.0."""
+    names_in = ["alpha", "bravo", "charlie", "delta", "echo"]
+    metrics_in = [_metric(n) for n in names_in]
+    out = [m.name for m in _toposort_metrics(metrics_in)]
+    assert out == names_in
+
+
+def test_causal_lag_saas_template_determinism():
+    """R-16: SaaS template (has a causal lag) is byte-identical across two
+    runs with the same seed, including the lagged metric's array."""
+    cfg = load_config(SAAS_YAML)
+    traj = np.linspace(0.05, 0.95, 24)
+    out1 = generate_entity_metrics(
+        trajectory=traj, metrics=list(cfg.metrics),
+        correlations=list(cfg.correlations), noise=cfg.noise,
+        rng=_rng(cfg.seed),
+    )
+    out2 = generate_entity_metrics(
+        trajectory=traj, metrics=list(cfg.metrics),
+        correlations=list(cfg.correlations), noise=cfg.noise,
+        rng=_rng(cfg.seed),
+    )
+    assert set(out1.keys()) == set(out2.keys())
+    for name in out1:
+        np.testing.assert_array_equal(
+            np.asarray(out1[name]), np.asarray(out2[name]),
+        )
 
 
 # --- Noise injection ---------------------------------------------------------

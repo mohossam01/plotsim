@@ -479,9 +479,18 @@ class CausalLag(_Frozen):
     support_tickets at period T reads engagement at period T-2, not T.
     Cross-reference integrity enforces: driver exists in metrics; driver is
     not the metric itself; the induced lag graph has no cycles.
+
+    ``blend_weight`` controls how strongly the driver's past position
+    overrides the metric's own current trajectory position. Blend formula:
+    ``current_position * (1 - w) + driver_past * w``. The 0.4.0 default of
+    ``1.0`` means "full override" — metric at T equals driver at T-N, and
+    cross-correlation peaks at exactly N. Values below 1.0 soften the lag
+    (xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded
+    behavior is recovered with ``blend_weight: 0.6``.
     """
     driver: str
     lag_periods: int = Field(ge=1, le=120)
+    blend_weight: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class Metric(_Frozen):

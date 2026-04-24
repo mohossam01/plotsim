@@ -515,9 +515,35 @@ def _pearson(a: np.ndarray, b: np.ndarray) -> Optional[float]:
 def _lag_alignment_better_for_entity(
     metric_series: np.ndarray, driver_series: np.ndarray, lag: int,
 ) -> Optional[bool]:
-    """True if corr(metric[lag:], driver[:-lag]) is stronger than corr(metric, driver).
+    """True if the lag-shifted correlation is strong relative to the
+    unshifted one.
 
-    Returns None if either correlation is undefined.
+    Historically the check was a strict ``|lagged| > |unlagged|``. That
+    held under the pre-0.4.0 blend weight of 0.6 because the lagged
+    metric carried a 40% same-period component that partially matched
+    the driver's own same-period value, and the 60% lagged component
+    reliably tipped the magnitude comparison in favour of the shifted
+    series.
+
+    Under 0.4.0's default ``blend_weight=1.0`` the lag is a pure period
+    shift, which IS the cleaner semantics but also interacts poorly with
+    two incidental effects on slow-varying trajectories:
+
+      1. Iman-Conover correlation pairs induce same-period rank
+         alignment between metrics. For a lagged metric that shares a
+         correlation pair with a third metric that's also correlated
+         with the driver (HR's absence_rate ↔ attrition_risk ↔
+         engagement_index triangle), the induced same-period
+         correlation can inflate ``|unlagged|``.
+      2. Smooth archetypes (compound growth, exp decay, plateau) have
+         ``traj[t] ≈ traj[t-1]``, so the unlagged correlation captures
+         nearly the same signal as the lag-1 correlation.
+
+    The ratio ``|lagged| / |unlagged| >= 0.5`` still catches flagrantly
+    broken lags (where the shift drops the correlation magnitude toward
+    zero) without flagging the IC/smooth-trajectory interaction above.
+
+    Returns ``None`` if either correlation is undefined.
     """
     if len(metric_series) <= 2 * lag + 2:
         return None
@@ -525,7 +551,13 @@ def _lag_alignment_better_for_entity(
     lagged = _pearson(metric_series[lag:], driver_series[:-lag])
     if unlagged is None or lagged is None:
         return None
-    return abs(lagged) > abs(unlagged)
+    if abs(unlagged) < 1e-9:
+        # No measurable same-period signal — any lagged correlation
+        # indicates the lag is implemented. Flipping the test to
+        # "abs(lagged) > 0" would false-positive on pure noise, so fall
+        # back to the strict original inequality here.
+        return abs(lagged) > abs(unlagged)
+    return abs(lagged) >= abs(unlagged) * 0.5
 
 
 def validate_causal_coherence(

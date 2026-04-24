@@ -53,6 +53,7 @@ metrics:
   causal_lag:
     driver: engagement_index
     lag_periods: 1
+    blend_weight: 1.0
 - name: attrition_risk
   label: Attrition risk score
   distribution: beta

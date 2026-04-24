@@ -5,6 +5,65 @@ All notable changes to plotsim are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — unreleased
+
+Behavior-breaking fix for F-02 (causal-lag semantics) from the runtime
+verification report. Output values change for any config with
+`causal_lag` entries.
+
+### Added
+- **`CausalLag.blend_weight: float`** (default `1.0`, range `[0.0, 1.0]`)
+  — per-lag configurable blend between the metric's current trajectory
+  position and the driver's past effective position. At the new default
+  of `1.0` the blend collapses to `driver_past`, so metric-at-T equals
+  driver-at-(T-N) exactly and cross-correlation peaks at the configured
+  `lag_periods`. Pre-0.4.0 behavior (60% driver-past + 40% current) is
+  recovered with `blend_weight: 0.6`.
+
+### Changed
+- **Causal lags compose across chains.** `lag_buffer` now stores
+  effective positions (post-blend) instead of raw trajectory positions,
+  and metrics are processed in topological driver→target order inside
+  `generate_entity_metrics`. A three-metric chain A→B→C with lags 2 and
+  3 now produces a C series that reads A's trajectory from 5 periods
+  ago, matching the causal DAG the config declares. Pre-0.4.0 the
+  `driver` field was vestigial (every buffer key held the same
+  trajectory slice) and lags did not compose.
+- **`causal_coherence` validator threshold** relaxed from strict
+  `|lagged| > |unlagged|` to a 50% ratio check. The strict inequality
+  was tuned for the pre-0.4.0 blend that carried a 40% same-period
+  component. Under `blend_weight=1.0` the lag is a pure period shift,
+  and on slow-varying trajectories the Iman-Conover same-period
+  correlation induced by any correlation pair on the lagged metric can
+  inflate `|unlagged|` above `|lagged|` even though the lag is
+  correctly implemented. The ratio still catches flagrantly broken
+  lags (where the shift drops correlation magnitude toward zero).
+
+### Removed
+- **`plotsim.metrics.LAG_BLEND_WEIGHT`** module constant. No longer
+  read by any code path after `_compute_effective_position` switched
+  to `metric.causal_lag.blend_weight`. External imports of the
+  constant will raise `ImportError`.
+
+### Migration notes
+- Any config with `causal_lag` produces different output values. The
+  two bundled templates affected are `sample_saas.yaml`
+  (`support_tickets.causal_lag` lag=2) and `sample_hr.yaml`
+  (`absence_rate.causal_lag` lag=1). Reference fixtures at
+  `tests/fixtures/layer4_reference/saas/` and `/hr/` have been
+  regenerated; users tracking byte-identical output against 0.3.x
+  should expect these two templates' CSVs to change.
+- `ecommerce`, `education`, and `healthcare` templates have no
+  `causal_lag` entries and produce byte-identical output to 0.3.x.
+- Users who want the pre-0.4.0 behavior can set
+  `causal_lag: {driver: ..., lag_periods: N, blend_weight: 0.6}`
+  explicitly.
+- Metric processing inside `generate_entity_metrics` is now
+  topological, not declaration-order. For configs without chains this
+  is a stable permutation (insertion order is preserved within each
+  ready-layer), so RNG consumption is unchanged. For configs with
+  chains, the order changes to put drivers before targets.
+
 ## [0.3.0] — 2026-04-22
 
 Post-launch hardening pass sourced from the 2026-04-22 read-only
