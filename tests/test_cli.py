@@ -230,7 +230,8 @@ def test_cli_output_summary_lists_empty_tables(tmp_path: Path):
     declares it without a driver.
     """
     code, out, _err = run_cli(
-        "run", str(HR_YAML), "-o", str(tmp_path), "--seed", "1"
+        "run", str(HR_YAML), "-o", str(tmp_path), "--seed", "1",
+        "--allow-absolute-output",
     )
     assert code == 0
     assert "evt_attrition" in out
@@ -285,7 +286,8 @@ def test_template_output_creates_parent_dirs(tmp_path: Path):
 
 def test_run_writes_csvs_to_specified_output_dir(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q"
+        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q",
+        "--allow-absolute-output",
     )
     assert code == 0, f"stderr={_err!r}"
     csvs = sorted(p.name for p in tmp_path.glob("*.csv"))
@@ -299,8 +301,10 @@ def test_run_writes_csvs_to_specified_output_dir(tmp_path: Path):
 def test_run_seed_override_changes_output(tmp_path: Path):
     dir_a = tmp_path / "seed_a"
     dir_b = tmp_path / "seed_b"
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "1", "-q")
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "2", "-q")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "1", "-q",
+            "--allow-absolute-output")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "2", "-q",
+            "--allow-absolute-output")
     # Different seeds must produce different facts (engagement scores will differ)
     fct_a = (dir_a / "fct_engagement.csv").read_text(encoding="utf-8")
     fct_b = (dir_b / "fct_engagement.csv").read_text(encoding="utf-8")
@@ -310,8 +314,10 @@ def test_run_seed_override_changes_output(tmp_path: Path):
 def test_run_seed_is_deterministic(tmp_path: Path):
     dir_a = tmp_path / "a"
     dir_b = tmp_path / "b"
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "99", "-q")
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "99", "-q")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "99", "-q",
+            "--allow-absolute-output")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "99", "-q",
+            "--allow-absolute-output")
     for name in ("fct_engagement.csv", "fct_revenue.csv", "dim_company.csv"):
         assert (dir_a / name).read_text(encoding="utf-8") == (
             dir_b / name).read_text(encoding="utf-8"), f"{name} differs"
@@ -319,7 +325,8 @@ def test_run_seed_is_deterministic(tmp_path: Path):
 
 def test_run_validate_flag_prints_report(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--validate", "-q"
+        "run", str(SAAS_YAML), "-o", str(tmp_path), "--validate", "-q",
+        "--allow-absolute-output",
     )
     assert code == 0
     assert "Validation:" in out
@@ -338,7 +345,8 @@ def test_run_default_output_dir_uses_config(tmp_path: Path, monkeypatch):
 
 def test_run_quiet_suppresses_summary(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "1", "-q"
+        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "1", "-q",
+        "--allow-absolute-output",
     )
     assert code == 0
     assert "Generating" not in out
@@ -357,7 +365,8 @@ def test_run_strict_aborts_on_invalid(tmp_path: Path, monkeypatch):
     broken = tmp_path / "broken.yaml"
     broken.write_text("not a real config\n", encoding="utf-8")
     code, _out, _err = run_cli(
-        "run", str(broken), "-o", str(tmp_path / "out"), "--strict", "-q"
+        "run", str(broken), "-o", str(tmp_path / "out"), "--strict", "-q",
+        "--allow-absolute-output",
     )
     assert code == 1
     assert not (tmp_path / "out" / "dim_date.csv").exists()
@@ -369,7 +378,8 @@ def test_run_all_five_templates_end_to_end(tmp_path: Path):
         assert path is not None
         out_dir = tmp_path / name
         code, _out, err = run_cli(
-            "run", str(path), "-o", str(out_dir), "--seed", "5", "-q"
+            "run", str(path), "-o", str(out_dir), "--seed", "5", "-q",
+            "--allow-absolute-output",
         )
         assert code == 0, f"{name}: exit {code}, stderr={err!r}"
         # Every config should emit at least dim_date + one fact + config.yaml.
@@ -378,3 +388,75 @@ def test_run_all_five_templates_end_to_end(tmp_path: Path):
         assert (out_dir / "validation_report.txt").exists()
         facts = [p.name for p in out_dir.glob("fct_*.csv")]
         assert facts, f"{name}: no fct_*.csv produced"
+
+
+# --- SEC-01: CLI path sandbox default ----------------------------------------
+
+
+def _write_saas_with_output_dir(dst: Path, output_directory: str) -> Path:
+    """Clone sample_saas.yaml with ``output.directory`` rewritten."""
+    import yaml as _yaml
+    with SAAS_YAML.open("r", encoding="utf-8") as f:
+        data = _yaml.safe_load(f)
+    data["output"]["directory"] = output_directory
+    dst.write_text(_yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return dst
+
+
+def test_cli_rejects_config_absolute_output_dir(tmp_path: Path, monkeypatch):
+    """SEC-01: a config with an absolute ``output.directory`` is blocked by
+    default. The CLI exits non-zero and writes nothing to the absolute target.
+    """
+    monkeypatch.chdir(tmp_path)
+    rogue = tmp_path / "rogue_target"
+    cfg_path = _write_saas_with_output_dir(
+        tmp_path / "abs.yaml", str(rogue.resolve()),
+    )
+    code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
+    assert code == 1
+    assert "absolute" in err.lower()
+    assert not rogue.exists() or not any(rogue.glob("*.csv"))
+
+
+def test_cli_rejects_config_dotdot_output_dir(tmp_path: Path, monkeypatch):
+    """SEC-01: ``../sibling`` in ``output.directory`` resolves outside the
+    cwd sandbox and is rejected. Nothing is written above cwd.
+    """
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    cfg_path = _write_saas_with_output_dir(
+        workdir / "dotdot.yaml", "../escape/hatch",
+    )
+    code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
+    assert code == 1
+    assert "escapes" in err.lower() or "traversal" in err.lower()
+    sibling = tmp_path / "escape"
+    assert not sibling.exists() or not any(sibling.rglob("*.csv"))
+
+
+def test_cli_allow_absolute_output_flag_writes_absolute_path(tmp_path: Path):
+    """SEC-01: ``--allow-absolute-output`` bypasses the sandbox and writes to
+    an absolute path supplied via ``-o``.
+    """
+    out_dir = tmp_path / "freely_chosen"
+    code, _out, err = run_cli(
+        "run", str(SAAS_YAML), "-o", str(out_dir), "--seed", "42", "-q",
+        "--allow-absolute-output",
+    )
+    assert code == 0, f"stderr={err!r}"
+    assert (out_dir / "dim_date.csv").exists()
+
+
+def test_cli_relative_output_dir_unchanged_behavior(tmp_path: Path, monkeypatch):
+    """SEC-01: a normal config with a relative ``output.directory`` resolves
+    inside cwd. No regression for the 99% common path.
+    """
+    monkeypatch.chdir(tmp_path)
+    cfg_path = _write_saas_with_output_dir(
+        tmp_path / "rel.yaml", "out/saas",
+    )
+    code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
+    assert code == 0, f"stderr={err!r}"
+    expected = tmp_path / "out" / "saas"
+    assert (expected / "dim_date.csv").exists()

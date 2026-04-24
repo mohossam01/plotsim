@@ -148,6 +148,19 @@ def write_single_table(
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{name}.csv"
 
+    # SEC-02 defense-in-depth: ``Table.name`` / ``Column.name`` are regex-
+    # validated at config load, but programmatic callers can bypass that by
+    # passing ``write_single_table`` a crafted ``name``. A table named
+    # ``"../../../etc/shadow"`` would resolve outside ``output_dir`` — reject
+    # before the ``to_csv`` call touches disk.
+    resolved_dir = output_dir.resolve()
+    if path.resolve().parent != resolved_dir:
+        raise ValueError(
+            f"write_single_table: table name {name!r} resolves outside "
+            f"output_dir {str(output_dir)!r}; names must be SQL-safe "
+            f"identifiers (no path separators, no ..)"
+        )
+
     tbl = _table_by_name(config, name) if config is not None else None
     to_write = df
     if tbl is not None:

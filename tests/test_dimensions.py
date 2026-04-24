@@ -607,3 +607,109 @@ def test_determinism_preserved_with_locale():
     a = build_dim_entity(tbl, _saas_entities(), _rng(99), locale="ja_JP")
     b = build_dim_entity(tbl, _saas_entities(), _rng(99), locale="ja_JP")
     pd.testing.assert_frame_equal(a, b)
+
+
+# --- SEC-04: Faker allowlist / denylist / kwarg caps -------------------------
+
+
+def _dim_with_faker_source(source: str) -> Table:
+    return _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="x", dtype="string", source=source),
+        ],
+        "company_id",
+    )
+
+
+def test_faker_allowlist_accepts_name():
+    tbl = _dim_with_faker_source("generated:faker.name")
+    df = build_dim_entity(tbl, _saas_entities(), _rng(0))
+    assert (df["x"].str.len() > 0).all()
+
+
+def test_faker_denylist_rejects_seed_instance():
+    """SEC-04: ``seed_instance`` would silently reseed the Faker mid-build,
+    breaking determinism. Must be rejected before dispatch.
+    """
+    tbl = _dim_with_faker_source("generated:faker.seed_instance:seed:42")
+    with pytest.raises(ValueError, match="denied"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_denylist_rejects_format():
+    """SEC-04: ``format`` dispatches by provider name — a backdoor around
+    the allowlist. Denylisted explicitly.
+    """
+    tbl = _dim_with_faker_source("generated:faker.format:formatter:name")
+    with pytest.raises(ValueError, match="denied"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_denylist_rejects_binary():
+    """SEC-04: ``binary`` amplifies memory linearly with ``length``.
+    Denylisted to block 1-GB-per-row configurations.
+    """
+    tbl = _dim_with_faker_source("generated:faker.binary:length:100")
+    with pytest.raises(ValueError, match="denied"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_rejects_non_allowlisted_method():
+    """SEC-04: methods outside the allowlist are rejected with a clear error
+    that lists the allowed set — helps users find an allowed alternative.
+    """
+    tbl = _dim_with_faker_source("generated:faker.pytz_timezone")
+    with pytest.raises(ValueError, match="not in the allowed list"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_kwarg_cap_rejects_oversize_max_nb_chars():
+    tbl = _dim_with_faker_source("generated:faker.text:max_nb_chars:5000")
+    with pytest.raises(ValueError, match="exceeds"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_kwarg_cap_permits_in_range_max_nb_chars():
+    tbl = _dim_with_faker_source("generated:faker.text:max_nb_chars:200")
+    df = build_dim_entity(tbl, _saas_entities(), _rng(0))
+    assert (df["x"].str.len() > 0).all()
+
+
+def test_faker_kwarg_cap_rejects_oversize_nb_words():
+    tbl = _dim_with_faker_source("generated:faker.words:nb:10000")
+    with pytest.raises(ValueError, match="exceeds"):
+        build_dim_entity(tbl, _saas_entities(), _rng(0))
+
+
+def test_faker_determinism_byte_identical_under_seed():
+    """SEC-04: with no Faker-seeding backdoor reachable, two same-seed runs
+    must still produce byte-identical output. Guards against regressions in
+    the allowlist guard that would consume RNG state differently.
+    """
+    tbl = _dim_with_faker_source("generated:faker.name")
+    a = build_dim_entity(tbl, _saas_entities(), _rng(77))
+    b = build_dim_entity(tbl, _saas_entities(), _rng(77))
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_faker_extended_providers_still_work():
+    """SEC-04 sanity: the extended-provider shims (``industry``, ``year``)
+    pre-date the allowlist and must keep working — the bundled SaaS template
+    relies on them.
+    """
+    tbl = _table(
+        "dim_company", "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="industry", dtype="string",
+                   source="generated:faker.industry"),
+            Column(name="founded_year", dtype="int",
+                   source="generated:faker.year"),
+        ],
+        "company_id",
+    )
+    df = build_dim_entity(tbl, _saas_entities(), _rng(0))
+    assert (df["industry"].str.len() > 0).all()
+    assert df["founded_year"].between(1950, 2020).all()

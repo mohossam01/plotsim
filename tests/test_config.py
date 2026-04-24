@@ -1217,3 +1217,101 @@ def test_downgrade_delay_rejects_zero_and_negative():
             ],
             downgrade_delay=-1,
         )
+
+
+# --- SEC-02: Table.name / Column.name identifier validator -------------------
+
+from plotsim.config import Column as _Col  # local alias for the SEC-02 block
+
+
+def test_column_name_rejects_parent_traversal():
+    with pytest.raises(ValidationError, match="column name"):
+        _Col(name="../escape", dtype="string", source="pk")
+
+
+def test_column_name_rejects_absolute_path():
+    with pytest.raises(ValidationError, match="column name"):
+        _Col(name="/etc/shadow", dtype="string", source="pk")
+
+
+def test_column_name_rejects_leading_digit():
+    with pytest.raises(ValidationError, match="column name"):
+        _Col(name="123starts_with_digit", dtype="string", source="pk")
+
+
+def test_column_name_rejects_overlong():
+    with pytest.raises(ValidationError, match="column name"):
+        _Col(name="a" * 200, dtype="string", source="pk")
+
+
+def test_column_name_accepts_snake_case_identifier():
+    col = _Col(name="company_id", dtype="id", source="pk")
+    assert col.name == "company_id"
+
+
+def test_table_name_rejects_parent_traversal():
+    with pytest.raises(ValidationError, match="table name"):
+        Table(
+            name="../escape",
+            type="dim",
+            grain="per_entity",
+            columns=[_Col(name="x", dtype="id", source="pk")],
+            primary_key="x",
+        )
+
+
+def test_table_name_rejects_absolute_path():
+    with pytest.raises(ValidationError, match="table name"):
+        Table(
+            name="/etc/shadow",
+            type="dim",
+            grain="per_entity",
+            columns=[_Col(name="x", dtype="id", source="pk")],
+            primary_key="x",
+        )
+
+
+def test_table_name_rejects_overlong():
+    with pytest.raises(ValidationError, match="table name"):
+        Table(
+            name="t" * 200,
+            type="dim",
+            grain="per_entity",
+            columns=[_Col(name="x", dtype="id", source="pk")],
+            primary_key="x",
+        )
+
+
+def test_table_name_rejects_leading_digit():
+    with pytest.raises(ValidationError, match="table name"):
+        Table(
+            name="123bad",
+            type="dim",
+            grain="per_entity",
+            columns=[_Col(name="x", dtype="id", source="pk")],
+            primary_key="x",
+        )
+
+
+def test_table_name_accepts_standard_identifier():
+    tbl = Table(
+        name="dim_company",
+        type="dim",
+        grain="per_entity",
+        columns=[_Col(name="company_id", dtype="id", source="pk")],
+        primary_key="company_id",
+    )
+    assert tbl.name == "dim_company"
+
+
+def test_all_bundled_templates_pass_name_validation():
+    """SEC-02: the five shipped templates must continue to validate cleanly
+    after the identifier regex lands — no table or column name needed a rename.
+    """
+    import warnings as _w
+    configs_dir = ROOT / "plotsim" / "configs"
+    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+        path = configs_dir / f"sample_{stem}.yaml"
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", SurrogateKeyWarning)
+            load_config(path)

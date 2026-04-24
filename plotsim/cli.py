@@ -147,7 +147,22 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     output_dir = Path(args.output_dir) if args.output_dir else None
-    target = write_tables(tables, config, report, output_dir=output_dir)
+    # SEC-01: sandbox every CLI write under cwd by default so a crafted config
+    # (or a crafted -o flag) can't scribble to /etc/, the user's home, or any
+    # other absolute location. ``--allow-absolute-output`` is the documented
+    # escape hatch for power users who deliberately want to write elsewhere.
+    base_dir = None if args.allow_absolute_output else Path.cwd()
+    try:
+        target = write_tables(
+            tables, config, report, output_dir=output_dir, base_dir=base_dir,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(
+            "Hint: pass --allow-absolute-output to bypass the cwd sandbox.",
+            file=sys.stderr,
+        )
+        return 1
 
     if not args.quiet:
         total_rows = sum(len(df) for df in tables.values())
@@ -298,6 +313,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--strict", action="store_true",
                        help="Exit non-zero if validation has any errors")
     run_p.add_argument("--quiet", "-q", action="store_true")
+    run_p.add_argument(
+        "--allow-absolute-output", action="store_true",
+        help=(
+            "Bypass the cwd path sandbox (SEC-01). Permits absolute "
+            "output_dir values and ..-segment traversal. Only use this "
+            "when you deliberately need to write outside the working "
+            "directory."
+        ),
+    )
     run_p.set_defaults(func=cmd_run)
 
     val_p = subparsers.add_parser("validate", help="Validate a config file")

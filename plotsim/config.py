@@ -24,12 +24,33 @@ Output:
 
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+# SEC-02: SQL-safe identifier pattern applied to Table.name and Column.name.
+# Leading underscore or letter, then letters / digits / underscores, capped at
+# 128 characters. Rejects anything that could escape the output sandbox via
+# filesystem path construction (``../foo``, ``/etc/passwd``) and anything that
+# would trip a SQL import on the generated CSVs.
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
+
+
+def _validate_identifier(kind: str, value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{kind} must be a string, got {type(value).__name__}")
+    if not _IDENTIFIER_RE.fullmatch(value):
+        raise ValueError(
+            f"{kind} {value!r} is not a valid identifier: must match "
+            f"[A-Za-z_][A-Za-z0-9_]{{0,127}} (SQL-safe, 1-128 chars, no "
+            f"path separators, no leading digit)"
+        )
+    return value
 
 
 CURVE_TYPES: frozenset[str] = frozenset({
@@ -517,6 +538,11 @@ class Column(_Frozen):
     name: str
     dtype: Dtype
     source: str
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_identifier(cls, v: str) -> str:
+        return _validate_identifier("column name", v)
     # Optional human-readable note that this column may contain PII (names,
     # emails, addresses generated via Faker). Pure metadata — no generation
     # behavior change. Surfaces in dump_config so downstream consumers can
@@ -573,6 +599,11 @@ class Table(_Frozen):
     def primary_key_cols(self) -> list[str]:
         """Return the PK as a list, whether declared as str or list[str]."""
         return [self.primary_key] if isinstance(self.primary_key, str) else list(self.primary_key)
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_identifier(cls, v: str) -> str:
+        return _validate_identifier("table name", v)
 
     @field_validator("row_count_source")
     @classmethod

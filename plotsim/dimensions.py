@@ -137,6 +137,101 @@ _EXTENDED_PROVIDERS = {
 }
 
 
+# SEC-04: explicit allowlist of Faker methods the engine will dispatch to.
+# Generated from the set needed by the five bundled templates plus the most
+# common portfolio/persona/geo/date/text/net fakers. Anything outside this
+# list is rejected with a clear error pointing the user at the contribution
+# path — new additions go through review rather than ``getattr(fake, ...)``.
+ALLOWED_FAKER_METHODS: frozenset[str] = frozenset({
+    # Person / identity
+    "name", "first_name", "last_name", "email", "phone_number",
+    "user_name", "job",
+    # Company / business
+    "company", "bs", "catch_phrase",
+    # Address / geo
+    "address", "street_address", "city", "state", "country",
+    "country_code", "zipcode", "postcode", "latitude", "longitude",
+    # Date / time
+    "date", "date_between", "date_this_decade", "date_of_birth",
+    "date_time", "iso8601", "unix_time",
+    # Text
+    "sentence", "paragraph", "text", "word", "words",
+    # Network / identifiers
+    "url", "domain_name", "ipv4", "ipv6", "mac_address",
+    "uuid4", "md5", "sha1", "sha256",
+    # Numeric / primitives
+    "random_int", "random_element", "random_elements",
+    "boolean", "pybool", "pyint", "pyfloat", "pydecimal",
+    # Misc common
+    "currency", "currency_code", "color_name", "hex_color",
+    "file_name", "file_extension", "mime_type",
+    "license_plate", "vin", "ean", "ean13",
+})
+
+# SEC-04: defense-in-depth denylist. Methods here are rejected even if a
+# future change pulls them into the allowlist, because they either mutate
+# Faker's RNG state (breaking determinism), dispatch dynamically to bypass
+# the allowlist, or amplify memory by orders of magnitude per row.
+DENIED_FAKER_METHODS: frozenset[str] = frozenset({
+    "seed", "seed_instance", "seed_locale",
+    "add_provider", "del_provider",
+    "format", "parse", "pystr_format",
+    "provider", "providers",
+    "binary",
+})
+
+# SEC-04: cap on length-like kwarg values. 4096 is generous for sentences,
+# paragraphs, and random element counts; anything larger is almost certainly
+# an amplification attempt (``binary:length:1_000_000_000`` style).
+_FAKER_KWARG_LENGTH_CAP = 4096
+_FAKER_LENGTH_KWARGS: frozenset[str] = frozenset({
+    "length", "max_nb_chars", "nb", "min_chars", "max_chars",
+    "nb_elements", "max_value", "nb_words", "nb_sentences",
+})
+
+
+def _check_faker_method_allowed(method: str) -> None:
+    """Raise if ``method`` is denylisted or missing from the allowlist.
+
+    Extended providers (``industry``, ``year``) are always permitted — they
+    are literal constants, not live Faker dispatch.
+    """
+    if method in _EXTENDED_PROVIDERS:
+        return
+    if method in DENIED_FAKER_METHODS:
+        raise ValueError(
+            f"Faker method {method!r} is explicitly denied for security "
+            f"reasons (determinism / dynamic-dispatch / memory amplification). "
+            f"If you have a legitimate use case, open an issue."
+        )
+    if method not in ALLOWED_FAKER_METHODS:
+        allowed = sorted(ALLOWED_FAKER_METHODS)
+        raise ValueError(
+            f"Faker method {method!r} is not in the allowed list. "
+            f"Allowed methods: {allowed}. To request an addition, open an issue."
+        )
+
+
+def _check_faker_kwarg_caps(method: str, kwargs: dict[str, Any]) -> None:
+    """Raise if any length-related kwarg exceeds the hard cap.
+
+    Runs after :func:`_coerce_faker_kwarg` so the value is already typed —
+    only integer values count as ``length`` overruns. Strings and dates
+    pass through even if they share a capped name.
+    """
+    for key, value in kwargs.items():
+        if key not in _FAKER_LENGTH_KWARGS:
+            continue
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and value > _FAKER_KWARG_LENGTH_CAP:
+            raise ValueError(
+                f"Faker kwarg {key}={value} on method {method!r} exceeds "
+                f"the {_FAKER_KWARG_LENGTH_CAP} cap; lower the value or "
+                f"request a higher cap via an issue."
+            )
+
+
 def _coerce_faker_kwarg(value: str) -> Any:
     """Best-effort string → int/date coercion for parameterized faker kwargs.
 
@@ -181,6 +276,10 @@ def _call_faker(
     if not method:
         raise ValueError("faker method name cannot be empty")
     kwargs = kwargs or {}
+    # SEC-04: allowlist+denylist guard runs before any dispatch so attacker-
+    # controlled method names (``seed_instance``, ``format``, ``binary``)
+    # never reach ``getattr`` / the extended-providers table.
+    _check_faker_method_allowed(method)
     extended = _EXTENDED_PROVIDERS.get(method)
     if extended is not None:
         if kwargs:
@@ -196,6 +295,7 @@ def _call_faker(
             f"(source 'generated:faker.{method}')"
         )
     coerced = {k: _coerce_faker_kwarg(v) for k, v in kwargs.items()}
+    _check_faker_kwarg_caps(method, coerced)
     return fn(**coerced)
 
 

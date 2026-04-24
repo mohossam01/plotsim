@@ -460,3 +460,38 @@ def test_base_dir_allows_nested_subdirectory(saas_bundle, tmp_path):
     )
     assert out == (sandbox / "2026" / "04" / "run-01").resolve()
     assert any(out.glob("*.csv"))
+
+
+# --- SEC-02: write-time defense-in-depth resolve check -----------------------
+
+
+def test_write_single_table_rejects_parent_traversal_name(tmp_path):
+    """SEC-02: ``write_single_table`` does not trust callers that bypass
+    Pydantic. A crafted ``name`` ending up outside ``output_dir`` after path
+    resolution is rejected before any CSV is written.
+    """
+    df = pd.DataFrame({"a": [1], "b": ["x"]})
+    with pytest.raises(ValueError, match="resolves outside"):
+        write_single_table("../escape", df, tmp_path)
+    # No leakage above tmp_path.
+    sibling = tmp_path.parent / "escape.csv"
+    assert not sibling.exists()
+
+
+def test_write_single_table_rejects_absolute_name(tmp_path):
+    """SEC-02: an absolute-looking ``name`` (``/etc/shadow``) resolves
+    outside ``output_dir`` and is rejected at write time.
+    """
+    df = pd.DataFrame({"a": [1]})
+    with pytest.raises(ValueError, match="resolves outside"):
+        # On POSIX this becomes ``/etc/shadow.csv``; on Windows it's treated
+        # as a rooted path too. Either way it escapes tmp_path.
+        write_single_table("/etc/shadow", df, tmp_path)
+
+
+def test_write_single_table_accepts_plain_identifier(tmp_path):
+    """SEC-02: plain SQL-safe identifiers land inside output_dir as expected."""
+    df = pd.DataFrame({"a": [1], "b": ["x"]})
+    path = write_single_table("fct_engagement", df, tmp_path)
+    assert path == tmp_path / "fct_engagement.csv"
+    assert path.exists()

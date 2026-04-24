@@ -569,7 +569,8 @@ def test_no_event_tables(tmp_path: Path):
 
 def test_cli_subprocess_run(tmp_path: Path):
     result = run_cli_subprocess(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q"
+        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q",
+        "--allow-absolute-output",
     )
     assert result.returncode == 0, (
         f"exit={result.returncode}; stderr={result.stderr!r}"
