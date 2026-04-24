@@ -348,6 +348,44 @@ def test_correlation_references_unknown_metric():
         PlotsimConfig(**raw)
 
 
+def test_non_psd_correlation_raises_at_load():
+    # R-04 / FIX-F04: a correlation matrix that breaks the triangle
+    # inequality (A↔B=0.9, A↔C=0.9, B↔C=-0.9) is not positive
+    # semi-definite. It used to pass load and only raise (as a plain
+    # ValueError) at the top of generate_tables. It now raises a
+    # pydantic ValidationError at load, like every other config defect.
+    raw = _minimal_valid()
+    base_metric = raw["metrics"][0]
+    raw["metrics"] = [
+        {**base_metric, "name": "m_a", "label": "A"},
+        {**base_metric, "name": "m_b", "label": "B"},
+        {**base_metric, "name": "m_c", "label": "C"},
+    ]
+    raw["entities"][0]["archetype"] = "a1"
+    fact_cols = raw["tables"][1]["columns"]
+    fact_cols[2]["name"] = "m_a"
+    fact_cols[2]["source"] = "metric:m_a"
+    fact_cols.append({"name": "m_b", "dtype": "float", "source": "metric:m_b"})
+    fact_cols.append({"name": "m_c", "dtype": "float", "source": "metric:m_c"})
+    raw["correlations"] = [
+        {"metric_a": "m_a", "metric_b": "m_b", "coefficient": 0.9},
+        {"metric_a": "m_a", "metric_b": "m_c", "coefficient": 0.9},
+        {"metric_a": "m_b", "metric_b": "m_c", "coefficient": -0.9},
+    ]
+    with pytest.raises(ValidationError, match="positive semi-definite") as exc:
+        PlotsimConfig(**raw)
+    assert "correlations" in str(exc.value)
+
+
+def test_valid_psd_correlation_loads():
+    # FIX-F04 boundary: a PSD correlation matrix passes load as before.
+    # The shipped saas template's correlations satisfy PSD (see 007a in
+    # SEQUENCE.md).
+    c = load_config(SAAS_YAML)
+    assert isinstance(c, PlotsimConfig)
+    assert c.correlations
+
+
 def test_bad_time_window_format():
     raw = _minimal_valid()
     raw["time_window"]["start"] = "2024/01"
@@ -1466,6 +1504,17 @@ def test_entities_list_above_limit_fails():
     raw["entities"] = [
         {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(101)
     ]
+    with pytest.raises(ValidationError, match="entities"):
+        PlotsimConfig(**raw)
+
+
+def test_empty_entities_rejected():
+    # R-05 / FIX-F05: an empty entities list is almost certainly a config
+    # typo and previously produced zero-row fact tables silently. The field
+    # now carries min_length=1 so this raises at load time like every other
+    # structural defect.
+    raw = _minimal_valid()
+    raw["entities"] = []
     with pytest.raises(ValidationError, match="entities"):
         PlotsimConfig(**raw)
 

@@ -136,13 +136,16 @@ def test_psd_no_correlations_is_noop():
 def test_psd_catches_indefinite_matrix():
     # Three metrics all pairwise correlated at 0.99 is fine; pushing one pair
     # to -0.99 while the others stay +0.99 produces an indefinite matrix
-    # (transitivity violation).
+    # (transitivity violation). Post-FIX-F04 this kind of matrix is rejected
+    # at PlotsimConfig construction, so we bypass the validator via
+    # ``model_construct`` to exercise ``validate_correlation_psd`` directly.
     cfg = _minimal_config(
         correlations=[
             CorrelationPair(metric_a="a", metric_b="b", coefficient=0.99),
             CorrelationPair(metric_a="b", metric_b="c", coefficient=0.99),
             CorrelationPair(metric_a="a", metric_b="c", coefficient=-0.99),
         ],
+        skip_validation=True,
     )
     issues = validate_correlation_psd(cfg)
     assert len(issues) == 1
@@ -482,12 +485,15 @@ def test_driven_event_table_produces_no_warning(saas_cfg, saas_tables):
 
 
 def test_non_psd_matrix_raises_at_generation_time():
-    """FIX-01: generate_tables raises on non-PSD before any sampling runs.
+    """FIX-01 + FIX-F04: defense-in-depth check at ``generate_tables`` still
+    fires when a non-PSD matrix reaches it.
 
-    Replaces the silent-fallback path that ``apply_correlations`` used to take
-    on Cholesky failure. Catching the defect at pipeline entry is the contract
-    we want — partial output that silently dropped correlation hid every
-    statistical defect downstream.
+    Post-FIX-F04 the PSD gate primarily runs at config load, so the normal
+    path never reaches this branch. Constructing via ``model_construct``
+    simulates a programmatic bypass of the model validator (external
+    callers, deserializers, or tests that build ``PlotsimConfig`` without
+    running validation) and confirms the redundant guard at the top of
+    ``generate_tables`` still raises.
     """
     cfg = _minimal_config(
         correlations=[
@@ -495,6 +501,7 @@ def test_non_psd_matrix_raises_at_generation_time():
             CorrelationPair(metric_a="b", metric_b="c", coefficient=0.99),
             CorrelationPair(metric_a="a", metric_b="c", coefficient=-0.99),
         ],
+        skip_validation=True,
     )
     with pytest.raises(ValueError, match="positive semi-definite"):
         generate_tables(cfg, _rng(0))
@@ -545,8 +552,12 @@ def test_empty_correlations_skips_psd_check():
 # --- Helper: minimal config for PSD tests ------------------------------------
 
 
-def _minimal_config(correlations):
-    return PlotsimConfig(
+def _minimal_config(correlations, *, skip_validation: bool = False):
+    # skip_validation=True builds via ``model_construct`` to bypass the
+    # load-time PSD validator (FIX-F04). Used by the two tests that must
+    # construct a known-bad matrix to exercise ``validate_correlation_psd``
+    # and the redundant gate at the top of ``generate_tables`` directly.
+    kwargs = dict(
         domain=Domain(name="n", description="d", entity_type="e", entity_label="E"),
         time_window=TimeWindow(start="2024-01", end="2024-06", granularity="monthly"),
         seed=1,
@@ -588,6 +599,9 @@ def _minimal_config(correlations):
         noise=NoiseConfig(),
         output=OutputConfig(format="csv", directory="out"),
     )
+    if skip_validation:
+        return PlotsimConfig.model_construct(**kwargs)
+    return PlotsimConfig(**kwargs)
 
 
 # --- FIX-05 / MF-2: temporal coherence ---------------------------------------

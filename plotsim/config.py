@@ -811,7 +811,7 @@ class PlotsimConfig(_Frozen):
     seed: int
     metrics: list[Metric] = Field(max_length=50)
     archetypes: list[Archetype] = Field(max_length=20)
-    entities: list[Entity] = Field(max_length=100)
+    entities: list[Entity] = Field(min_length=1, max_length=100)
     tables: list[Table] = Field(max_length=50)
     # 1_225 = 50 choose 2 — the upper bound on unique pairwise correlations
     # given the 50-metric cap. Anything larger is either duplicates (rejected
@@ -1024,6 +1024,31 @@ class PlotsimConfig(_Frozen):
                     f"known: {sorted(metric_names)}"
                 )
 
+        return self
+
+    @model_validator(mode="after")
+    def _correlation_matrix_is_psd(self) -> "PlotsimConfig":
+        """F-04: reject non-PSD correlation matrices at load time.
+
+        Every other config defect surfaces as a pydantic ValidationError at
+        load. Pre-FIX-F04, a non-PSD matrix passed load and only raised
+        (as a plain ValueError) at the top of ``generate_tables``. The
+        defense-in-depth call at ``generate_tables`` is retained to catch
+        programmatic PlotsimConfig construction that bypasses YAML loading.
+        """
+        if not self.correlations:
+            return self
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import validate_correlation_psd
+
+        issues = validate_correlation_psd(self)
+        if issues:
+            names = [m.name for m in self.metrics]
+            raise ValueError(
+                f"correlations: correlation matrix is not positive "
+                f"semi-definite for metrics {names}. {issues[0].message}"
+            )
         return self
 
 
