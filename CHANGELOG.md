@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F6 (F-06 regression class — adversarial declaration vs toposort
+  ordering).** Test-only addition; closes the regression class that
+  the 0.4.0 Cholesky-toposort-indexing fix
+  (`tables.py:1431-1437`) targeted, locking it under a programmatic
+  config that does not exist in any bundled template.
+
+  The 0.4.0 fix builds the hoisted Cholesky factor on the toposorted
+  metric list so its row/column axes match the `z` vector
+  `apply_correlations` indexes by. Until now there was no test that
+  forced declaration order ≠ toposort order *and* asserted
+  configured pairwise correlations on the result — the bundled saas
+  and hr templates were the only end-to-end witnesses, and either
+  could have its `causal_lag` removed without the test surface
+  noticing.
+
+  `tests/test_correlation_ordering.py` programmatically constructs a
+  4-metric config with chain `a←b←c←d` so `_toposort_metrics` emits
+  `[d, c, b, a]` (full reversal of declaration), assigns
+  rank-1 factor-model correlations (PSD by construction), and asserts
+  every configured pair lands within ±0.10 of target across 8 seeds.
+  A parametrized variant randomizes declaration order against the
+  same fixed toposort target across five seeds. Pre-fix simulation
+  (declaration-order Cholesky) reproduces the documented bug
+  signature: median observed Pearson on `(a, b)` lands at 0.385 vs
+  configured 0.638 (|diff|=0.25 > 0.10).
+
 - **F5 (validation_report.txt determinism).** `output._format_report`
   injected `datetime.now()` into the `Generated:` header line, so two
   invocations of `write_tables` with the same `(config, seed)` produced
