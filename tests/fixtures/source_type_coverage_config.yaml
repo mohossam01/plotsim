@@ -1,0 +1,150 @@
+# F16 (M102) — synthetic non-bundled config exercising every parse_source
+# branch on per_entity_per_period fact tables.
+#
+# Two fact tables share the same dispatch coverage. fct_vectorized takes the
+# vectorized path (_vectorized_per_entity_per_period_fact); fct_scalar
+# carries a FakerSource column, which forces the scalar fallback
+# (_scalar_per_entity_per_period_fact → _resolve_fact_cell). Together they
+# exercise PKSource, MetricSource, LagSource, FKSource (local entity / local
+# date / cross-dim), GeneratedSource (timestamp / date_key / period_label),
+# StaticSource, and DerivedSource (period_index / entity_id) on both paths.
+#
+# Boolean dtype on MetricSource/LagSource is intentionally absent — F12 (M102)
+# rejects that combination at config load. ThresholdSource and
+# ProportionalSource live on event tables, not facts, and have their own
+# dispatch sites covered elsewhere.
+
+domain:
+  name: "F16 source-type coverage"
+  description: "Every parse_source branch reachable on a per_entity_per_period fact"
+  entity_type: "widget"
+  entity_label: "Widgets"
+
+time_window:
+  start: "2024-01"
+  end: "2024-12"
+  granularity: "monthly"
+
+seed: 17
+
+metrics:
+  - name: "engagement"
+    label: "Engagement"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 5.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "revenue"
+    label: "Revenue"
+    distribution: "lognorm"
+    params: {s: 0.85, loc: 0.0, scale: 1200.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 100000.0}
+  - name: "support_tickets"
+    label: "Support tickets"
+    distribution: "poisson"
+    params: {lambda: 4.0}
+    polarity: "negative"
+
+archetypes:
+  - name: "steady_grower"
+    label: "Climbs steadily"
+    description: "S-curve growth"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.5, steepness: 6.0}
+        start_pct: 0.0
+        end_pct: 1.0
+
+entities:
+  - name: "alpha"
+    archetype: "steady_grower"
+    size: 1
+  - name: "beta"
+    archetype: "steady_grower"
+    size: 1
+  - name: "gamma"
+    archetype: "steady_grower"
+    size: 1
+
+tables:
+  - name: "dim_date"
+    type: "dim"
+    grain: "per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "pk"}
+      - {name: "date", dtype: "date", source: "generated:date_key"}
+    primary_key: "date_key"
+
+  - name: "dim_widget"
+    type: "dim"
+    grain: "per_entity"
+    columns:
+      - {name: "widget_id", dtype: "id", source: "pk"}
+      - {name: "widget_name", dtype: "string", source: "derived:name"}
+    primary_key: "widget_id"
+
+  - name: "dim_plan"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "plan_id", dtype: "id", source: "pk"}
+      - {name: "plan_name", dtype: "string", source: "static:bronze,silver,gold"}
+      - {name: "tier", dtype: "int", source: "static:1,2,3"}
+    primary_key: "plan_id"
+
+  - name: "fct_vectorized"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "row_id", dtype: "id", source: "pk"}
+      - {name: "widget_id", dtype: "id", source: "fk:dim_widget.widget_id"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "plan_id", dtype: "id", source: "fk:dim_plan.plan_id"}
+      - {name: "engagement_score", dtype: "float", source: "metric:engagement"}
+      - {name: "support_ticket_count", dtype: "int", source: "metric:support_tickets"}
+      - {name: "engagement_lag1", dtype: "float", source: "lag:engagement:periods:1"}
+      - {name: "support_lag2", dtype: "int", source: "lag:support_tickets:periods:2"}
+      - {name: "event_ts", dtype: "date", source: "generated:timestamp"}
+      - {name: "period_dk", dtype: "id", source: "generated:date_key"}
+      - {name: "period_lbl", dtype: "string", source: "generated:period_label"}
+      - {name: "region", dtype: "string", source: "static:emea"}
+      - {name: "p_idx", dtype: "int", source: "derived:period_index"}
+      - {name: "entity_label", dtype: "string", source: "derived:entity_id"}
+    primary_key: "row_id"
+    foreign_keys:
+      - "dim_widget.widget_id"
+      - "dim_date.date_key"
+      - "dim_plan.plan_id"
+
+  - name: "fct_scalar"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "row_id", dtype: "id", source: "pk"}
+      - {name: "widget_id", dtype: "id", source: "fk:dim_widget.widget_id"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "plan_id", dtype: "id", source: "fk:dim_plan.plan_id"}
+      - {name: "engagement_score", dtype: "float", source: "metric:engagement"}
+      - {name: "engagement_lag1", dtype: "float", source: "lag:engagement:periods:1"}
+      - {name: "note", dtype: "string", source: "generated:faker.sentence"}
+      - {name: "region", dtype: "string", source: "static:scalar_region"}
+      - {name: "event_ts", dtype: "date", source: "generated:timestamp"}
+      - {name: "period_dk", dtype: "id", source: "generated:date_key"}
+      - {name: "period_lbl", dtype: "string", source: "generated:period_label"}
+      - {name: "p_idx", dtype: "int", source: "derived:period_index"}
+      - {name: "entity_label", dtype: "string", source: "derived:entity_id"}
+    primary_key: "row_id"
+    foreign_keys:
+      - "dim_widget.widget_id"
+      - "dim_date.date_key"
+      - "dim_plan.plan_id"
+
+noise:
+  gaussian_sigma: 0.0
+  outlier_rate: 0.0
+  mcar_rate: 0.0
+
+output:
+  format: "csv"
+  directory: "out/source_type_coverage"

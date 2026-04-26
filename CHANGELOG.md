@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+- **F16 (source-type coverage fixture).** Mission 102 / Phase 3.
+  The bundled templates exercise ``MetricSource`` heavily on
+  per-entity-per-period facts but leave ``PKSource``,
+  ``GeneratedSource(date_key|period_label|timestamp)``,
+  ``StaticSource``, ``DerivedSource(period_index|entity_id)``,
+  and the cross-dim ``FKSource`` branch sparsely covered or
+  uncovered on that grain. Adding a new source type into that
+  dispatch (P1: ``TextBucketSource``) without coverage on the
+  existing branches risks shipping two bugs for one.
+
+  F16 adds a synthetic, non-bundled YAML
+  (``tests/fixtures/source_type_coverage_config.yaml``) that
+  places every parse_source branch reachable on a
+  per-entity-per-period fact onto two fact tables in the same
+  config: ``fct_vectorized`` (no FakerSource → vectorized path,
+  ``_vectorized_per_entity_per_period_fact``) and ``fct_scalar``
+  (carries ``generated:faker.sentence`` → scalar path,
+  ``_scalar_per_entity_per_period_fact`` → ``_resolve_fact_cell``).
+  Together they cover both halves of the dispatch in a single
+  fixture.
+
+  The companion ``tests/test_source_type_coverage.py`` (38 tests)
+  asserts (a) every declared table appears in the output, (b)
+  fact tables have the expected 3 entities × 12 periods row
+  count, (c) every column lands with the expected dtype kind on
+  both paths (parametrized over each column × path), (d) every
+  reachable parse_source branch appears at least once in each
+  fact table's column list (so a future edit that drops a
+  branch fails the test), (e) two runs at the same seed produce
+  byte-identical CSVs across all tables and ``validation_report.txt``,
+  and (f) source-type semantics — PKSource value encodes the
+  period and matches DerivedSource(period_index), DerivedSource(entity_id)
+  matches the local-entity FK, GeneratedSource(date_key) matches
+  the local-date FK, StaticSource broadcasts a constant, LagSource
+  falls back to the current period when history is too short,
+  and FakerSource produces non-empty strings (proves the scalar
+  fallback is invoking Faker, not silently filling None).
+
+  ``plotsim.tables`` coverage delta vs M101 baseline:
+  combined 67% / 61% (line / branch) → 83% combined post-F16
+  (376 branches, 74 partial; 89 missing statements out of 667).
+  The remaining gap concentrates on event-builder error paths
+  (``_resolve_event_row`` sub-entity rejection branches) and a
+  handful of proportional-event size-variation paths — both out
+  of F16's scope.
+
+  Suite: 766 → 804 passed / 1 xfailed (+38 tests).
+
 ### Fixed
 
 - **F14 (silent-dispatch audit + sweep).** Mission 100 flagged
