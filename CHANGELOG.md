@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-04-25
+
 ### Documentation
 
 - **Statistical fidelity addendum (Mission 103).** Empirical

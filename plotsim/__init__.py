@@ -10,7 +10,7 @@ Quick start:
     write_tables(tables, config, report)
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from plotsim.config import (
     DIRTY,
