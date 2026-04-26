@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F12 (dtype × source cross-check: `dtype: boolean` on
+  `metric:` / `lag:` source produces structurally degenerate
+  output).** Mission 101 spot-checks Q3 found that the schema
+  accepted `dtype: boolean` on a `MetricSource` or `LagSource`
+  column even though the resulting cell is
+  `bool(continuous_metric_value)` — near-constant `True` for any
+  positive-skewed distribution (poisson with λ > 0, lognorm,
+  gamma, weibull). The cell value carries no information; the
+  combination is a misconfiguration the loader silently accepted.
+
+  `PlotsimConfig._cross_reference_integrity` now rejects
+  `dtype: boolean` paired with `MetricSource` or `LagSource` at
+  load with a message naming the column, the source string, and
+  a hint pointing at the natural alternatives (`dtype: float`
+  for continuous, `dtype: int` for poisson, switch to a
+  `threshold:` source if a boolean indicator is what was
+  intended). `ThresholdSource` is unaffected — its boolean output
+  is by design (the bundled saas template's `churn_flag` is the
+  canonical example).
+
+  F12 originally bundled the validator with removing the dead
+  `has_bool_metric` scalar-fallback predicate at
+  `tables.py:353-356`. The predicate-removal step landed in
+  F3 (`2ccfdbe`) when the vectorized fact-builder was extended to
+  coerce booleans correctly via `_coerce_array_for_dtype`. F12
+  is now narrowed to the validator only — the input-side hole
+  the dead gate used to mask.
+
+  Verified by `tests/test_dtype_source_validation.py` (10 cases:
+  metric × boolean rejection, lag × boolean rejection, metric ×
+  int loads, metric × float loads, threshold × boolean still
+  loads, all five bundled templates load).
+
 - **F11 (`_coerce_static` returned raw string on malformed ISO date).**
   A column declared with `dtype: date` and `source: "static:not-a-date"`
   loaded silently. At generation time,

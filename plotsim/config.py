@@ -1111,6 +1111,35 @@ class PlotsimConfig(_Frozen):
                             f"{col.source!r} references unknown metric "
                             f"{parsed.metric!r}; known: {sorted(metric_names)}"
                         )
+                # F12 (M102): reject ``dtype: boolean`` on MetricSource or
+                # LagSource columns. ``bool(continuous_metric_value)`` is
+                # near-constant True for any positive-skewed distribution
+                # (poisson with λ > 0, lognorm, gamma, weibull) — the
+                # cell value carries no information, just a noisy
+                # confirmation that the metric exists. ThresholdSource
+                # produces booleans by design and is correctly typed
+                # ``dtype: boolean`` (e.g., ``churn_flag`` on the bundled
+                # saas template). The has_bool_metric scalar-fallback
+                # gate this validator complements was removed by F3
+                # (the vectorized path now coerces booleans correctly);
+                # F12 closes the input-side hole the gate used to mask.
+                if (
+                    col.dtype == "boolean"
+                    and isinstance(parsed, (MetricSource, LagSource))
+                ):
+                    source_kind = (
+                        "metric" if isinstance(parsed, MetricSource) else "lag"
+                    )
+                    raise ValueError(
+                        f"table {tbl.name!r} column {col.name!r} declares "
+                        f"dtype: boolean with {source_kind}-source "
+                        f"{col.source!r}, which produces a continuous "
+                        f"value the boolean cast collapses to a near-constant "
+                        f"True. Use dtype: float (or int for poisson) to "
+                        f"preserve the metric value, or switch to a "
+                        f"threshold source if a boolean indicator is what "
+                        f"you want."
+                    )
                 elif isinstance(parsed, FKSource):
                     if parsed.table not in table_names:
                         raise ValueError(
