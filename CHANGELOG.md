@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F2 (correlation attenuation under bypass).** When one metric's
+  distribution degenerated mid-period (poisson λ ≈ 0, lognorm
+  scale ≈ 0, gamma shape → 0, etc.), `apply_correlations` zeroed
+  the bypassed slot in the Gaussian residual vector but kept the
+  full Cholesky factor. The matmul `corr_z = L @ z` then mixed the
+  forced 0 into every active metric whose Cholesky row had a
+  non-zero bypass-column entry, structurally attenuating cross-pair
+  correlations during bypass periods.
+
+  Now, when `any(bypass)` is True, the function slices the
+  correlation matrix to the active rows/columns (recovered as
+  `L @ L.T` — exact for the full-rank Cholesky the load-time PSD
+  gate guarantees), Cholesky-factors the principal submatrix, and
+  applies that to the active z-values only. Bypass slots stay at 0
+  in `corr_z` but are skipped by the per-metric output loop, so the
+  zeros never leak into output. An `all(bypass)` short-circuit
+  returns the independent draw unchanged.
+
+  **Output values change** for any config whose bypass-prone metric
+  is configured-correlated with other metrics, *including* the
+  bundled `saas` and `ecommerce` templates (whose negative-polarity
+  poisson metrics drive center to ≈ 0 during the second-half of
+  several archetype trajectories). Same config + same seed remains
+  byte-identical within 0.4.x post-fix, but cross-version
+  byte-matching against pre-F2 0.4.x is not preserved. `hr`,
+  `education`, and `healthcare` produce byte-identical output
+  (none triggers bypass). Verified by
+  `tests/test_correlation_bypass.py` (regression + no-bypass
+  control across 8 seeds with median-pair-Pearson assertion) and
+  the regenerated `test_layer4_reference_fixtures_match` baseline.
+
 - **F1 (sub-entity FK collapse on threshold events).** Threshold-event
   tables that FK into a sub-entity dim now distribute their FKs across
   the parent's candidate sub-entities instead of always picking the

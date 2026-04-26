@@ -370,6 +370,12 @@ def apply_correlations(
         z[i] = float(sp_norm.ppf(u))
         frozen_dists[i] = dist_obj
 
+    # F2 (M102): every metric bypassed → no correlation transform applies
+    # and the independent draws are already the answer. Short-circuits the
+    # Cholesky (or the matrix build for the cold path) on dead periods.
+    if all(bypass):
+        return dict(independent)
+
     if cholesky_L is not None:
         L = cholesky_L
     else:
@@ -386,7 +392,24 @@ def apply_correlations(
                 f"on it automatically."
             ) from exc
 
-    corr_z = L @ z
+    if any(bypass):
+        # F2 (M102): bypass-aware correlation. The pre-fix `L @ z` mixed the
+        # forced z[i]=0 from bypass slots into every active metric's correlated
+        # Gaussian, attenuating non-bypass-pair correlations during bypass
+        # periods. Slice the original correlation matrix down to the active
+        # rows/cols (recovered as L @ L.T — exact for the full-rank Cholesky
+        # the load-time PSD gate guarantees), Cholesky-factor the principal
+        # submatrix (PSD inherits to principal submatrices), and apply L_sub
+        # only to the active z-values.
+        active_idx = np.where(np.logical_not(bypass))[0]
+        mat_full = L @ L.T
+        L_sub = np.linalg.cholesky(mat_full[np.ix_(active_idx, active_idx)])
+        corr_z = np.zeros(n, dtype=float)
+        # Bypass slots stay at 0 here; the output loop below skips them via
+        # `if bypass[i]: continue`, so the zeros never leak into `out`.
+        corr_z[active_idx] = L_sub @ z[active_idx]
+    else:
+        corr_z = L @ z
 
     out = dict(independent)
     for i, name in enumerate(names):
