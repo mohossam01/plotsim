@@ -1,14 +1,22 @@
-"""plotsim.output — CSV file writing.
+"""plotsim.output — CSV / Parquet file writing.
 
 What it does:
     Takes the dict of DataFrames returned by ``plotsim.tables.generate_tables``
-    and writes one CSV per table into the configured output directory, plus a
+    and writes one file per table into the configured output directory, plus a
     YAML copy of the driving config (for round-trippable reproducibility) and
     a human-readable validation report.
 
     The writer is deliberately the only filesystem-touching module in plotsim.
     Every other module returns DataFrames / reports in memory so callers can
     use the engine programmatically without touching disk.
+
+    ``OutputConfig.format`` selects the per-table encoding. ``"csv"`` is the
+    long-standing default; ``"parquet"`` is the M104 addition for columnar
+    output (typically 5-10x smaller than the equivalent CSVs, types
+    preserved by the format). Both branches share the same column-ordering
+    and Int64 coercion path; only the file extension and the on-disk
+    encoder differ. ``config.yaml`` and ``validation_report.txt`` are
+    always written as text — they are companions, not table data.
 
 CSV conventions (all tables):
     - encoding: utf-8
@@ -23,12 +31,21 @@ CSV conventions (all tables):
       Any DataFrame columns not declared in the config (for example
       ``stage`` added by ``assign_stages``) are appended last.
 
+Parquet conventions:
+    - engine: pyarrow (``plotsim[parquet]`` optional extra). Other engines
+      are not supported in V1; ``ImportError`` names the install command.
+    - same column ordering and Int64 coercion as CSV
+    - DataFrame index is NOT written (``index=False``)
+    - compression: snappy (pandas/pyarrow default), explicit for clarity
+    - deterministic: same DataFrame + same plotsim/pyarrow versions →
+      byte-identical Parquet output across runs
+
 Input:
     ``tables`` (dict[str, pd.DataFrame]), ``PlotsimConfig``, ``ValidationReport``.
 
 Output:
-    Side effect: CSV files + ``config.yaml`` + ``validation_report.txt`` on
-    disk. ``write_tables`` returns the output directory ``Path``.
+    Side effect: CSV or Parquet files + ``config.yaml`` + ``validation_report.txt``
+    on disk. ``write_tables`` returns the output directory ``Path``.
 """
 
 from __future__ import annotations
@@ -58,6 +75,14 @@ NA_REP = ""
 CSV_ENCODING = "utf-8"
 CONFIG_FILENAME = "config.yaml"
 REPORT_FILENAME = "validation_report.txt"
+
+# M104: install hint surfaced when ``output.format == 'parquet'`` but pyarrow
+# is missing. Fails fast at the write call so the user sees the issue before
+# generation runs all the way through.
+_PARQUET_INSTALL_HINT = (
+    "Parquet output requires pyarrow. Install it with "
+    "`pip install plotsim[parquet]` (or `pip install pyarrow`) and retry."
+)
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -134,6 +159,36 @@ def _coerce_integer_columns(
 # --- Single-table writer -----------------------------------------------------
 
 
+def _resolve_output_format(config: Optional[PlotsimConfig]) -> str:
+    """Return ``'csv'`` or ``'parquet'`` based on config; default to CSV.
+
+    Programmatic callers that pass ``config=None`` or a stub object
+    without an ``output`` attribute (e.g. unit tests of
+    ``write_single_table`` against an ad-hoc DataFrame) get CSV — the
+    long-standing behavior — preserved. The defensive ``getattr`` chain
+    keeps that contract intact while the YAML-loaded ``PlotsimConfig``
+    surface drives the parquet branch.
+    """
+    if config is None:
+        return "csv"
+    output_cfg = getattr(config, "output", None)
+    if output_cfg is None:
+        return "csv"
+    return getattr(output_cfg, "format", "csv")
+
+
+def _check_parquet_engine_available() -> None:
+    """Raise ImportError with the install hint if ``pyarrow`` is missing.
+
+    Called at the top of every Parquet write path so the failure surfaces
+    before the writer touches disk.
+    """
+    try:
+        import pyarrow  # noqa: F401  (import-only check)
+    except ImportError as exc:
+        raise ImportError(_PARQUET_INSTALL_HINT) from exc
+
+
 def write_single_table(
     name: str,
     df: pd.DataFrame,
@@ -141,23 +196,31 @@ def write_single_table(
     config: Optional[PlotsimConfig] = None,
     float_format: str = FLOAT_FORMAT,
 ) -> Path:
-    """Write one DataFrame to ``<output_dir>/<name>.csv``.
+    """Write one DataFrame to ``<output_dir>/<name>.<csv|parquet>``.
 
     If ``config`` is provided and declares ``name``, columns are reordered
     PK → FK → others (config order) and ``dtype: int`` columns are coerced
-    to nullable integer so the CSV has no ``.0`` suffixes. Without config,
-    the DataFrame is written as-is with the same encoding / quoting / NaN
-    conventions.
+    to nullable integer so the output has no ``.0`` suffixes. Without
+    config, the DataFrame is written as-is with the same encoding / quoting
+    / NaN conventions.
+
+    File extension and encoder are chosen by ``config.output.format``:
+    ``"csv"`` (default) or ``"parquet"``. Parquet writes require
+    ``pyarrow``; an explicit ImportError with install hint is raised when
+    the engine is missing.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{name}.csv"
+
+    output_format = _resolve_output_format(config)
+    extension = "parquet" if output_format == "parquet" else "csv"
+    path = output_dir / f"{name}.{extension}"
 
     # SEC-02 defense-in-depth: ``Table.name`` / ``Column.name`` are regex-
     # validated at config load, but programmatic callers can bypass that by
     # passing ``write_single_table`` a crafted ``name``. A table named
     # ``"../../../etc/shadow"`` would resolve outside ``output_dir`` — reject
-    # before the ``to_csv`` call touches disk.
+    # before the writer touches disk.
     resolved_dir = output_dir.resolve()
     if path.resolve().parent != resolved_dir:
         raise ValueError(
@@ -179,14 +242,23 @@ def write_single_table(
         to_write = df.loc[:, ordered].copy(deep=False)
         _coerce_integer_columns(tbl, to_write)
 
-    to_write.to_csv(
-        path,
-        index=False,
-        encoding=CSV_ENCODING,
-        quoting=csv.QUOTE_NONNUMERIC,
-        float_format=float_format,
-        na_rep=NA_REP,
-    )
+    if output_format == "parquet":
+        _check_parquet_engine_available()
+        to_write.to_parquet(
+            path,
+            engine="pyarrow",
+            index=False,
+            compression="snappy",
+        )
+    else:
+        to_write.to_csv(
+            path,
+            index=False,
+            encoding=CSV_ENCODING,
+            quoting=csv.QUOTE_NONNUMERIC,
+            float_format=float_format,
+            na_rep=NA_REP,
+        )
     return path
 
 

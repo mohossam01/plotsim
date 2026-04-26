@@ -74,10 +74,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("Metric", "label"): (
         "display field surfaced via model_dump and YAML serialization"
     ),
-    ("OutputConfig", "format"): (
-        "Literal['csv'] type constraint — the field's purpose is the "
-        "type-level validation that only 'csv' is accepted"
-    ),
 }
 
 

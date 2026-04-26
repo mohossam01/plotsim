@@ -792,7 +792,22 @@ class NoiseConfig(_Frozen):
 
 
 class OutputConfig(_Frozen):
-    format: Literal["csv"] = "csv"
+    """Output format selector and target directory.
+
+    M104 / 0.6: ``format`` accepts ``"parquet"`` in addition to the
+    long-standing ``"csv"`` default. CSV remains the default; existing
+    configs that omit ``format`` (or set ``format: csv``) continue to
+    write ``.csv`` files unchanged. Parquet output is column-typed and
+    typically 5-10x smaller on the bundled templates; the engine path
+    is identical, only the on-disk encoding differs.
+
+    Parquet writes go through ``pyarrow``, declared as the optional
+    extra ``plotsim[parquet]``. When pyarrow is not installed and
+    ``format: parquet`` is configured, ``write_tables`` raises an
+    ``ImportError`` naming the install command — fail-fast at the
+    write call rather than mid-iteration.
+    """
+    format: Literal["csv", "parquet"] = "csv"
     directory: str
 
 

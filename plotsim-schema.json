@@ -1,0 +1,813 @@
+{
+  "$defs": {
+    "Archetype": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "curve_segments": {
+          "items": {
+            "$ref": "#/$defs/CurveSegment"
+          },
+          "maxItems": 10,
+          "title": "Curve Segments",
+          "type": "array"
+        },
+        "metric_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricOverride"
+          },
+          "title": "Metric Overrides",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "description",
+        "curve_segments"
+      ],
+      "title": "Archetype",
+      "type": "object"
+    },
+    "CausalLag": {
+      "additionalProperties": false,
+      "description": "A metric whose value trails another metric by N periods.\n\nsupport_tickets.causal_lag = {driver: engagement, lag_periods: 2} means\nsupport_tickets at period T reads engagement at period T-2, not T.\nCross-reference integrity enforces: driver exists in metrics; driver is\nnot the metric itself; the induced lag graph has no cycles.\n\n``blend_weight`` controls how strongly the driver's past position\noverrides the metric's own current trajectory position. Blend formula:\n``current_position * (1 - w) + driver_past * w``. The 0.4.0 default of\n``1.0`` means \"full override\" — metric at T equals driver at T-N, and\ncross-correlation peaks at exactly N. Values below 1.0 soften the lag\n(xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded\nbehavior is recovered with ``blend_weight: 0.6``.",
+      "properties": {
+        "driver": {
+          "title": "Driver",
+          "type": "string"
+        },
+        "lag_periods": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Lag Periods",
+          "type": "integer"
+        },
+        "blend_weight": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Blend Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "driver",
+        "lag_periods"
+      ],
+      "title": "CausalLag",
+      "type": "object"
+    },
+    "Column": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "enum": [
+            "int",
+            "float",
+            "string",
+            "date",
+            "boolean",
+            "id"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "pii_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pii Note"
+        },
+        "distribution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FKDistribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "allow_outside_window": {
+          "default": false,
+          "title": "Allow Outside Window",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "source"
+      ],
+      "title": "Column",
+      "type": "object"
+    },
+    "CorrelationPair": {
+      "additionalProperties": false,
+      "properties": {
+        "metric_a": {
+          "title": "Metric A",
+          "type": "string"
+        },
+        "metric_b": {
+          "title": "Metric B",
+          "type": "string"
+        },
+        "coefficient": {
+          "maximum": 1.0,
+          "minimum": -1.0,
+          "title": "Coefficient",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric_a",
+        "metric_b",
+        "coefficient"
+      ],
+      "title": "CorrelationPair",
+      "type": "object"
+    },
+    "CurveSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "curve": {
+          "enum": [
+            "sigmoid",
+            "exp_decay",
+            "step",
+            "logistic",
+            "plateau",
+            "oscillating",
+            "compound",
+            "sawtooth"
+          ],
+          "title": "Curve",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "start_pct": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Start Pct",
+          "type": "number"
+        },
+        "end_pct": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "End Pct",
+          "type": "number"
+        }
+      },
+      "required": [
+        "curve",
+        "start_pct",
+        "end_pct"
+      ],
+      "title": "CurveSegment",
+      "type": "object"
+    },
+    "Domain": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "entity_type": {
+          "title": "Entity Type",
+          "type": "string"
+        },
+        "entity_label": {
+          "title": "Entity Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "entity_type",
+        "entity_label"
+      ],
+      "title": "Domain",
+      "type": "object"
+    },
+    "Entity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "archetype": {
+          "title": "Archetype",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 5000,
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        },
+        "overrides": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityOverrides"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cross_dim_fks": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Cross Dim Fks",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "archetype",
+        "size"
+      ],
+      "title": "Entity",
+      "type": "object"
+    },
+    "EntityOverrides": {
+      "additionalProperties": false,
+      "description": "Per-entity trajectory adjustments.\n\nF9 / 0.5: replaces the previous ``Entity.overrides: dict[str, Any]``\npermissive-dict surface. Closes the schema discipline gap that\nsilently accepted arbitrary unknown keys (the same pattern that\nmotivated the 0.2.0 dead-field cleanup).\n\nCurrently the only recognized override is ``inflection_month``,\nwhich shifts the archetype's curve segments so the archetype's\ncanonical inflection lands on the specified period index.\nAdding new override keys is intentionally schema-gated — extend\nthis model rather than threading new dict keys through\n``compute_trajectory``.",
+      "properties": {
+        "inflection_month": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inflection Month"
+        }
+      },
+      "title": "EntityOverrides",
+      "type": "object"
+    },
+    "FKDistribution": {
+      "additionalProperties": false,
+      "description": "Optional sampling spec for FK columns whose parent dim has > 1 row.\n\nOnly meaningful on FK columns. ``weights=None`` means uniform sampling.\n``weights={pk_value: weight, ...}`` means weighted sampling — keys must\nmatch parent PK values exactly, and weights must be non-negative with a\npositive sum.\n\nSchema accepts either a bare ``\"uniform\"`` string or a full mapping;\n``Column._normalize_distribution`` coerces the string form to\n``FKDistribution(weights=None)`` before validation.",
+      "properties": {
+        "weights": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights"
+        }
+      },
+      "title": "FKDistribution",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "distribution": {
+          "enum": [
+            "lognorm",
+            "gamma",
+            "poisson",
+            "beta",
+            "normal",
+            "weibull"
+          ],
+          "title": "Distribution",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "polarity": {
+          "enum": [
+            "positive",
+            "negative"
+          ],
+          "title": "Polarity",
+          "type": "string"
+        },
+        "value_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "causal_lag": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CausalLag"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "distribution",
+        "params",
+        "polarity"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "MetricOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "anyOf": [
+            {
+              "enum": [
+                "lognorm",
+                "gamma",
+                "poisson",
+                "beta",
+                "normal",
+                "weibull"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distribution"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        }
+      },
+      "title": "MetricOverride",
+      "type": "object"
+    },
+    "NoiseConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "gaussian_sigma": {
+          "default": 0.0,
+          "maximum": 5.0,
+          "minimum": 0.0,
+          "title": "Gaussian Sigma",
+          "type": "number"
+        },
+        "outlier_rate": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Outlier Rate",
+          "type": "number"
+        },
+        "mcar_rate": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Mcar Rate",
+          "type": "number"
+        }
+      },
+      "title": "NoiseConfig",
+      "type": "object"
+    },
+    "OutputConfig": {
+      "additionalProperties": false,
+      "description": "Output format selector and target directory.\n\nM104 / 0.6: ``format`` accepts ``\"parquet\"`` in addition to the\nlong-standing ``\"csv\"`` default. CSV remains the default; existing\nconfigs that omit ``format`` (or set ``format: csv``) continue to\nwrite ``.csv`` files unchanged. Parquet output is column-typed and\ntypically 5-10x smaller on the bundled templates; the engine path\nis identical, only the on-disk encoding differs.\n\nParquet writes go through ``pyarrow``, declared as the optional\nextra ``plotsim[parquet]``. When pyarrow is not installed and\n``format: parquet`` is configured, ``write_tables`` raises an\n``ImportError`` naming the install command — fail-fast at the\nwrite call rather than mid-iteration.",
+      "properties": {
+        "format": {
+          "default": "csv",
+          "enum": [
+            "csv",
+            "parquet"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "directory": {
+          "title": "Directory",
+          "type": "string"
+        }
+      },
+      "required": [
+        "directory"
+      ],
+      "title": "OutputConfig",
+      "type": "object"
+    },
+    "StageDefinition": {
+      "additionalProperties": false,
+      "description": "One stage in a lifecycle funnel (onboarding → active → at_risk → churned).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "threshold_enter": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Threshold Enter",
+          "type": "number"
+        },
+        "threshold_exit": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold Exit"
+        }
+      },
+      "required": [
+        "name",
+        "threshold_enter"
+      ],
+      "title": "StageDefinition",
+      "type": "object"
+    },
+    "StageSequence": {
+      "additionalProperties": false,
+      "description": "Ordered lifecycle stages gated by a driving metric/field.\n\nTwo semantics for ``threshold_exit`` are accepted; pick one\nconsistently across all non-terminal stages:\n\n* **Legacy** (``threshold_exit > threshold_enter``) — non-overlap\n  upper-bound semantic. Each stage spans\n  ``[threshold_enter, threshold_exit)``; stages must not overlap\n  (``prev.threshold_exit <= curr.threshold_enter``); contiguous\n  stages (``prev.exit == curr.enter``) are allowed and typical.\n  ``threshold_exit`` is decorative at runtime — both\n  ``_monotonic_stage_walk`` and ``_free_mode_stages`` consume only\n  ``threshold_enter``. The five bundled templates use this mode.\n\n* **Hysteresis** (``threshold_exit ≤ threshold_enter``) — F8 / 0.5\n  addition. ``threshold_enter`` is the upward entry threshold;\n  ``threshold_exit`` is the downward demotion threshold (lower than\n  enter, providing a hysteresis band where the entity stays in the\n  higher stage on transient dips). Constraint:\n  ``prev.threshold_enter ≤ this.threshold_exit ≤ this.threshold_enter``.\n  Activates the runtime demote path in ``_monotonic_stage_walk``\n  (under ``enforce_order=True``); ``enforce_order=False`` is\n  stateless and ignores the hysteresis distinction.\n\nMixed sequences (some stages legacy, others hysteresis) are\nrejected at load.\n\nLast stage is always terminal (``threshold_exit=None``); non-\nterminal stages must have ``threshold_exit`` set under either\nsemantic. ``field`` reference is checked against metrics in\nPlotsimConfig. ``enforce_order`` is stored for Mission 006 to\nconsume at generation time.\n\nFIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity\nunder ``enforce_order=True`` by letting the cursor step backwards\nonce an entity has sat below the demote threshold for\n``downgrade_delay`` consecutive periods. ``None`` (default)\npreserves strict-monotonic behavior under legacy mode and\nimmediate-demote behavior under hysteresis mode. Ignored when\n``enforce_order=False``.",
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "sequence": {
+          "items": {
+            "$ref": "#/$defs/StageDefinition"
+          },
+          "maxItems": 10,
+          "minItems": 2,
+          "title": "Sequence",
+          "type": "array"
+        },
+        "enforce_order": {
+          "default": true,
+          "title": "Enforce Order",
+          "type": "boolean"
+        },
+        "downgrade_delay": {
+          "anyOf": [
+            {
+              "maximum": 120,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Downgrade Delay"
+        }
+      },
+      "required": [
+        "field",
+        "sequence"
+      ],
+      "title": "StageSequence",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "dim",
+            "fact",
+            "event"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "grain": {
+          "enum": [
+            "per_entity",
+            "per_period",
+            "per_reference",
+            "per_entity_per_period",
+            "variable"
+          ],
+          "title": "Grain",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/Column"
+          },
+          "maxItems": 100,
+          "title": "Columns",
+          "type": "array"
+        },
+        "primary_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Primary Key"
+        },
+        "foreign_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Foreign Keys",
+          "type": "array"
+        },
+        "row_count_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count Source"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "grain",
+        "columns",
+        "primary_key"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "TimeWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "granularity": {
+          "enum": [
+            "monthly",
+            "weekly",
+            "daily"
+          ],
+          "title": "Granularity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "granularity"
+      ],
+      "title": "TimeWindow",
+      "type": "object"
+    },
+    "ValueRange": {
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        }
+      },
+      "title": "ValueRange",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "domain": {
+      "$ref": "#/$defs/Domain"
+    },
+    "time_window": {
+      "$ref": "#/$defs/TimeWindow"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/Metric"
+      },
+      "maxItems": 50,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "archetypes": {
+      "items": {
+        "$ref": "#/$defs/Archetype"
+      },
+      "maxItems": 20,
+      "title": "Archetypes",
+      "type": "array"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/Entity"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Entities",
+      "type": "array"
+    },
+    "tables": {
+      "items": {
+        "$ref": "#/$defs/Table"
+      },
+      "maxItems": 50,
+      "title": "Tables",
+      "type": "array"
+    },
+    "correlations": {
+      "items": {
+        "$ref": "#/$defs/CorrelationPair"
+      },
+      "maxItems": 1225,
+      "title": "Correlations",
+      "type": "array"
+    },
+    "noise": {
+      "$ref": "#/$defs/NoiseConfig"
+    },
+    "output": {
+      "$ref": "#/$defs/OutputConfig"
+    },
+    "stages": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StageSequence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "locale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "default": "en_US",
+      "title": "Locale"
+    }
+  },
+  "required": [
+    "domain",
+    "time_window",
+    "seed",
+    "metrics",
+    "archetypes",
+    "entities",
+    "tables",
+    "output"
+  ],
+  "title": "PlotsimConfig",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

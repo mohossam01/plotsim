@@ -6,6 +6,7 @@ Commands:
     plotsim info <config.yaml>           Summarize what a config would generate
     plotsim list-templates               List bundled sample configs
     plotsim template <name> [--output]   Copy a sample config out for editing
+    plotsim schema [--output]            Emit JSON Schema for PlotsimConfig
 
 The CLI is a thin shell over the library. Every command here calls a public
 function that's also available as `from plotsim import ...`, so nothing
@@ -26,6 +27,7 @@ import numpy as np
 
 from plotsim import __version__
 from plotsim.config import PlotsimConfig, load_config
+from plotsim.schema import SCHEMA_FILENAME, write_schema
 from plotsim.tables import generate_tables
 from plotsim.validation import validate_tables
 from plotsim.output import write_tables
@@ -185,6 +187,19 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_validate_config(args: argparse.Namespace) -> int:
+    """Validate a config without running the generation engine.
+
+    ``plotsim validate`` and ``plotsim validate --config-only`` are
+    behaviorally identical: both load the YAML, run every Pydantic
+    field-level / model-level / cross-reference validator, and exit
+    without touching the generation engine. ``--config-only`` is the
+    explicit name for that fast-path contract — it makes the intent
+    visible to anyone reading a CI script and reserves the bare
+    ``validate`` command for a future deeper-validation mode without
+    breaking the fast path.
+
+    No output files are written under either invocation.
+    """
     try:
         load_config(args.config)
     except Exception as exc:
@@ -255,6 +270,33 @@ def cmd_list_templates(_args: argparse.Namespace) -> int:
         f"Usage: plotsim template {first_name} -o my_config.yaml && "
         f"plotsim run my_config.yaml"
     )
+    return 0
+
+
+def cmd_schema(args: argparse.Namespace) -> int:
+    """Emit the JSON Schema for ``PlotsimConfig``.
+
+    With no ``--output``, prints the schema as pretty JSON to stdout.
+    With ``--output PATH``, writes the schema to that file (default
+    target: ``plotsim-schema.json`` at the repo root, the path the
+    bundled VSCode workspace points at).
+    """
+    if args.output is None:
+        # Default destination: a top-level ``plotsim-schema.json``. The CLI
+        # is expected to run from a checkout's repo root, so writing to
+        # ``Path.cwd() / SCHEMA_FILENAME`` matches the in-repo committed
+        # path. Operators piping to stdout pass ``-o -``.
+        dst = Path.cwd() / SCHEMA_FILENAME
+    elif args.output == "-":
+        # Stdout sink — useful for ``plotsim schema -o - | jq``.
+        from plotsim.schema import generate_schema
+        import json as _json
+        print(_json.dumps(generate_schema(), indent=2, ensure_ascii=False))
+        return 0
+    else:
+        dst = Path(args.output)
+    written = write_schema(dst)
+    print(f"Wrote {written}")
     return 0
 
 
@@ -330,6 +372,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     val_p = subparsers.add_parser("validate", help="Validate a config file")
     val_p.add_argument("config", help="Path to YAML config file")
+    val_p.add_argument(
+        "--config-only", action="store_true",
+        help=(
+            "Run only load-time validators (no generation). Currently the "
+            "default — the flag pins the fast-path contract for CI scripts "
+            "and reserves the bare command for a future deeper mode."
+        ),
+    )
     val_p.set_defaults(func=cmd_validate_config)
 
     info_p = subparsers.add_parser(
@@ -348,6 +398,19 @@ def build_parser() -> argparse.ArgumentParser:
     tmpl_p.add_argument("--output", "-o", default=None,
                         help="Destination path (default: stdout)")
     tmpl_p.set_defaults(func=cmd_template)
+
+    schema_p = subparsers.add_parser(
+        "schema",
+        help="Emit JSON Schema for PlotsimConfig (used for editor autocomplete)",
+    )
+    schema_p.add_argument(
+        "--output", "-o", default=None,
+        help=(
+            f"Destination path (default: ./{SCHEMA_FILENAME}). "
+            f"Pass '-' to write to stdout."
+        ),
+    )
+    schema_p.set_defaults(func=cmd_schema)
 
     return parser
 
