@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- **F17 (hypothesis property-based test layer).** Mission 102 / Phase 3.
+  Two of M102's correctness bugs (F1 sub-entity FK collapse, F-06
+  correlation toposort×Cholesky-indexing) escaped every example-based
+  test because no fixture happened to exercise the parameter
+  combination that triggered them. F17 adds a property-test layer that
+  randomizes inputs across the parameter space — for any valid config
+  drawn from a strategy, the invariant must hold.
+
+  Adds ``hypothesis>=6.0`` to the ``[test]`` (and ``[dev]``) extras and
+  ``tests/test_property_invariants.py`` with four properties:
+
+  1. **Determinism** — two runs at the same seed produce byte-identical
+     CSVs and validation report across all tables.
+  2. **Trajectory-first** — for a monotone-rising archetype,
+     positive-polarity metrics' Spearman rank correlation with the
+     period index is positive; negative-polarity is negative. Sign
+     check is the noise-robust loose form of the strict cell-level
+     trace; rigorous "every value traces back to a position" would
+     re-implement the engine inside the test.
+  3. **FK integrity** — every non-null FK in every fact / event table
+     resolves to a parent PK. Same property the example tests verify
+     on bundled templates; the property test randomizes declaration
+     order, entity counts, sizes, periods, and archetype.
+  4. **Correlation accuracy under randomized declaration** — the
+     property F6 pins, but with the configured coefficient and the
+     metric declaration permutation drawn from hypothesis strategies.
+     Uses a flat plateau archetype to decouple the trajectory-first
+     invariant from the correlation signal (matches F6's example
+     tests). ``target_corr`` drawn from ``[-0.6, -0.1] ∪ [0.1, 0.6]``
+     to avoid structurally redundant ``coefficient=0.0`` configurations.
+
+  Settings: ``max_examples=25`` (down from hypothesis's 100 default,
+  per the operator's Phase 3 entry decision); ``deadline=None`` since
+  ``generate_tables`` legitimately exceeds hypothesis's 200ms default;
+  ``too_slow`` health check suppressed for the same reason.
+
+  No counterexamples on the post-Phase-2 codebase across 100 examples
+  (25 × 4 properties). Two test-design issues were caught and fixed
+  during initial run-up before the final clean pass: (1) ``period_idx``
+  was sized by ``sum(e.size)`` instead of ``len(cfg.entities)`` —
+  per-entity dim is 1:1 with config.entities (``Entity.size`` is
+  metadata, not a row multiplier); (2) the correlation property used a
+  rising archetype, which produces natural same-direction correlation
+  via the trajectory-first invariant — flat plateau archetype
+  decouples the two. Both noted as Discovered findings in the Phase 3
+  completion report.
+
+  Suite: 804 → 808 passed / 1 xfailed (+4 property tests).
+
 - **F15-extension (test-tooling).** While running F16's coverage
   measurement (``pytest --cov=plotsim.tables --cov-branch``), three
   pre-existing F3/F4 round-trip tests
