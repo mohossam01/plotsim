@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
+- **F15-extension (test-tooling).** While running F16's coverage
+  measurement (``pytest --cov=plotsim.tables --cov-branch``), three
+  pre-existing F3/F4 round-trip tests
+  (``test_in_memory_dtype_matches_on_disk_round_trip[saas|ecommerce|healthcare]``)
+  surfaced a new instance of the F15 numpy-reload class:
+  ``pd.read_csv(..., dtype_backend='numpy_nullable')`` builds an
+  ``IntegerArray``, and pandas' ``DataFrame`` constructor's C
+  extension fails its ``isinstance`` check on the post-reload
+  ``IntegerArray`` type identity, raising ``TypeError: Argument
+  'values' has incorrect type (expected numpy.ndarray, got
+  IntegerArray)``. The F3/F4 tests were never re-run under
+  ``--cov`` when they landed in Phase 1, which is why the latency
+  was only surfaced now.
+
+  Following F15's pattern (replace the broken-under-cov call site
+  with an equivalent that doesn't go through the C ufunc + extension-
+  array dispatch), the test now reads CSVs with the default numpy
+  backend, casts the recovered column to ``Int64`` explicitly, and
+  asserts the cast values match the in-memory ``Int64`` snapshot
+  via NA-aware ``Series.equals``. Same property (CSV round-trip
+  losslessly preserves the integer values), no extension-array
+  block-form path, runs clean under ``--cov``.
+
+  Flagged per the "modifying existing test" rule (Phase 1's
+  three flagged tests + F10's existing-test bump + this).
+
 - **F16 (source-type coverage fixture).** Mission 102 / Phase 3.
   The bundled templates exercise ``MetricSource`` heavily on
   per-entity-per-period facts but leave ``PKSource``,

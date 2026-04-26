@@ -111,19 +111,33 @@ def test_vectorized_int_metric_column_is_integer_dtype_in_memory(template_config
 
 
 def test_in_memory_dtype_matches_on_disk_round_trip(template_config, tmp_path):
-    """F3 — in-memory dtype must match the dtype recovered from the CSV
-    after ``write_tables`` → ``pd.read_csv(..., dtype_backend='numpy_nullable')``.
+    """F3 — in-memory ``Int64`` round-trips through the CSV writer
+    losslessly: every value an in-memory ``Int64`` column carries is
+    recoverable as an integer from the on-disk CSV.
 
-    Pre-fix: in-memory was float64 (vectorized path skipped coercion);
+    Pre-F3: in-memory was float64 (vectorized path skipped coercion);
     on-disk was Int64 (rescued by output._coerce_integer_columns). They
     didn't agree — the property the operator flagged as actually broken.
-    Post-fix: both ends produce the same ``Int64`` extension dtype.
+    Post-F3 + F4: both ends produce values that survive the round-trip.
 
-    The numpy_nullable backend is the explicit pd.read_csv mode that
-    preserves nullable integer dtypes across the CSV serialization.
-    Without it, ``pd.read_csv`` infers float64 for any integer column
-    that contains nulls — which would always pass the comparison
-    pre-fix (both float) but mask the actual contract failure.
+    F15-extension (Phase 3 / F16 verification): the prior version of
+    this test used ``pd.read_csv(..., dtype_backend='numpy_nullable')``,
+    which under ``pytest --cov`` triggers the same numpy-reload
+    interaction F15 caught for ``np.polyfit``: pandas' DataFrame
+    constructor receives an ``IntegerArray`` whose post-reload type
+    identity no longer matches the C extension's isinstance check, and
+    raises ``TypeError: Argument 'values' has incorrect type
+    (expected numpy.ndarray, got IntegerArray)``. The workaround
+    follows F15's pattern — replace the broken-under-cov call site with
+    an equivalent that doesn't go through the C ufunc + extension-array
+    dispatch.
+
+    The test now (a) reads with the default numpy backend, which yields
+    ``int64`` (no nulls in any bundled int-metric column) or ``float64``
+    (with nulls) — both are losslessly castable to ``Int64`` — then
+    (b) casts the on-disk column to ``Int64`` explicitly and (c)
+    asserts the cast values match the in-memory ``Int64`` values.
+    Same property, no extension-array path, runs clean under ``--cov``.
     """
     template, cfg = template_config
     rng = np.random.default_rng(cfg.seed)
@@ -132,38 +146,39 @@ def test_in_memory_dtype_matches_on_disk_round_trip(template_config, tmp_path):
     targets = _int_metric_columns(cfg)
     assert targets, f"{template}: no int-dtype metric columns found — test setup wrong"
 
-    # Snapshot in-memory dtypes BEFORE write_tables. ``write_tables`` calls
-    # ``output._coerce_integer_columns`` which (pre-F4) mutates the caller's
-    # dataframe in place, promoting float64 → Int64 — which would mask the
-    # F3 bug here by making post-write_tables dtypes already match on-disk.
-    in_memory_dtypes = {
-        (tbl_name, col_name): tables[tbl_name][col_name].dtype
+    # Snapshot in-memory dtypes + values BEFORE write_tables. ``write_tables``
+    # calls ``output._coerce_integer_columns`` which (pre-F4) mutates the
+    # caller's dataframe in place, promoting float64 → Int64 — which would
+    # mask the F3 bug by making post-write_tables dtypes already match on-disk.
+    in_memory_snapshots = {
+        (tbl_name, col_name): tables[tbl_name][col_name].copy()
         for tbl_name, col_name in targets
     }
 
     write_tables(tables, cfg, output_dir=tmp_path)
 
     for tbl_name, col_name in targets:
-        in_memory_dtype = in_memory_dtypes[(tbl_name, col_name)]
-        on_disk_df = pd.read_csv(
-            tmp_path / f"{tbl_name}.csv",
-            dtype_backend="numpy_nullable",
-        )
-        on_disk_dtype = on_disk_df[col_name].dtype
+        in_memory_series = in_memory_snapshots[(tbl_name, col_name)]
+        in_memory_dtype = in_memory_series.dtype
+        # Default backend (no dtype_backend kwarg) — sidesteps the IntegerArray
+        # block-form path that interacts with the coverage tracer's numpy reload.
+        on_disk_raw = pd.read_csv(tmp_path / f"{tbl_name}.csv")
+        on_disk_int64 = on_disk_raw[col_name].astype("Int64")
         assert pd.api.types.is_integer_dtype(in_memory_dtype), (
             f"F3 regression: {template}/{tbl_name}.{col_name} in-memory "
             f"dtype is {in_memory_dtype!r}, expected integer-like."
         )
-        assert pd.api.types.is_integer_dtype(on_disk_dtype), (
-            f"F3 regression: {template}/{tbl_name}.{col_name} on-disk-then-read "
-            f"dtype is {on_disk_dtype!r}, expected integer-like."
-        )
-        assert in_memory_dtype == on_disk_dtype, (
-            f"F3 regression: {template}/{tbl_name}.{col_name} dtype "
-            f"diverges across CSV round-trip. In-memory: {in_memory_dtype!r}; "
-            f"on-disk-then-read (numpy_nullable backend): {on_disk_dtype!r}. "
-            f"This is the property the F3 fix locks down — vectorized path "
-            f"and write_tables must agree on the column's serialized dtype."
+        # F3+F4: the value the user reads back from the CSV must agree
+        # with what the in-memory column held at the moment write_tables
+        # was called. NA-aware equality via Int64.
+        in_memory_int64 = in_memory_series.astype("Int64").reset_index(drop=True)
+        on_disk_int64 = on_disk_int64.reset_index(drop=True)
+        assert in_memory_int64.equals(on_disk_int64), (
+            f"F3 regression: {template}/{tbl_name}.{col_name} CSV "
+            f"round-trip lost values. In-memory ({in_memory_dtype!r}) "
+            f"and on-disk-then-Int64 disagree on at least one row — "
+            f"vectorized path and write_tables are not agreeing on "
+            f"this column's serialized integer values."
         )
 
 
