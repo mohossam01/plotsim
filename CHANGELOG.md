@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **Statistical fidelity addendum (Mission 103).** Empirical
+  characterization of plotsim's four headline statistical guarantees —
+  trajectory-first generation, configured correlation tolerance, causal
+  lag fidelity at output level, and determinism contract — across the
+  parameter space the engine accepts. The addendum produces:
+
+  - [`docs/statistical-fidelity.md`](docs/statistical-fidelity.md) —
+    user-facing limits page with measured tolerances per distribution
+    pairing, the recoverable-lag boundary, the trajectory-first envelope,
+    and the determinism contract.
+  - [`analysis/fidelity-report.md`](analysis/fidelity-report.md) — full
+    synthesis with hardware/toolchain header and per-claim methodology.
+  - `analysis/fidelity_sweeps/*.csv` — raw measurements; every cell is
+    re-runnable from the CSV alone.
+  - [`tests/test_fidelity_smoke.py`](tests/test_fidelity_smoke.py) — six
+    smoke-subset tests (~6 s total) that pin the headline findings against
+    silent drift.
+
+  **Headline measured tolerances:**
+
+  - **Correlation fidelity**: 9 of 10 measured distribution pairings land
+    within **±0.10** of configured Pearson; `lognorm × lognorm` widens to
+    **±0.15** at high magnitudes (\|coefficient\| ≥ 0.7) due to the heavy-
+    tail asymmetry of the Gaussian copula on twin lognormals. The
+    ``test_metrics`` R-01 ±0.15 budget for poisson-involving pairs is
+    *conservative*; measured envelope is ±0.08. README / docs now cite the
+    measured numbers.
+  - **Trajectory-first cell-level invariant**: median deviation
+    −0.04 σ, 99th-percentile 3.60 σ across 11 865 cells; cells beyond
+    4 σ (0.84 %) fully accounted for by configured ``outlier_rate``.
+    Heavy-tail (lognorm / poisson) deep tail to ~19 σ is distribution
+    skew, not invariant violation.
+  - **Causal-lag fidelity (output-level cross-correlation)**: configured
+    lags 1 and 2 are recoverable; lag ≥ 5 with smooth (sigmoid) drivers
+    fails detection because high driver autocorrelation flattens the
+    cross-correlation peak. Engine-layer correctness (R-11/R-12)
+    unchanged; this characterizes a downstream *detection* limit, not a
+    generation defect.
+  - **Determinism contract**: same-process, cross-process same-cwd, and
+    cross-process different-cwd all GUARANTEED byte-identical CSV
+    output. Multi-Python-version, multi-numpy-version, and cross-OS axes
+    are documented as NOT TESTED in this addendum (operator decision
+    D2(a)) — pin those dimensions in CI rather than relying on
+    cross-environment determinism.
+
+  **Scope cuts (operator-approved Option C, 2026-04-25).** Per-cell
+  generation cost on Python 3.10 / scipy 1.13 is ~7 s at 100×24 vs the
+  mission spec's 0.3 s assumption — the spot-checks report's 43 %
+  scipy/total finding has not yet been addressed (perf-pass mission item
+  11). The mission's full grids (Claim 1: 36 × 5 × 3 × 3 × 5 = 8 100
+  cells; Claim 2: 6 × 5 × 3 × 3 × 5 = 1 350 cells at 100×360) would have
+  required 60+ wall-clock hours. Lean grid landed: Claim 1 at 250 cells
+  (10 pairs × 5 magnitudes × n_metrics=2 × 100×24 × 5 seeds), Claim 2 at
+  75 cells (1 dist × 5 lags × 3 weights × 1 archetype × 5 seeds at
+  100×120). The cut axes (n_metrics, sample-size, lagged-metric
+  distribution, archetype) are explicitly listed in the report's
+  "deferred to post-perf-pass M104+" section.
+
+  Optional appendix sweep (full 6×6 = 36 distribution pairings) is built
+  into ``claim1_correlation.run_full_matrix()`` and remains available for
+  overnight runs (D1(c) decision); not run inline in M103.
+
 ### Tests
 
 - **F17 (hypothesis property-based test layer).** Mission 102 / Phase 3.

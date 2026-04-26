@@ -64,9 +64,9 @@ If a company's engagement trajectory declines, its login events decrease in `evt
 
 **Trajectory-driven generation.** Each entity is assigned an archetype — a curve built from segments like sigmoid, exponential decay, plateau, or oscillation. At every time step, the engine reads the entity's position on that curve (a value between 0 and 1) and derives all metrics from it. Positive-polarity metrics rise when the trajectory rises. Negative-polarity metrics fall.
 
-**Cross-metric correlation.** Configure the correlation strength between any pair of metrics. plotsim uses a Gaussian copula to inject the exact correlation you specify, regardless of the underlying distribution pairing. Set engagement and revenue to covary at r=0.8, while support tickets moves inversely at r=-0.5 — and measure exactly those values in the output.
+**Cross-metric correlation.** Configure the correlation strength between any pair of metrics. plotsim uses a Gaussian copula to inject the configured correlation, regardless of the underlying distribution pairing. Set engagement and revenue to covary at r=0.8, while support tickets moves inversely at r=-0.5 — and observe those values in the output within a measured tolerance (±0.10 for most distribution pairings; see [statistical fidelity](docs/statistical-fidelity.md) for the per-pair numbers).
 
-**Causal lag with composable chains.** One metric can trail another by N periods. Configure engagement to drive revenue with a 3-period lag, and cross-correlation will peak at exactly that offset. Lags compose: if A drives B with lag 2 and B drives C with lag 3, C reflects A's signal at lag 5. Each lag relationship is a real inter-metric dependency, not a time shift.
+**Causal lag with composable chains.** One metric can trail another by N periods, blended at a configurable weight against the metric's own trajectory. Configure engagement to drive revenue with a 3-period lag and the engine implements that shift faithfully at the metric-generator level; small lags (1–2) are also recoverable in output-level cross-correlation, while larger lags on smooth-archetype drivers require non-cross-correlation detection methods (see [statistical fidelity](docs/statistical-fidelity.md#causal-lag-fidelity)). Lags compose through chains: if A drives B with lag 2 and B drives C with lag 3, C reflects A's signal at lag 5.
 
 **Star schema output.** plotsim generates dimensional models — date dimensions, entity dimensions, fact tables, event tables — with referential integrity enforced. Every foreign key resolves. Zero orphans.
 
@@ -182,6 +182,8 @@ The engine runs these checks after generation:
 ```bash
 plotsim run config.yaml --validate
 ```
+
+For the empirical bounds these guarantees hold within — measured per-pair correlation tolerance, the recoverable-lag boundary, the trajectory-first cell-level envelope, and the determinism contract — see [`docs/statistical-fidelity.md`](docs/statistical-fidelity.md). The smoke test [`tests/test_fidelity_smoke.py`](tests/test_fidelity_smoke.py) re-checks the headline tolerances on every CI run.
 
 ---
 

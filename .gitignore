@@ -61,6 +61,7 @@ output/
 *.csv
 !plotsim/configs/*.csv
 !tests/fixtures/*.csv
+!analysis/fidelity_sweeps/*.csv
 
 # Secrets
 .env
@@ -71,8 +72,8 @@ output/
 examples/quickstart_output/
 
 # Non-code markdown / agent scaffolding — shipping code only.
-# Ignore everything under these scaffolding directories, then selectively
 # un-ignore the files that ARE shipped with the code.
+.agents/
 .claude/
 project/
 CLAUDE.md
