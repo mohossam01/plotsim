@@ -135,22 +135,22 @@ entities:
 - name: high_flyers
   archetype: fast_riser
   size: 20
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: core_team
   archetype: steady_performer
   size: 50
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: disengaged_pool
   archetype: quiet_quitter
   size: 10
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: burnout_cohort
   archetype: burnout_risk
   size: 5
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 tables:
 - name: dim_date
@@ -396,6 +396,9 @@ noise:
 output:
   format: csv
   directory: out/hr
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
 stages:
   field: attrition_risk
   sequence:

@@ -162,17 +162,17 @@ entities:
 - name: acme_corp_cohort
   archetype: rocket_then_cliff
   size: 50
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: globex_cohort
   archetype: steady_grower
   size: 30
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: hooli_cohort
   archetype: zombie_account
   size: 10
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 tables:
 - name: dim_date
@@ -331,6 +331,12 @@ tables:
   - name: feature_adoption
     dtype: float
     source: metric:feature_adoption
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+  - name: customer_sentiment
+    dtype: string
+    source: text:bucket:[at_risk, lukewarm, satisfied, delighted]
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -514,6 +520,9 @@ noise:
 output:
   format: csv
   directory: out/saas
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
 stages:
   field: churn_risk
   sequence:

@@ -112,17 +112,17 @@ entities:
 - name: power_buyers
   archetype: steady_growth
   size: 25
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: holiday_shoppers
   archetype: holiday_surge
   size: 40
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: browsers
   archetype: one_and_done
   size: 15
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 tables:
 - name: dim_date
@@ -345,5 +345,8 @@ noise:
 output:
   format: csv
   directory: out/ecommerce
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
 stages: null
 locale: en_US

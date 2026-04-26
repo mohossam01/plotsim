@@ -175,6 +175,12 @@ tables:
       - {name: "company_id", dtype: "id", source: "fk:dim_company.company_id"}
       - {name: "engagement_score", dtype: "float", source: "metric:engagement"}
       - {name: "feature_adoption", dtype: "float", source: "metric:feature_adoption"}
+      # M105: trajectory-band sentiment label. Reads from the same archetype
+      # trajectory that drives engagement_score / feature_adoption above —
+      # an account at a low position lands in "at_risk", a healthy account
+      # lands in "delighted". Bucket order is low → high so the natural
+      # progression of a recovering account moves "right" through labels.
+      - {name: "customer_sentiment", dtype: "string", source: "text:bucket:[at_risk, lukewarm, satisfied, delighted]"}
     primary_key: ["date_key", "company_id"]
     foreign_keys: ["dim_date.date_key", "dim_company.company_id"]
 

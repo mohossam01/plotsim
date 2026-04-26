@@ -104,17 +104,17 @@ entities:
 - name: freshmen
   archetype: late_bloomer
   size: 60
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: transfer_students
   archetype: steady_learner
   size: 20
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: at_risk_cohort
   archetype: burnout_trajectory
   size: 15
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 tables:
 - name: dim_date
@@ -337,5 +337,8 @@ noise:
 output:
   format: csv
   directory: out/education
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
 stages: null
 locale: en_US

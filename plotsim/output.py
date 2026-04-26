@@ -67,6 +67,7 @@ from plotsim.config import (
     dump_config,
     parse_source,
 )
+from plotsim.manifest import ManifestSchema, write_manifest
 from plotsim.validation import ValidationReport, validate_tables
 
 
@@ -380,6 +381,7 @@ def write_tables(
     float_format: str = FLOAT_FORMAT,
     base_dir: str | Path | None = None,
     generated_at: Optional[_dt.datetime] = None,
+    manifest: Optional[ManifestSchema] = None,
 ) -> Path:
     """Write every generated table, the config copy, and the validation report.
 
@@ -403,6 +405,15 @@ def write_tables(
     are rejected with :class:`ValueError`. The CLI default (``base_dir=None``)
     preserves full user control over the filesystem.
 
+    M105: when ``manifest`` is supplied AND ``config.manifest.include`` is
+    True, ``manifest.json`` is written alongside the table files. The
+    caller (CLI's ``cmd_run`` and library users that call
+    ``generate_tables_with_state``) is responsible for building the
+    manifest because constructing it requires the trajectories used during
+    generation, which ``write_tables`` cannot otherwise reach.
+    Programmatic callers that pass ``manifest=None`` opt out — useful for
+    ad-hoc DataFrames written directly without a generation run.
+
     Returns the output directory path.
     """
     if report is None:
@@ -416,6 +427,8 @@ def write_tables(
 
     write_config_copy(config, target)
     write_validation_report(report, target, generated_at=generated_at, config=config)
+    if manifest is not None and config.manifest.include:
+        write_manifest(manifest, target)
     return target
 
 

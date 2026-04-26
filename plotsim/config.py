@@ -200,10 +200,32 @@ class LagSource(_Frozen):
     periods: int = Field(ge=1)
 
 
+class TextBucketSource(_Frozen):
+    """M105: text emission keyed by trajectory-position bands.
+
+    Grammar: ``text:bucket:[<label1>, <label2>, ..., <labelN>]``. Labels are
+    comma-separated, whitespace around each label is stripped, and the
+    bracket pair is required. With N labels, the [0, 1] trajectory range
+    is split into N evenly-spaced bands: position ``p`` maps to bucket
+    ``min(int(p * N), N - 1)``. The lowest position lands in label[0],
+    the highest in label[N-1] — monotonic by construction.
+
+    Trajectory-first invariant: the bucket is selected from the same
+    archetype-driven trajectory position every metric on the same row
+    is derived from. A negative-polarity sentiment ("delighted →
+    churned") is expressed by ordering the labels with the *most
+    favorable* outcome at the *highest* position, mirroring how
+    positive-polarity metrics shape values from position. Configs that
+    want the inverse just reverse the bucket list.
+    """
+    buckets: tuple[str, ...] = Field(min_length=2, max_length=20)
+
+
 ParsedSource = (
     PKSource | FKSource | MetricSource | GeneratedSource | FakerSource
     | StaticSource | DerivedSource
     | ThresholdSource | ProportionalSource | LagSource
+    | TextBucketSource
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -212,7 +234,8 @@ _SOURCE_FORMAT_HELP = (
     "'static:<value>', 'derived:<field>', "
     "'threshold:<metric>:<above|below>:<value>:for:<consecutive>', "
     "'proportional:<metric>:scale:<multiplier>', "
-    "'lag:<metric>:periods:<N>'"
+    "'lag:<metric>:periods:<N>', "
+    "'text:bucket:[<label1>, <label2>, ...]'"
 )
 
 
@@ -368,6 +391,37 @@ def parse_source(source: str) -> ParsedSource:
                 f"lag source {source!r}: non-integer periods {periods_str!r}"
             ) from e
         return LagSource(metric=metric, periods=periods)
+
+    if source.startswith("text:bucket:"):
+        body = source[len("text:bucket:"):]
+        if not body.startswith("[") or not body.endswith("]"):
+            raise ValueError(
+                f"text-bucket source {source!r} must wrap labels in '[ ... ]': "
+                f"e.g. 'text:bucket:[low, mid, high]'"
+            )
+        inner = body[1:-1].strip()
+        if not inner:
+            raise ValueError(
+                f"text-bucket source {source!r} has empty bucket list"
+            )
+        labels = [p.strip() for p in inner.split(",")]
+        if any(not label for label in labels):
+            raise ValueError(
+                f"text-bucket source {source!r} has an empty label "
+                f"(check for stray commas or whitespace-only entries)"
+            )
+        if len(labels) < 2:
+            raise ValueError(
+                f"text-bucket source {source!r} requires at least 2 labels "
+                f"(banding requires distinguishable bands)"
+            )
+        if len(set(labels)) != len(labels):
+            raise ValueError(
+                f"text-bucket source {source!r} has duplicate labels; each "
+                f"bucket must be uniquely named so a downstream consumer can "
+                f"reverse-map a value to its position band"
+            )
+        return TextBucketSource(buckets=tuple(labels))
 
     raise ValueError(f"invalid source {source!r}: {_SOURCE_FORMAT_HELP}")
 
@@ -791,6 +845,37 @@ class NoiseConfig(_Frozen):
     mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class ManifestConfig(_Frozen):
+    """M105: ground-truth manifest emission config.
+
+    When ``include`` is True (default), ``write_tables`` writes a
+    ``manifest.json`` alongside the table files. The manifest records:
+
+      * archetype assigned to each entity (from ``config.entities``)
+      * trajectory position at every period for a deterministic sample
+        of entities (``trajectory_sample_rate`` of them, picked by
+        sorted-name order)
+      * event firing periods per entity per event table (the period
+        indices where the event fired at least one row)
+      * the seed and a SHA-256 of the config dump
+
+    The manifest is the ground-truth signal layer for downstream ML
+    feature engineering — anyone training a churn / behavior model on
+    plotsim output can read ``manifest.json`` to get the
+    archetype-level labels the engine was driving without re-deriving
+    them from cell values. ``include: false`` suppresses the file
+    entirely (tests, micro-benchmarks).
+
+    ``trajectory_sample_rate`` is bounded ``(0, 1]`` and applied as
+    ``max(1, round(n_entities * sample_rate))`` so even at very small
+    rates at least one entity's trajectory lands. Determinism: the
+    sampled subset is the first N entities under sorted-name order, so
+    the same config always selects the same rows regardless of seed.
+    """
+    include: bool = True
+    trajectory_sample_rate: float = Field(default=1.0, gt=0.0, le=1.0)
+
+
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
@@ -993,6 +1078,11 @@ class PlotsimConfig(_Frozen):
     correlations: list[CorrelationPair] = Field(default_factory=list, max_length=1_225)
     noise: NoiseConfig = Field(default_factory=NoiseConfig)
     output: OutputConfig
+    # M105: manifest emission. Default ``include=true`` so every ``plotsim
+    # run`` lands a ``manifest.json`` next to the table files. Configs that
+    # want to skip the file (microbenchmarks, sandboxed CI) set
+    # ``manifest: {include: false}``.
+    manifest: ManifestConfig = Field(default_factory=ManifestConfig)
     stages: Optional[StageSequence] = None
     # FIX-05 / SF-3: locale threaded to every Faker instance built by the
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
@@ -1138,13 +1228,21 @@ class PlotsimConfig(_Frozen):
                 # gate this validator complements was removed by F3
                 # (the vectorized path now coerces booleans correctly);
                 # F12 closes the input-side hole the gate used to mask.
+                #
+                # M105: same discipline applies to TextBucketSource —
+                # ``bool("delighted")`` is always True, the dtype carries
+                # no banding signal. dtype: string is the only sensible
+                # choice for text-bucket columns.
                 if (
                     col.dtype == "boolean"
-                    and isinstance(parsed, (MetricSource, LagSource))
+                    and isinstance(parsed, (MetricSource, LagSource, TextBucketSource))
                 ):
-                    source_kind = (
-                        "metric" if isinstance(parsed, MetricSource) else "lag"
-                    )
+                    if isinstance(parsed, MetricSource):
+                        source_kind = "metric"
+                    elif isinstance(parsed, LagSource):
+                        source_kind = "lag"
+                    else:
+                        source_kind = "text-bucket"
                     raise ValueError(
                         f"table {tbl.name!r} column {col.name!r} declares "
                         f"dtype: boolean with {source_kind}-source "

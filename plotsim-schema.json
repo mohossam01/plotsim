@@ -326,6 +326,26 @@
       "title": "FKDistribution",
       "type": "object"
     },
+    "ManifestConfig": {
+      "additionalProperties": false,
+      "description": "M105: ground-truth manifest emission config.\n\nWhen ``include`` is True (default), ``write_tables`` writes a\n``manifest.json`` alongside the table files. The manifest records:\n\n  * archetype assigned to each entity (from ``config.entities``)\n  * trajectory position at every period for a deterministic sample\n    of entities (``trajectory_sample_rate`` of them, picked by\n    sorted-name order)\n  * event firing periods per entity per event table (the period\n    indices where the event fired at least one row)\n  * the seed and a SHA-256 of the config dump\n\nThe manifest is the ground-truth signal layer for downstream ML\nfeature engineering — anyone training a churn / behavior model on\nplotsim output can read ``manifest.json`` to get the\narchetype-level labels the engine was driving without re-deriving\nthem from cell values. ``include: false`` suppresses the file\nentirely (tests, micro-benchmarks).\n\n``trajectory_sample_rate`` is bounded ``(0, 1]`` and applied as\n``max(1, round(n_entities * sample_rate))`` so even at very small\nrates at least one entity's trajectory lands. Determinism: the\nsampled subset is the first N entities under sorted-name order, so\nthe same config always selects the same rows regardless of seed.",
+      "properties": {
+        "include": {
+          "default": true,
+          "title": "Include",
+          "type": "boolean"
+        },
+        "trajectory_sample_rate": {
+          "default": 1.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Trajectory Sample Rate",
+          "type": "number"
+        }
+      },
+      "title": "ManifestConfig",
+      "type": "object"
+    },
     "Metric": {
       "additionalProperties": false,
       "properties": {
@@ -769,6 +789,9 @@
     },
     "output": {
       "$ref": "#/$defs/OutputConfig"
+    },
+    "manifest": {
+      "$ref": "#/$defs/ManifestConfig"
     },
     "stages": {
       "anyOf": [

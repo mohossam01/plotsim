@@ -98,17 +98,17 @@ entities:
 - name: post_op_patients
   archetype: recovering
   size: 30
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: chronic_condition_group
   archetype: chronic_stable
   size: 45
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 - name: flare_up_patients
   archetype: relapsing
   size: 20
-  overrides: {}
+  overrides: null
   cross_dim_fks: {}
 tables:
 - name: dim_date
@@ -325,5 +325,8 @@ noise:
 output:
   format: csv
   directory: out/healthcare
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
 stages: null
 locale: en_US

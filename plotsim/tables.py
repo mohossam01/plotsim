@@ -45,6 +45,7 @@ Mission-spec deviations (also flagged in the completion report):
 from __future__ import annotations
 
 import datetime as _dt
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
@@ -64,6 +65,7 @@ from plotsim.config import (
     ProportionalSource,
     StaticSource,
     Table,
+    TextBucketSource,
     ThresholdSource,
     parse_source,
 )
@@ -231,6 +233,15 @@ def build_fact_tables(
     # column builders index into this array instead of dict-of-dict lookups.
     metrics_3d = _build_metrics_3d(config, entity_metrics, n_periods)
 
+    # M105: pack trajectories as a (E, P) float64 array keyed by
+    # ``config.entities`` order, mirroring ``metrics_3d``'s entity axis.
+    # ``TextBucketSource`` and any future trajectory-position-driven source
+    # type reads from this array rather than re-deriving positions from the
+    # dict-of-arrays form. Building it here keeps the per_period_fact
+    # branch's "no trajectory axis" contract clean — only
+    # per_entity_per_period builders see ``trajectories_2d``.
+    trajectories_2d = _build_trajectories_2d(config, trajectories, n_periods)
+
     fact_out: dict[str, pd.DataFrame] = {}
     fake = _make_faker(rng, config.locale)
 
@@ -240,7 +251,7 @@ def build_fact_tables(
         if tbl.grain == "per_entity_per_period":
             fact_out[tbl.name] = _build_per_entity_per_period_fact(
                 tbl, config, entity_metrics, dim_tables, per_entity_dims,
-                fake, rng, metrics_3d,
+                fake, rng, metrics_3d, trajectories_2d,
             )
         elif tbl.grain == "per_period":
             fact_out[tbl.name] = _build_per_period_fact(
@@ -253,6 +264,31 @@ def build_fact_tables(
             )
 
     return fact_out
+
+
+def _build_trajectories_2d(
+    config: PlotsimConfig,
+    trajectories: dict[str, np.ndarray],
+    n_periods: int,
+) -> np.ndarray:
+    """Pack per-entity trajectory arrays into a (E, P) float64 ndarray.
+
+    Entity axis follows ``config.entities`` order — matches ``metrics_3d``
+    so a row at flat index ``i*P + p`` in the vectorized fact builder
+    reads from ``trajectories_2d[i, p]`` and ``metrics_3d[i, p, :]``
+    consistently.
+    """
+    n_entities = len(config.entities)
+    out = np.empty((n_entities, n_periods), dtype=np.float64)
+    for i, entity in enumerate(config.entities):
+        traj = trajectories[entity.name]
+        if len(traj) != n_periods:
+            raise ValueError(
+                f"trajectory for entity {entity.name!r} has length "
+                f"{len(traj)} but dim_date has {n_periods} periods"
+            )
+        out[i, :] = np.asarray(traj, dtype=np.float64)
+    return out
 
 
 def _build_metrics_3d(
@@ -304,6 +340,7 @@ def _build_per_entity_per_period_fact(
     fake: Faker,
     rng: np.random.Generator,
     metrics_3d: Optional[np.ndarray] = None,
+    trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
     """Build one per_entity_per_period fact table.
 
@@ -393,6 +430,7 @@ def _build_per_entity_per_period_fact(
             parent_entity_dim, parent_entity_pk,
             local_entity_col, local_date_col, parent_date_pk,
             entity_cross_fks, fake, parsed_cols,
+            trajectories_2d=trajectories_2d,
         )
 
     return _vectorized_per_entity_per_period_fact(
@@ -400,6 +438,7 @@ def _build_per_entity_per_period_fact(
         parent_entity_dim, parent_entity_pk,
         local_entity_col, local_date_col, parent_date_pk,
         entity_cross_fks, parsed_cols, metrics_3d,
+        trajectories_2d=trajectories_2d,
     )
 
 
@@ -417,16 +456,27 @@ def _scalar_per_entity_per_period_fact(
     entity_cross_fks: dict[str, dict[str, Any]],
     fake: Faker,
     parsed_cols: list[tuple[Column, Any]],
+    trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
     """Pre-Layer-4 row-by-row builder, kept as a fallback for fact tables that
     use ``FakerSource`` or ``boolean``-typed metric columns (paths where
-    vectorization would reorder RNG draws or drop a Python coercion)."""
+    vectorization would reorder RNG draws or drop a Python coercion).
+
+    M105: ``trajectories_2d`` (E, P) is forwarded to ``_resolve_fact_cell``
+    one entity-row at a time so ``TextBucketSource`` columns can read the
+    position. Pre-M105 callers that didn't supply trajectories pass ``None``
+    here; ``_resolve_fact_cell`` only consults the array when it dispatches
+    on a ``TextBucketSource``, so non-bucket fact tables continue to work.
+    """
     del parsed_cols  # not used here; scalar path walks tbl.columns directly
     rows: list[dict] = []
     for entity_idx, entity in enumerate(config.entities):
         entity_pk_value = parent_entity_dim.iloc[entity_idx][parent_entity_pk]
         metric_series = entity_metrics[entity.name]
         cross_fks_for_entity = entity_cross_fks[entity.name]
+        traj_for_entity = (
+            trajectories_2d[entity_idx] if trajectories_2d is not None else None
+        )
         for period_idx in range(n_periods):
             row: dict = {}
             for col in tbl.columns:
@@ -434,6 +484,7 @@ def _scalar_per_entity_per_period_fact(
                     col, period_idx, entity_pk_value,
                     local_entity_col, local_date_col, parent_date_pk,
                     metric_series, dim_date, cross_fks_for_entity, fake,
+                    trajectory_for_entity=traj_for_entity,
                 )
             rows.append(row)
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
@@ -452,6 +503,7 @@ def _vectorized_per_entity_per_period_fact(
     entity_cross_fks: dict[str, dict[str, Any]],
     parsed_cols: list[tuple[Column, Any]],
     metrics_3d: np.ndarray,
+    trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
     """Column-oriented builder. Each column becomes a single ndarray built via
     slicing / repeating / tiling on shared broadcast axes, then all columns
@@ -562,6 +614,29 @@ def _vectorized_per_entity_per_period_fact(
                     f"fact column {col.name!r} derived field "
                     f"{parsed.field!r} not supported"
                 )
+        elif isinstance(parsed, TextBucketSource):
+            # M105: trajectory-position-driven text emission. ``trajectories_2d``
+            # is shape (E, P); flatten in the same row-major (entity, period)
+            # order the entity_pk_repeated / date_key_tiled axes use, then map
+            # each position into a bucket index. ``min(int(p * N), N - 1)``
+            # closes the [0, 1] interval at the top so position == 1.0 lands
+            # in the last bucket rather than overflowing.
+            if trajectories_2d is None:
+                raise ValueError(
+                    f"fact column {col.name!r} declares text-bucket source "
+                    f"{col.source!r} but trajectories_2d was not threaded into "
+                    f"the vectorized fact builder; this is an internal wiring "
+                    f"bug, not a config error"
+                )
+            n_buckets = len(parsed.buckets)
+            flat_positions = trajectories_2d.ravel(order="C")
+            indices = np.minimum(
+                (flat_positions * n_buckets).astype(np.int64),
+                n_buckets - 1,
+            )
+            indices = np.maximum(indices, 0)
+            bucket_arr = np.asarray(parsed.buckets, dtype=object)
+            col_arrays[col.name] = bucket_arr[indices]
         else:
             raise ValueError(
                 f"fact column {col.name!r} source {col.source!r} is not "
@@ -582,6 +657,7 @@ def _resolve_fact_cell(
     dim_date: pd.DataFrame,
     cross_fks_for_entity: dict[str, Any],
     fake: Faker,
+    trajectory_for_entity: Optional[np.ndarray] = None,
 ):
     parsed = parse_source(col.source)
     if isinstance(parsed, FKSource):
@@ -635,6 +711,22 @@ def _resolve_fact_cell(
         raise ValueError(
             f"fact column {col.name!r} derived field {parsed.field!r} not supported"
         )
+    if isinstance(parsed, TextBucketSource):
+        # M105: scalar-fallback bucket lookup. Same index arithmetic as the
+        # vectorized branch — ``min(int(p * N), N - 1)`` so p == 1.0 lands
+        # in the last bucket rather than overflowing.
+        if trajectory_for_entity is None:
+            raise ValueError(
+                f"fact column {col.name!r} declares text-bucket source "
+                f"{col.source!r} but trajectory_for_entity was not threaded "
+                f"into the scalar fact builder; this is an internal wiring "
+                f"bug, not a config error"
+            )
+        position = float(trajectory_for_entity[period_idx])
+        n_buckets = len(parsed.buckets)
+        idx = min(int(position * n_buckets), n_buckets - 1)
+        idx = max(idx, 0)
+        return parsed.buckets[idx]
     raise ValueError(
         f"fact column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity_per_period fact tables"
@@ -1465,6 +1557,25 @@ def assign_stages(
 # --- Orchestrator ------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class GenerationState:
+    """M105: structured side-channel for ground-truth manifest emission.
+
+    ``generate_tables`` returns just the table dict to preserve its 0.5
+    public signature. ``generate_tables_with_state`` returns the same
+    tables alongside this state object, which carries the per-entity
+    trajectory positions used during generation. The manifest builder in
+    ``plotsim.manifest`` reads from here rather than re-deriving positions
+    from cell values (which would be lossy under noise / MCAR).
+
+    Future fields (anomaly injection locations, stage transition periods,
+    etc.) extend this dataclass; existing callers that destructure
+    ``(tables, state)`` keep working because Python dataclass fields are
+    accessed by name.
+    """
+    trajectories: dict[str, np.ndarray]
+
+
 def generate_tables(
     config: PlotsimConfig,
     rng: Optional[np.random.Generator] = None,
@@ -1480,6 +1591,31 @@ def generate_tables(
     Gates the run on ``validate_correlation_psd(config)`` before any
     randomness is consumed: a non-PSD correlation matrix raises ``ValueError``
     here rather than producing partial output that silently drops correlation.
+
+    M105: this function is now a thin shim over
+    ``generate_tables_with_state`` that drops the state side-channel; its
+    return contract is unchanged. Callers that need the trajectories used
+    during generation (manifest emission, debugging, downstream feature
+    pipelines) should call ``generate_tables_with_state`` directly.
+    """
+    tables, _state = generate_tables_with_state(config, rng)
+    return tables
+
+
+def generate_tables_with_state(
+    config: PlotsimConfig,
+    rng: Optional[np.random.Generator] = None,
+) -> tuple[dict[str, pd.DataFrame], GenerationState]:
+    """End-to-end pipeline returning tables AND the generation state used.
+
+    Same generation path as ``generate_tables`` — the only difference is
+    the additional ``GenerationState`` return value, which carries the
+    per-entity trajectory positions. Useful for callers that need the
+    ground-truth signal layer without re-deriving it from noisy cell
+    values: M105's manifest emission is the primary consumer.
+
+    Determinism contract is identical: same ``(config, rng)`` inputs
+    produce both the same tables and the same trajectories.
     """
     # Local import: validation imports tables transitively, so a top-level
     # import would create a cycle.
@@ -1537,4 +1673,4 @@ def generate_tables(
     out.update(dim_tables)
     out.update(fact_tables)
     out.update(event_tables)
-    return out
+    return out, GenerationState(trajectories=trajectories)

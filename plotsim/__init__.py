@@ -18,10 +18,20 @@ from plotsim.config import (
     PERFECTLY_CLEAN,
     REALISTIC,
     SLIGHTLY_MESSY,
+    ManifestConfig,
     PlotsimConfig,
     SurrogateKeyWarning,
+    TextBucketSource,
     dump_config,
     load_config,
+)
+from plotsim.manifest import (
+    EntityArchetypeAssignment,
+    EventFiring,
+    ManifestSchema,
+    TrajectorySample,
+    build_manifest,
+    write_manifest,
 )
 from plotsim.output import (
     write_config_copy,
@@ -29,7 +39,7 @@ from plotsim.output import (
     write_tables,
     write_validation_report,
 )
-from plotsim.tables import generate_tables
+from plotsim.tables import GenerationState, generate_tables, generate_tables_with_state
 from plotsim.validation import (
     ValidationIssue,
     ValidationReport,
@@ -42,6 +52,8 @@ __all__ = [
     # Config
     "PlotsimConfig",
     "SurrogateKeyWarning",
+    "ManifestConfig",
+    "TextBucketSource",
     "load_config",
     "dump_config",
     "NOISE_PRESETS",
@@ -51,6 +63,15 @@ __all__ = [
     "DIRTY",
     # Generation
     "generate_tables",
+    "generate_tables_with_state",
+    "GenerationState",
+    # Manifest
+    "ManifestSchema",
+    "EntityArchetypeAssignment",
+    "TrajectorySample",
+    "EventFiring",
+    "build_manifest",
+    "write_manifest",
     # Validation
     "validate",
     "validate_tables",

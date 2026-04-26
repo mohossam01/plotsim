@@ -27,8 +27,9 @@ import numpy as np
 
 from plotsim import __version__
 from plotsim.config import PlotsimConfig, load_config
+from plotsim.manifest import build_manifest
 from plotsim.schema import SCHEMA_FILENAME, write_schema
-from plotsim.tables import generate_tables
+from plotsim.tables import generate_tables_with_state
 from plotsim.validation import validate_tables
 from plotsim.output import write_tables
 
@@ -134,7 +135,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not args.quiet:
         print(f"Generating dataset from {args.config} (seed={seed})...")
 
-    tables = generate_tables(config, rng)
+    # M105: switch to the state-returning entry point so the trajectories
+    # used during generation are available for manifest emission. The
+    # output dict the CLI hands to ``write_tables`` is identical to the
+    # 0.5 ``generate_tables`` return value — no behavior change for runs
+    # with ``manifest.include = false``.
+    tables, gen_state = generate_tables_with_state(config, rng)
     report = validate_tables(config, tables)
 
     if args.validate or args.strict:
@@ -147,6 +153,17 @@ def cmd_run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # M105: build the manifest only when the config opts in. Skipping the
+    # build (rather than building it then refusing to write) keeps the
+    # cost off configs that don't need it — the trajectory sampling alone
+    # is O(n_entities × n_periods × sample_rate) and the firing
+    # aggregation walks every event row.
+    manifest = None
+    if config.manifest.include:
+        manifest = build_manifest(
+            config, gen_state.trajectories, tables,
+        )
 
     output_dir = Path(args.output_dir) if args.output_dir else None
     # SEC-01: sandbox every CLI write under cwd by default so a crafted config
@@ -161,6 +178,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         target = write_tables(
             tables, config, report, output_dir=output_dir, base_dir=base_dir,
             generated_at=_dt.datetime.now(),
+            manifest=manifest,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

@@ -54,6 +54,7 @@ from plotsim.config import (
     PKSource,
     StaticSource,
     SurrogateKeyWarning,
+    TextBucketSource,
     parse_source,
 )
 
@@ -118,6 +119,7 @@ _VECTORIZED_DTYPE_CHECKS: dict[str, str] = {
     "region":               "object",      # StaticSource
     "p_idx":                "integer",     # DerivedSource(period_index)
     "entity_label":         "object",      # DerivedSource(entity_id)
+    "sentiment":            "object",      # M105: TextBucketSource (vectorized)
 }
 
 _SCALAR_DTYPE_CHECKS: dict[str, str] = {
@@ -134,6 +136,7 @@ _SCALAR_DTYPE_CHECKS: dict[str, str] = {
     "period_lbl":           "object",      # GeneratedSource(period_label, scalar)
     "p_idx":                "integer",     # DerivedSource(period_index, scalar)
     "entity_label":         "object",      # DerivedSource(entity_id, scalar)
+    "sentiment":            "object",      # M105: TextBucketSource (scalar)
 }
 
 
@@ -197,6 +200,8 @@ def test_vectorized_table_exercises_every_reachable_source_branch(synthetic_cfg)
     assert GeneratedSource in parsed_types
     assert StaticSource in parsed_types
     assert DerivedSource in parsed_types
+    # M105: TextBucketSource lives on the vectorized fact dispatch.
+    assert TextBucketSource in parsed_types
     assert generated_providers == {"timestamp", "date_key", "period_label"}
     assert derived_fields == {"period_index", "entity_id"}
     # Vectorized path should NOT carry FakerSource — that forces scalar fallback.
@@ -214,6 +219,13 @@ def test_scalar_table_carries_faker_to_force_scalar_path(synthetic_cfg):
     assert FakerSource in parsed_types, (
         "fct_scalar lost its FakerSource column — fct_scalar is now "
         "vectorized and the scalar dispatch is no longer covered."
+    )
+    # M105: TextBucketSource must also land on the scalar table so the
+    # _resolve_fact_cell branch is exercised (the vectorized branch is
+    # covered by fct_vectorized).
+    assert TextBucketSource in parsed_types, (
+        "fct_scalar lost its TextBucketSource column — the scalar "
+        "_resolve_fact_cell branch for text:bucket is no longer covered."
     )
 
 
