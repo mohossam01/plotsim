@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F8 (`StageDefinition.threshold_exit` was decorative).** Mission 100
+  found `threshold_exit` accepted at config load but never read by the
+  runtime — both `_monotonic_stage_walk` and `_free_mode_stages` build
+  their threshold array from `threshold_enter` only. The bundled saas
+  and hr templates set `threshold_exit` on three of four stages each;
+  those values were producing identical stage-column output to a
+  config that omitted them entirely.
+
+  After grep confirmed the field is decorative in every runtime path
+  (mission 102 / Phase 2 audit, option 2 of three considered),
+  `StageSequence` now accepts two semantics for `threshold_exit` and
+  the runtime acts on hysteresis configs:
+
+  * **Legacy mode** (`threshold_exit > threshold_enter`, the bundled-
+    template default): non-overlap upper-bound semantic. Each stage
+    spans `[threshold_enter, threshold_exit)`; stages must not
+    overlap (`prev.threshold_exit <= curr.threshold_enter`). The
+    runtime ignores `threshold_exit` and walks on `threshold_enter`
+    only — output is byte-identical to pre-F8 for every config in
+    this mode. The five bundled templates all use this mode; their
+    on-disk output is unchanged.
+  * **Hysteresis mode** (`threshold_exit <= threshold_enter`): the
+    F8 wiring. `threshold_enter` is the upward entry threshold;
+    `threshold_exit` is the downward demote threshold. Constraint:
+    `prev.threshold_enter <= this.threshold_exit <= this.threshold_enter`.
+    `_monotonic_stage_walk` (under `enforce_order=True`) demotes when
+    the value drops below `current_stage.threshold_exit`. With
+    `downgrade_delay=None` this collapses to delay=1 (immediate
+    demote); with `downgrade_delay=N` the demote fires after `N`
+    consecutive periods below exit. The hysteresis band
+    `[threshold_exit, threshold_enter]` keeps the entity in the
+    higher stage on transient dips.
+
+  Mixed sequences (some stages legacy, others hysteresis) are
+  rejected at load with both per-stage modes named in the message.
+  Free mode (`enforce_order=False`) is stateless and ignores the
+  hysteresis distinction in either mode. `StageSequence.mode` is
+  exposed as a derived property so callers can introspect without
+  re-deriving the relationship.
+
+  Bundled templates verified byte-identical. Hysteresis runtime
+  effect verified by `tests/test_stage_threshold_exit.py` (10 cases:
+  legacy strict-monotonic, legacy + delay, hysteresis demote on
+  immediate, hysteresis + delay, mixed-mode rejection, legacy-
+  overlap rejection, hysteresis-prev-enter rejection, end-to-end
+  legacy + hysteresis loads, mode-property unit).
+
 - **F7 (duplicate correlation entries silently last-write-wins).**
   `PlotsimConfig` previously accepted any list of `CorrelationPair`
   entries without checking for duplicate `(metric_a, metric_b)`

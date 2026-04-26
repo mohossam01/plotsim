@@ -1207,6 +1207,7 @@ def _monotonic_stage_walk(
     values: np.ndarray,
     thresholds: np.ndarray,
     downgrade_delay: Optional[int],
+    exit_thresholds: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Per-entity stage walk — cursor advances monotonically, optional downgrade.
 
@@ -1215,15 +1216,30 @@ def _monotonic_stage_walk(
     ``stages.sequence``. Returns a 1D int array of stage indices matching
     the scalar path byte-for-byte.
 
-    * ``downgrade_delay is None`` — pure monotonic. ``actual`` per row is
+    * ``downgrade_delay is None and exit_thresholds is None`` — pure
+      legacy monotonic. ``actual`` per row is
       ``searchsorted(thresholds, v, side='right') - 1``; NaN rows hold
-      ``actual=0`` and are dominated by the running max. Fully vectorized
-      via :func:`np.maximum.accumulate`.
-    * ``downgrade_delay`` is ``N`` — sequential cursor with consecutive
-      ``below-cursor`` counter. A short per-entity Python loop; the
-      per-entity size is the period count, so total work is
-      O(n_entities * n_periods) identical to the iterrows path but
-      without pandas row-materialization overhead.
+      ``actual=0`` and are dominated by the running max. Fully
+      vectorized via :func:`np.maximum.accumulate`. Byte-identical to
+      the pre-F8 / pre-FIX-07 iterrows path.
+    * ``downgrade_delay`` is ``N`` (legacy mode) — sequential cursor
+      with consecutive ``below-cursor`` counter. A short per-entity
+      Python loop; the per-entity size is the period count, so total
+      work is O(n_entities * n_periods) identical to the iterrows path
+      but without pandas row-materialization overhead.
+    * ``exit_thresholds`` is set (F8 / 0.5 hysteresis mode) — sequential
+      cursor with demote check ``value < exit_thresholds[cursor]``.
+      ``downgrade_delay=None`` collapses to delay=1 (immediate demote
+      once value drops below exit). ``downgrade_delay=N`` requires
+      ``N`` consecutive periods below exit before demotion fires.
+      Cursor demotes to ``actual[i]`` (the searchsorted-derived stage
+      for the current value), so a sharp drop can skip multiple stages
+      in one demote step — matching the upward path's behavior.
+
+    All three branches share a single algorithm shape; the differences
+    are which threshold drives the demote check and what the delay is.
+    Legacy strict-monotonic preserves the vectorized fast path because
+    no demote can ever fire under that combination of inputs.
     """
     n = len(values)
     n_stages = len(thresholds)
@@ -1235,8 +1251,19 @@ def _monotonic_stage_walk(
         actual[mask] = np.searchsorted(thresholds, values[mask], side="right") - 1
     np.clip(actual, 0, n_stages - 1, out=actual)
 
-    if downgrade_delay is None:
+    if downgrade_delay is None and exit_thresholds is None:
         return np.maximum.accumulate(actual)
+
+    # demote_t: per-stage threshold below which the cursor can demote.
+    # Legacy with delay: equals ``thresholds`` (threshold_enter), so
+    # ``value < demote_t[cursor]`` is equivalent to the old
+    # ``actual[i] < cursor`` check (both mean values[i] dropped below
+    # the current stage's entry).
+    # Hysteresis: equals ``exit_thresholds``, demote when value drops
+    # below the current stage's exit threshold (a tighter band).
+    demote_t = exit_thresholds if exit_thresholds is not None else thresholds
+    # Hysteresis without explicit delay = immediate demote (delay 1).
+    delay = downgrade_delay if downgrade_delay is not None else 1
 
     out = np.empty(n, dtype=np.int64)
     cursor = 0
@@ -1245,13 +1272,14 @@ def _monotonic_stage_walk(
         if not mask[i]:
             out[i] = cursor
             continue
+        v = float(values[i])
         a = int(actual[i])
         if a > cursor:
             cursor = a
             lower_streak = 0
-        elif a < cursor:
+        elif v < demote_t[cursor]:
             lower_streak += 1
-            if lower_streak >= downgrade_delay:
+            if lower_streak >= delay:
                 cursor = a
                 lower_streak = 0
         else:
@@ -1290,21 +1318,33 @@ def assign_stages(
 
     With ``enforce_order=True`` the cursor advances whenever the value
     crosses the next stage's ``threshold_enter``. Cursor reversal depends
-    on FIX-06's ``downgrade_delay``:
+    on FIX-06's ``downgrade_delay`` and on the F8 / 0.5 ``mode``:
 
-      * ``downgrade_delay is None`` (default) — strict monotonic; the
-        cursor never steps back. A brief dip stays in the higher stage.
-      * ``downgrade_delay == N`` — after ``N`` consecutive periods at a
-        lower stage, the cursor decrements to match. Reset on any
-        period that matches the current cursor or above.
+      * ``mode == 'legacy'`` (``threshold_exit > threshold_enter``,
+        the bundled-template default): the runtime ignores
+        ``threshold_exit`` and relies on ``threshold_enter`` only.
+        ``downgrade_delay is None`` is strict monotonic — the cursor
+        never steps back; a brief dip stays in the higher stage.
+        ``downgrade_delay == N`` demotes after ``N`` consecutive
+        periods below the current stage's enter threshold.
+      * ``mode == 'hysteresis'`` (``threshold_exit <= threshold_enter``,
+        F8 wiring): the runtime uses ``threshold_exit`` of the current
+        stage as the demote threshold. ``downgrade_delay is None``
+        collapses to delay=1 (immediate demote once the value drops
+        below the current stage's exit). ``downgrade_delay == N``
+        requires ``N`` consecutive periods below exit before demotion
+        fires. The hysteresis band ``[threshold_exit, threshold_enter]``
+        keeps the entity in the higher stage on transient dips.
 
-    With ``enforce_order=False``, ``downgrade_delay`` is ignored and
-    each period chooses the highest-enter stage that the value satisfies.
+    With ``enforce_order=False``, both ``downgrade_delay`` and
+    ``threshold_exit`` are ignored and each period chooses the
+    highest-enter stage that the value satisfies. Free mode is
+    stateless, so hysteresis has no meaning there.
 
     FIX-07 / SF-5: the implementation is vectorized via pandas
     ``groupby`` + numpy walks (see :func:`_monotonic_stage_walk` and
     :func:`_free_mode_stages`). Output is byte-identical to the prior
-    ``iterrows`` path; parity is locked in by
+    ``iterrows`` path under legacy mode; parity is locked in by
     ``test_vectorized_assign_stages_matches_iterrows_output``.
     """
     if config.stages is None:
@@ -1342,6 +1382,24 @@ def assign_stages(
     )
     stage_names = np.asarray([s.name for s in seq], dtype=object)
 
+    # F8 / 0.5: under hysteresis mode, build an exit-thresholds array
+    # parallel to ``thresholds`` for the demote check. Terminal stage
+    # has threshold_exit=None; fall back to its enter threshold (the
+    # cursor cannot demote from terminal in monotonic mode anyway —
+    # a > cursor is always true, demote branch is dead). Free mode
+    # stays legacy regardless: it's stateless, hysteresis is a
+    # no-op there.
+    exit_thresholds: Optional[np.ndarray] = None
+    if enforce and config.stages.mode == "hysteresis":
+        exit_thresholds = np.asarray(
+            [
+                s.threshold_exit if s.threshold_exit is not None
+                else s.threshold_enter
+                for s in seq
+            ],
+            dtype=float,
+        )
+
     # Coerce the driving field to a numeric 1D array with NaN for nulls.
     raw = df[field].to_numpy()
     values = np.empty(n, dtype=float)
@@ -1363,6 +1421,7 @@ def assign_stages(
             pos_arr = np.asarray(positions, dtype=np.int64)
             stage_idx[pos_arr] = _monotonic_stage_walk(
                 values[pos_arr], thresholds, downgrade_delay,
+                exit_thresholds=exit_thresholds,
             )
 
     df["stage"] = stage_names[stage_idx]

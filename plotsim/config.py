@@ -776,23 +776,70 @@ class StageDefinition(_Frozen):
 class StageSequence(_Frozen):
     """Ordered lifecycle stages gated by a driving metric/field.
 
-    Validated here: at least 2 stages, last stage is terminal (exit=None),
-    non-terminal stages have exit set and enter < exit, and
-    stage N's exit <= stage (N+1)'s enter (no overlap; contiguous allowed).
-    `field` reference is checked against metrics in PlotsimConfig.
-    `enforce_order` is stored for Mission 006 to consume at generation time.
+    Two semantics for ``threshold_exit`` are accepted; pick one
+    consistently across all non-terminal stages:
 
-    FIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity under
-    ``enforce_order=True`` by letting the cursor step backwards once an
-    entity has sat in a lower-stage value range for ``downgrade_delay``
-    consecutive periods. ``None`` (default) preserves the pre-FIX-06
-    strict-monotonic behavior. Ignored when ``enforce_order=False``
-    (stages already oscillate freely in that mode).
+    * **Legacy** (``threshold_exit > threshold_enter``) — non-overlap
+      upper-bound semantic. Each stage spans
+      ``[threshold_enter, threshold_exit)``; stages must not overlap
+      (``prev.threshold_exit <= curr.threshold_enter``); contiguous
+      stages (``prev.exit == curr.enter``) are allowed and typical.
+      ``threshold_exit`` is decorative at runtime — both
+      ``_monotonic_stage_walk`` and ``_free_mode_stages`` consume only
+      ``threshold_enter``. The five bundled templates use this mode.
+
+    * **Hysteresis** (``threshold_exit ≤ threshold_enter``) — F8 / 0.5
+      addition. ``threshold_enter`` is the upward entry threshold;
+      ``threshold_exit`` is the downward demotion threshold (lower than
+      enter, providing a hysteresis band where the entity stays in the
+      higher stage on transient dips). Constraint:
+      ``prev.threshold_enter ≤ this.threshold_exit ≤ this.threshold_enter``.
+      Activates the runtime demote path in ``_monotonic_stage_walk``
+      (under ``enforce_order=True``); ``enforce_order=False`` is
+      stateless and ignores the hysteresis distinction.
+
+    Mixed sequences (some stages legacy, others hysteresis) are
+    rejected at load.
+
+    Last stage is always terminal (``threshold_exit=None``); non-
+    terminal stages must have ``threshold_exit`` set under either
+    semantic. ``field`` reference is checked against metrics in
+    PlotsimConfig. ``enforce_order`` is stored for Mission 006 to
+    consume at generation time.
+
+    FIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity
+    under ``enforce_order=True`` by letting the cursor step backwards
+    once an entity has sat below the demote threshold for
+    ``downgrade_delay`` consecutive periods. ``None`` (default)
+    preserves strict-monotonic behavior under legacy mode and
+    immediate-demote behavior under hysteresis mode. Ignored when
+    ``enforce_order=False``.
     """
     field: str
     sequence: list[StageDefinition] = Field(min_length=2, max_length=10)
     enforce_order: bool = True
     downgrade_delay: Optional[int] = Field(default=None, ge=1, le=120)
+
+    @property
+    def mode(self) -> str:
+        """Derived per-config: ``'legacy'`` or ``'hysteresis'``.
+
+        F8 / 0.5: derived from the relationship between
+        ``threshold_exit`` and ``threshold_enter`` on the first
+        non-terminal stage. ``_sequence_is_valid`` enforces consistency,
+        so the mode is unambiguous after load. Sequences with only a
+        terminal stage cannot exist (``min_length=2``); a sequence whose
+        non-terminal stages all have ``exit > enter`` is ``'legacy'``;
+        otherwise ``'hysteresis'``.
+        """
+        seq_non_terminal = self.sequence[:-1]
+        first = seq_non_terminal[0]
+        # Validator guarantees first.threshold_exit is not None for non-
+        # terminal stages.
+        assert first.threshold_exit is not None
+        if first.threshold_exit > first.threshold_enter:
+            return "legacy"
+        return "hysteresis"
 
     @model_validator(mode="after")
     def _sequence_is_valid(self) -> "StageSequence":
@@ -808,20 +855,68 @@ class StageSequence(_Frozen):
                     f"stage {stage.name!r} is not terminal but has "
                     f"threshold_exit: null"
                 )
-            if stage.threshold_enter >= stage.threshold_exit:
-                raise ValueError(
-                    f"stage {stage.name!r} threshold_enter ({stage.threshold_enter}) "
-                    f">= threshold_exit ({stage.threshold_exit})"
-                )
-        for prev, curr in zip(seq, seq[1:]):
-            # prev.threshold_exit is not None (prev is not last).
-            assert prev.threshold_exit is not None
-            if prev.threshold_exit > curr.threshold_enter:
-                raise ValueError(
-                    f"stage {prev.name!r} threshold_exit ({prev.threshold_exit}) "
-                    f"> {curr.name!r} threshold_enter ({curr.threshold_enter}); "
-                    f"stages must not overlap"
-                )
+
+        # F8: detect per-stage mode and enforce consistency. Mixing
+        # legacy (exit > enter) with hysteresis (exit ≤ enter) within
+        # one sequence makes the runtime semantic ambiguous; reject.
+        per_stage_modes: dict[str, str] = {}
+        for stage in seq[:-1]:
+            assert stage.threshold_exit is not None
+            if stage.threshold_exit > stage.threshold_enter:
+                per_stage_modes[stage.name] = "legacy"
+            else:
+                per_stage_modes[stage.name] = "hysteresis"
+        if len(set(per_stage_modes.values())) > 1:
+            raise ValueError(
+                f"stage sequence mixes 'legacy' (threshold_exit > "
+                f"threshold_enter; non-overlap upper-bound semantic) and "
+                f"'hysteresis' (threshold_exit <= threshold_enter; "
+                f"downward-band semantic). Pick one consistent mode. "
+                f"Per-stage modes: {per_stage_modes}"
+            )
+        detected_mode = next(iter(set(per_stage_modes.values())))
+
+        if detected_mode == "legacy":
+            # Existing rule: prev.exit ≤ curr.enter (no overlap).
+            for prev, curr in zip(seq, seq[1:]):
+                assert prev.threshold_exit is not None
+                if prev.threshold_exit > curr.threshold_enter:
+                    raise ValueError(
+                        f"stage {prev.name!r} threshold_exit "
+                        f"({prev.threshold_exit}) > {curr.name!r} "
+                        f"threshold_enter ({curr.threshold_enter}); "
+                        f"stages must not overlap (legacy mode)"
+                    )
+        else:
+            # Hysteresis mode rules:
+            #   1. threshold_enter strictly ascending (no two stages share
+            #      an entry point).
+            #   2. For each non-terminal stage at index i ≥ 1:
+            #      threshold_exit ≥ seq[i-1].threshold_enter — the
+            #      hysteresis band of stage i lies above the previous
+            #      stage's entry, so demoting from i lands the entity in
+            #      stage (i-1) (or lower).
+            for prev, curr in zip(seq, seq[1:]):
+                if curr.threshold_enter <= prev.threshold_enter:
+                    raise ValueError(
+                        f"stage {curr.name!r} threshold_enter "
+                        f"({curr.threshold_enter}) <= {prev.name!r} "
+                        f"threshold_enter ({prev.threshold_enter}); stage "
+                        f"threshold_enter must be strictly ascending "
+                        f"(hysteresis mode)"
+                    )
+            for prev, curr in zip(seq[:-2], seq[1:-1]):
+                # curr is non-terminal (skipped seq[-1]); has exit set.
+                assert curr.threshold_exit is not None
+                if curr.threshold_exit < prev.threshold_enter:
+                    raise ValueError(
+                        f"stage {curr.name!r} threshold_exit "
+                        f"({curr.threshold_exit}) < {prev.name!r} "
+                        f"threshold_enter ({prev.threshold_enter}); "
+                        f"hysteresis exit must be >= previous stage's "
+                        f"threshold_enter so demotion lands in a defined "
+                        f"lower stage"
+                    )
         return self
 
 
