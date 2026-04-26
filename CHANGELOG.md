@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F4 (`write_tables` mutated the caller's DataFrame).** `write_tables`
+  → `write_single_table` used to call `output._coerce_integer_columns`
+  directly on the user's DataFrame, reassigning each `dtype:int` column
+  in place via `df[col] = series.astype("Int64")`. Even when the dtype
+  was already correct after F3, the astype call replaced the Series
+  *object*, silently invalidating the user's references to the column.
+  `write_single_table` now takes a shallow copy of the DataFrame
+  (column-selected `.loc[:, ordered].copy(deep=False)`) before any
+  promotion runs. Memory overhead is one Series wrapper per column —
+  the underlying float arrays stay shared.
+
+  User-facing impact: `tables[name]` is now untouched by `write_tables`.
+  Series objects, dtypes, and any user-added columns survive the call.
+  The most natural CSV round-trip (`pd.read_csv(written_path)` with
+  default backend) recovers dtypes that match the in-memory ones under
+  documented equivalences (`Int64` with no nulls ≡ `int64`; `Int64`
+  with nulls ≡ `float64`; `BooleanDtype` with no nulls ≡ `bool`;
+  `BooleanDtype` with nulls ≡ `object`). Verified by
+  `tests/test_dataframe_mutation.py` (mutation-identity assertion,
+  custom-column preservation, default-backend round-trip with
+  normalization helper).
+
 - **F3 (vectorized fact-builder dtype on `dtype:int` / `dtype:boolean`
   metric columns).** The vectorized fact-builder used to assign the raw
   float64 slice from `metrics_3d` straight into MetricSource and

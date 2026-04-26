@@ -12,17 +12,25 @@ This file holds the regression tests for two related Phase 1 fixes:
   ``Int64`` / ``BooleanDtype`` extension arrays that match what the writer
   produces — closing the in-memory-vs-on-disk gap.
 
-* **F4 (mutation section).** ``write_tables``' call to
-  ``_coerce_integer_columns`` mutates the caller's DataFrame in place,
-  silently changing dtypes after the user has handed over the dict. The
-  fix takes a shallow copy of the columns being mutated. (Test still TBD —
-  added by the F4 commit.)
+* **F4 (mutation section).** ``write_tables`` → ``write_single_table`` used
+  to call ``_coerce_integer_columns`` directly on the caller's DataFrame,
+  mutating int columns in place (replacing the Series object even when the
+  dtype was already correct after F3). F4 wraps every call in a shallow
+  copy so the user's dict is never mutated. The mutation tests below assert
+  the contract from three angles:
 
-Tests below exercise the F3 contract: every fact-table column declared
-``dtype: int`` resolves to an integer-like dtype in the in-memory dataframe,
-AND that dtype matches what comes back when the CSV is round-tripped via
-``pd.read_csv(..., dtype_backend='numpy_nullable')`` — locking the
-in-memory-vs-on-disk parity from both sides.
+    1. Declared int-column Series objects are *identical* after
+       ``write_tables`` — proves the in-place reassignment is gone.
+    2. User-added columns (a custom float metric the user attaches between
+       ``generate_tables`` and ``write_tables``) round-trip with their dtype
+       intact — proves write_tables doesn't reach into anything beyond the
+       config-declared columns.
+    3. ``pd.read_csv(...)`` (default backend, no nullable hint) recovers
+       dtypes that are compatible with the in-memory ones under documented
+       CSV equivalences (Int64-with-no-NA ≡ int64; Int64-with-NA ≡ float64;
+       BooleanDtype-with-no-NA ≡ bool; BooleanDtype-with-NA ≡ object) —
+       proves the most natural user round-trip works without specifying
+       ``dtype_backend='numpy_nullable'``.
 """
 from __future__ import annotations
 
@@ -157,3 +165,184 @@ def test_in_memory_dtype_matches_on_disk_round_trip(template_config, tmp_path):
             f"This is the property the F3 fix locks down — vectorized path "
             f"and write_tables must agree on the column's serialized dtype."
         )
+
+
+# --- F4: write_tables must not mutate the caller's dataframe ----------------
+
+
+def test_write_tables_does_not_mutate_int_column_series_objects(template_config, tmp_path):
+    """F4 — every declared ``dtype:int`` fact-table column must reference
+    the same Series object after ``write_tables`` as before.
+
+    Pre-fix: ``_coerce_integer_columns`` runs ``df[col] = series.astype('Int64')``
+    on the caller's dataframe, replacing the Series object even when the
+    dtype is already Int64 (idempotent astype still returns a new wrapper).
+    The dtype is unchanged post-F3 but the *object identity* is not.
+    Identity is the cleanest pre-fix-failing observable because the
+    behavioral change is "your reference becomes stale."
+
+    Post-fix: write_tables operates on a shallow copy; the user's
+    Series objects are untouched.
+    """
+    template, cfg = template_config
+    rng = np.random.default_rng(cfg.seed)
+    tables = generate_tables(cfg, rng)
+
+    targets = _int_metric_columns(cfg)
+    assert targets, f"{template}: no int-dtype metric columns found — test setup wrong"
+
+    # Snapshot Series identity (and dtype) before write_tables.
+    snapshots = {
+        (tbl_name, col_name): tables[tbl_name][col_name]
+        for tbl_name, col_name in targets
+    }
+
+    write_tables(tables, cfg, output_dir=tmp_path)
+
+    for (tbl_name, col_name), original in snapshots.items():
+        current = tables[tbl_name][col_name]
+        assert current is original, (
+            f"F4 regression: {template}/{tbl_name}.{col_name} Series object "
+            f"was replaced by write_tables (pre-fix _coerce_integer_columns "
+            f"runs `df[col] = series.astype('Int64')` on the caller's df). "
+            f"User references to the column are silently invalidated."
+        )
+        assert current.dtype == original.dtype, (
+            f"F4 regression: {template}/{tbl_name}.{col_name} dtype changed "
+            f"from {original.dtype!r} to {current.dtype!r} during write_tables."
+        )
+
+
+def test_write_tables_does_not_touch_user_added_columns(template_config, tmp_path):
+    """F4 — columns the user attached between generate_tables and
+    write_tables must round-trip with their original dtype intact.
+
+    Locks the broader contract beyond declared int columns: write_tables
+    is read-only against the caller's dict. Adds a custom float column
+    whose name does not collide with any declared column, then asserts it
+    is byte-identical post-write.
+    """
+    template, cfg = template_config
+    rng = np.random.default_rng(cfg.seed)
+    tables = generate_tables(cfg, rng)
+
+    # Pick the first fact table; attach a custom float column the user
+    # might compute themselves (e.g., a derived ratio). Name is chosen to
+    # not collide with any declared column.
+    fact_name = next(t.name for t in cfg.tables if t.type == "fact")
+    fact_df = tables[fact_name]
+    custom_values = np.linspace(0.0, 1.0, num=len(fact_df), dtype=np.float64)
+    fact_df["plotsim_user_added_ratio"] = custom_values
+    snapshot_dtype = fact_df["plotsim_user_added_ratio"].dtype
+    snapshot_values = fact_df["plotsim_user_added_ratio"].copy()
+
+    write_tables(tables, cfg, output_dir=tmp_path)
+
+    assert "plotsim_user_added_ratio" in tables[fact_name].columns, (
+        f"F4 regression: {template}/{fact_name} dropped a user-added column "
+        f"during write_tables — the user's dict is mutated."
+    )
+    after = tables[fact_name]["plotsim_user_added_ratio"]
+    assert after.dtype == snapshot_dtype, (
+        f"F4 regression: {template}/{fact_name}.plotsim_user_added_ratio "
+        f"dtype changed from {snapshot_dtype!r} to {after.dtype!r} during "
+        f"write_tables — write_tables touched a column it doesn't own."
+    )
+    assert after.equals(snapshot_values), (
+        f"F4 regression: {template}/{fact_name}.plotsim_user_added_ratio "
+        f"values changed during write_tables."
+    )
+
+
+# --- F4: in-memory ↔ on-disk round-trip under default pd.read_csv backend ---
+
+
+def _csv_round_trip_kind(series: pd.Series) -> tuple[str, bool]:
+    """Normalize a pandas Series dtype to a (kind, has_na) tuple that
+    survives CSV serialization. Used to compare in-memory dtypes against
+    dtypes inferred by ``pd.read_csv`` (default numpy backend, NOT
+    ``dtype_backend='numpy_nullable'``).
+
+    Mapping:
+      * any integer (Int64 / int64) → "int"
+      * any float (float64 / Float64) → "float"
+      * any bool (BooleanDtype / bool / bool_) → "bool"
+      * everything else (object / string / date) → "object"
+    """
+    dt = series.dtype
+    has_na = bool(series.isna().any())
+    if pd.api.types.is_integer_dtype(dt):
+        return "int", has_na
+    if pd.api.types.is_float_dtype(dt):
+        return "float", has_na
+    if pd.api.types.is_bool_dtype(dt):
+        return "bool", has_na
+    return "object", has_na
+
+
+def _round_trip_compatible(in_memory: pd.Series, on_disk: pd.Series) -> bool:
+    """True iff ``on_disk`` is a CSV-round-trip-compatible representation
+    of ``in_memory`` under ``pd.read_csv``'s default dtype inference.
+
+    Known equivalences (lossy at the type-tag level, lossless at the value
+    level under the empty-string null convention plotsim writes with):
+
+      * Int64 with no nulls  ≡ int64    (pd.read_csv reads as int64)
+      * Int64 with nulls     ≡ float64  (NaN promotes int → float in numpy)
+      * Float64              ≡ float64
+      * BooleanDtype no NA   ≡ bool
+      * BooleanDtype with NA ≡ object   (NaN cells → string "True"/"False" mix)
+      * object               ≡ object   (string columns, dates as strings)
+    """
+    in_kind, in_has_na = _csv_round_trip_kind(in_memory)
+    on_kind, _ = _csv_round_trip_kind(on_disk)
+
+    if in_kind == on_kind:
+        return True
+    if in_kind == "int" and in_has_na and on_kind == "float":
+        return True
+    if in_kind == "bool" and in_has_na and on_kind == "object":
+        return True
+    return False
+
+
+def test_csv_round_trip_default_backend_dtype_compatibility(template_config, tmp_path):
+    """F4 / F3 joint contract — every fact-table column's in-memory dtype
+    must be CSV-round-trip-compatible with the dtype ``pd.read_csv``
+    recovers under default settings (no ``dtype_backend`` hint).
+
+    Default ``pd.read_csv`` is the most common user path. The contract:
+    in-memory and on-disk-then-read agree under documented equivalences
+    (see ``_round_trip_compatible``). This is the property the operator
+    flagged: the two paths must agree from every angle a user can observe,
+    not just under the explicit numpy-nullable backend tested above.
+    """
+    template, cfg = template_config
+    rng = np.random.default_rng(cfg.seed)
+    tables = generate_tables(cfg, rng)
+
+    # Snapshot every fact-table column's in-memory series BEFORE write_tables
+    # — guards against the F4 mutation hiding pre-fix dtype divergence.
+    fact_tables = {t.name for t in cfg.tables if t.type == "fact"}
+    in_memory: dict[tuple[str, str], pd.Series] = {}
+    for name in fact_tables:
+        for col_name in tables[name].columns:
+            in_memory[(name, col_name)] = tables[name][col_name].copy()
+
+    write_tables(tables, cfg, output_dir=tmp_path)
+
+    for name in fact_tables:
+        on_disk_df = pd.read_csv(tmp_path / f"{name}.csv")
+        for col_name in on_disk_df.columns:
+            in_mem = in_memory.get((name, col_name))
+            if in_mem is None:
+                # Reordered or extra column the user didn't see in-memory.
+                continue
+            on_disk = on_disk_df[col_name]
+            assert _round_trip_compatible(in_mem, on_disk), (
+                f"F4/F3 round-trip mismatch: {template}/{name}.{col_name} "
+                f"in-memory dtype={in_mem.dtype!r} (has_na={in_mem.isna().any()}) "
+                f"is not CSV-round-trip-compatible with on-disk-then-read "
+                f"dtype={on_disk.dtype!r}. The two paths disagree at the "
+                f"default-backend level the typical user sees."
+            )

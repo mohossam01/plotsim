@@ -109,10 +109,11 @@ def _coerce_integer_columns(
     cells render as the empty string (via ``na_rep=""``).
 
     Category B Layer 4: the prior ``df.copy()`` doubled fact-table memory on
-    large runs. The Int64 promotion now runs in-place — acceptable because
-    the promotion is semantically no-op (same values, nullable-int instead
-    of float/object) and the resulting dtype is always the correct one for
-    this column's CSV rendering.
+    large runs. The Int64 promotion now runs in-place on whatever ``df`` is
+    passed — F4 (M102) wraps every external call in a shallow copy at the
+    ``write_single_table`` layer so the user's dataframe is not mutated
+    (the shallow copy keeps memory flat: one Series-wrapper per column
+    instead of duplicating the underlying arrays).
     """
     for col in tbl.columns:
         if col.dtype != "int" or col.name not in df.columns:
@@ -166,9 +167,15 @@ def write_single_table(
     tbl = _table_by_name(config, name) if config is not None else None
     to_write = df
     if tbl is not None:
-        to_write = _coerce_integer_columns(tbl, df)
-        ordered = _ordered_columns(tbl, list(to_write.columns))
-        to_write = to_write.loc[:, ordered]
+        # F4 (M102): take a shallow copy before `_coerce_integer_columns`
+        # rewrites integer-column references. Shallow because we only
+        # reassign whole columns (no array-data duplication), so the user's
+        # `tables[name]` keeps its original Series objects and dtypes —
+        # closing the silent in-place-mutation that pre-fix changed
+        # `tables[name][int_col]` underneath the caller during write.
+        ordered = _ordered_columns(tbl, list(df.columns))
+        to_write = df.loc[:, ordered].copy(deep=False)
+        _coerce_integer_columns(tbl, to_write)
 
     to_write.to_csv(
         path,
