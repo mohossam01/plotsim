@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F5 (validation_report.txt determinism).** `output._format_report`
+  injected `datetime.now()` into the `Generated:` header line, so two
+  invocations of `write_tables` with the same `(config, seed)` produced
+  byte-different `validation_report.txt` files. CSV output was already
+  deterministic; the validation report alone broke the project's
+  "same config + same seed → byte-identical output" invariant.
+
+  `write_tables` and `write_validation_report` now accept an optional
+  `generated_at: datetime` parameter. When omitted (the library default),
+  the `Generated:` line renders a deterministic identifier — a 16-character
+  SHA-256 prefix of the JSON-serialized config dump (`config-sha256[:16]`).
+  CLI's `cmd_run` passes `generated_at=datetime.now()` so operators still
+  see the wall-clock stamp; library callers get determinism by default.
+
+  Same config + same seed now produces byte-identical `validation_report.txt`
+  across runs, completing determinism for every file `write_tables` emits.
+  Layer4 reference fixtures were regenerated to the new deterministic
+  format (one-time fixture commit). Verified by
+  `tests/test_validation_report_determinism.py` (byte-identical across
+  runs, fingerprint present by default, explicit `generated_at` honored).
+
 - **F4 (`write_tables` mutated the caller's DataFrame).** `write_tables`
   → `write_single_table` used to call `output._coerce_integer_columns`
   directly on the user's DataFrame, reassigning each `dtype:int` column

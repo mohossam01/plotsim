@@ -1,6 +1,6 @@
 Plotsim Validation Report
 ==========================
-Generated: 2026-04-23T21:13:38
+Generated: deterministic (config-sha256[:16]=aead68b5bc7319b3)
 Errors: 0 | Warnings: 0 | Total: 0
 Status: VALID
 

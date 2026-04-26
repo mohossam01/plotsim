@@ -153,8 +153,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     # escape hatch for power users who deliberately want to write elsewhere.
     base_dir = None if args.allow_absolute_output else Path.cwd()
     try:
+        # F5 (M102): the CLI is the wall-clock-stamp consumer of the
+        # validation report; library callers default to generated_at=None
+        # and get a deterministic config-fingerprint instead.
         target = write_tables(
             tables, config, report, output_dir=output_dir, base_dir=base_dir,
+            generated_at=_dt.datetime.now(),
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)

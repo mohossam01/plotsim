@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import csv
 import datetime as _dt
+import hashlib
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -211,14 +213,42 @@ def write_config_copy(
 # --- Validation report -------------------------------------------------------
 
 
-def _format_report(report: ValidationReport) -> str:
+def _config_fingerprint(config: PlotsimConfig) -> str:
+    """16-char SHA-256 prefix of the JSON-serialized config dump.
+
+    F5 (M102): provides a deterministic identifier for the validation report
+    when no wall-clock ``generated_at`` is supplied. ``model_dump(mode='json')``
+    emits dates / Decimals / etc. as primitive types; ``sort_keys=True`` and
+    ``default=str`` make the serialization order-stable for any field
+    pydantic v2 might still leave as a Python object after the JSON-mode
+    dump. Same config + same plotsim version → same fingerprint.
+    """
+    payload = config.model_dump(mode="json")
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def _format_report(
+    report: ValidationReport,
+    generated_at: Optional[_dt.datetime] = None,
+    config: Optional[PlotsimConfig] = None,
+) -> str:
     errors = report.errors
     warnings = report.warnings
     status = "VALID" if report.ok else "INVALID"
+    if generated_at is not None:
+        stamp = generated_at.isoformat(timespec="seconds")
+    elif config is not None:
+        # F5 (M102): deterministic by default — same config + same seed →
+        # byte-identical report. CLI passes generated_at to keep the
+        # wall-clock timestamp visible to operators (see cli.cmd_run).
+        stamp = f"deterministic (config-sha256[:16]={_config_fingerprint(config)})"
+    else:
+        stamp = "deterministic"
     header = [
         "Plotsim Validation Report",
         "==========================",
-        f"Generated: {_dt.datetime.now().isoformat(timespec='seconds')}",
+        f"Generated: {stamp}",
         f"Errors: {len(errors)} | Warnings: {len(warnings)} | Total: {len(report.issues)}",
         f"Status: {status}",
         "",
@@ -241,17 +271,29 @@ def _format_report(report: ValidationReport) -> str:
 def write_validation_report(
     report: ValidationReport,
     output_dir: Path,
+    generated_at: Optional[_dt.datetime] = None,
+    config: Optional[PlotsimConfig] = None,
 ) -> Path:
     """Write ``report`` as a human-readable text file.
 
     Header shows error/warning counts and overall VALID/INVALID status;
     body is one line per issue with the check name, table (or ``-``),
     the message, and a details block.
+
+    F5 (M102): the ``Generated:`` line renders the supplied ``generated_at``
+    timestamp, or — when omitted — a deterministic identifier derived from
+    ``config`` (a short SHA-256 prefix of the config dump). ``write_tables``
+    threads ``config`` through automatically; direct callers that want the
+    fingerprint should pass ``config`` explicitly. CLI's ``cmd_run`` passes
+    ``generated_at=datetime.now()`` to keep the wall-clock stamp.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / REPORT_FILENAME
-    path.write_text(_format_report(report), encoding=CSV_ENCODING)
+    path.write_text(
+        _format_report(report, generated_at=generated_at, config=config),
+        encoding=CSV_ENCODING,
+    )
     return path
 
 
@@ -265,6 +307,7 @@ def write_tables(
     output_dir: str | Path | None = None,
     float_format: str = FLOAT_FORMAT,
     base_dir: str | Path | None = None,
+    generated_at: Optional[_dt.datetime] = None,
 ) -> Path:
     """Write every generated table, the config copy, and the validation report.
 
@@ -300,7 +343,7 @@ def write_tables(
         write_single_table(name, df, target, config=config, float_format=float_format)
 
     write_config_copy(config, target)
-    write_validation_report(report, target)
+    write_validation_report(report, target, generated_at=generated_at, config=config)
     return target
 
 
