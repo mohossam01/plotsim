@@ -732,7 +732,7 @@ def build_event_tables(
         if threshold_col is not None:
             out[tbl.name] = _build_threshold_event(
                 tbl, threshold_col, config, fact_tables, dim_tables,
-                per_entity_dims, fake,
+                per_entity_dims, fake, rng,
             )
             continue
         out[tbl.name] = pd.DataFrame(columns=[c.name for c in tbl.columns])
@@ -1012,6 +1012,7 @@ def _build_threshold_event(
     dim_tables: dict[str, pd.DataFrame],
     per_entity_dims: set[str],
     fake: Faker,
+    rng: np.random.Generator,
 ) -> pd.DataFrame:
     threshold_col_cfg, ts = threshold_col_pair
     located = _find_metric_column_in_facts(ts.metric, fact_tables, config)
@@ -1051,7 +1052,7 @@ def _build_threshold_event(
                     row = _resolve_event_row(
                         tbl, pk_counter, date_key_value, entity_pk_value,
                         threshold_col_cfg.name, True,
-                        dim_date, dim_tables, config, fake, rng=None,
+                        dim_date, dim_tables, config, fake, rng=rng,
                     )
                     rows.append(row)
                     pk_counter += 1

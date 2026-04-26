@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F1 (sub-entity FK collapse on threshold events).** Threshold-event
+  tables that FK into a sub-entity dim now distribute their FKs across
+  the parent's candidate sub-entities instead of always picking the
+  first row. Pre-fix, `_build_threshold_event` called `_resolve_event_row`
+  with `rng=None`, which made the sub-entity FK branch fall back to
+  `candidates.iloc[0]` — silently attributing every threshold event for
+  a given parent to the same sub-entity record. None of the five
+  bundled templates triggered the bug (saas's `evt_churn` only FKs into
+  `dim_company`, not `dim_user`), so on-disk output for shipped configs
+  is byte-identical. User configs that declare a sub-entity FK on a
+  threshold-event table got cardinality-1 joins; those will now see
+  proper distribution. Verified by
+  `tests/test_threshold_event_subentity.py`.
+
 - **F15 (test tooling).** Replaced `np.polyfit` in `tests/test_integration.py`
   with a manual ordinary-least-squares slope formula in two call sites
   (`test_revenue_follows_trajectory_for_steady_grower` and the
