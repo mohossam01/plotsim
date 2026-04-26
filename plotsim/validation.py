@@ -111,11 +111,10 @@ class ValidationReport:
 
 
 def _is_nullish(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, float) and np.isnan(value):
-        return True
-    return False
+    # F3 (M102): pandas nullable extension dtypes (Int64, BooleanDtype) carry
+    # `pd.NA` for missing values, not Python None or float NaN. `pd.isna`
+    # uniformly handles None, float NaN, np.datetime64('NaT'), and pd.NA.
+    return bool(pd.isna(value))
 
 
 def _non_null_mask(series: pd.Series) -> pd.Series:

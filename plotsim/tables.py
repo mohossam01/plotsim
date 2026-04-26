@@ -139,6 +139,40 @@ def _coerce_metric_value(value, dtype: str):
     return value
 
 
+def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
+    """Vectorized counterpart of ``_coerce_metric_value`` for whole-column arrays.
+
+    F3 (M102): the vectorized fact-builder used to assign the raw float
+    slice from ``metrics_3d`` straight into ``col_arrays`` for MetricSource
+    and LagSource columns, ignoring the declared ``Column.dtype``. Library
+    callers consuming ``generate_tables`` then saw float64 where they had
+    declared int / boolean. The CSV path was rescued downstream by
+    ``output._coerce_integer_columns``, but the in-memory dataframe was wrong.
+
+    Returns a ``pd.api.extensions.ExtensionArray`` (Int64 / BooleanDtype) for
+    int / boolean dtypes — preserves NaN as ``pd.NA`` and matches what
+    ``output._coerce_integer_columns`` produces at write-time, so in-memory
+    dtype now matches on-disk dtype after a CSV round-trip with
+    ``dtype_backend='numpy_nullable'``. Other dtypes pass through unchanged
+    (``np.ndarray``); the metric generator already delivered the right shape.
+    """
+    if dtype == "int":
+        mask = np.isnan(arr)
+        rounded = np.rint(np.where(mask, 0.0, arr)).astype(np.int64)
+        result = pd.array(rounded, dtype="Int64")
+        if mask.any():
+            result[mask] = pd.NA
+        return result
+    if dtype == "boolean":
+        mask = np.isnan(arr)
+        bool_vals = np.where(mask, False, arr).astype(bool)
+        result = pd.array(bool_vals, dtype="boolean")
+        if mask.any():
+            result[mask] = pd.NA
+        return result
+    return arr
+
+
 # --- Fact tables -------------------------------------------------------------
 
 
@@ -347,14 +381,13 @@ def _build_per_entity_per_period_fact(
         entity_cross_fks[entity.name] = per_entity_assignments
 
     # Fallback path: any column whose resolution consumes RNG at fact-build
-    # time, or requires Python bool() coercion, forces the scalar per-row loop
-    # so call order is preserved. No shipped template exercises this branch.
+    # time forces the scalar per-row loop so call order is preserved. No
+    # shipped template exercises this branch.
+    # F3 (M102): boolean MetricSource / LagSource columns no longer force the
+    # scalar fallback — `_coerce_array_for_dtype` handles them correctly in
+    # the vectorized path.
     has_faker = any(isinstance(p, FakerSource) for _, p in parsed_cols)
-    has_bool_metric = any(
-        col.dtype == "boolean" and isinstance(p, (MetricSource, LagSource))
-        for col, p in parsed_cols
-    )
-    if has_faker or has_bool_metric or metrics_3d is None:
+    if has_faker or metrics_3d is None:
         return _scalar_per_entity_per_period_fact(
             tbl, config, entity_metrics, dim_date, n_periods,
             parent_entity_dim, parent_entity_pk,
@@ -465,10 +498,13 @@ def _vectorized_per_entity_per_period_fact(
                     f"{parsed.metric!r}, which was not generated; check config.metrics"
                 )
             m_idx = metric_name_to_idx[parsed.metric]
-            col_arrays[col.name] = metrics_3d[:, :, m_idx].ravel(order="C").copy()
+            arr = metrics_3d[:, :, m_idx].ravel(order="C").copy()
+            col_arrays[col.name] = _coerce_array_for_dtype(arr, col.dtype)
         elif isinstance(parsed, LagSource):
             if parsed.metric not in metric_name_to_idx:
-                col_arrays[col.name] = np.full(total_rows, np.nan, dtype=np.float64)
+                col_arrays[col.name] = _coerce_array_for_dtype(
+                    np.full(total_rows, np.nan, dtype=np.float64), col.dtype,
+                )
             else:
                 m_idx = metric_name_to_idx[parsed.metric]
                 n = parsed.periods
@@ -479,7 +515,9 @@ def _vectorized_per_entity_per_period_fact(
                 # period index.
                 target_idx = np.where(target_idx < 0, base, target_idx)
                 sliced = metrics_3d[:, target_idx, m_idx]  # (E, P)
-                col_arrays[col.name] = sliced.ravel(order="C").copy()
+                col_arrays[col.name] = _coerce_array_for_dtype(
+                    sliced.ravel(order="C").copy(), col.dtype,
+                )
         elif isinstance(parsed, PKSource):
             # f"{col.name}-{period_idx:04d}-{entity_pk_value}" — build once.
             pk_rows = [

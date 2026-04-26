@@ -329,8 +329,16 @@ def test_lagged_metric_correlates_better_when_shifted():
     stronger = 0
     total = 0
     for _, grp in merged.groupby("company_id"):
-        e = pd.to_numeric(grp["engagement_score"], errors="coerce").to_numpy()
-        t = pd.to_numeric(grp["ticket_count"], errors="coerce").to_numpy()
+        # F3 (M102): Int64 nullable columns survive pd.to_numeric as Int64,
+        # then `.to_numpy()` returns object dtype with pd.NA for nulls —
+        # which np.isnan can't handle. Force float + np.nan up front so the
+        # mask works regardless of upstream nullable-int promotion.
+        e = pd.to_numeric(grp["engagement_score"], errors="coerce").to_numpy(
+            dtype=float, na_value=np.nan,
+        )
+        t = pd.to_numeric(grp["ticket_count"], errors="coerce").to_numpy(
+            dtype=float, na_value=np.nan,
+        )
         mask = ~(np.isnan(e) | np.isnan(t))
         e, t = e[mask], t[mask]
         if len(e) < 10 or e.std() == 0 or t.std() == 0:

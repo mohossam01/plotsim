@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F3 (vectorized fact-builder dtype on `dtype:int` / `dtype:boolean`
+  metric columns).** The vectorized fact-builder used to assign the raw
+  float64 slice from `metrics_3d` straight into MetricSource and
+  LagSource columns, ignoring the declared `Column.dtype`. Library
+  callers consuming the dict from `generate_tables` got float64 where
+  they had declared int (and would have got float64 where they
+  declared boolean). The CSV path was rescued downstream by
+  `output._coerce_integer_columns` at write-time, so on-disk was
+  correct but in-memory and on-disk diverged.
+
+  A new helper `_coerce_array_for_dtype(arr, dtype)` now applies the
+  scalar `_coerce_metric_value` semantics to whole-column arrays —
+  NaN-safe round to nullable `Int64` for `dtype:int`, mask-aware
+  cast to `BooleanDtype` for `dtype:boolean`, pass-through otherwise.
+  Applied in the MetricSource and LagSource branches of
+  `_vectorized_per_entity_per_period_fact`. The `has_bool_metric`
+  forced-scalar-fallback gate is removed (boolean metric columns now
+  flow through the vectorized path correctly).
+
+  CSV bytes on disk are byte-identical pre/post-fix (the
+  write-time rescue was already producing the same shape) — all five
+  bundled-template `test_e2e_template[*]` and
+  `test_layer4_reference_fixtures_match[*]` tests pass without
+  fixture regeneration. In-memory dtype now matches on-disk dtype
+  recovered via `pd.read_csv(..., dtype_backend='numpy_nullable')` —
+  the contract `tests/test_dataframe_mutation.py` locks down from
+  both ends.
+
+  Companion change in `plotsim/validation.py`: `_is_nullish` now uses
+  `pd.isna()` so it recognizes `pd.NA` (newly present in-memory via
+  F3's nullable extension dtypes) alongside Python `None` and
+  `float('nan')`.
+
 - **F2 (correlation attenuation under bypass).** When one metric's
   distribution degenerated mid-period (poisson λ ≈ 0, lognorm
   scale ≈ 0, gamma shape → 0, etc.), `apply_correlations` zeroed

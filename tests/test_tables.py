@@ -1120,9 +1120,15 @@ def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables)
     assert [eid for eid, _ in ref] == [eid for eid, _ in vec]
     for (eid_a, df_a), (eid_b, df_b) in zip(ref, vec):
         assert eid_a == eid_b
+        # F3 (M102): the iterrows reference helper builds groups via
+        # `pd.DataFrame(list_of_Series)`, which row-stacks columns and
+        # demotes Int64 → object. The production `groupby` path preserves
+        # the original dtype. The test's claim is row-order/value parity
+        # (per the docstring), not dtype parity, so check_dtype=False here.
         pd.testing.assert_frame_equal(
             df_a.reset_index(drop=True),
             df_b.reset_index(drop=True),
+            check_dtype=False,
         )
 
 
