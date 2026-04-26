@@ -30,7 +30,7 @@ import sys
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -570,11 +570,29 @@ class Archetype(_Frozen):
         return self
 
 
+class EntityOverrides(_Frozen):
+    """Per-entity trajectory adjustments.
+
+    F9 / 0.5: replaces the previous ``Entity.overrides: dict[str, Any]``
+    permissive-dict surface. Closes the schema discipline gap that
+    silently accepted arbitrary unknown keys (the same pattern that
+    motivated the 0.2.0 dead-field cleanup).
+
+    Currently the only recognized override is ``inflection_month``,
+    which shifts the archetype's curve segments so the archetype's
+    canonical inflection lands on the specified period index.
+    Adding new override keys is intentionally schema-gated — extend
+    this model rather than threading new dict keys through
+    ``compute_trajectory``.
+    """
+    inflection_month: Optional[int] = None
+
+
 class Entity(_Frozen):
     name: str
     archetype: str
     size: int = Field(ge=1, le=5_000)
-    overrides: dict[str, Any] = Field(default_factory=dict)
+    overrides: Optional[EntityOverrides] = None
     # FIX-04: per-cohort cross-dim FK anchoring. Maps a child column name
     # to a parent PK value. Every entity in this cohort gets that exact
     # value for the named FK column, overriding any Column.distribution.

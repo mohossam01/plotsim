@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F9 (`Entity.overrides` accepted arbitrary keys).** The field was
+  typed as `dict[str, Any]` with `Field(default_factory=dict)`, so
+  any unknown key — `inflection_period`, `garbage`, a typo of
+  `inflection_month` — loaded silently and was then ignored by
+  `_resolve_shift` in `trajectory.py` (which only consumes
+  `inflection_month`). Same silent-acceptance class as the
+  pre-0.2.0 dead fields, but on the entity surface instead of the
+  metric/noise surfaces that 0.2.0 closed.
+
+  `Entity.overrides` is now `Optional[EntityOverrides]` where
+  `EntityOverrides` is a frozen Pydantic model with `extra="forbid"`
+  and a single field `inflection_month: int | None = None`. Unknown
+  keys raise `ValidationError` at load. Adding new override keys
+  going forward requires extending the `EntityOverrides` schema —
+  the same gate that motivated typed sources in 0.2.0 / 0.3.0.
+
+  `compute_all_trajectories` converts the typed model to a plain
+  dict before passing to `compute_trajectory`, preserving the
+  `compute_trajectory(overrides=dict)` interface for direct callers
+  and existing tests in `tests/test_trajectory.py`. None of the
+  five bundled templates use `Entity.overrides`, so on-disk output
+  is byte-identical. Verified by `tests/test_entity_overrides.py`
+  (13 cases: known-key load, unknown-key rejection, mixed-key
+  rejection, default-None, empty-dict coercion, end-to-end shift
+  preservation, all five templates load).
+
 - **F8 (`StageDefinition.threshold_exit` was decorative).** Mission 100
   found `threshold_exit` accepted at config load but never read by the
   runtime — both `_monotonic_stage_walk` and `_free_mode_stages` build

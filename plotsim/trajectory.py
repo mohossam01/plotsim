@@ -215,7 +215,14 @@ def compute_all_trajectories(
                 f"entity {entity.name!r} references unknown archetype "
                 f"{entity.archetype!r}; config validation should have caught this"
             )
+        # F9 / 0.5: Entity.overrides is now Optional[EntityOverrides]
+        # rather than a permissive dict. compute_trajectory's interface
+        # stays dict-keyed for direct test callers — convert here.
+        overrides_dict = (
+            entity.overrides.model_dump()
+            if entity.overrides is not None else None
+        )
         out[entity.name] = compute_trajectory(
-            archetype, n_periods, entity.overrides
+            archetype, n_periods, overrides_dict
         )
     return out
