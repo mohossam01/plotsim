@@ -250,7 +250,12 @@ def test_revenue_follows_trajectory_for_steady_grower():
         if len(series) < 6:
             continue
         x = np.arange(len(series), dtype=float)
-        slope = np.polyfit(x, series, 1)[0]
+        # Manual OLS slope — avoids np.polyfit's internal np.linalg.lstsq call,
+        # which crashes under coverage.py instrumentation when numpy's ufunc
+        # dispatch table is corrupted by a mid-suite numpy reload (M102 / F15).
+        xc = x - x.mean()
+        yc = series - series.mean()
+        slope = float((xc * yc).sum() / (xc * xc).sum())
         assert slope > 0, f"steady_grower entity {cid} has non-positive MRR slope"
         assert series[-3:].mean() > series[:3].mean(), (
             f"steady_grower entity {cid} ends lower than it starts"
@@ -709,7 +714,10 @@ def _distinguishability_ari(
         if finite.size < 2:
             continue
         t_axis = np.arange(finite.size, dtype=float)
-        slope = float(np.polyfit(t_axis, finite, 1)[0])
+        # Manual OLS slope — see F15 in M102 for why we avoid np.polyfit here.
+        tc = t_axis - t_axis.mean()
+        fc = finite - finite.mean()
+        slope = float((tc * fc).sum() / (tc * tc).sum())
         feats[i] = (
             float(np.mean(finite)),
             slope,

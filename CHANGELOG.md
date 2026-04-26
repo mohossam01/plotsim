@@ -5,6 +5,26 @@ All notable changes to plotsim are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **F15 (test tooling).** Replaced `np.polyfit` in `tests/test_integration.py`
+  with a manual ordinary-least-squares slope formula in two call sites
+  (`test_revenue_follows_trajectory_for_steady_grower` and the
+  `_distinguishability_ari` helper used by 6 archetype-distinguishability
+  tests). Under coverage.py instrumentation, numpy gets reloaded mid-suite
+  (a pandas import warning makes this visible), which corrupts numpy's
+  ufunc dispatch table. After that, `np.polyfit`'s internal call to
+  `np.linalg.lstsq` crashed with
+  `_UFuncNoLoopError(Float64DType, StrDType)` on lstsq's deprecated-default
+  check (`if rcond == "warn":`). Result: 7 integration tests that pass
+  under `pytest -q` failed under `pytest --cov`. The OLS replacement uses
+  pure numpy reductions (no `lstsq` path) and produces the same slope to
+  numerical precision. No `plotsim/` source change. Verified against the
+  full M101 invocation: 667 passed / 1 xfailed under `--cov=plotsim.tables`,
+  matching the `--no-cov` baseline.
+
 ## [0.4.0] — 2026-04-23
 
 Correctness and hardening release. Configured correlations and causal
