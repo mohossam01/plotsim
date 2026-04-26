@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F13 (dead-schema audit + ongoing prevention).** Mission 100
+  flagged two dead-schema instances (`Entity.overrides` permissive
+  dict — closed by F9; `StageDefinition.threshold_exit` decorative
+  field — closed by F8) and the 0.2.0 cleanup closed four more
+  (`Metric.default_curve`, `MetricOverride.curve`,
+  `noise.temporal_jitter_days`, `noise.duplicate_rate`). F13
+  performs a mechanical audit of every Pydantic field declared in
+  `plotsim/config.py` and adds `tests/test_dead_schema.py` as a
+  regression guard so the bug class can't silently re-emerge.
+
+  Audit result (run during F13): 93 fields scanned, 8 lack a
+  `.field_name` attribute read in `plotsim/*.py`. All 8 are
+  explicable — display fields surfaced via `model_dump()` /
+  YAML round-trip (`Archetype.{label, description}`,
+  `Domain.{description, entity_type}`, `Metric.label`),
+  schema-introspection fields (`Column.pii_note` via
+  `model_json_schema()`), Literal-type constraints
+  (`OutputConfig.format`), or fields read via dict-key
+  indirection (`EntityOverrides.inflection_month` via
+  `overrides.model_dump()` then `.get("inflection_month")` in
+  `compute_all_trajectories`, F9-introduced).
+
+  No regression-class dead fields surfaced; no removals applied.
+  The 8 explicable fields land on a documented `ALLOWLIST`
+  with per-entry reasons. New schema fields must either be
+  read or added to the allowlist with a reason — the test
+  fails on the first field that escapes both gates.
+
+  Verified by `tests/test_dead_schema.py` (11 cases: main audit,
+  allowlist entry validity vs current schema, allowlist
+  tautology check, parametrized non-empty-reason check across
+  the 8 entries).
+
 - **F12 (dtype × source cross-check: `dtype: boolean` on
   `metric:` / `lag:` source produces structurally degenerate
   output).** Mission 101 spot-checks Q3 found that the schema
