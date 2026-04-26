@@ -1399,13 +1399,24 @@ def test_noise_gaussian_sigma_above_limit_fails():
 
 
 def test_causal_lag_periods_at_limit_passes():
+    # F10 (M102): field-level cap moved from le=120 to le=10_000.
+    # The authoritative per-granularity cap is enforced at the
+    # PlotsimConfig level (covered by tests/test_lag_period_cap.py).
+    # Direct CausalLag construction still catches obvious garbage
+    # (e.g. typos producing five- or six-digit values).
     cl = CausalLag(driver="x", lag_periods=120)
     assert cl.lag_periods == 120
+    cl_at_field_cap = CausalLag(driver="x", lag_periods=10_000)
+    assert cl_at_field_cap.lag_periods == 10_000
 
 
 def test_causal_lag_periods_above_limit_fails():
+    # F10 (M102): bumped from 121 to 10_001 to match the new
+    # field-level sanity cap. The previous 121 boundary moved to
+    # the per-granularity model-level cap on PlotsimConfig (verified
+    # by tests/test_lag_period_cap.py::test_above_cap_rejected).
     with pytest.raises(ValidationError, match="lag_periods"):
-        CausalLag(driver="x", lag_periods=121)
+        CausalLag(driver="x", lag_periods=10_001)
 
 
 def test_downgrade_delay_at_limit_passes():

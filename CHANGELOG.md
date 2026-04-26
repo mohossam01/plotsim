@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F10 (`causal_lag.lag_periods` cap was granularity-blind).** The
+  pre-fix field-level constraint `Field(ge=1, le=120)` enforced a
+  flat upper bound across every granularity. 120 reads as ~10 years
+  at monthly, ~2.3 years at weekly, and ~4 months at daily — too
+  generous on the long end and too tight on the short end. A daily
+  config that wanted a quarterly lag (≈90 daily periods is fine but
+  many users reach for 180–365) hit the cap.
+
+  The field-level cap is relaxed to 10_000 (a sanity bound for
+  programmatic CausalLag construction); the authoritative
+  per-granularity bound is enforced at
+  `PlotsimConfig._cross_reference_integrity` against
+  `_LAG_PERIOD_LIMITS = {"monthly": 120, "weekly": 520,
+  "daily": 3_650}` — each ≈10 years at the respective granularity,
+  matching the time-window span ceiling philosophy. Errors name
+  both the granularity and the cap.
+
+  Bundled saas (monthly, lag_periods=2) and hr (monthly,
+  lag_periods=1) load unchanged. Verified by
+  `tests/test_lag_period_cap.py` (11 cases: at-cap and above-cap
+  per granularity, field-level extreme bound, pre-F10 blocked
+  daily lag=200 now loads, monthly cap=120 boundary preserved,
+  bundled saas + hr parity).
+
 - **F9 (`Entity.overrides` accepted arbitrary keys).** The field was
   typed as `dict[str, Any]` with `Field(default_factory=dict)`, so
   any unknown key — `inflection_period`, `garbage`, a typo of

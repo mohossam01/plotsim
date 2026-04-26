@@ -391,6 +391,24 @@ _SPAN_LIMITS: dict[str, int] = {
     "daily": 3_650,
 }
 
+# F10 (M102): granularity-aware ``causal_lag.lag_periods`` ceilings.
+# Period count corresponds to ~10 years of lag at each granularity —
+# tight enough to keep the lag-buffer per-period work bounded and to
+# reject obviously-misconfigured values (e.g. 5,000 monthly = 416
+# years), wide enough to let daily configs configure quarterly /
+# semi-annual / multi-year lags that the previous flat ``le=120`` cap
+# blocked. Pre-F10 the field-level cap was a uniform 120, which read
+# as "≈ 4 months at daily, 10 years at monthly" — granularity-blind in
+# either direction. The field-level cap is now relaxed to the daily
+# maximum; ``PlotsimConfig._lag_periods_within_granularity_limit``
+# enforces the per-granularity bound at the model level so the error
+# names which granularity rejected the value.
+_LAG_PERIOD_LIMITS: dict[str, int] = {
+    "monthly": 120,
+    "weekly": 520,
+    "daily": 3_650,
+}
+
 
 class TimeWindow(_Frozen):
     start: str
@@ -489,7 +507,15 @@ class CausalLag(_Frozen):
     behavior is recovered with ``blend_weight: 0.6``.
     """
     driver: str
-    lag_periods: int = Field(ge=1, le=120)
+    # F10 (M102): field-level cap relaxed to a sanity bound above the
+    # daily-granularity maximum. The authoritative per-granularity
+    # bound is enforced at the model level by
+    # PlotsimConfig._cross_reference_integrity, which produces a
+    # clearer error message naming the granularity that rejected the
+    # value. The field-level cap of 10_000 catches obvious garbage
+    # (e.g. typos that produce 1_000_000) when CausalLag is
+    # constructed outside a PlotsimConfig.
+    lag_periods: int = Field(ge=1, le=10_000)
     blend_weight: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
@@ -1153,6 +1179,13 @@ class PlotsimConfig(_Frozen):
                     stacklevel=2,
                 )
 
+        # F10 (M102): per-granularity ``causal_lag.lag_periods`` cap.
+        # Field-level cap accepts up to 3650 (the daily ceiling); this
+        # validator narrows to the configured granularity. Pre-F10 the
+        # cap was a flat ``le=120`` regardless of granularity, which
+        # was simultaneously too generous (10 years of monthly lag) and
+        # too tight (4 months of daily lag).
+        granularity_cap = _LAG_PERIOD_LIMITS[self.time_window.granularity]
         for m in self.metrics:
             if m.causal_lag is not None:
                 if m.causal_lag.driver not in metric_names:
@@ -1160,6 +1193,14 @@ class PlotsimConfig(_Frozen):
                         f"metric {m.name!r} causal_lag.driver "
                         f"{m.causal_lag.driver!r} is not a known metric; "
                         f"known: {sorted(metric_names)}"
+                    )
+                if m.causal_lag.lag_periods > granularity_cap:
+                    raise ValueError(
+                        f"metric {m.name!r} causal_lag.lag_periods "
+                        f"({m.causal_lag.lag_periods}) exceeds the "
+                        f"{self.time_window.granularity!r} granularity "
+                        f"cap of {granularity_cap}. Per-granularity "
+                        f"caps: {_LAG_PERIOD_LIMITS}"
                     )
 
         # Detect cycles in the induced lag graph (A lags B lags A, or longer).
