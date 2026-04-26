@@ -1003,6 +1003,25 @@ class PlotsimConfig(_Frozen):
                         f"table {fk_table!r}; known: {sorted(table_names)}"
                     )
 
+        # F7 (M102): reject duplicate (metric_a, metric_b) entries before
+        # the PSD check picks one with last-write-wins. Treat the pair as
+        # unordered: (a, b) == (b, a). Pre-fix, _build_correlation_matrix
+        # silently overwrote earlier entries with later ones, so a config
+        # with conflicting coefficients on the same pair picked one with
+        # no signal to the user.
+        seen_pairs: dict[frozenset, float] = {}
+        for corr in self.correlations:
+            pair = frozenset((corr.metric_a, corr.metric_b))
+            if pair in seen_pairs:
+                prior = seen_pairs[pair]
+                raise ValueError(
+                    f"duplicate correlation entries for unordered pair "
+                    f"({corr.metric_a!r}, {corr.metric_b!r}): "
+                    f"coefficients {prior} and {corr.coefficient}; "
+                    f"declare each metric pair at most once"
+                )
+            seen_pairs[pair] = corr.coefficient
+
         for corr in self.correlations:
             for m in (corr.metric_a, corr.metric_b):
                 if m not in metric_names:

@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F7 (duplicate correlation entries silently last-write-wins).**
+  `PlotsimConfig` previously accepted any list of `CorrelationPair`
+  entries without checking for duplicate `(metric_a, metric_b)`
+  keys. Downstream, `_build_correlation_matrix` reduced the list
+  via `mat[i, j] = pair.coefficient`, which is last-write-wins for
+  any duplicate pair: a config that declared `corr(a, b) = 0.7`
+  in one place and `corr(a, b) = 0.3` (or `corr(b, a) = 0.3` —
+  the pair is unordered) in another silently picked whichever
+  entry happened to land last in iteration order, with no warning
+  to the user.
+
+  `PlotsimConfig._cross_reference_integrity` now raises
+  `ValidationError` on the first duplicate it sees, with both
+  conflicting coefficients and the pair name in the message. The
+  check runs before the PSD gate, so the duplicate report has
+  priority over any matrix-degeneracy error contradictory entries
+  might otherwise produce.
+
+  The pair is treated as unordered (`(a, b) == (b, a)` via
+  `frozenset`), and identical coefficients on the same pair are
+  also rejected — a redundant entry is almost always a typo where
+  the second was intended to reference a different pair. None of
+  the five bundled templates declare duplicates, so on-disk output
+  is byte-identical. Verified by
+  `tests/test_duplicate_correlations.py` (same-order, opposite-
+  order, identical-coefficient, distinct-pair, single-entry — five
+  cases).
+
 - **F6 (F-06 regression class — adversarial declaration vs toposort
   ordering).** Test-only addition; closes the regression class that
   the 0.4.0 Cholesky-toposort-indexing fix
