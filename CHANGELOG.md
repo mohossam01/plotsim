@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F11 (`_coerce_static` returned raw string on malformed ISO date).**
+  A column declared with `dtype: date` and `source: "static:not-a-date"`
+  loaded silently. At generation time,
+  `dimensions._coerce_static` caught the `ValueError` from
+  `datetime.fromisoformat` and returned the raw string, leaving a
+  date-typed column with `str` values in the resulting dim table.
+  Downstream type-coerced consumers (CSV readers using
+  `parse_dates`, dashboard joins on ISO date keys, anything
+  branching on `dtype.kind == "M"`) saw silent type corruption.
+
+  Two-layer fix:
+
+  * `PlotsimConfig._cross_reference_integrity` now rejects
+    malformed static dates at config load with a message naming
+    the column, the bad value, and the expected ISO format.
+    Multi-value statics
+    (`"static:2024-01-01,2024-02-01,2024-03-01"`) are split on
+    commas and each candidate validated.
+  * `dimensions._coerce_static` now raises `ValueError` rather
+    than returning the raw string — defense-in-depth for
+    programmatic `PlotsimConfig` construction that bypasses the
+    YAML-load validators.
+
+  Verified by `tests/test_static_source_validation.py` (8 cases:
+  invalid format rejected, valid ISO loads, multi-value with one
+  bad member rejected, multi-value all-valid loads, dtype gate
+  preserves non-date string columns, direct `_coerce_static`
+  unit on malformed and valid inputs, dtype cross-coverage on
+  int/float/boolean/string).
+
 - **F10 (`causal_lag.lag_periods` cap was granularity-blind).** The
   pre-fix field-level constraint `Field(ge=1, le=120)` enforced a
   flat upper bound across every granularity. 120 reads as ~10 years

@@ -102,7 +102,16 @@ def _make_ids(table_name: str, n_rows: int) -> list[str]:
 
 
 def _coerce_static(value: str, dtype: str) -> Any:
-    """Cast a raw static-source string to the column's declared dtype."""
+    """Cast a raw static-source string to the column's declared dtype.
+
+    F11 (M102): on ``dtype: date`` columns, malformed ISO dates now
+    raise instead of silently returning the raw string. The primary
+    load-time check at ``PlotsimConfig._cross_reference_integrity``
+    rejects malformed static dates before generation runs; this
+    defensive raise catches the same bug class on programmatic
+    ``PlotsimConfig`` construction that bypasses YAML-loading
+    validators.
+    """
     v = value.strip()
     if dtype == "int":
         return int(float(v))
@@ -113,8 +122,11 @@ def _coerce_static(value: str, dtype: str) -> Any:
     if dtype == "date":
         try:
             return _dt.date.fromisoformat(v)
-        except ValueError:
-            return v
+        except ValueError as exc:
+            raise ValueError(
+                f"static value {v!r} on a dtype: date column is not a "
+                f"valid ISO date (expected YYYY-MM-DD)"
+            ) from exc
     return v
 
 

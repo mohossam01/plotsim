@@ -1118,6 +1118,30 @@ class PlotsimConfig(_Frozen):
                             f"unknown table {parsed.table!r}; known: "
                             f"{sorted(table_names)}"
                         )
+                elif isinstance(parsed, StaticSource) and col.dtype == "date":
+                    # F11 (M102): validate the static value(s) parse as
+                    # ISO dates at config load. Pre-fix,
+                    # ``dimensions._coerce_static`` caught the ValueError
+                    # from ``datetime.fromisoformat`` and returned the raw
+                    # string, leaving a date column with str values in the
+                    # generated dim table (silent type corruption).
+                    # Multi-value statics
+                    # ("static:2024-01-01,2024-02-01,2024-03-01") split on
+                    # commas before validation, mirroring
+                    # ``dimensions._split_static``.
+                    raw_values = [
+                        part.strip() for part in parsed.value.split(",")
+                    ]
+                    for raw in raw_values:
+                        try:
+                            date.fromisoformat(raw)
+                        except ValueError as exc:
+                            raise ValueError(
+                                f"table {tbl.name!r} column {col.name!r} has "
+                                f"dtype: date with static value {raw!r} that "
+                                f"is not a valid ISO date (expected "
+                                f"YYYY-MM-DD). Source: {col.source!r}."
+                            ) from exc
 
             if tbl.row_count_source is not None:
                 rcs_parsed = parse_source(tbl.row_count_source)
