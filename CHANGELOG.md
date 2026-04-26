@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **F14 (silent-dispatch audit + sweep).** Mission 100 flagged
+  ``_build_per_period_fact`` (``tables.py:644``) as a silent-
+  dispatch site: an isinstance ladder over the parsed-source
+  Union with an ``else: row[col.name] = None`` fall-through. An
+  unhandled source type produced a column of ``None`` values with
+  no signal to the user — same bug class as F1's ``_resolve_event_row``
+  ``rng=None`` fall-through to ``candidates.iloc[0]``.
+
+  F14 audited every isinstance ladder over the parse_source
+  Union in ``plotsim/`` and confirmed the existing raises in
+  ``_resolve_fact_cell`` (``tables.py:574``) and the per-entity /
+  sub-entity / reference dim builders in
+  ``plotsim/dimensions.py``. Two silent-fallback sites in
+  ``tables.py`` were converted to explicit raises:
+
+  * ``_build_per_period_fact`` outer ``else`` → raises
+    ``TypeError`` naming the column, source, and source-class.
+  * ``_build_proportional_event`` deterministic-dispatch outer
+    ``else`` → raises ``TypeError``. The inner
+    ``DerivedSource.field`` unhandled branch was also converted;
+    it now raises ``ValueError`` naming the bad field
+    (``entity_id`` / ``date_key`` are the only supported fields
+    on event tables).
+
+  None of the bundled templates exercise the converted branches —
+  they're reachable only via configs that deliberately route an
+  unsupported source type to those tables. On-disk output for
+  shipped configs is byte-identical. Verified by
+  ``tests/test_silent_dispatch.py`` (4 cases:
+  ``_build_per_period_fact`` raise, event-builder outer-else
+  raise, event-builder DerivedSource-field raise, pre-existing
+  ``_resolve_fact_cell`` raise unaffected).
+
 - **F13 (dead-schema audit + ongoing prevention).** Mission 100
   flagged two dead-schema instances (`Entity.overrides` permissive
   dict — closed by F9; `StageDefinition.threshold_exit` decorative

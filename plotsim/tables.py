@@ -696,7 +696,19 @@ def _build_per_period_fact(
             elif isinstance(parsed, StaticSource):
                 row[col.name] = parsed.value
             else:
-                row[col.name] = None
+                # F14 (M102): explicit raise instead of silent ``None`` fill.
+                # Mission 100 named this ladder as a silent-dispatch site;
+                # an unhandled source type on a per-period fact column
+                # produced a column of None values with no signal to the
+                # user. The companion ``_resolve_fact_cell`` at
+                # ``tables.py:574`` already raises on this class.
+                raise TypeError(
+                    f"per-period fact column {col.name!r} source "
+                    f"{col.source!r} resolves to {type(parsed).__name__}, "
+                    f"which is not supported on per_period fact tables. "
+                    f"Use metric:, fk:dim_date.*, generated:, faker:, "
+                    f"static:, or pk: sources."
+                )
         rows.append(row)
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
 
@@ -991,9 +1003,29 @@ def _build_proportional_event(
             elif parsed.field == "date_key":
                 col_arrays[col.name] = event_date_keys
             else:
-                col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+                # F14 (M102): explicit raise on unrecognised derived
+                # field. The two supported fields on event tables are
+                # ``entity_id`` and ``date_key``; anything else was
+                # silently filled with None pre-F14.
+                raise ValueError(
+                    f"event column {col.name!r} derived field "
+                    f"{parsed.field!r} is not supported on event tables; "
+                    f"use 'entity_id' or 'date_key'"
+                )
         else:
-            col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+            # F14 (M102): explicit raise on unhandled source type.
+            # Pre-F14 the deterministic-event-builder ladder fell through
+            # to a silent None fill for any source type not in the
+            # dispatch above (MetricSource, LagSource, ProportionalSource).
+            # ``_is_stochastic`` only diverts FakerSource and external-FK
+            # FKSource into the stochastic loop; everything else lands
+            # here.
+            raise TypeError(
+                f"event column {col.name!r} source {col.source!r} "
+                f"resolves to {type(parsed).__name__}, which is not "
+                f"supported in the deterministic-event dispatch on "
+                f"{tbl.name!r}."
+            )
 
     # Stochastic columns: iterate per (cell, row) exactly as the scalar path
     # did, so RNG + faker consumption order is byte-identical. Source parsing
