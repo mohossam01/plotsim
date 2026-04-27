@@ -200,6 +200,22 @@ class LagSource(_Frozen):
     periods: int = Field(ge=1)
 
 
+class SCDType2Source(_Frozen):
+    """M106: marker source for a dim column carrying SCD Type 2 labels.
+
+    The literal source string ``scd_type2`` parses to this marker; the
+    actual versioning configuration (trigger metric, thresholds, labels)
+    lives on ``Column.scd_type2`` so the SCD machinery in
+    ``plotsim.tables`` has structured access without re-parsing strings.
+
+    A dim column with this source MUST also declare
+    ``scd_type2: {trigger_metric, thresholds, labels}`` (validated on
+    ``Column``); a column with a non-``scd_type2`` source MUST NOT
+    declare ``scd_type2``. The two are paired or both absent — there is
+    no "set the source but not the config" path.
+    """
+
+
 class TextBucketSource(_Frozen):
     """M105: text emission keyed by trajectory-position bands.
 
@@ -225,7 +241,7 @@ ParsedSource = (
     PKSource | FKSource | MetricSource | GeneratedSource | FakerSource
     | StaticSource | DerivedSource
     | ThresholdSource | ProportionalSource | LagSource
-    | TextBucketSource
+    | TextBucketSource | SCDType2Source
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -235,7 +251,8 @@ _SOURCE_FORMAT_HELP = (
     "'threshold:<metric>:<above|below>:<value>:for:<consecutive>', "
     "'proportional:<metric>:scale:<multiplier>', "
     "'lag:<metric>:periods:<N>', "
-    "'text:bucket:[<label1>, <label2>, ...]'"
+    "'text:bucket:[<label1>, <label2>, ...]', "
+    "'scd_type2'"
 )
 
 
@@ -251,6 +268,8 @@ def parse_source(source: str) -> ParsedSource:
         )
     if source == "pk":
         return PKSource()
+    if source == "scd_type2":
+        return SCDType2Source()
 
     if source.startswith("fk:"):
         ref = source[3:]
@@ -710,6 +729,102 @@ class FKDistribution(_Frozen):
         return self
 
 
+class SCDType2Config(_Frozen):
+    """M106: Slowly Changing Dimension Type 2 spec on a dim column.
+
+    Attached to a ``Column`` whose source is the literal string
+    ``"scd_type2"``; the source marker and this config object are
+    paired (both present, or both absent — never one without the
+    other; ``Column._scd_pairing`` enforces).
+
+    Fields:
+
+      * ``trigger_metric`` — ``"<table_name>.<metric_name>"``. The
+        ``table_name`` must be a fact table declared in
+        ``config.tables``; the ``metric_name`` must be a metric in
+        ``config.metrics`` AND must appear as a ``metric:<name>``
+        source on a column of that fact table. The fact-table reference
+        is documentary: thresholds are evaluated against the
+        per-entity trajectory positions (the same trajectory that
+        feeds every other metric the engine generates), not against
+        the metric's noisy/distributed cell values. Naming the fact
+        column anchors the SCD label to a concrete downstream join
+        target so a reader of the config knows "plan tier changes
+        when MRR moves" rather than "plan tier changes when an
+        opaque trajectory shifts."
+
+      * ``thresholds`` — strictly ascending floats in the open
+        interval ``(0, 1)``. Bands are ``[0, t0), [t0, t1), ..., [tN, 1]``
+        — N thresholds yield N+1 bands.
+
+      * ``labels`` — one per band; ``len(labels) == len(thresholds) + 1``.
+        Order follows the bands: ``labels[0]`` is the lowest-position
+        band, ``labels[-1]`` is the highest. The SCD column's value
+        for an entity in band k is ``labels[k]``.
+
+    Hysteresis: an entity that crosses upward into a new band and
+    later returns to a lower band does NOT spawn a new dim row on the
+    return — band assignment uses ``np.maximum.accumulate`` over the
+    raw per-period band index, so a dim row is emitted only when the
+    cursor advances. Mirrors the M102 ``StageDefinition.threshold_exit``
+    monotonic semantics so SCD versioning has a single behavioural
+    contract with the rest of the engine.
+    """
+    trigger_metric: str
+    thresholds: tuple[float, ...] = Field(min_length=1, max_length=20)
+    labels: tuple[str, ...] = Field(min_length=2, max_length=21)
+
+    @field_validator("trigger_metric")
+    @classmethod
+    def _trigger_metric_format(cls, v: str) -> str:
+        if not isinstance(v, str) or "." not in v:
+            raise ValueError(
+                f"scd_type2.trigger_metric {v!r} must be "
+                f"'table_name.metric_name'"
+            )
+        table, metric = v.split(".", 1)
+        if not table or not metric:
+            raise ValueError(
+                f"scd_type2.trigger_metric {v!r} must have non-empty "
+                f"table_name and metric_name on either side of '.'"
+            )
+        return v
+
+    @field_validator("thresholds")
+    @classmethod
+    def _thresholds_in_open_interval(cls, v: tuple[float, ...]) -> tuple[float, ...]:
+        for t in v:
+            if not (0.0 < float(t) < 1.0):
+                raise ValueError(
+                    f"scd_type2.thresholds values must lie in the open "
+                    f"interval (0, 1); got {t}"
+                )
+        for prev, curr in zip(v, v[1:]):
+            if curr <= prev:
+                raise ValueError(
+                    f"scd_type2.thresholds must be strictly increasing; "
+                    f"got {list(v)}"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def _label_count_matches(self) -> "SCDType2Config":
+        expected = len(self.thresholds) + 1
+        if len(self.labels) != expected:
+            raise ValueError(
+                f"scd_type2.labels has {len(self.labels)} entries; expected "
+                f"{expected} (one per band, i.e. len(thresholds) + 1). "
+                f"thresholds={list(self.thresholds)}, labels={list(self.labels)}"
+            )
+        if len(set(self.labels)) != len(self.labels):
+            raise ValueError(
+                f"scd_type2.labels has duplicate entries {list(self.labels)}; "
+                f"each band label must be unique so the dim column round-trips "
+                f"to a band index without ambiguity"
+            )
+        return self
+
+
 class Column(_Frozen):
     name: str
     dtype: Dtype
@@ -735,6 +850,12 @@ class Column(_Frozen):
     # column's date values may legitimately fall outside ``time_window``
     # (hire dates, birth dates, trial-ended-before-start). Default False.
     allow_outside_window: bool = False
+    # M106: when present, this column carries SCD Type 2 labels. Must be
+    # paired with ``source: "scd_type2"`` (validated by ``_scd_pairing``).
+    # The trigger metric, thresholds, and labels live on the nested model;
+    # the engine in ``plotsim.tables`` consumes ``scd_type2.thresholds``
+    # and ``scd_type2.labels`` to expand the dim into versioned rows.
+    scd_type2: Optional[SCDType2Config] = None
 
     @field_validator("source")
     @classmethod
@@ -743,6 +864,35 @@ class Column(_Frozen):
         # checks (metric/table names exist) happen in PlotsimConfig.
         parse_source(v)
         return v
+
+    @model_validator(mode="after")
+    def _scd_pairing(self) -> "Column":
+        """Source ``scd_type2`` and the ``scd_type2`` config must be paired.
+
+        Either both are present (the column emits SCD Type 2 labels) or
+        both are absent (the column resolves through one of the other
+        source types). Mixing — source ``"scd_type2"`` without the
+        config, or any other source with the config — is rejected at
+        load. Mirrors the ``Column.distribution`` discipline (only
+        meaningful on FK sources): the schema is structurally exact
+        rather than permissive.
+        """
+        is_scd_source = self.source == "scd_type2"
+        has_scd_cfg = self.scd_type2 is not None
+        if is_scd_source and not has_scd_cfg:
+            raise ValueError(
+                f"column {self.name!r} declares source 'scd_type2' but no "
+                f"'scd_type2' config block; add 'scd_type2: {{trigger_metric, "
+                f"thresholds, labels}}' or change the source"
+            )
+        if has_scd_cfg and not is_scd_source:
+            raise ValueError(
+                f"column {self.name!r} has an scd_type2 config block but "
+                f"source {self.source!r}; SCD labels replace the column "
+                f"value, so set source to 'scd_type2' or remove the "
+                f"scd_type2 config"
+            )
+        return self
 
     @field_validator("distribution", mode="before")
     @classmethod
@@ -1391,6 +1541,87 @@ class PlotsimConfig(_Frozen):
                 raise ValueError(
                     f"stages.field {self.stages.field!r} is not a known metric; "
                     f"known: {sorted(metric_names)}"
+                )
+
+        # M106: SCD Type 2 cross-references.
+        # For every dim column with an scd_type2 config:
+        #   * trigger_metric's table_name must be a fact table in this config
+        #   * trigger_metric's metric_name must be a metric in this config
+        #   * the named fact table must expose that metric via a metric: column
+        #   * a single dim table may declare at most one SCD column (V1 scope)
+        # The first three rules give the user a load-time error rather than a
+        # silent mis-resolution at generation. The single-SCD-column rule
+        # bounds the per-row expansion fan-out at generation time — combining
+        # multiple SCD axes on one dim is a future mission, not an ambient
+        # capability the V1 engine accidentally supports.
+        scd_dim_tables: set[str] = set()
+        for tbl in self.tables:
+            scd_cols_on_table = [
+                col for col in tbl.columns if col.scd_type2 is not None
+            ]
+            if not scd_cols_on_table:
+                continue
+            if tbl.type != "dim":
+                raise ValueError(
+                    f"table {tbl.name!r} declares an scd_type2 column "
+                    f"({scd_cols_on_table[0].name!r}) but is type "
+                    f"{tbl.type!r}; SCD versioning only applies to dim tables"
+                )
+            if tbl.grain != "per_entity":
+                raise ValueError(
+                    f"dim table {tbl.name!r} declares an scd_type2 column "
+                    f"({scd_cols_on_table[0].name!r}) but grain is "
+                    f"{tbl.grain!r}; V1 SCD Type 2 only versions per_entity "
+                    f"dims (one entity → many versions). Reference and date "
+                    f"dims have no entity axis to version against"
+                )
+            if len(scd_cols_on_table) > 1:
+                names = [c.name for c in scd_cols_on_table]
+                raise ValueError(
+                    f"dim table {tbl.name!r} has {len(scd_cols_on_table)} "
+                    f"scd_type2 columns ({names}); V1 supports at most one "
+                    f"SCD axis per dim table — combining axes would multiply "
+                    f"versioned-row fan-out"
+                )
+            scd_dim_tables.add(tbl.name)
+            scd_cfg = scd_cols_on_table[0].scd_type2
+            assert scd_cfg is not None  # for type-narrowing; checked above
+            ref_table, ref_metric = scd_cfg.trigger_metric.split(".", 1)
+            if ref_metric not in metric_names:
+                raise ValueError(
+                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                    f"scd_type2.trigger_metric references unknown metric "
+                    f"{ref_metric!r}; known: {sorted(metric_names)}"
+                )
+            ref_table_cfg = next(
+                (t for t in self.tables if t.name == ref_table), None,
+            )
+            if ref_table_cfg is None:
+                raise ValueError(
+                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                    f"scd_type2.trigger_metric references unknown table "
+                    f"{ref_table!r}; known: {sorted(table_names)}"
+                )
+            if ref_table_cfg.type != "fact":
+                raise ValueError(
+                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                    f"scd_type2.trigger_metric references table {ref_table!r} "
+                    f"of type {ref_table_cfg.type!r}; expected a fact table "
+                    f"(SCD trajectory bands are anchored to a fact metric "
+                    f"for documentation/joinability)"
+                )
+            metric_on_ref_table = any(
+                isinstance(parse_source(c.source), MetricSource)
+                and parse_source(c.source).metric == ref_metric  # type: ignore[union-attr]
+                for c in ref_table_cfg.columns
+            )
+            if not metric_on_ref_table:
+                raise ValueError(
+                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                    f"scd_type2.trigger_metric={scd_cfg.trigger_metric!r}, "
+                    f"but fact table {ref_table!r} has no column with source "
+                    f"'metric:{ref_metric}'. Add a metric column or point "
+                    f"trigger_metric at a fact that exposes the metric."
                 )
 
         return self

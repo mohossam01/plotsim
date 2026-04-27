@@ -49,6 +49,11 @@ from plotsim.config import (
 )
 
 
+def _is_scd_dim(tbl: Table) -> bool:
+    """True if any column on ``tbl`` carries an SCD Type 2 config."""
+    return any(c.scd_type2 is not None for c in tbl.columns)
+
+
 CHECK_CORRELATION_PSD = "correlation_psd"
 CHECK_PK_UNIQUENESS = "pk_uniqueness"
 CHECK_FK_INTEGRITY = "fk_integrity"
@@ -58,6 +63,7 @@ CHECK_NULL_POLICY = "null_policy"
 CHECK_EMPTY_EVENT_TABLE = "empty_event_table"
 CHECK_CROSS_DIM_FK_CARDINALITY = "cross_dim_fk_cardinality"
 CHECK_TEMPORAL_COHERENCE = "temporal_coherence"
+CHECK_SCD_INTEGRITY = "scd_integrity"
 
 ALL_CHECKS: tuple[str, ...] = (
     CHECK_CORRELATION_PSD,
@@ -69,6 +75,7 @@ ALL_CHECKS: tuple[str, ...] = (
     CHECK_EMPTY_EVENT_TABLE,
     CHECK_CROSS_DIM_FK_CARDINALITY,
     CHECK_TEMPORAL_COHERENCE,
+    CHECK_SCD_INTEGRITY,
 )
 
 # Sample size for "sample of offending values" in issue details. Keeps reports
@@ -219,13 +226,53 @@ def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
 def validate_pk_uniqueness(
     config: PlotsimConfig, tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
-    """Flag duplicate PK values (single-column and composite)."""
+    """Flag duplicate PK values (single-column and composite).
+
+    M106: SCD Type 2-enabled dim tables hold multiple versioned rows per
+    entity, so the declared natural PK (e.g. ``company_id``) repeats by
+    design. The effective uniqueness key on those tables shifts to the
+    surrogate ``dim_row_id`` the SCD expansion injects. The validator
+    detects SCD dims and pivots the uniqueness check accordingly —
+    natural-PK duplicates on SCD dims are expected, ``dim_row_id`` must
+    be unique. Non-SCD tables go through the original path unchanged.
+    """
     issues: list[ValidationIssue] = []
     for tbl in config.tables:
         df = tables.get(tbl.name)
         if df is None or df.empty:
             continue
         pk_cols = tbl.primary_key_cols
+        if _is_scd_dim(tbl):
+            if "dim_row_id" not in df.columns:
+                issues.append(ValidationIssue(
+                    check=CHECK_PK_UNIQUENESS,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"SCD dim {tbl.name!r} is missing the surrogate "
+                        f"'dim_row_id' column expected after SCD expansion"
+                    ),
+                    details={"pk_columns": pk_cols, "actual_columns": list(df.columns)},
+                ))
+                continue
+            dup_mask = df["dim_row_id"].duplicated(keep=False)
+            if dup_mask.any():
+                dup_values = df.loc[dup_mask, "dim_row_id"].unique().tolist()
+                issues.append(ValidationIssue(
+                    check=CHECK_PK_UNIQUENESS,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"SCD surrogate 'dim_row_id' has {len(dup_values)} "
+                        f"duplicate value(s) on SCD dim {tbl.name!r}"
+                    ),
+                    details={
+                        "pk_columns": ["dim_row_id"],
+                        "duplicates_sample": _sample_sorted(dup_values),
+                        "duplicate_count": int(dup_mask.sum()),
+                    },
+                ))
+            continue
         missing = [c for c in pk_cols if c not in df.columns]
         if missing:
             issues.append(ValidationIssue(
@@ -1018,6 +1065,141 @@ def validate_cross_dim_fk_cardinality(
     return issues
 
 
+# --- Check 10: SCD Type 2 integrity (M106) -----------------------------------
+
+
+def validate_scd_integrity(
+    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+) -> list[ValidationIssue]:
+    """Defensive integrity check for SCD Type 2 dim and fact wiring.
+
+    By construction (``tables.expand_scd_dims`` +
+    ``tables.attach_dim_row_id_to_facts``), every SCD-enabled dim has the
+    ``dim_row_id`` / ``valid_from`` / ``valid_to`` / ``is_current``
+    columns and every fact/event table FK'ing into an SCD dim carries a
+    matching ``dim_row_id`` column. This validator catches drift if a
+    future engine change (or a programmatic table mutation downstream)
+    breaks those invariants. Costs are O(rows-per-table); negligible
+    next to the existing checks.
+
+    Errors raised:
+      * SCD dim missing the four expansion columns.
+      * SCD dim ``is_current`` total != entity count (each entity should
+        end with exactly one current version).
+      * SCD dim ``valid_from <= valid_to`` violated on any row.
+      * Fact/event table FK'ing to an SCD dim is missing ``dim_row_id``.
+      * Fact ``dim_row_id`` value not present in the parent SCD dim's
+        ``dim_row_id`` column.
+    """
+    issues: list[ValidationIssue] = []
+    expansion_cols = ("dim_row_id", "valid_from", "valid_to", "is_current")
+
+    scd_dims_present: dict[str, set[Any]] = {}
+    for tbl in config.tables:
+        if not _is_scd_dim(tbl):
+            continue
+        df = tables.get(tbl.name)
+        if df is None or df.empty:
+            continue
+        missing = [c for c in expansion_cols if c not in df.columns]
+        if missing:
+            issues.append(ValidationIssue(
+                check=CHECK_SCD_INTEGRITY,
+                severity="error",
+                table=tbl.name,
+                message=(
+                    f"SCD dim {tbl.name!r} is missing expansion column(s) "
+                    f"{missing}"
+                ),
+                details={"missing_columns": missing},
+            ))
+            continue
+        scd_dims_present[tbl.name] = set(df["dim_row_id"].tolist())
+
+        n_current = int(df["is_current"].astype(bool).sum())
+        n_entities = len(config.entities)
+        if n_current != n_entities:
+            issues.append(ValidationIssue(
+                check=CHECK_SCD_INTEGRITY,
+                severity="error",
+                table=tbl.name,
+                message=(
+                    f"SCD dim {tbl.name!r} has {n_current} 'is_current=True' "
+                    f"row(s) but config has {n_entities} entities; each "
+                    f"entity should hold exactly one current version"
+                ),
+                details={
+                    "is_current_count": n_current,
+                    "entity_count": n_entities,
+                },
+            ))
+
+        bad_window = df[df["valid_from"] > df["valid_to"]]
+        if not bad_window.empty:
+            issues.append(ValidationIssue(
+                check=CHECK_SCD_INTEGRITY,
+                severity="error",
+                table=tbl.name,
+                message=(
+                    f"SCD dim {tbl.name!r} has {len(bad_window)} row(s) "
+                    f"where valid_from > valid_to"
+                ),
+                details={"bad_window_count": int(len(bad_window))},
+            ))
+
+    if not scd_dims_present:
+        return issues
+
+    for tbl in config.tables:
+        if tbl.type not in ("fact", "event"):
+            continue
+        df = tables.get(tbl.name)
+        if df is None or df.empty:
+            continue
+        scd_parent: Optional[str] = None
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if isinstance(parsed, FKSource) and parsed.table in scd_dims_present:
+                scd_parent = parsed.table
+                break
+        if scd_parent is None:
+            continue
+        if "dim_row_id" not in df.columns:
+            issues.append(ValidationIssue(
+                check=CHECK_SCD_INTEGRITY,
+                severity="error",
+                table=tbl.name,
+                message=(
+                    f"{tbl.type} {tbl.name!r} FKs to SCD dim {scd_parent!r} "
+                    f"but is missing the 'dim_row_id' surrogate column"
+                ),
+                details={"scd_parent": scd_parent},
+            ))
+            continue
+        parent_ids = scd_dims_present[scd_parent]
+        child_vals = [
+            int(v) for v in df["dim_row_id"].tolist() if not _is_nullish(v)
+        ]
+        orphans = sorted({v for v in child_vals if v not in parent_ids})
+        if orphans:
+            issues.append(ValidationIssue(
+                check=CHECK_SCD_INTEGRITY,
+                severity="error",
+                table=tbl.name,
+                message=(
+                    f"{tbl.type} {tbl.name!r} 'dim_row_id' has "
+                    f"{len(orphans)} value(s) not present in SCD dim "
+                    f"{scd_parent!r}.dim_row_id"
+                ),
+                details={
+                    "scd_parent": scd_parent,
+                    "orphan_count": len(orphans),
+                    "orphans_sample": orphans[:_SAMPLE_LIMIT],
+                },
+            ))
+    return issues
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -1039,4 +1221,5 @@ def validate_tables(
     issues.extend(validate_empty_event_tables(config, tables))
     issues.extend(validate_cross_dim_fk_cardinality(config, tables))
     issues.extend(validate_temporal_coherence(config, tables))
+    issues.extend(validate_scd_integrity(config, tables))
     return ValidationReport(issues=tuple(issues))

@@ -145,6 +145,18 @@ tables:
       - {name: "industry", dtype: "string", source: "generated:faker.industry"}
       - {name: "founded_year", dtype: "int", source: "generated:faker.year"}
       - {name: "cohort_size", dtype: "int", source: "derived:size"}
+      # M106: SCD Type 2 plan tier. As MRR climbs through trajectory bands
+      # the account's plan tier upgrades from starter → growth → enterprise.
+      # The label sticks once promoted (monotonic / hysteresis) — a transient
+      # MRR dip does not demote, mirroring how real customers don't get
+      # automatically downgraded mid-billing-cycle.
+      - name: "plan_tier"
+        dtype: "string"
+        source: "scd_type2"
+        scd_type2:
+          trigger_metric: "fct_revenue.mrr"
+          thresholds: [0.4, 0.7]
+          labels: ["starter", "growth", "enterprise"]
     primary_key: "company_id"
 
   - name: "dim_user"

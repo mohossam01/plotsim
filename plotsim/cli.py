@@ -161,8 +161,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     # aggregation walks every event row.
     manifest = None
     if config.manifest.include:
+        # M106: thread SCD state through so the manifest's scd_events list
+        # is populated for configs that use SCD Type 2. Empty for all other
+        # configs (build_manifest no-ops on an empty SCDState).
         manifest = build_manifest(
             config, gen_state.trajectories, tables,
+            scd_state=gen_state.scd,
         )
 
     output_dir = Path(args.output_dir) if args.output_dir else None

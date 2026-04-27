@@ -163,24 +163,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date
     dtype: date
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: year
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: month
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
@@ -194,18 +198,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: dept_name
     dtype: string
     source: static:engineering
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cost_center
     dtype: string
     source: static:R&D
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: dept_id
   foreign_keys: []
   row_count_source: null
@@ -219,30 +226,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: dept_id
     dtype: id
     source: fk:dim_department.dept_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: full_name
     dtype: string
     source: generated:faker.name
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: hire_date
     dtype: date
     source: generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: level
     dtype: string
     source: static:IC
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: employee_id
   foreign_keys:
   - dim_department.dept_id
@@ -257,24 +269,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: performance_score
     dtype: float
     source: metric:performance_score
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: engagement_index
     dtype: float
     source: metric:engagement_index
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - employee_id
@@ -292,18 +308,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: training_hours
     dtype: float
     source: metric:training_hours
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - employee_id
@@ -321,24 +340,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: absence_rate
     dtype: float
     source: metric:absence_rate
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: attrition_risk
     dtype: float
     source: metric:attrition_risk
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - employee_id
@@ -356,24 +379,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key

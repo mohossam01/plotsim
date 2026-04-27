@@ -53,7 +53,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -112,6 +112,31 @@ class EventFiring(_ManifestBase):
     period_indices: list[int]
 
 
+class SCDEvent(_ManifestBase):
+    """M106: one SCD Type 2 band crossing for one entity in one dim table.
+
+    Recorded only for *transitions* — the entity's initial band at
+    period 0 is reflected in the dim table itself but does not
+    generate an event (no crossing happened). Subsequent advances
+    each emit one ``SCDEvent``.
+
+    ``trigger_position`` is the trajectory position at the crossing
+    period — the same scalar that drove the band change. Downstream
+    consumers can join this against ``trajectory_samples`` to reconstruct
+    "the entity's plan tier upgraded when its trajectory first reached
+    0.42" without re-reading thresholds out of the config.
+    """
+    dim_table: str
+    entity: str
+    period_index: int
+    old_label: str
+    new_label: str
+    old_dim_row_id: int
+    new_dim_row_id: int
+    trigger_metric: str
+    trigger_position: float
+
+
 class ManifestSchema(_ManifestBase):
     """Top-level manifest payload.
 
@@ -124,6 +149,7 @@ class ManifestSchema(_ManifestBase):
     archetype_assignments: list[EntityArchetypeAssignment]
     trajectory_samples: list[TrajectorySample]
     event_firings: list[EventFiring]
+    scd_events: list[SCDEvent] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -247,9 +273,17 @@ def _firings_for_event_table(
     # Parent dim row order is config.entities order (per
     # tables.build_fact_tables's contract: per_entity dims are 1:1 with
     # config.entities).
-    pk_values = parent_dim_df[parent_pk_col].tolist()
+    # M106: SCD-expanded per_entity dims hold N × versions rows but the
+    # entity business key is repeated across versions. Dedupe to one row
+    # per PK (first-version-wins) so the bridge is config.entities-aligned
+    # again — ``expand_scd_dims`` iterates entities in config order, so
+    # the deduped frame preserves that ordering.
+    pk_values = (
+        parent_dim_df.drop_duplicates(subset=[parent_pk_col], keep="first")
+        [parent_pk_col].tolist()
+    )
     if len(pk_values) != len(config.entities):
-        # Parent dim row count doesn't match — can't bridge by position.
+        # Parent dim unique-PK count doesn't match — can't bridge by position.
         return firings
     entity_pk_by_name = {
         entity.name: pk for entity, pk in zip(config.entities, pk_values)
@@ -294,12 +328,20 @@ def build_manifest(
     trajectories: dict[str, np.ndarray],
     tables: dict[str, pd.DataFrame],
     sample_rate: Optional[float] = None,
+    scd_state: Optional[Any] = None,
 ) -> ManifestSchema:
     """Assemble the manifest from config + generation state + tables.
 
     ``sample_rate`` overrides ``config.manifest.trajectory_sample_rate``
     when supplied; useful for tests that want a smaller sample without
     rewriting the YAML. Default ``None`` reads the config.
+
+    M106: ``scd_state`` (the ``GenerationState.scd`` field) carries the
+    per-entity SCD version lists ``tables.expand_scd_dims`` produced.
+    When supplied, every band crossing (transition between versions) is
+    recorded as an ``SCDEvent`` in the manifest. ``None`` (or an empty
+    state) leaves ``manifest.scd_events`` as ``[]`` — backwards
+    compatible with M105 callers that haven't been updated yet.
 
     The function is pure and stateless — same inputs → same output. No
     RNG, no clock, no filesystem.
@@ -348,6 +390,30 @@ def build_manifest(
             period_index_by_date_key,
         ))
 
+    scd_events: list[SCDEvent] = []
+    if scd_state is not None and getattr(scd_state, "dims", None):
+        # Sort dim tables for stable manifest ordering across runs.
+        for dim_name in sorted(scd_state.dims.keys()):
+            dim_state = scd_state.dims[dim_name]
+            for entity_name in sorted(dim_state.versions.keys()):
+                versions = dim_state.versions[entity_name]
+                # versions[0] is the entity's starting band; only later
+                # entries are crossings, so iterate in pairs from index 1.
+                for i in range(1, len(versions)):
+                    prev = versions[i - 1]
+                    curr = versions[i]
+                    scd_events.append(SCDEvent(
+                        dim_table=dim_name,
+                        entity=entity_name,
+                        period_index=int(curr.valid_from_period),
+                        old_label=prev.band_label,
+                        new_label=curr.band_label,
+                        old_dim_row_id=int(prev.dim_row_id),
+                        new_dim_row_id=int(curr.dim_row_id),
+                        trigger_metric=dim_state.trigger_metric,
+                        trigger_position=float(curr.crossing_position or 0.0),
+                    ))
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -355,6 +421,7 @@ def build_manifest(
         archetype_assignments=archetype_assignments,
         trajectory_samples=trajectory_samples,
         event_firings=event_firings,
+        scd_events=scd_events,
     )
 
 

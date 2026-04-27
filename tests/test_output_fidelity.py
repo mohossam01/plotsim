@@ -938,9 +938,15 @@ class TestArchetypeSeparability:
 
         # Map entity_id → archetype. dim_company rows correspond 1:1 with
         # config.entities (one row per Entity, in declaration order).
+        # M106: SCD Type 2 expansion holds multiple versions per entity, so
+        # dedupe by entity PK first — first-version-wins preserves
+        # config.entities ordering (expand_scd_dims iterates entities in
+        # config order and emits versions sequentially per entity).
         dim = tables["dim_company"]
         pk_col = "company_id"
-        ordered_ids = dim[pk_col].tolist()
+        ordered_ids = (
+            dim.drop_duplicates(subset=pk_col, keep="first")[pk_col].tolist()
+        )
         archetype_by_entity: dict[Any, str] = {}
         for ent, entity_id in zip(cfg.entities, ordered_ids):
             archetype_by_entity[entity_id] = ent.archetype

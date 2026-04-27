@@ -127,24 +127,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date
     dtype: date
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: year
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: month
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
@@ -158,18 +162,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cohort_name
     dtype: string
     source: generated:faker.company
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cohort_size
     dtype: int
     source: derived:size
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: student_id
   foreign_keys: []
   row_count_source: null
@@ -183,18 +190,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: course_name
     dtype: string
     source: static:intro_cs
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: credits
     dtype: int
     source: static:3
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: course_id
   foreign_keys: []
   row_count_source: null
@@ -208,30 +218,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: course_id
     dtype: id
     source: fk:dim_course.course_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: assignment_score
     dtype: float
     source: metric:assignment_score
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: participation_index
     dtype: float
     source: metric:participation_index
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - student_id
@@ -250,30 +265,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: attendance_rate
     dtype: float
     source: metric:attendance_rate
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: study_hours
     dtype: float
     source: metric:study_hours
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: dropout_risk
     dtype: float
     source: metric:dropout_risk
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - student_id
@@ -291,30 +311,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: dropout_flag
     dtype: boolean
     source: threshold:dropout_risk:above:0.6:for:2
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key

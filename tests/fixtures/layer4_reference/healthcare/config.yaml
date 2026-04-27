@@ -121,24 +121,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date
     dtype: date
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: year
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: month
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
@@ -152,18 +156,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: group_name
     dtype: string
     source: generated:faker.company
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cohort_size
     dtype: int
     source: derived:size
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: group_id
   foreign_keys: []
   row_count_source: null
@@ -177,18 +184,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: treatment_name
     dtype: string
     source: static:standard_care
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: category
     dtype: string
     source: static:outpatient
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: treatment_id
   foreign_keys: []
   row_count_source: null
@@ -202,30 +212,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: group_id
     dtype: id
     source: fk:dim_patient.group_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: treatment_id
     dtype: id
     source: fk:dim_treatment_type.treatment_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: visit_count
     dtype: int
     source: metric:visit_frequency
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: treatment_adherence
     dtype: float
     source: metric:treatment_adherence
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - group_id
@@ -244,30 +259,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: group_id
     dtype: id
     source: fk:dim_patient.group_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: symptom_severity
     dtype: float
     source: metric:symptom_severity
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: recovery_index
     dtype: float
     source: metric:recovery_index
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: readmission_risk
     dtype: float
     source: metric:readmission_risk
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - group_id
@@ -285,24 +305,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: group_id
     dtype: id
     source: fk:dim_patient.group_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: readmission_flag
     dtype: boolean
     source: threshold:readmission_risk:above:0.5:for:2
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key

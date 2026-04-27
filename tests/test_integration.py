@@ -454,7 +454,9 @@ def test_single_entity(tmp_path: Path):
     tables = generate(cfg)
     report = validate(cfg, tables)
     assert report.ok, f"single-entity config failed validation: {report.errors[:2]}"
-    assert len(tables["dim_company"]) == 1
+    # M106: SCD-expanded dim_company holds one row per (entity, version);
+    # the entity count is the unique-PK count, not the raw row count.
+    assert tables["dim_company"]["company_id"].nunique() == 1
 
 
 def test_shortest_window(tmp_path: Path):
@@ -492,7 +494,9 @@ def test_all_same_archetype(tmp_path: Path):
     tables = generate(cfg)
     report = validate(cfg, tables)
     assert report.ok, f"all-same-archetype failed: {report.errors[:2]}"
-    assert len(tables["dim_company"]) == 5
+    # M106: SCD-expanded dim_company holds one row per (entity, version);
+    # the entity count is the unique-PK count, not the raw row count.
+    assert tables["dim_company"]["company_id"].nunique() == 5
 
 
 def test_zero_noise_produces_no_metric_nulls(tmp_path: Path):
@@ -711,6 +715,12 @@ def _distinguishability_ari(
         if t.grain == "per_entity" and any(c.name == entity_col for c in t.columns)
     )
     entity_dim = tables_dict[entity_dim_name]
+    # M106: dedupe SCD-versioned per_entity dims to one row per entity PK
+    # (first-version-wins) so positional indexing matches config.entities.
+    entity_dim = (
+        entity_dim.drop_duplicates(subset=entity_col, keep="first")
+        .reset_index(drop=True)
+    )
     fact = tables_dict[fact_name].sort_values(["date_key"]).reset_index(drop=True)
 
     n_entities = len(config.entities)

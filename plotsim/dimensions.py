@@ -53,6 +53,7 @@ from plotsim.config import (
     GeneratedSource,
     PlotsimConfig,
     PKSource,
+    SCDType2Source,
     StaticSource,
     Table,
     TimeWindow,
@@ -431,6 +432,13 @@ def _column_value_for_entity(
         # → dim_department) are resolved by broadcasting the first reference
         # row's PK, since reference tables are tiny and row-0 is deterministic.
         return None  # filled in by _backfill_fks
+    if isinstance(parsed, SCDType2Source):
+        # M106: SCD label cells are populated by `tables.expand_scd_dims`,
+        # which has the per-entity trajectory and the SCDType2Config's
+        # thresholds/labels. Emit a None placeholder here so the per-entity
+        # initial dim row carries the column slot; the expansion step
+        # rewrites both the label and the row count.
+        return None
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity dimension tables"

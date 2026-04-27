@@ -45,7 +45,7 @@ Mission-spec deviations (also flagged in the completion report):
 from __future__ import annotations
 
 import datetime as _dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -63,6 +63,7 @@ from plotsim.config import (
     PlotsimConfig,
     PKSource,
     ProportionalSource,
+    SCDType2Config,
     StaticSource,
     Table,
     TextBucketSource,
@@ -360,11 +361,20 @@ def _build_per_entity_per_period_fact(
         )
     local_entity_col, parent_entity_table, parent_entity_pk = entity_fk
     parent_entity_dim = dim_tables[parent_entity_table]
+    # M106: SCD-expanded per_entity dims hold N × versions rows, with the
+    # entity business key repeated across versions. Collapse to a canonical
+    # one-row-per-entity view (first version per entity) for PK lookup —
+    # ``expand_scd_dims`` iterates entities in ``config.entities`` order, so
+    # the deduplicated frame preserves config-entity ordering.
+    parent_entity_dim = parent_entity_dim.drop_duplicates(
+        subset=[parent_entity_pk], keep="first",
+    ).reset_index(drop=True)
     if len(parent_entity_dim) != len(config.entities):
         raise ValueError(
             f"parent dim {parent_entity_table!r} has {len(parent_entity_dim)} "
-            f"rows but config has {len(config.entities)} entities; "
-            f"per_entity dims must be 1:1 with config.entities"
+            f"unique {parent_entity_pk!r} value(s) but config has "
+            f"{len(config.entities)} entities; per_entity dims must be 1:1 "
+            f"with config.entities (SCD-expanded dims are deduplicated by PK)"
         )
 
     date_fk = _find_date_fk_column(tbl)
@@ -1554,6 +1564,464 @@ def assign_stages(
     return out
 
 
+# --- SCD Type 2 (M106) -------------------------------------------------------
+#
+# SCD machinery is split into three contracts so the trajectory-first
+# invariant stays load-bearing across the pipeline:
+#
+#   1. ``_compute_scd_versions`` — pure function that takes one entity's
+#      trajectory and one SCDType2Config, returns the list of versioned
+#      bands the entity visits monotonically. No DataFrame, no I/O.
+#   2. ``expand_scd_dim`` — uses (1) to rewrite a single dim DataFrame
+#      from "one row per entity" into "one row per (entity, version)"
+#      with the SCD columns appended (dim_row_id / valid_from / valid_to /
+#      is_current). Returns the expanded DataFrame plus an
+#      ``SCDDimState`` carrying the per-entity version list and the
+#      column metadata fact tables need to inject ``dim_row_id``.
+#   3. ``attach_dim_row_id_to_facts`` — runs after fact construction;
+#      for every fact/event table whose entity FK targets an SCD dim,
+#      appends a ``dim_row_id`` column resolved via (entity, period) →
+#      active version.
+#
+# All three are deterministic given (config, trajectories). They consume
+# no RNG, so they slot into ``generate_tables_with_state`` without
+# disturbing the seed/draw order callers rely on for reproducibility.
+
+# Sentinel valid_to for the currently active version. Encoded as a
+# ``YYYYMMDD`` integer so it lives in the same numeric domain as the
+# date_keys ``dim_date`` emits — downstream SQL joins predicating on
+# ``valid_to`` get a value far above any real date_key without needing
+# special-case NULL handling.
+SCD_VALID_TO_SENTINEL: int = 99991231
+
+
+@dataclass(frozen=True)
+class SCDVersion:
+    """One versioned slice of a single entity's life in an SCD dim.
+
+    ``band`` indexes into the SCD column's ``labels`` tuple;
+    ``band_label`` is the literal cell value emitted in the dim row.
+    ``valid_from`` / ``valid_to`` are date_keys (YYYYMMDD ints) sourced
+    from ``dim_date`` so they share a numeric domain with fact-table
+    date_key FKs. ``valid_from_period`` / ``valid_to_period`` carry the
+    same boundary as 0-based period indices for the manifest, which
+    operates in period-index space.
+    ``crossing_position`` is the trajectory position at the period
+    where this band became the entity's active band; ``None`` for the
+    initial band (band 0 the entity occupied at t=0).
+
+    Field is named ``band_label`` rather than the bare display name
+    used by ``Archetype`` and ``Metric`` so the dead-schema audit
+    (M102, see tests/test_dead_schema.py) regex doesn't treat reads
+    on this dataclass as reads of those allowlisted display fields.
+    """
+    band: int
+    band_label: str
+    valid_from: int
+    valid_to: int
+    valid_from_period: int
+    valid_to_period: int
+    is_current: bool
+    dim_row_id: int
+    crossing_position: Optional[float]
+
+
+@dataclass(frozen=True)
+class SCDDimState:
+    """Per-dim-table SCD state, keyed by entity name to its version list.
+
+    ``scd_column`` is the dim column whose label cells SCD writes;
+    ``entity_pk_column`` is the dim's PK column (the entity business
+    key, repeated across versions); ``trigger_metric`` is carried
+    through so the manifest can name what drove each crossing without
+    re-reading the config.
+    """
+    versions: dict[str, list[SCDVersion]]
+    scd_column: str
+    entity_pk_column: str
+    trigger_metric: str
+
+
+@dataclass(frozen=True)
+class SCDState:
+    """Cross-table SCD state. Maps dim-table name → SCDDimState."""
+    dims: dict[str, SCDDimState]
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.dims
+
+
+def _scd_column_for_table(tbl: Table) -> Optional[tuple[Column, SCDType2Config]]:
+    """Return the single SCD column on ``tbl`` (or None).
+
+    PlotsimConfig validation rejects multi-SCD-column dim tables, so this
+    helper is allowed to return at most one match.
+    """
+    for col in tbl.columns:
+        if col.scd_type2 is not None:
+            return col, col.scd_type2
+    return None
+
+
+def _entity_pk_column(tbl: Table) -> Optional[str]:
+    for col in tbl.columns:
+        if isinstance(parse_source(col.source), PKSource):
+            return col.name
+    return None
+
+
+def _compute_scd_versions(
+    trajectory: np.ndarray,
+    scd_cfg: SCDType2Config,
+    date_keys: np.ndarray,
+    starting_dim_row_id: int,
+) -> list[SCDVersion]:
+    """Walk one entity's trajectory and emit its visited band versions.
+
+    Algorithm:
+      * ``raw_band[p] = searchsorted(thresholds, position[p], side='right')``
+        clamped to ``[0, len(labels) - 1]``. The clamp closes the
+        ``position == 1.0`` corner so the highest position lands in the
+        topmost band rather than overflowing.
+      * ``cum_band = np.maximum.accumulate(raw_band)`` — the monotonic
+        cursor. An entity that crosses upward and falls back keeps the
+        higher cursor (hysteresis), mirroring M102's
+        ``StageDefinition.threshold_exit`` semantics so SCD versioning
+        and stage assignment have one consistent contract.
+      * Transitions are the indices where ``cum_band`` increases. The
+        first period (index 0) is always a transition with no
+        ``crossing_position`` (the entity *starts* in some band
+        rather than crossing into it).
+
+    Each transition produces an ``SCDVersion``. ``valid_to`` is the
+    date_key of the next transition's first period; the final
+    transition gets the sentinel ``SCD_VALID_TO_SENTINEL`` and
+    ``is_current=True``.
+    """
+    thresholds = np.asarray(scd_cfg.thresholds, dtype=np.float64)
+    labels = scd_cfg.labels
+    n_periods = len(trajectory)
+
+    raw_bands = np.searchsorted(thresholds, trajectory, side="right")
+    raw_bands = np.clip(raw_bands, 0, len(labels) - 1).astype(np.int64)
+    cum_bands = np.maximum.accumulate(raw_bands)
+
+    # Transition indices: 0 (always) plus every index where cum_band rose.
+    transitions: list[int] = [0]
+    for p in range(1, n_periods):
+        if cum_bands[p] > cum_bands[p - 1]:
+            transitions.append(p)
+
+    versions: list[SCDVersion] = []
+    next_dim_row_id = starting_dim_row_id
+    for seg_idx, start_period in enumerate(transitions):
+        end_period = (
+            transitions[seg_idx + 1] if seg_idx + 1 < len(transitions)
+            else n_periods
+        )
+        is_current = seg_idx == len(transitions) - 1
+        valid_from = int(date_keys[start_period])
+        if is_current:
+            valid_to = SCD_VALID_TO_SENTINEL
+            valid_to_period = n_periods
+        else:
+            valid_to = int(date_keys[end_period])
+            valid_to_period = end_period
+        band = int(cum_bands[start_period])
+        versions.append(SCDVersion(
+            band=band,
+            band_label=labels[band],
+            valid_from=valid_from,
+            valid_to=valid_to,
+            valid_from_period=start_period,
+            valid_to_period=valid_to_period,
+            is_current=is_current,
+            dim_row_id=next_dim_row_id,
+            crossing_position=(
+                None if seg_idx == 0 else float(trajectory[start_period])
+            ),
+        ))
+        next_dim_row_id += 1
+    return versions
+
+
+def _expand_scd_dim(
+    tbl: Table,
+    df: pd.DataFrame,
+    config: PlotsimConfig,
+    trajectories: dict[str, np.ndarray],
+    dim_date: pd.DataFrame,
+) -> tuple[pd.DataFrame, SCDDimState]:
+    """Rewrite a single SCD-enabled dim DataFrame into versioned rows.
+
+    Pre-conditions enforced upstream by ``PlotsimConfig`` validation:
+    ``tbl`` is a per_entity dim with exactly one ``scd_type2`` column.
+
+    Returns the expanded DataFrame plus an ``SCDDimState`` recording
+    the per-entity version list, the SCD column name, the entity-PK
+    column, and the trigger metric — everything fact-FK resolution and
+    manifest emission need without re-deriving from the dim DataFrame.
+    """
+    scd_pair = _scd_column_for_table(tbl)
+    if scd_pair is None:  # defensive: caller filters
+        raise RuntimeError(
+            f"_expand_scd_dim called on {tbl.name!r} which has no SCD column"
+        )
+    scd_col, scd_cfg = scd_pair
+    pk_col = _entity_pk_column(tbl)
+    if pk_col is None:
+        raise ValueError(
+            f"SCD dim {tbl.name!r} has no PK column; one column must declare "
+            f"source 'pk' so SCD versions can carry a stable entity business key"
+        )
+    if len(df) != len(config.entities):
+        raise ValueError(
+            f"SCD dim {tbl.name!r} has {len(df)} rows but config has "
+            f"{len(config.entities)} entities; per_entity dims must be 1:1 "
+            f"with config.entities for SCD expansion"
+        )
+
+    date_keys = dim_date["date_key"].to_numpy()
+    n_periods = len(date_keys)
+
+    versions_by_entity: dict[str, list[SCDVersion]] = {}
+    expanded_rows: list[dict[str, Any]] = []
+    next_id = 1
+    column_order = list(df.columns) + [
+        "dim_row_id", "valid_from", "valid_to", "is_current",
+    ]
+
+    for entity_idx, entity in enumerate(config.entities):
+        traj = trajectories.get(entity.name)
+        if traj is None or len(traj) != n_periods:
+            raise ValueError(
+                f"SCD dim {tbl.name!r}: entity {entity.name!r} has missing "
+                f"or wrong-length trajectory (expected {n_periods})"
+            )
+        entity_versions = _compute_scd_versions(
+            traj, scd_cfg, date_keys, starting_dim_row_id=next_id,
+        )
+        next_id += len(entity_versions)
+        versions_by_entity[entity.name] = entity_versions
+
+        base_row = df.iloc[entity_idx].to_dict()
+        for version in entity_versions:
+            row = dict(base_row)
+            row[scd_col.name] = version.band_label
+            row["dim_row_id"] = version.dim_row_id
+            row["valid_from"] = version.valid_from
+            row["valid_to"] = version.valid_to
+            row["is_current"] = version.is_current
+            expanded_rows.append(row)
+
+    expanded_df = pd.DataFrame(expanded_rows, columns=column_order)
+    state = SCDDimState(
+        versions=versions_by_entity,
+        scd_column=scd_col.name,
+        entity_pk_column=pk_col,
+        trigger_metric=scd_cfg.trigger_metric,
+    )
+    return expanded_df, state
+
+
+def expand_scd_dims(
+    config: PlotsimConfig,
+    dim_tables: dict[str, pd.DataFrame],
+    trajectories: dict[str, np.ndarray],
+) -> tuple[dict[str, pd.DataFrame], SCDState]:
+    """Expand every SCD-enabled dim and return the updated table dict + state.
+
+    Tables without any ``scd_type2`` column pass through unchanged. The
+    caller (``generate_tables_with_state``) runs this after dimension
+    construction and trajectory computation but BEFORE fact construction
+    so fact tables can resolve their FK to the active dim_row_id.
+    """
+    dim_date = dim_tables.get("dim_date")
+    if dim_date is None:
+        # Without dim_date we have no date_key spine to anchor validity
+        # windows; safer to fail loudly than emit misaligned versions.
+        raise RuntimeError(
+            "expand_scd_dims requires dim_date to be present in dim_tables"
+        )
+
+    out = dict(dim_tables)
+    states: dict[str, SCDDimState] = {}
+    for tbl in config.tables:
+        if tbl.type != "dim":
+            continue
+        if _scd_column_for_table(tbl) is None:
+            continue
+        df = dim_tables.get(tbl.name)
+        if df is None:
+            raise RuntimeError(
+                f"expand_scd_dims: dim table {tbl.name!r} has SCD config but "
+                f"no DataFrame was built upstream by build_all_dimensions"
+            )
+        expanded, state = _expand_scd_dim(
+            tbl, df, config, trajectories, dim_date,
+        )
+        out[tbl.name] = expanded
+        states[tbl.name] = state
+    return out, SCDState(dims=states)
+
+
+def _facts_referencing_scd_dim(
+    config: PlotsimConfig, scd_dim: str,
+) -> list[Table]:
+    """Tables (fact or event) whose any FK column points at ``scd_dim``."""
+    out: list[Table] = []
+    for tbl in config.tables:
+        if tbl.type not in ("fact", "event"):
+            continue
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if isinstance(parsed, FKSource) and parsed.table == scd_dim:
+                out.append(tbl)
+                break
+    return out
+
+
+def _date_key_period_index(dim_date: pd.DataFrame) -> dict[int, int]:
+    """date_key (int) → period index (0-based row position in dim_date)."""
+    return {int(k): i for i, k in enumerate(dim_date["date_key"].tolist())}
+
+
+def _resolve_dim_row_id_per_row(
+    entity_keys: np.ndarray,
+    date_keys: np.ndarray,
+    versions_by_entity_pk: dict[Any, list[SCDVersion]],
+    period_index_by_date_key: dict[int, int],
+) -> np.ndarray:
+    """Build the ``dim_row_id`` column for one fact/event table.
+
+    For each row's (entity_key, date_key) pair, look up the version
+    whose ``[valid_from_period, valid_to_period)`` half-open window
+    contains the date_key's period index. Returns an int64 ndarray
+    aligned with the input row order.
+    """
+    n_rows = len(entity_keys)
+    out = np.empty(n_rows, dtype=np.int64)
+    for i in range(n_rows):
+        entity_pk = entity_keys[i]
+        dkey = date_keys[i]
+        try:
+            dkey_int = int(dkey) if dkey is not None else None
+        except (TypeError, ValueError):
+            dkey_int = None
+        if dkey_int is None:
+            out[i] = -1
+            continue
+        period_idx = period_index_by_date_key.get(dkey_int)
+        if period_idx is None:
+            out[i] = -1
+            continue
+        versions = versions_by_entity_pk.get(entity_pk)
+        if not versions:
+            out[i] = -1
+            continue
+        active: Optional[SCDVersion] = None
+        for v in versions:
+            if v.valid_from_period <= period_idx < v.valid_to_period:
+                active = v
+                break
+        out[i] = active.dim_row_id if active is not None else -1
+    return out
+
+
+def attach_dim_row_id_to_facts(
+    config: PlotsimConfig,
+    fact_tables: dict[str, pd.DataFrame],
+    dim_tables: dict[str, pd.DataFrame],
+    scd_state: SCDState,
+) -> dict[str, pd.DataFrame]:
+    """Append a ``dim_row_id`` column to facts/events FK'ing into SCD dims.
+
+    Mutates a copy of ``fact_tables`` and returns it. The original FK
+    column on the fact (typically the entity business key, e.g.
+    ``company_id``) is left intact so existing groupby and stage-
+    assignment paths keep working — ``dim_row_id`` is purely additive.
+
+    V1 contract: a fact/event table may FK into at most one SCD dim
+    (PlotsimConfig validation ensures this is feasible by capping each
+    dim at one SCD column; this helper enforces it on the fact side
+    so a future schema change doesn't quietly produce ambiguous joins).
+    """
+    if scd_state.is_empty:
+        return fact_tables
+
+    dim_date = dim_tables.get("dim_date")
+    if dim_date is None:
+        return fact_tables
+    period_index_by_date_key = _date_key_period_index(dim_date)
+
+    out = dict(fact_tables)
+    for scd_dim_name, dim_state in scd_state.dims.items():
+        scd_dim_df = dim_tables.get(scd_dim_name)
+        if scd_dim_df is None:
+            continue
+        # Map entity name → entity PK value (the business key, repeated
+        # across versions). Pull the first-version row for each entity
+        # since the PK is identical across versions.
+        entity_pk_by_name: dict[str, Any] = {}
+        for entity_name, versions in dim_state.versions.items():
+            if not versions:
+                continue
+            # Find the row for the entity's first version to extract its PK.
+            sub = scd_dim_df[
+                scd_dim_df["dim_row_id"] == versions[0].dim_row_id
+            ]
+            if sub.empty:
+                continue
+            entity_pk_by_name[entity_name] = sub.iloc[0][dim_state.entity_pk_column]
+
+        # Reverse lookup: entity_pk → versions list (order preserved).
+        versions_by_entity_pk: dict[Any, list[SCDVersion]] = {
+            entity_pk_by_name[name]: dim_state.versions[name]
+            for name in dim_state.versions
+            if name in entity_pk_by_name
+        }
+
+        per_entity_dims = _per_entity_dim_names(config)
+        for tbl in _facts_referencing_scd_dim(config, scd_dim_name):
+            df = out.get(tbl.name)
+            if df is None or df.empty:
+                continue
+            entity_fk = _find_entity_fk_column(tbl, per_entity_dims)
+            if entity_fk is None:
+                continue
+            local_entity_col = entity_fk[0]
+            date_fk = _find_date_fk_column(tbl)
+            if date_fk is None:
+                continue
+            local_date_col = date_fk[0]
+            if local_entity_col not in df.columns or local_date_col not in df.columns:
+                continue
+            entity_keys = df[local_entity_col].to_numpy()
+            date_keys = df[local_date_col].to_numpy()
+            dim_row_ids = _resolve_dim_row_id_per_row(
+                entity_keys, date_keys,
+                versions_by_entity_pk, period_index_by_date_key,
+            )
+            # Defensive: a -1 sentinel means we couldn't resolve a row.
+            # That would surface as an FK orphan downstream — fail loud
+            # here so the user sees the SCD wiring problem rather than
+            # a generic FK-integrity error.
+            if (dim_row_ids < 0).any():
+                bad = int((dim_row_ids < 0).sum())
+                raise RuntimeError(
+                    f"attach_dim_row_id_to_facts: {tbl.name!r} could not "
+                    f"resolve dim_row_id for {bad} row(s) against SCD dim "
+                    f"{scd_dim_name!r}; this indicates a (entity, period) "
+                    f"pair that no version covers — likely a generation-"
+                    f"order bug, not a config error"
+                )
+            df = df.copy(deep=False)
+            df["dim_row_id"] = pd.array(dim_row_ids, dtype="Int64")
+            out[tbl.name] = df
+    return out
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -1568,12 +2036,19 @@ class GenerationState:
     ``plotsim.manifest`` reads from here rather than re-deriving positions
     from cell values (which would be lossy under noise / MCAR).
 
+    M106: ``scd`` carries per-dim SCD Type 2 versioning state (per-entity
+    version lists, surrogate IDs, validity windows, crossing positions).
+    ``SCDState.dims`` is empty for configs that declare no SCD columns —
+    callers can skip SCD-aware code paths cheaply by checking
+    ``state.scd.is_empty``.
+
     Future fields (anomaly injection locations, stage transition periods,
     etc.) extend this dataclass; existing callers that destructure
     ``(tables, state)`` keep working because Python dataclass fields are
     accessed by name.
     """
     trajectories: dict[str, np.ndarray]
+    scd: SCDState = field(default_factory=lambda: SCDState(dims={}))
 
 
 def generate_tables(
@@ -1636,6 +2111,15 @@ def generate_tables_with_state(
     n_periods = len(dim_tables["dim_date"])
     trajectories = compute_all_trajectories(config, n_periods)
 
+    # M106: SCD Type 2 dim expansion runs after dimensions and trajectories
+    # are built but BEFORE fact construction. Order matters: fact builders
+    # use dim DataFrames to resolve PK FKs, and the SCD-expanded dim has a
+    # different row count and adds the dim_row_id column the fact-side
+    # ``attach_dim_row_id_to_facts`` step references afterwards. Configs
+    # without any SCD columns get ``SCDState(dims={})`` and the helper is a
+    # no-op, so the V1 templates that haven't opted in pay zero cost.
+    dim_tables, scd_state = expand_scd_dims(config, dim_tables, trajectories)
+
     # Category B Layer 3 (SEC-08): hoist the Cholesky factor out of the
     # per-(cohort, period) hot loop. The correlation matrix is config-
     # invariant across the run (depends only on metric name order and
@@ -1666,11 +2150,22 @@ def generate_tables_with_state(
     fact_tables = build_fact_tables(
         config, trajectories, dim_tables, rng, cholesky_L=cholesky_L,
     )
+    # M106: append ``dim_row_id`` BEFORE ``assign_stages`` so the output
+    # column ordering invariant "stage column appended last" still holds —
+    # ``output._ordered_columns`` ranks unmodelled columns by DataFrame
+    # insertion order, and putting dim_row_id first keeps stage at the
+    # tail. The helper is a no-op when ``scd_state.is_empty``.
+    fact_tables = attach_dim_row_id_to_facts(
+        config, fact_tables, dim_tables, scd_state,
+    )
     fact_tables = assign_stages(config, fact_tables)
     event_tables = build_event_tables(config, fact_tables, dim_tables, rng)
+    event_tables = attach_dim_row_id_to_facts(
+        config, event_tables, dim_tables, scd_state,
+    )
 
     out: dict[str, pd.DataFrame] = {}
     out.update(dim_tables)
     out.update(fact_tables)
     out.update(event_tables)
-    return out, GenerationState(trajectories=trajectories)
+    return out, GenerationState(trajectories=trajectories, scd=scd_state)

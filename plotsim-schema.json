@@ -119,6 +119,17 @@
           "default": false,
           "title": "Allow Outside Window",
           "type": "boolean"
+        },
+        "scd_type2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SCDType2Config"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -509,6 +520,41 @@
         "directory"
       ],
       "title": "OutputConfig",
+      "type": "object"
+    },
+    "SCDType2Config": {
+      "additionalProperties": false,
+      "description": "M106: Slowly Changing Dimension Type 2 spec on a dim column.\n\nAttached to a ``Column`` whose source is the literal string\n``\"scd_type2\"``; the source marker and this config object are\npaired (both present, or both absent — never one without the\nother; ``Column._scd_pairing`` enforces).\n\nFields:\n\n  * ``trigger_metric`` — ``\"<table_name>.<metric_name>\"``. The\n    ``table_name`` must be a fact table declared in\n    ``config.tables``; the ``metric_name`` must be a metric in\n    ``config.metrics`` AND must appear as a ``metric:<name>``\n    source on a column of that fact table. The fact-table reference\n    is documentary: thresholds are evaluated against the\n    per-entity trajectory positions (the same trajectory that\n    feeds every other metric the engine generates), not against\n    the metric's noisy/distributed cell values. Naming the fact\n    column anchors the SCD label to a concrete downstream join\n    target so a reader of the config knows \"plan tier changes\n    when MRR moves\" rather than \"plan tier changes when an\n    opaque trajectory shifts.\"\n\n  * ``thresholds`` — strictly ascending floats in the open\n    interval ``(0, 1)``. Bands are ``[0, t0), [t0, t1), ..., [tN, 1]``\n    — N thresholds yield N+1 bands.\n\n  * ``labels`` — one per band; ``len(labels) == len(thresholds) + 1``.\n    Order follows the bands: ``labels[0]`` is the lowest-position\n    band, ``labels[-1]`` is the highest. The SCD column's value\n    for an entity in band k is ``labels[k]``.\n\nHysteresis: an entity that crosses upward into a new band and\nlater returns to a lower band does NOT spawn a new dim row on the\nreturn — band assignment uses ``np.maximum.accumulate`` over the\nraw per-period band index, so a dim row is emitted only when the\ncursor advances. Mirrors the M102 ``StageDefinition.threshold_exit``\nmonotonic semantics so SCD versioning has a single behavioural\ncontract with the rest of the engine.",
+      "properties": {
+        "trigger_metric": {
+          "title": "Trigger Metric",
+          "type": "string"
+        },
+        "thresholds": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Thresholds",
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 21,
+          "minItems": 2,
+          "title": "Labels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "trigger_metric",
+        "thresholds",
+        "labels"
+      ],
+      "title": "SCDType2Config",
       "type": "object"
     },
     "StageDefinition": {

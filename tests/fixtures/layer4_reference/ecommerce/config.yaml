@@ -135,30 +135,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date
     dtype: date
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: year
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: month
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: quarter
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
@@ -172,18 +177,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: segment_name
     dtype: string
     source: generated:faker.company
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cohort_size
     dtype: int
     source: derived:size
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: segment_id
   foreign_keys: []
   row_count_source: null
@@ -197,18 +205,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: category_name
     dtype: string
     source: static:apparel
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: margin_tier
     dtype: string
     source: static:standard
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: category_id
   foreign_keys: []
   row_count_source: null
@@ -222,24 +233,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: session_count
     dtype: int
     source: metric:session_count
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: conversion_rate
     dtype: float
     source: metric:conversion_rate
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - segment_id
@@ -257,36 +272,42 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: category_id
     dtype: id
     source: fk:dim_product_category.category_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cart_value
     dtype: float
     source: metric:cart_value
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: return_rate
     dtype: float
     source: metric:return_rate
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: loyalty_score
     dtype: float
     source: metric:loyalty_score
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - segment_id
@@ -305,24 +326,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: event_ts
     dtype: date
     source: generated:timestamp
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key

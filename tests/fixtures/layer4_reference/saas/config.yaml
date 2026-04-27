@@ -185,30 +185,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date
     dtype: date
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: year
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: month
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: quarter
     dtype: int
     source: generated:date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
@@ -222,30 +227,50 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_name
     dtype: string
     source: generated:faker.company
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: industry
     dtype: string
     source: generated:faker.industry
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: founded_year
     dtype: int
     source: generated:faker.year
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: cohort_size
     dtype: int
     source: derived:size
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
+  - name: plan_tier
+    dtype: string
+    source: scd_type2
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2:
+      trigger_metric: fct_revenue.mrr
+      thresholds:
+      - 0.4
+      - 0.7
+      labels:
+      - starter
+      - growth
+      - enterprise
   primary_key: company_id
   foreign_keys: []
   row_count_source: null
@@ -259,24 +284,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: user_name
     dtype: string
     source: generated:faker.name
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: role
     dtype: string
     source: static:member
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: user_id
   foreign_keys:
   - dim_company.company_id
@@ -291,18 +320,21 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: plan_name
     dtype: string
     source: static:starter
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: monthly_price
     dtype: float
     source: static:99.00
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: plan_id
   foreign_keys: []
   row_count_source: null
@@ -316,30 +348,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: engagement_score
     dtype: float
     source: metric:engagement
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: feature_adoption
     dtype: float
     source: metric:feature_adoption
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: customer_sentiment
     dtype: string
     source: text:bucket:[at_risk, lukewarm, satisfied, delighted]
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - company_id
@@ -357,24 +394,28 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: plan_id
     dtype: id
     source: fk:dim_plan.plan_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: mrr
     dtype: float
     source: metric:mrr
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - company_id
@@ -393,30 +434,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: ticket_count
     dtype: int
     source: metric:support_tickets
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: churn_risk
     dtype: float
     source: metric:churn_risk
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: nps
     dtype: float
     source: metric:nps
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key:
   - date_key
   - company_id
@@ -434,30 +480,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: user_id
     dtype: id
     source: fk:dim_user.user_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: event_ts
     dtype: date
     source: generated:timestamp
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
@@ -474,30 +525,35 @@ tables:
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: churn_reason
     dtype: string
     source: generated:faker.sentence
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   - name: churn_flag
     dtype: boolean
     source: threshold:churn_risk:above:0.7:for:3
     pii_note: null
     distribution: null
     allow_outside_window: false
+    scd_type2: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key

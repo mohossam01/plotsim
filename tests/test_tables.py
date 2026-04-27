@@ -160,10 +160,20 @@ def test_saas_facts_cover_full_time_window(saas_tables):
 
 
 def test_high_trajectory_entity_has_higher_mean_engagement(saas_tables):
-    """rocket_then_cliff peaks high; zombie stays low. Means must reflect that."""
+    """rocket_then_cliff peaks high; zombie stays low. Means must reflect that.
+
+    M106: ``dim_company`` is now SCD-versioned, so deduplicate by
+    ``company_id`` before positional cohort lookup — entity order
+    matches ``config.entities`` first-version-wins.
+    """
     facts = saas_tables["fct_engagement"]
-    rocket_id = saas_tables["dim_company"].iloc[0]["company_id"]  # acme = rocket
-    zombie_id = saas_tables["dim_company"].iloc[2]["company_id"]  # hooli = zombie
+    entity_rows = (
+        saas_tables["dim_company"]
+        .drop_duplicates(subset="company_id", keep="first")
+        .reset_index(drop=True)
+    )
+    rocket_id = entity_rows.iloc[0]["company_id"]  # acme = rocket
+    zombie_id = entity_rows.iloc[2]["company_id"]  # hooli = zombie
 
     rocket_mean = facts[facts["company_id"] == rocket_id]["engagement_score"].astype(float).mean()
     zombie_mean = facts[facts["company_id"] == zombie_id]["engagement_score"].astype(float).mean()
@@ -174,10 +184,18 @@ def test_high_trajectory_entity_has_higher_mean_engagement(saas_tables):
 
 
 def test_steady_grower_engagement_trends_upward(saas_tables):
-    """sigmoid up across the window → second-half mean > first-half mean."""
+    """sigmoid up across the window → second-half mean > first-half mean.
+
+    M106: dedupe SCD-versioned dim_company before positional lookup.
+    """
     facts = saas_tables["fct_engagement"]
+    entity_rows = (
+        saas_tables["dim_company"]
+        .drop_duplicates(subset="company_id", keep="first")
+        .reset_index(drop=True)
+    )
     # globex = steady_grower (entity index 1)
-    grower_id = saas_tables["dim_company"].iloc[1]["company_id"]
+    grower_id = entity_rows.iloc[1]["company_id"]
     series = (
         facts[facts["company_id"] == grower_id]["engagement_score"]
         .astype(float).reset_index(drop=True)
@@ -598,8 +616,16 @@ def test_steady_grower_churn_event_no_later_than_rocket_cliff(saas_tables):
 
 
 def test_per_entity_dim_one_to_one_with_entities(saas_tables, saas_cfg):
-    """per_entity dim has exactly len(config.entities) rows."""
-    assert len(saas_tables["dim_company"]) == len(saas_cfg.entities)
+    """per_entity dim has exactly len(config.entities) unique entity PKs.
+
+    M106: SCD Type 2 expansion produces one row per (entity, version), so
+    the per-entity invariant holds on the *unique* PK count rather than
+    the raw row count.
+    """
+    assert (
+        saas_tables["dim_company"]["company_id"].nunique()
+        == len(saas_cfg.entities)
+    )
 
 
 # --- Sanity: orchestrator returns every configured table --------------------
