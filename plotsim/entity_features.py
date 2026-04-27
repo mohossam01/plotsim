@@ -114,6 +114,13 @@ def _resolve_target_metrics(config: PlotsimConfig) -> list[str]:
     a fact table participates. When a non-empty list is configured, the
     load-time validator has already verified each name resolves to a
     numeric fact column; we re-filter here to preserve config order.
+
+    M109: when ``holdout.enabled`` is true and ``holdout.target_metric``
+    is set, that metric is filtered out so its six aggregate columns
+    never reach the entity-features output. The exclusion is the
+    leakage-prevention rule for downstream ML — a model that gets
+    ``revenue_mean`` / ``revenue_last`` as features would trivially
+    "predict" the held-out ``revenue`` periods.
     """
     fact_metric_names: set[str] = set()
     for tbl in config.tables:
@@ -124,11 +131,21 @@ def _resolve_target_metrics(config: PlotsimConfig) -> list[str]:
             if isinstance(parsed, MetricSource) and col.dtype in ("int", "float"):
                 fact_metric_names.add(parsed.metric)
 
+    excluded: set[str] = set()
+    if config.holdout.enabled and config.holdout.target_metric is not None:
+        excluded.add(config.holdout.target_metric)
+
     requested = list(config.entity_features.metrics)
     if not requested:
-        return [m.name for m in config.metrics if m.name in fact_metric_names]
+        return [
+            m.name for m in config.metrics
+            if m.name in fact_metric_names and m.name not in excluded
+        ]
     requested_set = set(requested)
-    return [m.name for m in config.metrics if m.name in requested_set]
+    return [
+        m.name for m in config.metrics
+        if m.name in requested_set and m.name not in excluded
+    ]
 
 
 def _slope(x: np.ndarray, y: np.ndarray) -> float:
@@ -307,6 +324,25 @@ def build_entity_features(
         dk: idx for idx, dk in enumerate(dim_date["date_key"].tolist())
     }
 
+    # M109: when holdout is enabled, restrict aggregation to the
+    # training window so the per-entity feature row never sees a value
+    # from a held-out period. The load-time validator has guaranteed
+    # ``cutoff >= holdout.min_training_periods >= 1`` whenever
+    # ``holdout.enabled`` is True, so the training set is always
+    # non-empty — but a small training window can still produce NaN
+    # ``slope`` values when fewer than two non-NaN cells survive MCAR
+    # noise; that's the same NaN-aware path ``_aggregate_series``
+    # handles for the unsplit case.
+    training_cutoff: Optional[int] = None
+    if config.holdout.enabled:
+        # Local import keeps ``entity_features`` from depending on
+        # ``holdout`` at module-load time (only the function call site
+        # imports it, mirroring the lazy-import pattern between
+        # ``config`` and ``validation``).
+        from plotsim.holdout import cutoff_period_index
+
+        training_cutoff = cutoff_period_index(config)
+
     target_metrics = _resolve_target_metrics(config)
 
     # Pre-seed every (entity, metric, suffix) cell with NaN so the
@@ -351,18 +387,30 @@ def build_entity_features(
         for pk, group in df.groupby(entity_fk_col, sort=False):
             if pk not in aggregates:
                 continue
-            periods = np.array(
-                [
-                    period_index_by_date_key[dk]
-                    for dk in group[date_fk_col].tolist()
-                    if dk in period_index_by_date_key
-                ],
-                dtype=np.int64,
-            )
-            if len(periods) == 0:
+            # Build the (period_index, original_row_position) pairs in
+            # one pass so the metric-value lookup below can index back
+            # by row position even when ``training_cutoff`` drops some
+            # rows from the entity's window.
+            row_periods: list[tuple[int, int]] = []
+            for row_pos, dk in enumerate(group[date_fk_col].tolist()):
+                if dk not in period_index_by_date_key:
+                    continue
+                period_idx = period_index_by_date_key[dk]
+                if (
+                    training_cutoff is not None
+                    and period_idx >= training_cutoff
+                ):
+                    continue
+                row_periods.append((period_idx, row_pos))
+            if len(row_periods) == 0:
                 continue
-            order = np.argsort(periods, kind="stable")
-            periods_sorted = periods[order]
+            row_periods.sort(key=lambda pair: pair[0])
+            periods_sorted = np.array(
+                [p for p, _ in row_periods], dtype=np.int64,
+            )
+            row_positions = np.array(
+                [r for _, r in row_periods], dtype=np.int64,
+            )
             for col_name, metric_name in metric_cols:
                 # ``na_value=np.nan`` is required: poisson metrics ride on
                 # ``pd.Int64Dtype`` (the nullable integer extension dtype)
@@ -372,7 +420,7 @@ def build_entity_features(
                 raw_values = pd.to_numeric(
                     group[col_name], errors="coerce",
                 ).to_numpy(dtype=float, na_value=np.nan)
-                values_sorted = raw_values[order]
+                values_sorted = raw_values[row_positions]
                 stats = _aggregate_series(periods_sorted, values_sorted)
                 for suffix in _AGGREGATE_SUFFIXES:
                     aggregates[pk][f"{metric_name}_{suffix}"] = stats[suffix]

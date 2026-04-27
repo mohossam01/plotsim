@@ -177,6 +177,28 @@ class SCDEvent(_ManifestBase):
     trigger_position: float
 
 
+class HoldoutInfo(_ManifestBase):
+    """M109: ground-truth record of the temporal holdout split.
+
+    Emitted on the manifest only when ``config.holdout.enabled`` is
+    True; ``None`` otherwise. Records exactly the values needed for a
+    downstream consumer to reproduce the split without re-reading the
+    YAML config:
+
+      * ``target_metric`` — the metric named as the prediction target.
+        Mirrors ``config.holdout.target_metric``.
+      * ``holdout_periods`` — the trailing-period count reserved for
+        evaluation. Mirrors ``config.holdout.holdout_periods``.
+      * ``cutoff_period_index`` — the resolved boundary
+        (``n_periods - holdout_periods``) so a consumer can slice the
+        unsplit fact table or its own derivative on the same axis
+        without recomputing ``period_count`` from ``time_window``.
+    """
+    target_metric: str
+    holdout_periods: int
+    cutoff_period_index: int
+
+
 class ManifestSchema(_ManifestBase):
     """Top-level manifest payload.
 
@@ -192,6 +214,12 @@ class ManifestSchema(_ManifestBase):
     scd_events: list[SCDEvent] = []
     bridge_associations: list[BridgeAssociationRecord] = []
     quality_injections: list[QualityInjection] = []
+    # M109: filled by ``output.write_tables`` right before the manifest
+    # is serialized when ``config.holdout.enabled`` is True. ``None``
+    # for runs that don't opt into the split — backwards compatible
+    # with M105–M108 manifests on disk (pydantic reads the missing
+    # field as the default).
+    holdout: Optional[HoldoutInfo] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -514,6 +542,7 @@ __all__ = [
     "BridgeAssociationRecord",
     "EntityArchetypeAssignment",
     "EventFiring",
+    "HoldoutInfo",
     "ManifestSchema",
     "QualityInjection",
     "SCDEvent",

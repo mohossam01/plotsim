@@ -71,6 +71,7 @@ from plotsim.entity_features import (
     ENTITY_FEATURES_BASENAME,
     build_entity_features,
 )
+from plotsim.holdout import cutoff_period_index, split_fact_tables
 from plotsim.manifest import ManifestSchema, write_manifest
 from plotsim.quality import apply_issues as _apply_quality_issues
 from plotsim.validation import ValidationReport, validate_tables
@@ -454,7 +455,45 @@ def write_tables(
 
     write_config_copy(config, target)
     write_validation_report(report, target, generated_at=generated_at, config=config)
+
+    # M109: temporal train/holdout split. Mutually exclusive with
+    # quality injection at config load, so ``tables_to_write`` here
+    # matches the clean ``tables`` dict whenever ``holdout.enabled`` is
+    # true. We still walk ``tables`` (the clean dict) explicitly to
+    # make that invariant visible at the call site.
+    holdout_splits: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+    if config.holdout.enabled:
+        holdout_splits = split_fact_tables(config, tables)
+        for name, (train_df, holdout_df) in holdout_splits.items():
+            write_single_table(
+                f"{name}_train", train_df, target,
+                config=config, float_format=float_format,
+            )
+            write_single_table(
+                f"{name}_holdout", holdout_df, target,
+                config=config, float_format=float_format,
+            )
+
     if manifest_to_write is not None and config.manifest.include:
+        # M109: stitch the holdout summary onto the manifest payload
+        # right before the file is written so the on-disk
+        # manifest.json names ``target_metric`` / ``holdout_periods``
+        # / ``cutoff_period_index``. Done here rather than inside
+        # ``build_manifest`` so the manifest builder stays free of the
+        # writer's I/O ordering — the holdout block is purely a
+        # config-derived sidecar, not a function of generation state.
+        if config.holdout.enabled:
+            from plotsim.manifest import HoldoutInfo
+
+            manifest_to_write = manifest_to_write.model_copy(
+                update={
+                    "holdout": HoldoutInfo(
+                        target_metric=config.holdout.target_metric or "",
+                        holdout_periods=int(config.holdout.holdout_periods),
+                        cutoff_period_index=cutoff_period_index(config),
+                    ),
+                },
+            )
         write_manifest(manifest_to_write, target)
 
     # M108: per-entity feature table. The load-time validator
@@ -477,6 +516,11 @@ def write_tables(
         # ``tables_to_write`` and ``tables`` are identical here, but
         # naming the clean source makes the intent explicit and keeps
         # the entity-feature contract stable if the gate ever loosens.
+        # M109: when holdout is enabled, ``build_entity_features``
+        # restricts aggregation to training periods and drops the
+        # target-metric aggregate columns. The writer hands it the
+        # full clean tables dict either way; the holdout-aware
+        # filtering happens inside the builder using ``config.holdout``.
         entity_features_df = build_entity_features(config, tables, manifest)
         _write_entity_features(entity_features_df, target, config, float_format)
 

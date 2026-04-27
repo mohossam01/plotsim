@@ -466,6 +466,45 @@
       "title": "FKDistribution",
       "type": "object"
     },
+    "HoldoutConfig": {
+      "additionalProperties": false,
+      "description": "M109: temporal holdout split for ML target / training workflows.\n\nWhen ``enabled`` is True, ``write_tables`` writes two extra companion\nfiles alongside every per-entity-per-period fact table:\n\n  * ``{table}_train.<csv|parquet>`` — rows whose period index lies in\n    ``[0, n_periods - holdout_periods)``.\n  * ``{table}_holdout.<csv|parquet>`` — rows whose period index lies\n    in ``[n_periods - holdout_periods, n_periods)``.\n\nThe unsplit fact table is still written; the splits are pure\nadditions. Dim, bridge, and event tables are NOT split: dims and\nbridges are not period-indexed at all, and event tables carry a\nvariable per-period grain that doesn't slice cleanly by a fact-table\ncutoff.\n\n``target_metric`` records the prediction target on the run's\nmanifest (``target_metric``, ``holdout_periods``, and the resolved\n``cutoff_period_index``). Downstream feature engineering — when\n``entity_features.enabled`` is True — restricts every aggregation\nto the training window AND drops the\n``{target_metric}_{mean,std,slope,first,last,peak_period}`` columns\nso the per-entity feature row never leaks the label.\n\n``min_training_periods`` (default 3) is the floor on\n``n_periods - holdout_periods`` enforced at config load — splits\nthat leave fewer than this many training periods raise rather than\nsilently producing a one-or-two-period training set with\npathological ``slope`` values.\n\n``enabled=true`` requires:\n  * ``target_metric`` set,\n  * ``target_metric`` resolves to a numeric metric on a fact table,\n  * ``holdout_periods >= 1``,\n  * ``n_periods - holdout_periods >= min_training_periods``,\n  * ``quality.quality_issues == []`` (the splits operate on the\n    clean tables; combining the two would leave train/holdout files\n    whose semantics depend silently on whether quality was applied\n    before or after the slice. Deferred to a future mission).\n\nDisabled (default) is byte-identical to pre-M109 output.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "target_metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Metric"
+        },
+        "holdout_periods": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Holdout Periods",
+          "type": "integer"
+        },
+        "min_training_periods": {
+          "default": 3,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Min Training Periods",
+          "type": "integer"
+        }
+      },
+      "title": "HoldoutConfig",
+      "type": "object"
+    },
     "ManifestConfig": {
       "additionalProperties": false,
       "description": "M105: ground-truth manifest emission config.\n\nWhen ``include`` is True (default), ``write_tables`` writes a\n``manifest.json`` alongside the table files. The manifest records:\n\n  * archetype assigned to each entity (from ``config.entities``)\n  * trajectory position at every period for a deterministic sample\n    of entities (``trajectory_sample_rate`` of them, picked by\n    sorted-name order)\n  * event firing periods per entity per event table (the period\n    indices where the event fired at least one row)\n  * the seed and a SHA-256 of the config dump\n\nThe manifest is the ground-truth signal layer for downstream ML\nfeature engineering — anyone training a churn / behavior model on\nplotsim output can read ``manifest.json`` to get the\narchetype-level labels the engine was driving without re-deriving\nthem from cell values. ``include: false`` suppresses the file\nentirely (tests, micro-benchmarks).\n\n``trajectory_sample_rate`` is bounded ``(0, 1]`` and applied as\n``max(1, round(n_entities * sample_rate))`` so even at very small\nrates at least one entity's trajectory lands. Determinism: the\nsampled subset is the first N entities under sorted-name order, so\nthe same config always selects the same rows regardless of seed.",
@@ -1059,6 +1098,9 @@
     },
     "entity_features": {
       "$ref": "#/$defs/EntityFeaturesConfig"
+    },
+    "holdout": {
+      "$ref": "#/$defs/HoldoutConfig"
     },
     "locale": {
       "anyOf": [

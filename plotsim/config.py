@@ -1260,6 +1260,55 @@ class EntityFeaturesConfig(_Frozen):
     include_labels: bool = True
 
 
+class HoldoutConfig(_Frozen):
+    """M109: temporal holdout split for ML target / training workflows.
+
+    When ``enabled`` is True, ``write_tables`` writes two extra companion
+    files alongside every per-entity-per-period fact table:
+
+      * ``{table}_train.<csv|parquet>`` — rows whose period index lies in
+        ``[0, n_periods - holdout_periods)``.
+      * ``{table}_holdout.<csv|parquet>`` — rows whose period index lies
+        in ``[n_periods - holdout_periods, n_periods)``.
+
+    The unsplit fact table is still written; the splits are pure
+    additions. Dim, bridge, and event tables are NOT split: dims and
+    bridges are not period-indexed at all, and event tables carry a
+    variable per-period grain that doesn't slice cleanly by a fact-table
+    cutoff.
+
+    ``target_metric`` records the prediction target on the run's
+    manifest (``target_metric``, ``holdout_periods``, and the resolved
+    ``cutoff_period_index``). Downstream feature engineering — when
+    ``entity_features.enabled`` is True — restricts every aggregation
+    to the training window AND drops the
+    ``{target_metric}_{mean,std,slope,first,last,peak_period}`` columns
+    so the per-entity feature row never leaks the label.
+
+    ``min_training_periods`` (default 3) is the floor on
+    ``n_periods - holdout_periods`` enforced at config load — splits
+    that leave fewer than this many training periods raise rather than
+    silently producing a one-or-two-period training set with
+    pathological ``slope`` values.
+
+    ``enabled=true`` requires:
+      * ``target_metric`` set,
+      * ``target_metric`` resolves to a numeric metric on a fact table,
+      * ``holdout_periods >= 1``,
+      * ``n_periods - holdout_periods >= min_training_periods``,
+      * ``quality.quality_issues == []`` (the splits operate on the
+        clean tables; combining the two would leave train/holdout files
+        whose semantics depend silently on whether quality was applied
+        before or after the slice. Deferred to a future mission).
+
+    Disabled (default) is byte-identical to pre-M109 output.
+    """
+    enabled: bool = False
+    target_metric: Optional[str] = None
+    holdout_periods: int = Field(default=0, ge=0, le=10_000)
+    min_training_periods: int = Field(default=3, ge=1, le=10_000)
+
+
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
@@ -1482,6 +1531,13 @@ class PlotsimConfig(_Frozen):
     # the writer emits ``_entity_features.csv`` (or ``.parquet``)
     # alongside the standard table set.
     entity_features: EntityFeaturesConfig = Field(default_factory=EntityFeaturesConfig)
+    # M109: temporal holdout split. Default ``enabled=false`` — configs
+    # without an opt-in produce no train/holdout companion files.
+    # When enabled, every per_entity_per_period fact table gets two
+    # extra files written, the manifest records the split, and entity
+    # features (if enabled) aggregate over training periods only with
+    # the target-metric columns excluded.
+    holdout: HoldoutConfig = Field(default_factory=HoldoutConfig)
     # FIX-05 / SF-3: locale threaded to every Faker instance built by the
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
@@ -2031,6 +2087,26 @@ class PlotsimConfig(_Frozen):
         from plotsim.validation import validate_entity_features_config
 
         errors = validate_entity_features_config(self)
+        if errors:
+            raise ValueError(errors[0])
+        return self
+
+    @model_validator(mode="after")
+    def _holdout_gates(self) -> "PlotsimConfig":
+        """M109: load-time gates for the holdout-split feature.
+
+        Mirrors the ``_entity_features_gates`` pattern — pure config
+        check, no DataFrame inputs. Delegates to
+        ``plotsim.validation.validate_holdout_config`` so the gate's
+        decision logic lives next to the rest of the load-time
+        validators and stays reusable from contexts that want a full
+        diagnostic instead of fail-fast.
+        """
+        if not self.holdout.enabled:
+            return self
+        from plotsim.validation import validate_holdout_config
+
+        errors = validate_holdout_config(self)
         if errors:
             raise ValueError(errors[0])
         return self

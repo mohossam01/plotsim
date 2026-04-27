@@ -258,6 +258,107 @@ def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
     return errors
 
 
+# --- Pre-generation: holdout-split config gates (M109) ----------------------
+
+
+def validate_holdout_config(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for the M109 holdout-split feature.
+
+    Mirrors ``validate_entity_features_config``. Pure config check, no
+    DataFrame inputs. Called from a Pydantic ``model_validator`` on
+    ``PlotsimConfig`` so a misconfigured YAML fails at load instead of
+    mid-generation.
+
+    Returns an empty list when ``holdout.enabled == False`` (no
+    constraints apply) or when every gate is satisfied. The first
+    message in a non-empty list is the one
+    ``PlotsimConfig._holdout_gates`` raises.
+
+    Gates (in order):
+      1. ``target_metric`` must be set. ``enabled=true`` without a
+         declared target is meaningless — the manifest payload would
+         carry no label name and downstream entity-features wouldn't
+         know which columns to drop.
+      2. ``holdout_periods`` must be >= 1. A zero-period holdout is a
+         no-op.
+      3. ``n_periods - holdout_periods >= min_training_periods``. Splits
+         that leave too few training periods produce slope/std
+         aggregates with pathological values; reject early.
+      4. ``target_metric`` must reference an existing metric on
+         ``config.metrics`` AND that metric must land on a numeric
+         (int/float) column on a fact table. Threshold-only metrics
+         (e.g. churn flags emitted as boolean event columns) cannot be
+         training targets in this version.
+      5. ``quality.quality_issues`` must be empty. Holdout slices
+         operate on the clean fact tables; combining them with quality
+         injection would leave the train/holdout split's semantics
+         silently dependent on whether corruption was applied before
+         or after the slice. Deferred to a future mission.
+    """
+    errors: list[str] = []
+    cfg = config.holdout
+    if not cfg.enabled:
+        return errors
+
+    if cfg.target_metric is None:
+        errors.append(
+            "holdout.enabled=true requires holdout.target_metric to be set; "
+            "the metric naming the prediction target is recorded on the "
+            "manifest and excluded from entity features"
+        )
+
+    if cfg.holdout_periods < 1:
+        errors.append(
+            f"holdout.holdout_periods must be >= 1 when holdout.enabled=true "
+            f"(got {cfg.holdout_periods}); a zero-period holdout is a no-op"
+        )
+
+    n_periods = config.time_window.period_count()
+    if cfg.holdout_periods >= 1:
+        train_periods = n_periods - cfg.holdout_periods
+        if train_periods < cfg.min_training_periods:
+            errors.append(
+                f"holdout split leaves {train_periods} training period(s) "
+                f"(n_periods={n_periods} - holdout_periods="
+                f"{cfg.holdout_periods}); minimum required by "
+                f"holdout.min_training_periods is {cfg.min_training_periods}"
+            )
+
+    if cfg.target_metric is not None:
+        metric_names = {m.name for m in config.metrics}
+        numeric_fact_metrics: set[str] = set()
+        for tbl in config.tables:
+            if tbl.type != "fact":
+                continue
+            for col in tbl.columns:
+                parsed = parse_source(col.source)
+                if (
+                    isinstance(parsed, MetricSource)
+                    and col.dtype in ("int", "float")
+                ):
+                    numeric_fact_metrics.add(parsed.metric)
+        if cfg.target_metric not in metric_names:
+            errors.append(
+                f"holdout.target_metric references unknown metric "
+                f"{cfg.target_metric!r}; known metrics: "
+                f"{sorted(metric_names)}"
+            )
+        elif cfg.target_metric not in numeric_fact_metrics:
+            errors.append(
+                f"holdout.target_metric references metric "
+                f"{cfg.target_metric!r} which has no int/float column on "
+                f"any fact table; only numeric fact metrics can serve as "
+                f"prediction targets"
+            )
+
+    if config.quality.quality_issues:
+        errors.append(
+            "holdout cannot be combined with quality_issues in this version"
+        )
+
+    return errors
+
+
 # --- Check 1: correlation matrix PSD ----------------------------------------
 
 
