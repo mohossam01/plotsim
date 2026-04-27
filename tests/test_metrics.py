@@ -318,11 +318,16 @@ def test_cholesky_handles_multi_metric_sizes(k):
         assert not np.isnan(arr).any()
 
 
-def test_non_psd_correlation_matrix_raises():
-    # 3 metrics with every off-diagonal at -1.0 → not positive semi-definite.
-    # Per FIX-01, apply_correlations now raises ValueError instead of silently
-    # falling back to independent samples — silent fallback hid configuration
-    # defects from every downstream statistical check.
+def test_non_psd_correlation_matrix_projects_in_cold_path():
+    # M111: non-PD matrices are auto-corrected via Higham projection at
+    # the apply_correlations cold path. Pre-M111 (FIX-01 era) this raised
+    # ValueError; under M111 the cold path projects silently (the
+    # load-time validator on PlotsimConfig owns the user-facing warning,
+    # so the cold path running in isolation just produces correlated
+    # samples on the projected matrix). The 3-cycle of -1.0 / -1.0 /
+    # -1.0 has nearest-PD = identity (every pair forces away from every
+    # other), so the cold path should run to completion and emit
+    # samples whose pairwise correlation is small.
     metrics = [_metric(f"m{i}", distribution="normal",
                        params={"mu": 10.0, "sigma": 1.0}) for i in range(3)]
     correlations = [
@@ -330,14 +335,16 @@ def test_non_psd_correlation_matrix_raises():
         CorrelationPair(metric_a="m0", metric_b="m2", coefficient=-1.0),
         CorrelationPair(metric_a="m1", metric_b="m2", coefficient=-1.0),
     ]
-    with pytest.raises(ValueError, match="positive semi-definite"):
-        generate_entity_metrics(
-            trajectory=np.full(20, 0.5),
-            metrics=metrics,
-            correlations=correlations,
-            noise=None,
-            rng=_rng(0),
-        )
+    out = generate_entity_metrics(
+        trajectory=np.full(20, 0.5),
+        metrics=metrics,
+        correlations=correlations,
+        noise=None,
+        rng=_rng(0),
+    )
+    assert set(out.keys()) == {"m0", "m1", "m2"}
+    for name in ("m0", "m1", "m2"):
+        assert out[name].shape == (20,)
 
 
 def test_apply_correlations_empty_list_returns_input():

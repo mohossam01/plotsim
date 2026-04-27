@@ -348,12 +348,15 @@ def test_correlation_references_unknown_metric():
         PlotsimConfig(**raw)
 
 
-def test_non_psd_correlation_raises_at_load():
-    # R-04 / FIX-F04: a correlation matrix that breaks the triangle
-    # inequality (A↔B=0.9, A↔C=0.9, B↔C=-0.9) is not positive
-    # semi-definite. It used to pass load and only raise (as a plain
-    # ValueError) at the top of generate_tables. It now raises a
-    # pydantic ValidationError at load, like every other config defect.
+def test_non_psd_correlation_projects_at_load():
+    # M111: the classic 3-cycle (A↔B=0.9, A↔C=0.9, B↔C=-0.9) breaks the
+    # triangle inequality and is not PD. Pre-M111 (FIX-F04) this raised
+    # a pydantic ValidationError at load. M111 replaces the raise with
+    # Higham nearest-PD projection: the validator emits a UserWarning
+    # listing every adjusted pair, stashes the adjustments on
+    # ``config._correlation_adjustments``, and returns a valid config.
+    import warnings as _warnings
+
     raw = _minimal_valid()
     base_metric = raw["metrics"][0]
     raw["metrics"] = [
@@ -372,9 +375,17 @@ def test_non_psd_correlation_raises_at_load():
         {"metric_a": "m_a", "metric_b": "m_c", "coefficient": 0.9},
         {"metric_a": "m_b", "metric_b": "m_c", "coefficient": -0.9},
     ]
-    with pytest.raises(ValidationError, match="positive semi-definite") as exc:
-        PlotsimConfig(**raw)
-    assert "correlations" in str(exc.value)
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        cfg = PlotsimConfig(**raw)
+    m111 = [
+        w for w in caught
+        if issubclass(w.category, UserWarning)
+        and "Correlation matrix was not positive definite" in str(w.message)
+    ]
+    assert len(m111) == 1
+    assert cfg._correlation_adjustments is not None
+    assert len(cfg._correlation_adjustments) == 3
 
 
 def test_valid_psd_correlation_loads():

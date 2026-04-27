@@ -2505,7 +2505,17 @@ def generate_tables_with_state(
         mat = _build_correlation_matrix(
             sorted_metrics, list(config.correlations),
         )
-        cholesky_L = np.linalg.cholesky(mat)
+        # M111: project to nearest PD if needed. The load-time validator on
+        # PlotsimConfig already projected and warned the user, but it built
+        # the matrix in declaration order while this hoist uses toposort
+        # order — so re-project deterministically here rather than thread
+        # an order-aware permutation through the engine. PD inputs pass
+        # through unchanged (byte-identical to pre-M111 for every config
+        # whose user-specified matrix is already PD).
+        from plotsim.metrics import project_correlation_matrix
+
+        projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
+        cholesky_L = np.linalg.cholesky(projected_mat)
 
     # M107: compute the per-entity metric series ONCE and pass to both
     # ``build_fact_tables`` and ``build_bridge_tables``. Without this hoist

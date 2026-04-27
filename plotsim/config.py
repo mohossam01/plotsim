@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 # SEC-02: SQL-safe identifier pattern applied to Table.name and Column.name.
@@ -1543,6 +1543,17 @@ class PlotsimConfig(_Frozen):
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
     locale: str | list[str] = "en_US"
 
+    # M111: populated by ``_correlation_matrix_is_psd`` when the user's
+    # correlation matrix had to be Higham-projected to nearest PD.
+    # ``None`` for runs where the matrix was already PD (the common case)
+    # or where no correlations were configured. Read by
+    # ``plotsim.manifest.build_manifest`` to surface the adjustment list
+    # in ``manifest.correlation_adjustments``. PrivateAttr because the
+    # value is engine-derived, not a user input — round-tripping it
+    # through ``model_dump`` would pollute the YAML round-trip and the
+    # config_sha256 fingerprint.
+    _correlation_adjustments: Optional[list[dict]] = PrivateAttr(default=None)
+
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":
         total = sum(e.size for e in self.entities)
@@ -2113,27 +2124,50 @@ class PlotsimConfig(_Frozen):
 
     @model_validator(mode="after")
     def _correlation_matrix_is_psd(self) -> "PlotsimConfig":
-        """F-04: reject non-PSD correlation matrices at load time.
+        """M111: project non-PD correlation matrices and warn — don't reject.
 
-        Every other config defect surfaces as a pydantic ValidationError at
-        load. Pre-FIX-F04, a non-PSD matrix passed load and only raised
-        (as a plain ValueError) at the top of ``generate_tables``. The
-        defense-in-depth call at ``generate_tables`` is retained to catch
-        programmatic PlotsimConfig construction that bypasses YAML loading.
+        Pre-M111 (FIX-F04) raised ``ValueError`` here on any non-PD
+        matrix, on the rationale that "non-PD coefficients are a config
+        defect, not a runtime condition." That treatment broke at
+        scale: 8+ correlated metrics with moderate coefficients are
+        often non-PD by combinatorial accident, not by user error.
+        M111 instead runs Higham nearest-PD projection (in
+        ``plotsim.metrics``), emits a per-pair adjustment warning so
+        the user sees what changed, and stashes the adjustment records
+        on a private attribute that the manifest reads.
+
+        The projected matrix is NOT stashed: it lives in declaration
+        order, while ``plotsim.tables.generate_tables`` builds the
+        hoisted Cholesky in toposort order. Re-projection downstream
+        (deterministic, ~ms) is cheaper than threading order-aware
+        permutations through the engine.
+
+        Only raises if Higham AND the eigenvalue-clipping fallback both
+        fail to produce a PD matrix — should be impossible for
+        symmetric input.
         """
         if not self.correlations:
             return self
         # Local import: plotsim.validation imports from plotsim.config,
         # so a module-level import would create a cycle.
-        from plotsim.validation import validate_correlation_psd
+        from plotsim.metrics import _format_correlation_adjustment_warning
+        from plotsim.validation import project_correlation_or_issue
 
-        issues = validate_correlation_psd(self)
+        issues, adjustments, _projected = project_correlation_or_issue(self)
         if issues:
             names = [m.name for m in self.metrics]
             raise ValueError(
-                f"correlations: correlation matrix is not positive "
-                f"semi-definite for metrics {names}. {issues[0].message}"
+                f"correlations: correlation matrix could not be projected "
+                f"to positive-definite for metrics {names}. "
+                f"{issues[0].message}"
             )
+        if adjustments:
+            warnings.warn(
+                _format_correlation_adjustment_warning(adjustments),
+                UserWarning,
+                stacklevel=2,
+            )
+            self._correlation_adjustments = adjustments
         return self
 
 

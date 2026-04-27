@@ -727,10 +727,19 @@ def _bare_psd_config(pairs: list[CorrelationPair]) -> SimpleNamespace:
 
 
 class TestValidationLayer:
-    def test_7a_psd_validator_catches_non_psd(self):
-        """Triangle-inequality-violating correlations are reported as errors."""
-        # corr(A,B)=0.9, corr(A,C)=0.9, corr(B,C)=-0.9 — forces a negative
-        # eigenvalue in the 3×3 correlation matrix.
+    def test_7a_psd_validator_returns_no_issues_after_projection(self):
+        """M111: triangle-inequality-violating correlations are auto-corrected
+        via Higham nearest-PD projection, not reported as errors.
+
+        Pre-M111 (FIX-F04) the validator returned one error issue for any
+        non-PD matrix. Under M111, ``validate_correlation_psd`` runs the
+        projection and returns ``[]`` for any matrix that successfully
+        projects (the warning is emitted by the load-time pydantic
+        validator on ``PlotsimConfig``, not by this re-check). An issue
+        is only returned if Higham AND the eigenvalue-clipping fallback
+        BOTH fail to produce a Cholesky-able matrix — which is
+        impossible for any symmetric input.
+        """
         pairs = [
             CorrelationPair(metric_a="a", metric_b="b", coefficient=0.9),
             CorrelationPair(metric_a="a", metric_b="c", coefficient=0.9),
@@ -738,9 +747,7 @@ class TestValidationLayer:
         ]
         cfg = _bare_psd_config(pairs)
         issues = validate_correlation_psd(cfg)
-        assert len(issues) == 1
-        assert issues[0].severity == "error"
-        assert issues[0].details["min_eigenvalue"] < 0.0
+        assert issues == []
 
     def test_7b_psd_validator_passes_valid_matrix(self):
         """Identity and mild-correlation matrices pass cleanly."""

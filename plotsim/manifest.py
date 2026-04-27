@@ -177,6 +177,29 @@ class SCDEvent(_ManifestBase):
     trigger_position: float
 
 
+class CorrelationAdjustment(_ManifestBase):
+    """M111: ground-truth record of one Higham nearest-PD adjustment.
+
+    Emitted in the manifest's ``correlation_adjustments`` list when the
+    user-specified correlation matrix was not positive-definite and had
+    to be projected. ``requested`` is the coefficient the user wrote in
+    the YAML; ``achieved`` is the value at the same (i, j) cell of the
+    projected matrix; ``adjustment`` is ``abs(requested - achieved)`` —
+    surfaced separately so a downstream consumer can sort/filter by
+    deviation magnitude without recomputing.
+
+    Pairs whose deviation falls below the numerical noise floor
+    (~1e-12) are dropped, so an empty adjustments list with
+    ``correlation_adjustments=null`` and an empty list with one entry
+    rounded out by tolerance never collide.
+    """
+    metric_a: str
+    metric_b: str
+    requested: float
+    achieved: float
+    adjustment: float
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -220,6 +243,13 @@ class ManifestSchema(_ManifestBase):
     # with M105–M108 manifests on disk (pydantic reads the missing
     # field as the default).
     holdout: Optional[HoldoutInfo] = None
+    # M111: filled by ``build_manifest`` from
+    # ``config._correlation_adjustments`` when the load-time validator had
+    # to Higham-project a non-PD correlation matrix. ``None`` when the
+    # user-specified matrix was already PD (the common case) or when no
+    # correlations were configured. Backwards compatible with pre-M111
+    # manifests (default reads as None).
+    correlation_adjustments: Optional[list[CorrelationAdjustment]] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -503,6 +533,20 @@ def build_manifest(
                     cardinality=int(assoc.cardinality),
                 ))
 
+    # M111: read the load-time projection record off the config's private
+    # attribute. ``None`` for runs whose user-specified matrix was already
+    # PD (validator never set it); a non-empty list for runs where Higham
+    # had to adjust at least one pair. The PrivateAttr design keeps the
+    # adjustment record out of ``model_dump`` / ``config_sha256`` so
+    # YAML round-trips and the config fingerprint stay clean.
+    raw_adjustments = getattr(config, "_correlation_adjustments", None)
+    if raw_adjustments:
+        correlation_adjustments: Optional[list[CorrelationAdjustment]] = [
+            CorrelationAdjustment(**rec) for rec in raw_adjustments
+        ]
+    else:
+        correlation_adjustments = None
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -513,6 +557,7 @@ def build_manifest(
         scd_events=scd_events,
         bridge_associations=bridge_associations,
         quality_injections=[],
+        correlation_adjustments=correlation_adjustments,
     )
 
 
@@ -540,6 +585,7 @@ __all__ = [
     "MANIFEST_FILENAME",
     "MANIFEST_SCHEMA_VERSION",
     "BridgeAssociationRecord",
+    "CorrelationAdjustment",
     "EntityArchetypeAssignment",
     "EventFiring",
     "HoldoutInfo",

@@ -362,44 +362,89 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
 # --- Check 1: correlation matrix PSD ----------------------------------------
 
 
-def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
-    """Verify the configured correlation matrix is positive-definite.
+def project_correlation_or_issue(
+    config: PlotsimConfig,
+) -> tuple[list[ValidationIssue], Optional[list[dict]], Optional[np.ndarray]]:
+    """M111 internal: PD-check + Higham projection + adjustment records.
 
-    Builds the same matrix ``plotsim.metrics.apply_correlations`` uses:
-    identity on the diagonal, symmetric off-diagonal from ``config.correlations``.
-    A LinAlgError from ``np.linalg.cholesky`` means the matrix isn't PD and
-    M004 would fall back to independent samples at runtime — caught here.
+    Single source of truth for the project-and-warn flow. Returns
+    ``(issues, adjustments, projected_matrix)``:
+
+      * ``config.correlations`` empty → ``([], None, None)``.
+      * Matrix already PD → ``([], None, None)``.
+      * Higham (or eigenvalue-clipping fallback) succeeds → ``([],
+        records, projected)``. The projected matrix is in declaration
+        order (``config.metrics`` order); callers that build in
+        toposort order should re-project rather than reuse.
+      * Both projection paths fail → ``([issue], None, None)``.
+
+    Does NOT emit warnings — leaves that to the caller so the load-time
+    pydantic validator fires the user-facing warning at config init
+    (right stack level, fires once per config) without duplicate emits
+    from later post-generation re-checks.
     """
-    issues: list[ValidationIssue] = []
     if not config.correlations:
-        return issues
-    names = [m.name for m in config.metrics]
-    idx = {n: i for i, n in enumerate(names)}
-    n = len(names)
-    mat = np.eye(n)
-    for pair in config.correlations:
-        if pair.metric_a in idx and pair.metric_b in idx:
-            i, j = idx[pair.metric_a], idx[pair.metric_b]
-            mat[i, j] = pair.coefficient
-            mat[j, i] = pair.coefficient
+        return [], None, None
+
+    # Local imports avoid the plotsim.metrics ↔ plotsim.config ↔
+    # plotsim.validation cycle that already constrains this module.
+    from plotsim.metrics import (
+        _build_correlation_matrix,
+        _correlation_adjustment_records,
+        project_correlation_matrix,
+    )
+
+    metrics = list(config.metrics)
+    pairs = list(config.correlations)
+    mat = _build_correlation_matrix(metrics, pairs)
     try:
-        np.linalg.cholesky(mat)
-    except np.linalg.LinAlgError:
-        eigvals = np.linalg.eigvalsh(mat).tolist()
-        issues.append(ValidationIssue(
+        projected, projection_used, _used_fallback = project_correlation_matrix(mat)
+    except RuntimeError as exc:
+        eigvals = np.linalg.eigvalsh((mat + mat.T) / 2.0).tolist()
+        return [ValidationIssue(
             check=CHECK_CORRELATION_PSD,
             severity="error",
             table=None,
             message=(
-                "correlation matrix is not positive-definite; M004 will fall "
-                "back to independent samples and no correlation will be applied"
+                "correlation matrix could not be projected to "
+                f"positive-definite: {exc}"
             ),
             details={
-                "metrics": names,
+                "metrics": [m.name for m in metrics],
                 "min_eigenvalue": min(eigvals),
                 "eigenvalues": eigvals,
             },
-        ))
+        )], None, None
+
+    if not projection_used:
+        return [], None, None
+
+    records = _correlation_adjustment_records(mat, projected, metrics, pairs)
+    return [], records, projected
+
+
+def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
+    """M111: project-and-warn check.
+
+    The pre-M111 contract was "non-PD correlation matrix → error issue
+    so the engine can refuse to run" (FIX-F04 promoted that to a hard
+    raise at load). Under M111, non-PD matrices are auto-corrected via
+    Higham nearest-PD projection at load time; this post-generation
+    check only flags the genuinely-impossible "projection itself
+    failed" case.
+
+    Returned issue list:
+      * Successful projection (or matrix already PD, or no correlations
+        configured) → ``[]``.
+      * Both Higham and eigenvalue-clipping fallback failed → one
+        ``error`` issue. Should never happen for symmetric input.
+
+    Warning emit is owned by ``PlotsimConfig._correlation_matrix_is_psd``
+    so the user sees the per-pair adjustment text at config load (once,
+    at the right stack level). This wrapper does NOT re-emit; otherwise
+    every post-generation validation pass would duplicate the warning.
+    """
+    issues, _adjustments, _projected = project_correlation_or_issue(config)
     return issues
 
 

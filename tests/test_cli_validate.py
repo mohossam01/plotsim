@@ -119,10 +119,18 @@ def test_validate_config_only_rejects_extra_field(tmp_path):
     assert "extra" in out.lower() or "zzz_unknown_top_level_key" in out
 
 
-def test_validate_config_only_rejects_non_psd_correlation(tmp_path):
-    """Correlation matrix that is not positive semi-definite is rejected at load."""
+def test_validate_config_only_accepts_non_psd_correlation_after_projection(tmp_path):
+    """Non-PD correlation matrix is auto-corrected via Higham projection at load (M111).
+
+    Pre-M111 (FIX-F04) this triggered a hard ValueError → ``code == 1`` and
+    ``INVALID`` in output. Under M111 the load-time validator projects the
+    matrix to nearest-PD via Higham, emits a UserWarning listing the
+    adjusted pairs, and the CLI accepts the config.
+    """
     payload = _load_template_dict("saas")
-    # Triangle of mutually negative-1.0 correlations: classic non-PSD.
+    # Triangle of mutually negative-1.0 correlations: classic non-PSD —
+    # mathematically impossible (transitivity violation). Higham
+    # projects to a valid correlation matrix; the CLI accepts the config.
     metrics = [m["name"] for m in payload["metrics"]][:3]
     payload["correlations"] = [
         {"metric_a": metrics[0], "metric_b": metrics[1], "coefficient": -1.0},
@@ -132,9 +140,8 @@ def test_validate_config_only_rejects_non_psd_correlation(tmp_path):
     cfg_path = _write_yaml(tmp_path / "non_psd.yaml", payload)
 
     code, out, _err = run_cli("validate", "--config-only", str(cfg_path))
-    assert code == 1
-    assert "INVALID" in out
-    assert "psd" in out.lower() or "positive" in out.lower() or "definite" in out.lower()
+    assert code == 0
+    assert "VALID" in out
 
 
 def test_validate_config_only_rejects_distribution_param_out_of_range(tmp_path):

@@ -41,6 +41,7 @@ Mission-spec deviations (flagged in M004 completion report):
 
 from __future__ import annotations
 
+import warnings
 from graphlib import CycleError, TopologicalSorter
 from typing import Optional
 
@@ -283,6 +284,243 @@ def _build_correlation_matrix(
     return mat
 
 
+# --- Higham nearest-PD projection (M111) ------------------------------------
+
+# Threshold below which a per-pair adjustment is treated as numerical noise
+# rather than a real change. Higham at convergence can drift cells by ~1e-15
+# off Frobenius-optimal even when the input was already PD; without this
+# guard, byte-identical-output regressions would surface for PD configs.
+_ADJUSTMENT_NOISE_FLOOR = 1e-12
+
+
+def _higham_nearest_pd(
+    A: np.ndarray, max_iter: int = 200, tol: float = 1e-10,
+) -> tuple[np.ndarray, bool]:
+    """Higham 2002 alternating projections — nearest correlation matrix.
+
+    Iterates between two projections with Dykstra correction:
+
+      * ``P_S``: project onto the symmetric positive-semi-definite cone
+        (eigendecompose, clamp negative eigenvalues to zero, recompose).
+      * ``P_U``: project onto the unit-diagonal symmetric set (set
+        diagonal to 1.0; off-diagonal stays as ``P_S`` left it).
+
+    Dykstra's correction term ``DS`` is carried between iterations so
+    the sequence converges to the Frobenius-nearest valid correlation
+    matrix — a naive single-projection clip lands at *some* PSD matrix
+    but not the optimal one.
+
+    Returns ``(projected, converged)``. Convergence here means the
+    iterate stabilized below ``tol`` (relative Frobenius change between
+    successive iterates) — purely an iterate-stability test, not a
+    minimum-eigenvalue test. Higham's optimal projection can land on
+    the PSD boundary (min eigenvalue exactly 0) for inputs whose
+    nearest correlation matrix is rank-deficient; lifting that to a
+    strict-PD margin is ``_ensure_pd_margin``'s job. ``False`` means
+    the loop hit ``max_iter`` first.
+    """
+    A_sym = (A + A.T) / 2.0
+    Y = A_sym.copy()
+    DS = np.zeros_like(A_sym)
+    Y_prev: Optional[np.ndarray] = None
+    for _ in range(max_iter):
+        R = Y - DS
+        eigvals, eigvecs = np.linalg.eigh(R)
+        eigvals_pos = np.maximum(eigvals, 0.0)
+        X = (eigvecs * eigvals_pos) @ eigvecs.T
+        X = (X + X.T) / 2.0
+        DS = X - R
+        Y_new = X.copy()
+        np.fill_diagonal(Y_new, 1.0)
+        if Y_prev is not None:
+            base = float(np.linalg.norm(Y_new, ord="fro"))
+            diff = float(np.linalg.norm(Y_new - Y_prev, ord="fro"))
+            if base > 0 and diff / base < tol:
+                return Y_new, True
+        Y_prev = Y_new
+        Y = Y_new
+    return Y, False
+
+
+def _ensure_pd_margin(Y: np.ndarray, tol: float = 1e-10) -> np.ndarray:
+    """Lift min eigenvalue to ``>= tol`` if Higham landed on the boundary.
+
+    Higham's Frobenius-optimal projection of a non-PD matrix can land
+    on the PSD boundary (min eigenvalue = 0 — PSD but not PD). Cholesky
+    needs strict PD; this helper applies the smallest eigenvalue floor
+    that pushes the result above ``tol``, then renormalizes to unit
+    diagonal. When ``Y`` already has margin, returns it unchanged.
+
+    The internal floor uses ``2 * tol`` to absorb the float-precision
+    drift introduced by the subsequent diagonal renormalization step
+    (``D^(-1/2) X D^(-1/2)`` can drop eigenvalues by a few ULPs). With
+    a 2× cushion the result reliably clears ``tol`` even on 50×50
+    adversarial inputs where the unconstrained minimum sat at exactly
+    the boundary.
+
+    Not a "fallback" — Higham is doing the heavy lifting; this is a
+    margin-only post-process. The fallback proper (``_eigvalue_clip_to_pd``)
+    fires only when Higham itself fails to converge.
+    """
+    A_sym = (Y + Y.T) / 2.0
+    eigvals, eigvecs = np.linalg.eigh(A_sym)
+    if float(eigvals.min()) > tol:
+        return Y
+    floor = 2.0 * tol
+    eigvals_clipped = np.maximum(eigvals, floor)
+    X = (eigvecs * eigvals_clipped) @ eigvecs.T
+    X = (X + X.T) / 2.0
+    diag = np.sqrt(np.maximum(np.diag(X), floor))
+    X = X / np.outer(diag, diag)
+    np.fill_diagonal(X, 1.0)
+    return X
+
+
+def _eigvalue_clip_to_pd(A: np.ndarray, tol: float = 1e-10) -> np.ndarray:
+    """Eigenvalue-clipping fallback for non-converging Higham.
+
+    Clamps eigenvalues to ``>= tol`` then renormalizes to unit diagonal
+    via ``D^(-1/2) X D^(-1/2)``. Result is a valid PD correlation matrix
+    with minimum eigenvalue ``>= tol`` but is NOT Frobenius-optimal —
+    Higham is the optimal projection; this is a safety net for the
+    50×50-all-0.95 adversarial worst case where Higham's iterate
+    refuses to stabilize within ``max_iter``.
+    """
+    A_sym = (A + A.T) / 2.0
+    eigvals, eigvecs = np.linalg.eigh(A_sym)
+    eigvals_clipped = np.maximum(eigvals, tol)
+    X = (eigvecs * eigvals_clipped) @ eigvecs.T
+    X = (X + X.T) / 2.0
+    diag = np.sqrt(np.maximum(np.diag(X), tol))
+    X = X / np.outer(diag, diag)
+    np.fill_diagonal(X, 1.0)
+    return X
+
+
+def project_correlation_matrix(
+    mat: np.ndarray, max_iter: int = 200, tol: float = 1e-10,
+) -> tuple[np.ndarray, bool, bool]:
+    """Project ``mat`` onto the nearest PD correlation matrix if needed.
+
+    Returns ``(projected, projection_used, used_fallback)``.
+
+      * ``mat`` already PD (Cholesky succeeds) → ``(mat.copy(), False, False)``.
+        Byte-identical pass-through preserves pre-M111 behavior on every
+        config whose user-specified matrix is already PD.
+      * Higham iterate stabilizes → margin nudge if needed → returns
+        ``(projected, True, False)``. The margin nudge is silent — it's
+        part of the projection, not a separate fallback.
+      * Higham hits ``max_iter`` → eigenvalue-clipping fallback runs and
+        emits a ``UserWarning`` noting the fallback. Returns
+        ``(clipped, True, True)``.
+
+    Raises ``RuntimeError`` if both Higham and eigenvalue-clipping fail
+    to produce a Cholesky-able matrix — should be impossible for any
+    symmetric input. Replaces the pre-M111 silent identity fallback;
+    the architectural constraint is "raise explicitly rather than
+    silently return identity."
+    """
+    try:
+        np.linalg.cholesky(mat)
+        return mat.copy(), False, False
+    except np.linalg.LinAlgError:
+        pass
+
+    projected, converged = _higham_nearest_pd(mat, max_iter=max_iter, tol=tol)
+    if converged:
+        result = _ensure_pd_margin(projected, tol=tol)
+        try:
+            np.linalg.cholesky(result)
+            return result, True, False
+        except np.linalg.LinAlgError:
+            # Numerical pathology — Higham converged but the margin nudge
+            # somehow didn't yield a Cholesky-able matrix. Fall through
+            # to the dedicated fallback rather than raising mid-way.
+            pass
+
+    clipped = _eigvalue_clip_to_pd(mat, tol=tol)
+    try:
+        np.linalg.cholesky(clipped)
+    except np.linalg.LinAlgError as exc:
+        raise RuntimeError(
+            "Higham nearest-PD projection and eigenvalue-clipping fallback "
+            "both failed to produce a positive-definite correlation matrix. "
+            f"Input shape: {mat.shape}. Min eigenvalue of input: "
+            f"{float(np.linalg.eigvalsh((mat + mat.T) / 2.0).min()):.6e}."
+        ) from exc
+    warnings.warn(
+        f"Higham nearest-PD projection did not converge in {max_iter} "
+        "iterations; falling back to eigenvalue-clipping. The result is a "
+        "valid positive-definite correlation matrix but is not "
+        "Frobenius-optimal.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return clipped, True, True
+
+
+def _correlation_adjustment_records(
+    original: np.ndarray,
+    projected: np.ndarray,
+    metrics: list[Metric],
+    correlations: list[CorrelationPair],
+) -> list[dict]:
+    """Per-pair before/after records for warnings + manifest.
+
+    Walks ``correlations`` (so the records reflect what the user asked
+    for, not all matrix off-diagonals), dedupes by unordered (a, b),
+    drops entries below the numerical noise floor, sorts by
+    (metric_a, metric_b) for deterministic warning text and manifest
+    ordering.
+    """
+    names = [m.name for m in metrics]
+    idx = {n: i for i, n in enumerate(names)}
+    seen: set[tuple[str, str]] = set()
+    records: list[dict] = []
+    for pair in correlations:
+        if pair.metric_a not in idx or pair.metric_b not in idx:
+            continue
+        key = tuple(sorted((pair.metric_a, pair.metric_b)))
+        if key in seen:
+            continue
+        seen.add(key)
+        i, j = idx[pair.metric_a], idx[pair.metric_b]
+        req = float(original[i, j])
+        ach = float(projected[i, j])
+        diff = abs(req - ach)
+        if diff <= _ADJUSTMENT_NOISE_FLOOR:
+            continue
+        records.append({
+            "metric_a": pair.metric_a,
+            "metric_b": pair.metric_b,
+            "requested": req,
+            "achieved": ach,
+            "adjustment": diff,
+        })
+    records.sort(key=lambda r: (r["metric_a"], r["metric_b"]))
+    return records
+
+
+def _format_correlation_adjustment_warning(records: list[dict]) -> str:
+    """Render the per-pair adjustment warning text.
+
+    Format pinned by the M111 mission spec so downstream tooling that
+    parses the warning string stays stable. ``stacklevel=2`` is the
+    caller's responsibility, not this function's.
+    """
+    parts = [
+        f"{r['metric_a']} ↔ {r['metric_b']}: "
+        f"{r['requested']:.4f} → {r['achieved']:.4f} "
+        f"(Δ{r['adjustment']:.4f})"
+        for r in records
+    ]
+    return (
+        "Correlation matrix was not positive definite. "
+        f"Adjusted {len(records)} pairs to nearest valid values: "
+        + ", ".join(parts)
+    )
+
+
 def apply_correlations(
     independent: dict[str, float],
     centers: dict[str, float],
@@ -322,13 +560,15 @@ def apply_correlations(
     inherent to correlating discrete distributions, and still dramatically
     closer than the pre-0.4.0 attenuation.
 
-    A non-positive-semi-definite correlation matrix is a config defect, not
-    a runtime condition. Callers should catch it upstream via
-    ``validation.validate_correlation_psd`` (which ``generate_tables`` runs
-    unconditionally before sampling, and which is also promoted to
-    ``PlotsimConfig`` load-time via F-04). If sampling reaches this function
-    with a bad matrix, we raise ``ValueError`` rather than silently fall back
-    to independent samples.
+    M111: a non-PD correlation matrix is auto-corrected via Higham
+    nearest-PD projection rather than raising. The pre-M111 raise
+    documented "config defect, not runtime condition"; under M111 the
+    load-time validator on ``PlotsimConfig`` already projected and
+    warned the user, so by the time this cold-path is reached the
+    projection is redundant in the production flow but kept as a safety
+    net for callers that bypass the validator (programmatic config
+    construction, ad-hoc tests). The cold path projects silently — the
+    load-time validator owns the user-facing warning.
 
     Category B Layer 3 (SEC-08): when the caller has already computed the
     Cholesky factor at the top of ``generate_tables``, they pass it as
@@ -380,17 +620,14 @@ def apply_correlations(
         L = cholesky_L
     else:
         mat = _build_correlation_matrix(metrics, correlations)
-        try:
-            L = np.linalg.cholesky(mat)
-        except np.linalg.LinAlgError as exc:
-            eigvals = np.linalg.eigvalsh(mat).tolist()
-            raise ValueError(
-                f"Configured correlation matrix is not positive semi-definite "
-                f"for metrics {names}. Min eigenvalue: {min(eigvals):.6f}. "
-                f"Run plotsim.validation.validate_correlation_psd(config) before "
-                f"generation, or call validate_tables/generate_tables which gate "
-                f"on it automatically."
-            ) from exc
+        # M111: project to nearest PD if the matrix isn't already. PD
+        # inputs pass through unchanged; non-PD inputs (only reachable
+        # when the load-time PlotsimConfig validator was bypassed) get
+        # auto-corrected. A RuntimeError from projection — both Higham
+        # and the eigenvalue-clipping fallback failing — is genuinely
+        # unrecoverable and propagates.
+        projected, _used, _fallback = project_correlation_matrix(mat)
+        L = np.linalg.cholesky(projected)
 
     if any(bypass):
         # F2 (M102): bypass-aware correlation. The pre-fix `L @ z` mixed the

@@ -46,7 +46,6 @@ from plotsim.config import (
 from plotsim.tables import generate_tables
 from plotsim.validation import (
     ALL_CHECKS,
-    CHECK_CORRELATION_PSD,
     CHECK_CROSS_DIM_FK_CARDINALITY,
     CHECK_EMPTY_EVENT_TABLE,
     CHECK_FK_INTEGRITY,
@@ -133,12 +132,17 @@ def test_psd_no_correlations_is_noop():
     assert validate_correlation_psd(cfg) == []
 
 
-def test_psd_catches_indefinite_matrix():
-    # Three metrics all pairwise correlated at 0.99 is fine; pushing one pair
-    # to -0.99 while the others stay +0.99 produces an indefinite matrix
-    # (transitivity violation). Post-FIX-F04 this kind of matrix is rejected
-    # at PlotsimConfig construction, so we bypass the validator via
-    # ``model_construct`` to exercise ``validate_correlation_psd`` directly.
+def test_psd_projects_indefinite_matrix():
+    # M111: an indefinite matrix (three metrics with 0.99 / 0.99 / -0.99 —
+    # transitivity violation) is auto-corrected via Higham projection.
+    # Pre-FIX-F04 this returned an error issue from ``validate_correlation_psd``
+    # and load-time PlotsimConfig construction raised. Under M111 the
+    # validator returns ``[]`` for any matrix that successfully projects;
+    # an issue only appears if Higham + eigenvalue-clipping fallback
+    # both fail (impossible for symmetric input). ``skip_validation=True``
+    # is retained so we exercise the validator on the bare config —
+    # going through PlotsimConfig.__init__ would also fire the load-time
+    # warning, which we cover separately in test_correlation_projection.
     cfg = _minimal_config(
         correlations=[
             CorrelationPair(metric_a="a", metric_b="b", coefficient=0.99),
@@ -148,10 +152,7 @@ def test_psd_catches_indefinite_matrix():
         skip_validation=True,
     )
     issues = validate_correlation_psd(cfg)
-    assert len(issues) == 1
-    assert issues[0].check == CHECK_CORRELATION_PSD
-    assert issues[0].severity == "error"
-    assert issues[0].details["min_eigenvalue"] < 0
+    assert issues == []
 
 
 # --- pk_uniqueness -----------------------------------------------------------
@@ -481,19 +482,25 @@ def test_driven_event_table_produces_no_warning(saas_cfg, saas_tables):
     assert "evt_churn" not in flagged
 
 
-# --- FIX-01 acceptance: hard-raise on non-PSD correlation matrix -------------
+# --- M111: defense-in-depth gate at generate_tables under project-and-warn ---
 
 
-def test_non_psd_matrix_raises_at_generation_time():
-    """FIX-01 + FIX-F04: defense-in-depth check at ``generate_tables`` still
-    fires when a non-PSD matrix reaches it.
+def test_non_psd_matrix_no_longer_raises_at_generation_time():
+    """M111: the defense-in-depth ``validate_correlation_psd`` call at the top
+    of ``generate_tables`` no longer raises on non-PD matrices.
 
-    Post-FIX-F04 the PSD gate primarily runs at config load, so the normal
-    path never reaches this branch. Constructing via ``model_construct``
-    simulates a programmatic bypass of the model validator (external
-    callers, deserializers, or tests that build ``PlotsimConfig`` without
-    running validation) and confirms the redundant guard at the top of
-    ``generate_tables`` still raises.
+    Pre-M111 (FIX-01 + FIX-F04) it raised ``ValueError("positive
+    semi-definite")``. Under M111, ``validate_correlation_psd`` returns
+    ``[]`` for any matrix that successfully projects via Higham (which
+    includes every realistic non-PD input on symmetric data). The gate
+    is now an assertion that should never fire, since both the load-time
+    pydantic validator and the gate use the same projection logic.
+
+    This test exercises the ``skip_validation=True`` programmatic path
+    (which bypasses the load-time validator) and confirms the gate
+    accepts the config without raising. Generation may still fail for
+    unrelated reasons in this stripped-down config (it only has
+    ``dim_date``), so we exercise the gate's check directly.
     """
     cfg = _minimal_config(
         correlations=[
@@ -503,8 +510,8 @@ def test_non_psd_matrix_raises_at_generation_time():
         ],
         skip_validation=True,
     )
-    with pytest.raises(ValueError, match="positive semi-definite"):
-        generate_tables(cfg, _rng(0))
+    # The gate's check function returns [] for projectable inputs.
+    assert validate_correlation_psd(cfg) == []
 
 
 def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
