@@ -67,6 +67,10 @@ from plotsim.config import (
     dump_config,
     parse_source,
 )
+from plotsim.entity_features import (
+    ENTITY_FEATURES_BASENAME,
+    build_entity_features,
+)
 from plotsim.manifest import ManifestSchema, write_manifest
 from plotsim.quality import apply_issues as _apply_quality_issues
 from plotsim.validation import ValidationReport, validate_tables
@@ -452,7 +456,70 @@ def write_tables(
     write_validation_report(report, target, generated_at=generated_at, config=config)
     if manifest_to_write is not None and config.manifest.include:
         write_manifest(manifest_to_write, target)
+
+    # M108: per-entity feature table. The load-time validator
+    # (``validate_entity_features_config``) has already ensured
+    # ``manifest.include=true`` and ``quality.quality_issues==[]`` are
+    # both satisfied when ``entity_features.enabled``, so the only
+    # programmatic path that would reach here without a manifest is a
+    # caller that constructed ``PlotsimConfig`` in code and passed
+    # ``manifest=None``. Surface that as an explicit error rather than
+    # silently dropping the file.
+    if config.entity_features.enabled:
+        if manifest is None:
+            raise ValueError(
+                "entity_features.enabled=true but no manifest was passed to "
+                "write_tables; build the manifest first via "
+                "plotsim.manifest.build_manifest and forward it through"
+            )
+        # Build off the CLEAN ``tables`` dict — quality injection and
+        # entity features are mutually exclusive at config load, so
+        # ``tables_to_write`` and ``tables`` are identical here, but
+        # naming the clean source makes the intent explicit and keeps
+        # the entity-feature contract stable if the gate ever loosens.
+        entity_features_df = build_entity_features(config, tables, manifest)
+        _write_entity_features(entity_features_df, target, config, float_format)
+
     return target
+
+
+def _write_entity_features(
+    df: pd.DataFrame,
+    output_dir: Path,
+    config: PlotsimConfig,
+    float_format: str,
+) -> Path:
+    """Write the M108 per-entity feature DataFrame to disk.
+
+    Filename basename is the module-level constant
+    ``ENTITY_FEATURES_BASENAME`` (``_entity_features``); the leading
+    underscore signals "derived companion" rather than "table" and
+    keeps the file out of any glob that targets ``*.csv``-tables only.
+    Format follows ``config.output.format`` so a user opting into
+    Parquet for the table set gets Parquet for the feature file too —
+    no mixed-encoding output dirs.
+
+    Same encoding / quoting / float-format conventions as the regular
+    table writers (``CSV_ENCODING``, ``QUOTE_NONNUMERIC``, ``%.4f``).
+    """
+    output_format = _resolve_output_format(config)
+    extension = "parquet" if output_format == "parquet" else "csv"
+    path = output_dir / f"{ENTITY_FEATURES_BASENAME}.{extension}"
+    if output_format == "parquet":
+        _check_parquet_engine_available()
+        df.to_parquet(
+            path, engine="pyarrow", index=False, compression="snappy",
+        )
+    else:
+        df.to_csv(
+            path,
+            index=False,
+            encoding=CSV_ENCODING,
+            quoting=csv.QUOTE_NONNUMERIC,
+            float_format=float_format,
+            na_rep=NA_REP,
+        )
+    return path
 
 
 def _resolve_target(

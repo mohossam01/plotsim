@@ -397,6 +397,32 @@
       "title": "Entity",
       "type": "object"
     },
+    "EntityFeaturesConfig": {
+      "additionalProperties": false,
+      "description": "M108: per-entity flat feature table emission config.\n\nWhen ``enabled`` is True, ``write_tables`` derives a single\none-row-per-entity DataFrame by aggregating every fact metric over\nits time series and writes it as ``_entity_features.csv`` (or\n``.parquet``) alongside the regular table files. The aggregation\nschema per metric is fixed: ``{metric}_mean``, ``{metric}_std``,\n``{metric}_slope`` (linear regression of value over period index),\n``{metric}_first``, ``{metric}_last``, ``{metric}_peak_period``.\n\n``metrics`` filters which metric names participate; the empty\ndefault expands to \"every numeric metric the engine generated into\na fact table\". Names must reference existing metrics on\n``config.metrics``; the load-time validator rejects unknowns.\nBridge metrics are NEVER aggregated regardless of this list — the\nbridge table is associative, not temporal.\n\n``include_labels`` controls emission of two ground-truth columns:\n``archetype`` (sourced from ``config.entities[i].archetype``) and\n``final_trajectory_position`` (sourced from the last\n``trajectory_samples`` entry per entity in the manifest). The\nsecond is NaN for entities outside the manifest's\n``trajectory_sample_rate`` subset; ``trajectory_sample_rate=1.0``\n(the default) covers every entity.\n\n``enabled=true`` requires ``manifest.include=true`` (labels read\nfrom the manifest payload) and forbids non-empty\n``quality.quality_issues`` (entity features aggregate the\npre-corruption fact tables; combining the two would silently mix\nclean and corrupted aggregates). Both rules raise at load time —\nsee ``plotsim.validation.validate_entity_features_config``.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "metrics": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Metrics",
+          "type": "array"
+        },
+        "include_labels": {
+          "default": true,
+          "title": "Include Labels",
+          "type": "boolean"
+        }
+      },
+      "title": "EntityFeaturesConfig",
+      "type": "object"
+    },
     "EntityOverrides": {
       "additionalProperties": false,
       "description": "Per-entity trajectory adjustments.\n\nF9 / 0.5: replaces the previous ``Entity.overrides: dict[str, Any]``\npermissive-dict surface. Closes the schema discipline gap that\nsilently accepted arbitrary unknown keys (the same pattern that\nmotivated the 0.2.0 dead-field cleanup).\n\nCurrently the only recognized override is ``inflection_month``,\nwhich shifts the archetype's curve segments so the archetype's\ncanonical inflection lands on the specified period index.\nAdding new override keys is intentionally schema-gated — extend\nthis model rather than threading new dict keys through\n``compute_trajectory``.",
@@ -1030,6 +1056,9 @@
     },
     "quality": {
       "$ref": "#/$defs/QualityConfig"
+    },
+    "entity_features": {
+      "$ref": "#/$defs/EntityFeaturesConfig"
     },
     "locale": {
       "anyOf": [

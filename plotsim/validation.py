@@ -178,6 +178,86 @@ def _numeric_series(series) -> np.ndarray:
     )
 
 
+# --- Pre-generation: entity features config gates (M108) --------------------
+
+
+def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for the M108 entity-features feature.
+
+    Mirrors the pattern established by ``validate_correlation_psd`` —
+    pure config check, no DataFrame inputs. Called from a Pydantic
+    ``model_validator`` on ``PlotsimConfig`` so a misconfigured YAML
+    fails at load instead of mid-generation.
+
+    Returns an empty list when ``entity_features.enabled == False`` (no
+    constraints apply) or when the config satisfies every gate. The
+    first message in a non-empty list is the one
+    ``PlotsimConfig._entity_features_gates`` raises; collecting all of
+    them keeps the function reusable from contexts that want a full
+    diagnostic instead of fail-fast.
+
+    Gates (in order):
+      1. ``manifest.include`` must be True. Labels read from the
+         manifest payload; turning off manifest emission would leave
+         ``final_trajectory_position`` permanently NaN with no signal
+         to the user.
+      2. ``quality.quality_issues`` must be empty. Entity features
+         aggregate the pre-corruption fact tables; combining the two
+         would silently mix clean and corrupted aggregates without an
+         operator-visible split. Deferred to a future mission.
+      3. Each name in ``entity_features.metrics`` must reference a
+         metric that has at least one ``int``/``float``-typed column
+         on a fact table — i.e., a numeric aggregable signal. Names
+         not in ``config.metrics`` at all, or in ``config.metrics``
+         but never landed on a fact column, both raise.
+    """
+    errors: list[str] = []
+    cfg = config.entity_features
+    if not cfg.enabled:
+        return errors
+
+    if not config.manifest.include:
+        errors.append(
+            "entity_features.enabled=true requires manifest.include=true; "
+            "labels (archetype, final_trajectory_position) read from the "
+            "manifest payload"
+        )
+
+    if config.quality.quality_issues:
+        errors.append(
+            "entity_features cannot be combined with quality_issues in this "
+            "version"
+        )
+
+    if cfg.metrics:
+        metric_names = {m.name for m in config.metrics}
+        numeric_fact_metrics: set[str] = set()
+        for tbl in config.tables:
+            if tbl.type != "fact":
+                continue
+            for col in tbl.columns:
+                parsed = parse_source(col.source)
+                if (
+                    isinstance(parsed, MetricSource)
+                    and col.dtype in ("int", "float")
+                ):
+                    numeric_fact_metrics.add(parsed.metric)
+        for name in cfg.metrics:
+            if name not in metric_names:
+                errors.append(
+                    f"entity_features.metrics references unknown metric "
+                    f"{name!r}; known metrics: {sorted(metric_names)}"
+                )
+                continue
+            if name not in numeric_fact_metrics:
+                errors.append(
+                    f"entity_features.metrics references metric {name!r} "
+                    f"which has no int/float column on any fact table; "
+                    f"only numeric fact metrics can be aggregated"
+                )
+    return errors
+
+
 # --- Check 1: correlation matrix PSD ----------------------------------------
 
 

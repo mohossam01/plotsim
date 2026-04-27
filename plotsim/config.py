@@ -1222,6 +1222,44 @@ class ManifestConfig(_Frozen):
     trajectory_sample_rate: float = Field(default=1.0, gt=0.0, le=1.0)
 
 
+class EntityFeaturesConfig(_Frozen):
+    """M108: per-entity flat feature table emission config.
+
+    When ``enabled`` is True, ``write_tables`` derives a single
+    one-row-per-entity DataFrame by aggregating every fact metric over
+    its time series and writes it as ``_entity_features.csv`` (or
+    ``.parquet``) alongside the regular table files. The aggregation
+    schema per metric is fixed: ``{metric}_mean``, ``{metric}_std``,
+    ``{metric}_slope`` (linear regression of value over period index),
+    ``{metric}_first``, ``{metric}_last``, ``{metric}_peak_period``.
+
+    ``metrics`` filters which metric names participate; the empty
+    default expands to "every numeric metric the engine generated into
+    a fact table". Names must reference existing metrics on
+    ``config.metrics``; the load-time validator rejects unknowns.
+    Bridge metrics are NEVER aggregated regardless of this list — the
+    bridge table is associative, not temporal.
+
+    ``include_labels`` controls emission of two ground-truth columns:
+    ``archetype`` (sourced from ``config.entities[i].archetype``) and
+    ``final_trajectory_position`` (sourced from the last
+    ``trajectory_samples`` entry per entity in the manifest). The
+    second is NaN for entities outside the manifest's
+    ``trajectory_sample_rate`` subset; ``trajectory_sample_rate=1.0``
+    (the default) covers every entity.
+
+    ``enabled=true`` requires ``manifest.include=true`` (labels read
+    from the manifest payload) and forbids non-empty
+    ``quality.quality_issues`` (entity features aggregate the
+    pre-corruption fact tables; combining the two would silently mix
+    clean and corrupted aggregates). Both rules raise at load time —
+    see ``plotsim.validation.validate_entity_features_config``.
+    """
+    enabled: bool = False
+    metrics: list[str] = Field(default_factory=list, max_length=50)
+    include_labels: bool = True
+
+
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
@@ -1439,6 +1477,11 @@ class PlotsimConfig(_Frozen):
     # without quality_issues produce clean output identical to pre-M107
     # baselines.
     quality: QualityConfig = Field(default_factory=QualityConfig)
+    # M108: per-entity flat feature table. Default ``enabled=false`` —
+    # configs that don't opt in produce no extra file. When opted in,
+    # the writer emits ``_entity_features.csv`` (or ``.parquet``)
+    # alongside the standard table set.
+    entity_features: EntityFeaturesConfig = Field(default_factory=EntityFeaturesConfig)
     # FIX-05 / SF-3: locale threaded to every Faker instance built by the
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
@@ -1968,6 +2011,28 @@ class PlotsimConfig(_Frozen):
                             f"are protected from corruption"
                         )
 
+        return self
+
+    @model_validator(mode="after")
+    def _entity_features_gates(self) -> "PlotsimConfig":
+        """M108: load-time gates for the entity-features feature.
+
+        Mutual-exclusion rules are enforced here rather than at
+        generation time so a misconfigured YAML fails before the engine
+        burns work. The check function lives in ``plotsim.validation``
+        (mirroring the ``validate_correlation_psd`` pattern) so the
+        post-generation suite and the load-time validator share the
+        same source of truth.
+        """
+        if not self.entity_features.enabled:
+            return self
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import validate_entity_features_config
+
+        errors = validate_entity_features_config(self)
+        if errors:
+            raise ValueError(errors[0])
         return self
 
     @model_validator(mode="after")
