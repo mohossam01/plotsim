@@ -112,6 +112,46 @@ class EventFiring(_ManifestBase):
     period_indices: list[int]
 
 
+class BridgeAssociationRecord(_ManifestBase):
+    """M107: ground-truth M:M associations for one bridge × one entity.
+
+    Records which second-dim entries each first-dim entity associated
+    with on a given bridge. ``targets`` is the list of second-dim FK
+    values (PK values for non-SCD dims, ``dim_row_id`` for SCD dims —
+    matches the engine's bridge FK column semantics). ``cardinality``
+    is ``len(targets)``, surfaced separately so manifest consumers can
+    aggregate per-entity counts without iterating each tuple.
+    """
+    bridge: str
+    entity: str
+    targets: list[Any]
+    cardinality: int
+
+
+class QualityInjection(_ManifestBase):
+    """M107: ground-truth record of one quality-issue corruption.
+
+    Recorded per (issue_index, table, column) so a downstream consumer
+    can recover the clean cell values for any corrupted row without
+    re-running generation. ``issue_index`` is the position of the
+    issue in ``config.quality.quality_issues`` so multi-issue configs
+    keep their per-issue records distinguishable. ``row_indices`` are
+    the integer row positions in the *output* (corrupted) DataFrame —
+    the indices of the rows the corruption applied to. ``clean_values``
+    is the original cell values at those rows (one entry per row in
+    the same order). For ``duplicate_rows`` and ``late_arrival`` the
+    column field carries a sentinel ``"_rows"`` / ``"_arrival_period"``
+    name and ``clean_values`` is empty (the corruption isn't a per-cell
+    edit but a row-level operation).
+    """
+    issue_index: int
+    issue_type: str
+    table: str
+    column: str
+    row_indices: list[int]
+    clean_values: list[Any]
+
+
 class SCDEvent(_ManifestBase):
     """M106: one SCD Type 2 band crossing for one entity in one dim table.
 
@@ -150,6 +190,8 @@ class ManifestSchema(_ManifestBase):
     trajectory_samples: list[TrajectorySample]
     event_firings: list[EventFiring]
     scd_events: list[SCDEvent] = []
+    bridge_associations: list[BridgeAssociationRecord] = []
+    quality_injections: list[QualityInjection] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -329,6 +371,7 @@ def build_manifest(
     tables: dict[str, pd.DataFrame],
     sample_rate: Optional[float] = None,
     scd_state: Optional[Any] = None,
+    bridge_state: Optional[Any] = None,
 ) -> ManifestSchema:
     """Assemble the manifest from config + generation state + tables.
 
@@ -342,6 +385,12 @@ def build_manifest(
     recorded as an ``SCDEvent`` in the manifest. ``None`` (or an empty
     state) leaves ``manifest.scd_events`` as ``[]`` — backwards
     compatible with M105 callers that haven't been updated yet.
+
+    M107: ``bridge_state`` (the ``GenerationState.bridges`` field)
+    carries the per-bridge association lists ``tables.build_bridge_tables``
+    produced. When supplied, each first-dim entity's association set on
+    each bridge becomes one ``BridgeAssociationRecord``. ``None`` leaves
+    ``manifest.bridge_associations`` as ``[]``.
 
     The function is pure and stateless — same inputs → same output. No
     RNG, no clock, no filesystem.
@@ -414,6 +463,18 @@ def build_manifest(
                         trigger_position=float(curr.crossing_position or 0.0),
                     ))
 
+    bridge_associations: list[BridgeAssociationRecord] = []
+    if bridge_state is not None and getattr(bridge_state, "bridges", None):
+        # Sort bridge names for stable manifest ordering across runs.
+        for bridge_name in sorted(bridge_state.bridges.keys()):
+            for assoc in bridge_state.bridges[bridge_name]:
+                bridge_associations.append(BridgeAssociationRecord(
+                    bridge=bridge_name,
+                    entity=assoc.entity,
+                    targets=list(assoc.targets),
+                    cardinality=int(assoc.cardinality),
+                ))
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -422,6 +483,8 @@ def build_manifest(
         trajectory_samples=trajectory_samples,
         event_firings=event_firings,
         scd_events=scd_events,
+        bridge_associations=bridge_associations,
+        quality_injections=[],
     )
 
 
@@ -448,9 +511,12 @@ def write_manifest(manifest: ManifestSchema, output_dir: Path) -> Path:
 __all__ = [
     "MANIFEST_FILENAME",
     "MANIFEST_SCHEMA_VERSION",
+    "BridgeAssociationRecord",
     "EntityArchetypeAssignment",
     "EventFiring",
     "ManifestSchema",
+    "QualityInjection",
+    "SCDEvent",
     "TrajectorySample",
     "build_manifest",
     "config_sha256",

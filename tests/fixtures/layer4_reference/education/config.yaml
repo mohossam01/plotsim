@@ -193,14 +193,14 @@ tables:
     scd_type2: null
   - name: course_name
     dtype: string
-    source: static:intro_cs
+    source: static:intro_cs,calculus,history,physics,literature,statistics
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
   - name: credits
     dtype: int
-    source: static:3
+    source: static:3,4,3,4,3,4
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -366,4 +366,23 @@ manifest:
   include: true
   trajectory_sample_rate: 1.0
 stages: null
+bridges:
+- name: bridge_enrollment
+  type: bridge
+  connects:
+  - dim_student
+  - dim_course
+  cardinality:
+    min: 2
+    max: 5
+  trajectory_driven: true
+  metrics:
+  - name: grade
+    dtype: float
+    source: metric:assignment_score
+  - name: enrollment_status
+    dtype: string
+    source: static:enrolled
+quality:
+  quality_issues: []
 locale: en_US

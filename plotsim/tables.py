@@ -53,6 +53,8 @@ import pandas as pd
 from faker import Faker
 
 from plotsim.config import (
+    BridgeMetric,
+    BridgeTableConfig,
     Column,
     DerivedSource,
     FKSource,
@@ -179,35 +181,21 @@ def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
 # --- Fact tables -------------------------------------------------------------
 
 
-def build_fact_tables(
+def _compute_entity_metrics(
     config: PlotsimConfig,
     trajectories: dict[str, np.ndarray],
-    dim_tables: dict[str, pd.DataFrame],
+    n_periods: int,
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
-) -> dict[str, pd.DataFrame]:
-    """Generate every fact table in ``config.tables`` keyed by table name.
+) -> dict[str, dict[str, np.ndarray]]:
+    """Generate the per-entity metric series dict the engine reads from.
 
-    For each entity we generate the full metric series ONCE
-    (``generate_entity_metrics`` handles correlations, causal lag, noise,
-    MCAR), and then any number of per_entity_per_period fact tables read
-    columns out of that single dict. This keeps the trajectory-first
-    invariant intact across multiple fact tables on the same entity.
-
-    Per-period grain (no entity axis) is also supported: rows are emitted
-    per period using a single shared metric series produced from the mean
-    trajectory across entities. (None of the sample configs exercise this
-    today; included for completeness.)
+    Hoisted out of ``build_fact_tables`` so M107's bridge generator can
+    read the same series without re-running ``generate_entity_metrics``
+    (which would consume RNG twice and break determinism). Each entity's
+    RNG draws share the top-level rng so output is identical to the prior
+    pre-M107 inline path when only fact-building consumes the result.
     """
-    dim_date = dim_tables.get("dim_date")
-    if dim_date is None:
-        raise ValueError("build_fact_tables requires dim_date to be built")
-    n_periods = len(dim_date)
-
-    per_entity_dims = _per_entity_dim_names(config)
-
-    # Generate metric series per entity once. Each entity's RNG draws share
-    # the top-level rng, so determinism is preserved across the whole run.
     arch_by_name = {a.name: a for a in config.archetypes}
     entity_metrics: dict[str, dict[str, np.ndarray]] = {}
     for entity in config.entities:
@@ -225,6 +213,47 @@ def build_fact_tables(
             rng,
             archetype=arch_by_name.get(entity.archetype),
             cholesky_L=cholesky_L,
+        )
+    return entity_metrics
+
+
+def build_fact_tables(
+    config: PlotsimConfig,
+    trajectories: dict[str, np.ndarray],
+    dim_tables: dict[str, pd.DataFrame],
+    rng: np.random.Generator,
+    cholesky_L: Optional[np.ndarray] = None,
+    entity_metrics: Optional[dict[str, dict[str, np.ndarray]]] = None,
+) -> dict[str, pd.DataFrame]:
+    """Generate every fact table in ``config.tables`` keyed by table name.
+
+    For each entity we generate the full metric series ONCE
+    (``generate_entity_metrics`` handles correlations, causal lag, noise,
+    MCAR), and then any number of per_entity_per_period fact tables read
+    columns out of that single dict. This keeps the trajectory-first
+    invariant intact across multiple fact tables on the same entity.
+
+    Per-period grain (no entity axis) is also supported: rows are emitted
+    per period using a single shared metric series produced from the mean
+    trajectory across entities. (None of the sample configs exercise this
+    today; included for completeness.)
+
+    M107: ``entity_metrics`` may be passed in by callers that have already
+    computed it (the orchestrator does this so bridge tables can share
+    the same series without re-running ``generate_entity_metrics`` and
+    burning RNG draws). When ``None``, the helper recomputes it inline —
+    preserves the pre-M107 single-call signature for direct test callers.
+    """
+    dim_date = dim_tables.get("dim_date")
+    if dim_date is None:
+        raise ValueError("build_fact_tables requires dim_date to be built")
+    n_periods = len(dim_date)
+
+    per_entity_dims = _per_entity_dim_names(config)
+
+    if entity_metrics is None:
+        entity_metrics = _compute_entity_metrics(
+            config, trajectories, n_periods, rng, cholesky_L=cholesky_L,
         )
 
     # Category B Layer 4: materialize metric series as a dense (E, P, M) float64
@@ -2022,6 +2051,328 @@ def attach_dim_row_id_to_facts(
     return out
 
 
+# --- Bridge tables (M107) ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BridgeAssociation:
+    """One first-dim entity's set of associations for a single bridge.
+
+    ``entity`` is the first-dim entity name (matches ``Entity.name``).
+    ``targets`` is the list of second-dim FK values that entity associated
+    with — PK values for non-SCD second dims, ``dim_row_id`` values when
+    the second dim is SCD-enabled. ``cardinality`` is ``len(targets)``,
+    surfaced as a separate field so manifest consumers can iterate stats
+    without re-counting.
+    """
+    entity: str
+    targets: list[Any]
+    cardinality: int
+
+
+@dataclass(frozen=True)
+class BridgeAssociations:
+    """Cross-bridge association record. Maps bridge_name → per-entity assoc list.
+
+    ``BridgeAssociations(bridges={})`` is the empty-bridge sentinel: every
+    config without a ``bridges`` block lands here, and the manifest builder
+    skips the bridge_associations field entirely. Carried on
+    ``GenerationState`` so the manifest can record ground-truth M:M
+    associations without re-deriving them from the bridge DataFrames.
+    """
+    bridges: dict[str, list[BridgeAssociation]]
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.bridges
+
+
+def _bridge_fk_col_name(dim_tbl: Table, scd_state: SCDState) -> str:
+    """Return the bridge FK column name for one connected dim.
+
+    Convention:
+      * Non-SCD: the dim's PK column name verbatim (``student_id``,
+        ``course_id``). Natural keys keep bridges legible without an
+        extra surrogate column.
+      * SCD: ``<dim_name_short>_dim_row_id`` (``dim_company`` →
+        ``company_dim_row_id``). Different from the non-SCD form so
+        validation and downstream consumers can tell at a glance that
+        the cell holds a surrogate, not a business key.
+    """
+    if dim_tbl.name in scd_state.dims:
+        short = dim_tbl.name[4:] if dim_tbl.name.startswith("dim_") else dim_tbl.name
+        return f"{short}_dim_row_id"
+    pk = dim_tbl.primary_key_cols[0]
+    return pk
+
+
+def _bridge_first_dim_fk_by_entity(
+    config: PlotsimConfig,
+    first_dim_tbl: Table,
+    first_dim_df: pd.DataFrame,
+    scd_state: SCDState,
+) -> dict[str, Any]:
+    """Map ``Entity.name`` → first-dim FK value for every config entity.
+
+    For non-SCD per_entity dims this dedupes the first-dim DataFrame on its
+    PK and zips against ``config.entities`` (the dim builder iterates
+    entities in config order, so position-bridging is safe). For SCD-
+    enabled first dims we read the ``is_current=True`` ``dim_row_id`` from
+    the per-entity SCD version list — the same row a fact FK would resolve
+    to at the end of the time window.
+    """
+    if first_dim_tbl.name in scd_state.dims:
+        dim_state = scd_state.dims[first_dim_tbl.name]
+        out: dict[str, Any] = {}
+        for entity in config.entities:
+            versions = dim_state.versions.get(entity.name, [])
+            current = next((v for v in versions if v.is_current), None)
+            if current is None:
+                raise RuntimeError(
+                    f"build_bridge_tables: SCD dim {first_dim_tbl.name!r} has "
+                    f"no is_current=True version for entity {entity.name!r}; "
+                    f"this is an SCD-expansion bug, not a config error"
+                )
+            out[entity.name] = int(current.dim_row_id)
+        return out
+    first_pk_col = first_dim_tbl.primary_key_cols[0]
+    deduped = first_dim_df.drop_duplicates(
+        subset=[first_pk_col], keep="first",
+    ).reset_index(drop=True)
+    if len(deduped) != len(config.entities):
+        raise RuntimeError(
+            f"build_bridge_tables: per_entity dim {first_dim_tbl.name!r} has "
+            f"{len(deduped)} unique {first_pk_col!r} value(s) but config has "
+            f"{len(config.entities)} entities; the dim builder is expected "
+            f"to keep dims 1:1 with config.entities"
+        )
+    return {
+        entity.name: deduped.iloc[i][first_pk_col]
+        for i, entity in enumerate(config.entities)
+    }
+
+
+def _bridge_second_dim_fk_pool(
+    second_dim_tbl: Table,
+    second_dim_df: pd.DataFrame,
+    scd_state: SCDState,
+) -> list[Any]:
+    """Return the list of FK values an entity in the first dim can associate with.
+
+    Mirrors ``_bridge_first_dim_fk_by_entity`` but for the second dim:
+    SCD-enabled dims yield the per-entity ``is_current=True`` dim_row_id;
+    per_entity / per_reference dims yield their PK values directly.
+    Sampling without replacement happens against this pool, so the
+    ordering here defines the deterministic enumeration the downstream
+    ``rng.choice`` walks.
+    """
+    if second_dim_tbl.name in scd_state.dims:
+        dim_state = scd_state.dims[second_dim_tbl.name]
+        pool: list[Any] = []
+        for entity_name in dim_state.versions:
+            versions = dim_state.versions[entity_name]
+            current = next((v for v in versions if v.is_current), None)
+            if current is None:
+                continue
+            pool.append(int(current.dim_row_id))
+        return pool
+    second_pk_col = second_dim_tbl.primary_key_cols[0]
+    if second_dim_tbl.grain == "per_entity":
+        deduped = second_dim_df.drop_duplicates(
+            subset=[second_pk_col], keep="first",
+        ).reset_index(drop=True)
+        return deduped[second_pk_col].tolist()
+    return second_dim_df[second_pk_col].tolist()
+
+
+def _compute_bridge_cardinality(
+    bridge: BridgeTableConfig,
+    mean_position: float,
+    pool_size: int,
+    rng: np.random.Generator,
+) -> int:
+    """Return how many associations an entity gets, clamped to the pool size.
+
+    Trajectory-driven: linear interpolation from ``mean_position`` between
+    ``cardinality.min`` and ``cardinality.max``. Position 0.0 lands at
+    ``min``, position 1.0 lands at ``max``, intermediate positions
+    interpolate. Uniform mode: ``rng.integers(min, max + 1)``. Both
+    branches clamp to ``pool_size`` so the without-replacement sampler
+    can never be asked for more rows than the second dim has.
+    """
+    min_n = bridge.cardinality.min
+    max_n = bridge.cardinality.max
+    if bridge.trajectory_driven:
+        clamped_pos = max(0.0, min(1.0, float(mean_position)))
+        n = int(round(min_n + (max_n - min_n) * clamped_pos))
+    else:
+        n = int(rng.integers(min_n, max_n + 1))
+    n = max(min_n, min(max_n, n))
+    return min(n, pool_size)
+
+
+def _bridge_metric_value(
+    bm: BridgeMetric,
+    entity_name: str,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    fake: Faker,
+):
+    """Resolve a single bridge-metric cell.
+
+    MetricSource collapses the entity's per-period series to its NaN-
+    aware mean — the bridge captures the entity's *career-aggregated*
+    level for that metric, which mirrors how the cardinality is read
+    off the trajectory mean. StaticSource is a literal pass-through.
+    FakerSource consumes Faker state per row so bridges with Faker
+    metrics get distinct values per association.
+    """
+    parsed = parse_source(bm.source)
+    if isinstance(parsed, MetricSource):
+        per_metric = entity_metrics.get(entity_name, {})
+        series = per_metric.get(parsed.metric)
+        if series is None:
+            return None
+        if series.dtype == object:
+            arr = np.asarray([
+                np.nan if (v is None or (isinstance(v, float) and np.isnan(v)))
+                else float(v) for v in series
+            ], dtype=np.float64)
+        else:
+            arr = series.astype(np.float64)
+        if np.all(np.isnan(arr)):
+            return None
+        mean_val = float(np.nanmean(arr))
+        return _coerce_metric_value(mean_val, bm.dtype)
+    if isinstance(parsed, StaticSource):
+        return parsed.value
+    if isinstance(parsed, FakerSource):
+        return _call_faker(fake, parsed.method, parsed.kwargs)
+    raise ValueError(
+        f"bridge metric {bm.name!r} source {bm.source!r} dispatched to "
+        f"{type(parsed).__name__}, which build_bridge_tables does not "
+        f"support; the BridgeMetric source validator should have rejected "
+        f"this at load time"
+    )
+
+
+def build_bridge_tables(
+    config: PlotsimConfig,
+    dim_tables: dict[str, pd.DataFrame],
+    trajectories: dict[str, np.ndarray],
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    scd_state: SCDState,
+    rng: np.random.Generator,
+) -> tuple[dict[str, pd.DataFrame], BridgeAssociations]:
+    """Generate every bridge table declared in ``config.bridges``.
+
+    For each bridge:
+
+      1. The first dim is per_entity (validated at load), so iteration is
+         over ``config.entities`` in declaration order.
+      2. Each entity's mean trajectory position picks a per-row cardinality
+         in ``[cardinality.min, cardinality.max]`` (interpolated when
+         ``trajectory_driven=True``, uniform otherwise).
+      3. ``rng.choice(replace=False)`` samples that many distinct rows
+         from the second dim's FK pool.
+      4. Each association becomes one bridge row carrying the two FK
+         values plus any declared bridge metrics, computed from the
+         first-dim entity's metric series.
+
+    Returns the dict of bridge DataFrames plus a ``BridgeAssociations``
+    record the manifest builder reads. Empty config → empty dict +
+    empty associations.
+    """
+    if not config.bridges:
+        return {}, BridgeAssociations(bridges={})
+
+    fake = _make_faker(rng, config.locale)
+    out: dict[str, pd.DataFrame] = {}
+    associations: dict[str, list[BridgeAssociation]] = {}
+
+    for bridge in config.bridges:
+        first_dim_name, second_dim_name = bridge.connects
+        first_dim_tbl = next(t for t in config.tables if t.name == first_dim_name)
+        second_dim_tbl = next(t for t in config.tables if t.name == second_dim_name)
+        first_dim_df = dim_tables.get(first_dim_name)
+        second_dim_df = dim_tables.get(second_dim_name)
+        if first_dim_df is None or second_dim_df is None:
+            raise RuntimeError(
+                f"build_bridge_tables: bridge {bridge.name!r} connects "
+                f"{first_dim_name!r} and {second_dim_name!r}, but one of "
+                f"those dim DataFrames is missing from dim_tables"
+            )
+
+        first_fk_col = _bridge_fk_col_name(first_dim_tbl, scd_state)
+        second_fk_col = _bridge_fk_col_name(second_dim_tbl, scd_state)
+        if first_fk_col == second_fk_col:
+            raise RuntimeError(
+                f"build_bridge_tables: bridge {bridge.name!r} would emit two "
+                f"columns named {first_fk_col!r} (both connected dims map to "
+                f"that column under the SCD/non-SCD naming convention); "
+                f"this is a config-layout edge case, not a data error"
+            )
+
+        first_fk_by_entity = _bridge_first_dim_fk_by_entity(
+            config, first_dim_tbl, first_dim_df, scd_state,
+        )
+        second_pool = _bridge_second_dim_fk_pool(
+            second_dim_tbl, second_dim_df, scd_state,
+        )
+        if not second_pool:
+            out[bridge.name] = pd.DataFrame(
+                columns=[first_fk_col, second_fk_col]
+                + [bm.name for bm in bridge.metrics],
+            )
+            associations[bridge.name] = []
+            continue
+        n_pool = len(second_pool)
+
+        rows: list[dict[str, Any]] = []
+        bridge_assoc_list: list[BridgeAssociation] = []
+        for entity in config.entities:
+            traj = trajectories.get(entity.name)
+            if traj is None:
+                raise RuntimeError(
+                    f"build_bridge_tables: entity {entity.name!r} has no "
+                    f"trajectory; bridge cardinality is trajectory-driven"
+                )
+            mean_position = float(np.mean(traj))
+            n = _compute_bridge_cardinality(bridge, mean_position, n_pool, rng)
+
+            if n == 0:
+                bridge_assoc_list.append(BridgeAssociation(
+                    entity=entity.name, targets=[], cardinality=0,
+                ))
+                continue
+
+            picked_idx = rng.choice(n_pool, size=n, replace=False)
+            picked_targets = [second_pool[int(i)] for i in picked_idx]
+            bridge_assoc_list.append(BridgeAssociation(
+                entity=entity.name,
+                targets=list(picked_targets),
+                cardinality=n,
+            ))
+
+            first_fk_val = first_fk_by_entity[entity.name]
+            for target in picked_targets:
+                row: dict[str, Any] = {
+                    first_fk_col: first_fk_val,
+                    second_fk_col: target,
+                }
+                for bm in bridge.metrics:
+                    row[bm.name] = _bridge_metric_value(
+                        bm, entity.name, entity_metrics, fake,
+                    )
+                rows.append(row)
+
+        column_order = [first_fk_col, second_fk_col] + [bm.name for bm in bridge.metrics]
+        df = pd.DataFrame(rows, columns=column_order) if rows else pd.DataFrame(columns=column_order)
+        out[bridge.name] = df
+        associations[bridge.name] = bridge_assoc_list
+
+    return out, BridgeAssociations(bridges=associations)
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -2042,6 +2393,12 @@ class GenerationState:
     callers can skip SCD-aware code paths cheaply by checking
     ``state.scd.is_empty``.
 
+    M107: ``bridges`` carries the per-bridge association ground truth
+    (which second-dim rows each first-dim entity associated with). The
+    manifest emits ``bridge_associations`` from this without re-grouping
+    the bridge DataFrames. ``BridgeAssociations(bridges={})`` is the
+    empty sentinel for configs without a ``bridges`` block.
+
     Future fields (anomaly injection locations, stage transition periods,
     etc.) extend this dataclass; existing callers that destructure
     ``(tables, state)`` keep working because Python dataclass fields are
@@ -2049,6 +2406,9 @@ class GenerationState:
     """
     trajectories: dict[str, np.ndarray]
     scd: SCDState = field(default_factory=lambda: SCDState(dims={}))
+    bridges: BridgeAssociations = field(
+        default_factory=lambda: BridgeAssociations(bridges={}),
+    )
 
 
 def generate_tables(
@@ -2147,8 +2507,20 @@ def generate_tables_with_state(
         )
         cholesky_L = np.linalg.cholesky(mat)
 
+    # M107: compute the per-entity metric series ONCE and pass to both
+    # ``build_fact_tables`` and ``build_bridge_tables``. Without this hoist
+    # bridges would re-call ``generate_entity_metrics`` and consume RNG draws
+    # downstream of fact construction, producing different fact values than
+    # the pre-M107 baseline. Configs with empty ``bridges`` skip the bridge
+    # call entirely; they still benefit from the single computation.
+    n_periods = len(dim_tables["dim_date"])
+    entity_metrics = _compute_entity_metrics(
+        config, trajectories, n_periods, rng, cholesky_L=cholesky_L,
+    )
+
     fact_tables = build_fact_tables(
-        config, trajectories, dim_tables, rng, cholesky_L=cholesky_L,
+        config, trajectories, dim_tables, rng,
+        cholesky_L=cholesky_L, entity_metrics=entity_metrics,
     )
     # M106: append ``dim_row_id`` BEFORE ``assign_stages`` so the output
     # column ordering invariant "stage column appended last" still holds —
@@ -2164,8 +2536,23 @@ def generate_tables_with_state(
         config, event_tables, dim_tables, scd_state,
     )
 
+    # M107: bridge tables run after fact/event construction so they see the
+    # final SCD-expanded dim DataFrames and the same entity_metrics dict the
+    # facts were built from. Bridges are static (non-temporal) so they slot
+    # into the table dict alongside dims/facts/events without changing the
+    # rest of the pipeline. Configs without ``bridges`` get an empty dict +
+    # empty associations and the helper short-circuits.
+    bridge_tables, bridge_associations = build_bridge_tables(
+        config, dim_tables, trajectories, entity_metrics, scd_state, rng,
+    )
+
     out: dict[str, pd.DataFrame] = {}
     out.update(dim_tables)
     out.update(fact_tables)
     out.update(event_tables)
-    return out, GenerationState(trajectories=trajectories, scd=scd_state)
+    out.update(bridge_tables)
+    return out, GenerationState(
+        trajectories=trajectories,
+        scd=scd_state,
+        bridges=bridge_associations,
+    )

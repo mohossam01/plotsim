@@ -64,6 +64,7 @@ CHECK_EMPTY_EVENT_TABLE = "empty_event_table"
 CHECK_CROSS_DIM_FK_CARDINALITY = "cross_dim_fk_cardinality"
 CHECK_TEMPORAL_COHERENCE = "temporal_coherence"
 CHECK_SCD_INTEGRITY = "scd_integrity"
+CHECK_BRIDGE_INTEGRITY = "bridge_integrity"
 
 ALL_CHECKS: tuple[str, ...] = (
     CHECK_CORRELATION_PSD,
@@ -76,6 +77,7 @@ ALL_CHECKS: tuple[str, ...] = (
     CHECK_CROSS_DIM_FK_CARDINALITY,
     CHECK_TEMPORAL_COHERENCE,
     CHECK_SCD_INTEGRITY,
+    CHECK_BRIDGE_INTEGRITY,
 )
 
 # Sample size for "sample of offending values" in issue details. Keeps reports
@@ -1200,6 +1202,171 @@ def validate_scd_integrity(
     return issues
 
 
+# --- Check 11: bridge integrity (M107) --------------------------------------
+
+
+def validate_bridge_integrity(
+    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+) -> list[ValidationIssue]:
+    """FK integrity + cardinality + composite-PK uniqueness for M:M bridges.
+
+    Bridge tables sit on ``config.bridges`` rather than ``config.tables``,
+    so the standard FK check skips them. This validator covers the same
+    ground for them: every bridge FK value must resolve to its parent
+    dim's referenced column (PK for non-SCD dims, ``dim_row_id`` for
+    SCD dims), the (first_fk, second_fk) tuple must be unique within
+    each bridge, and per-entity association counts must lie in
+    ``[cardinality.min, cardinality.max]``.
+
+    Errors are emitted with ``check=CHECK_BRIDGE_INTEGRITY`` so the
+    validation report can group bridge-specific failures separately
+    from regular FK / PK errors.
+    """
+    issues: list[ValidationIssue] = []
+    if not config.bridges:
+        return issues
+
+    scd_dim_names = {t.name for t in config.tables if _is_scd_dim(t)}
+
+    def _fk_col_name(dim_tbl: Table) -> str:
+        if dim_tbl.name in scd_dim_names:
+            short = (
+                dim_tbl.name[4:]
+                if dim_tbl.name.startswith("dim_") else dim_tbl.name
+            )
+            return f"{short}_dim_row_id"
+        return dim_tbl.primary_key_cols[0]
+
+    for bridge in config.bridges:
+        df = tables.get(bridge.name)
+        if df is None:
+            issues.append(ValidationIssue(
+                check=CHECK_BRIDGE_INTEGRITY,
+                severity="error",
+                table=bridge.name,
+                message=(
+                    f"bridge {bridge.name!r} declared but no DataFrame was "
+                    f"emitted by the engine"
+                ),
+            ))
+            continue
+        first_dim_name, second_dim_name = bridge.connects
+        first_dim_tbl = next(t for t in config.tables if t.name == first_dim_name)
+        second_dim_tbl = next(t for t in config.tables if t.name == second_dim_name)
+        first_fk_col = _fk_col_name(first_dim_tbl)
+        second_fk_col = _fk_col_name(second_dim_tbl)
+
+        for col_name in (first_fk_col, second_fk_col):
+            if col_name not in df.columns:
+                issues.append(ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r} is missing FK column "
+                        f"{col_name!r}"
+                    ),
+                ))
+        if first_fk_col not in df.columns or second_fk_col not in df.columns:
+            continue
+
+        # FK integrity: each side resolves to a value present in its parent.
+        for fk_col, dim_name, dim_tbl in (
+            (first_fk_col, first_dim_name, first_dim_tbl),
+            (second_fk_col, second_dim_name, second_dim_tbl),
+        ):
+            parent_df = tables.get(dim_name)
+            if parent_df is None:
+                issues.append(ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r} FK column {fk_col!r} "
+                        f"references parent dim {dim_name!r} which was not "
+                        f"generated"
+                    ),
+                ))
+                continue
+            if dim_name in scd_dim_names:
+                if "dim_row_id" not in parent_df.columns:
+                    continue
+                parent_keys = {
+                    int(v) for v in parent_df.loc[
+                        parent_df["is_current"].astype(bool), "dim_row_id",
+                    ].tolist()
+                }
+            else:
+                parent_pk_col = dim_tbl.primary_key_cols[0]
+                parent_keys = set(parent_df[parent_pk_col].tolist())
+            child_vals = [v for v in df[fk_col].tolist() if not _is_nullish(v)]
+            orphans = sorted(
+                {v for v in child_vals if v not in parent_keys},
+                key=lambda x: str(x),
+            )
+            if orphans:
+                issues.append(ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r} FK column {fk_col!r} has "
+                        f"{len(orphans)} orphan value(s) not present in "
+                        f"parent dim {dim_name!r}"
+                    ),
+                    details={
+                        "column": fk_col,
+                        "parent": dim_name,
+                        "orphans_sample": orphans[:_SAMPLE_LIMIT],
+                        "orphan_count": len(orphans),
+                    },
+                ))
+
+        # Composite-PK uniqueness: each (first_fk, second_fk) tuple must be unique.
+        if not df.empty:
+            dup_mask = df.duplicated(subset=[first_fk_col, second_fk_col], keep=False)
+            if dup_mask.any():
+                dup_count = int(dup_mask.sum())
+                issues.append(ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r} has {dup_count} duplicate "
+                        f"({first_fk_col}, {second_fk_col}) tuple(s); each "
+                        f"M:M association must be unique"
+                    ),
+                    details={
+                        "duplicate_count": dup_count,
+                    },
+                ))
+
+            # Cardinality: per-entity association count within [min, max].
+            counts = df.groupby(first_fk_col, sort=False).size()
+            min_n = bridge.cardinality.min
+            max_n = bridge.cardinality.max
+            offenders = counts[(counts < min_n) | (counts > max_n)]
+            if not offenders.empty:
+                issues.append(ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r}: {len(offenders)} entity "
+                        f"group(s) have association counts outside "
+                        f"[{min_n}, {max_n}]"
+                    ),
+                    details={
+                        "offending_count": int(len(offenders)),
+                        "min_required": min_n,
+                        "max_required": max_n,
+                        "sample": offenders.head(_SAMPLE_LIMIT).to_dict(),
+                    },
+                ))
+
+    return issues
+
+
 # --- Orchestrator ------------------------------------------------------------
 
 
@@ -1222,4 +1389,5 @@ def validate_tables(
     issues.extend(validate_cross_dim_fk_cardinality(config, tables))
     issues.extend(validate_temporal_coherence(config, tables))
     issues.extend(validate_scd_integrity(config, tables))
+    issues.extend(validate_bridge_integrity(config, tables))
     return ValidationReport(issues=tuple(issues))

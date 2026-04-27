@@ -983,6 +983,202 @@ class Table(_Frozen):
         return self
 
 
+class BridgeMetric(_Frozen):
+    """M107: a single metric column on a bridge (M:M) table.
+
+    Bridges are static (one row per association, no period axis), so a
+    bridge metric resolves to a single value per row rather than a
+    per-period series. Supported sources mirror the fact-column dispatch
+    for non-temporal columns:
+
+      * ``metric:<name>`` — value derived from the first-dim entity's
+        already-generated metric series (the engine collapses the
+        per-period series to its mean, so the bridge cell reflects the
+        entity's overall trajectory-driven level for that metric).
+      * ``static:<value>`` — literal cell value.
+      * ``generated:faker.<method>[...]`` — Faker-driven cell.
+
+    Sources that depend on a period (``fk:dim_date.*``,
+    ``derived:period_index``, ``threshold:``, ``proportional:``,
+    ``lag:``, ``generated:timestamp/date_key/period_label``) are
+    rejected at load — bridges have no time axis to anchor those
+    sources against.
+    """
+    name: str
+    dtype: Dtype
+    source: str
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_identifier(cls, v: str) -> str:
+        return _validate_identifier("bridge metric column name", v)
+
+    @field_validator("source")
+    @classmethod
+    def _source_format(cls, v: str) -> str:
+        parsed = parse_source(v)
+        if not isinstance(parsed, (MetricSource, StaticSource, FakerSource)):
+            raise ValueError(
+                f"bridge metric source {v!r} resolves to "
+                f"{type(parsed).__name__}, which is not supported on bridge "
+                f"rows. Bridge metrics support metric:, static:, and "
+                f"generated:faker.* sources only — period-anchored sources "
+                f"like fk:dim_date.*, threshold:, proportional:, lag:, and "
+                f"generated:timestamp/date_key/period_label have no time "
+                f"axis on a static bridge row."
+            )
+        return v
+
+
+class BridgeCardinality(_Frozen):
+    """How many associations each entity in the first dim makes with the second.
+
+    ``min`` and ``max`` are inclusive integers. ``trajectory_driven`` on
+    the parent ``BridgeTableConfig`` decides whether ``n`` is sampled
+    from the entity's trajectory position (closer to ``max`` for higher
+    positions) or uniformly at random in ``[min, max]``.
+    """
+    min: int = Field(ge=0)
+    max: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _min_le_max(self) -> "BridgeCardinality":
+        if self.min > self.max:
+            raise ValueError(
+                f"bridge cardinality.min ({self.min}) must be <= max ({self.max})"
+            )
+        return self
+
+
+class BridgeTableConfig(_Frozen):
+    """M107: many-to-many bridge between two dim tables.
+
+    Bridge tables sit alongside fact and event tables but in their own
+    list — ``PlotsimConfig.bridges`` — so the existing ``Table`` model
+    keeps its dim/fact/event constraints intact. A bridge produces one
+    row per (first-dim entity, second-dim entity) association. The
+    number of associations per first-dim entity ranges over
+    ``cardinality.min..max``; when ``trajectory_driven=True`` the count
+    is biased toward ``max`` for entities at high trajectory positions
+    and toward ``min`` for low ones, so bridge density tracks the same
+    archetype-driven signal that shapes fact metrics.
+
+    SCD-aware FKs: when a connected dim is SCD-enabled (carries an
+    ``scd_type2`` column), the bridge FK references the ``dim_row_id``
+    of the active (``is_current=True``) row for that entity rather than
+    the natural business key. Non-SCD dims use their PK column directly.
+
+    Bridge rows are static — they're generated once per run, not per
+    period. Temporal M:M (a relationship that opens and closes over
+    time) is intentionally out of scope for V1.
+    """
+    name: str
+    type: Literal["bridge"] = "bridge"
+    connects: list[str] = Field(min_length=2, max_length=2)
+    cardinality: BridgeCardinality
+    trajectory_driven: bool = True
+    metrics: list[BridgeMetric] = Field(default_factory=list, max_length=20)
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_identifier(cls, v: str) -> str:
+        return _validate_identifier("bridge table name", v)
+
+    @field_validator("connects")
+    @classmethod
+    def _connects_are_two_distinct_dims(cls, v: list[str]) -> list[str]:
+        if len(v) != 2:
+            raise ValueError(
+                f"bridge.connects must list exactly 2 dim tables, got {len(v)}"
+            )
+        if v[0] == v[1]:
+            raise ValueError(
+                f"bridge.connects entries must be distinct dim tables; got "
+                f"both as {v[0]!r} (self-join bridges are not supported)"
+            )
+        for entry in v:
+            _validate_identifier("bridge.connects entry", entry)
+        return v
+
+    @model_validator(mode="after")
+    def _no_duplicate_metric_names(self) -> "BridgeTableConfig":
+        names = [m.name for m in self.metrics]
+        if len(set(names)) != len(names):
+            raise ValueError(
+                f"bridge {self.name!r} has duplicate metric names: {names}; "
+                f"each bridge metric column name must be unique"
+            )
+        return self
+
+
+class QualityIssue(_Frozen):
+    """M107: one configured data-quality corruption to apply post-generation.
+
+    Five issue types are supported, each producing a distinct corruption
+    pattern but sharing the same config shape:
+
+      * ``null_injection`` — set ``rate`` of cells in each target column to
+        null (NaN for numeric, ``None`` for string/object).
+      * ``duplicate_rows`` — insert exact copies of ``rate`` of rows at
+        random positions.
+      * ``type_mismatch`` — convert ``rate`` of values in each target
+        column to the wrong type (numerics rendered as strings, etc.).
+      * ``late_arrival`` — for ``rate`` of rows, append an
+        ``_arrival_period`` column equal to the original period plus a
+        random 1-5 offset; unaffected rows get null in the new column.
+      * ``schema_drift`` — for ``rate`` of rows in each target column,
+        copy the cell value to a new ``{column}_v2`` column and set the
+        original to null; unaffected rows retain the original and have
+        null in ``_v2``.
+
+    Determinism: each issue draws from a dedicated
+    ``np.random.default_rng(global_seed + seed_offset)`` so reordering
+    issues in the config does not perturb earlier issues' draws.
+    Default ``seed_offset=0`` is fine for single-issue configs but
+    multi-issue configs should set distinct offsets to keep the
+    affected row sets independent.
+
+    ``target_columns`` accepts ``"*"`` as a sentinel meaning "all
+    eligible metric and attribute columns" (FK and period/date_key
+    columns are excluded automatically). Explicit lists are validated
+    at load against the resolved target_table's columns.
+    """
+    type: Literal[
+        "null_injection",
+        "duplicate_rows",
+        "type_mismatch",
+        "late_arrival",
+        "schema_drift",
+    ]
+    target_table: str
+    target_columns: list[str] = Field(min_length=1, max_length=100)
+    rate: float = Field(ge=0.0, le=1.0)
+    seed_offset: int = Field(default=0, ge=0, le=2**31 - 1)
+
+    @field_validator("target_columns")
+    @classmethod
+    def _columns_nonempty_strings(cls, v: list[str]) -> list[str]:
+        for entry in v:
+            if not isinstance(entry, str) or not entry:
+                raise ValueError(
+                    f"quality_issues.target_columns entries must be non-empty "
+                    f"strings (got {entry!r}); use '*' for the auto-expansion "
+                    f"sentinel"
+                )
+        return v
+
+
+class QualityConfig(_Frozen):
+    """M107: top-level wrapper for the post-generation quality injection layer.
+
+    Default empty list — configs that don't opt in produce clean output
+    identical to pre-M107 baselines. ``output.write_tables`` skips the
+    quality pipeline entirely when ``quality_issues`` is empty so the
+    cost is zero for non-injected runs.
+    """
+    quality_issues: list[QualityIssue] = Field(default_factory=list, max_length=50)
+
+
 class CorrelationPair(_Frozen):
     metric_a: str
     metric_b: str
@@ -1234,6 +1430,15 @@ class PlotsimConfig(_Frozen):
     # ``manifest: {include: false}``.
     manifest: ManifestConfig = Field(default_factory=ManifestConfig)
     stages: Optional[StageSequence] = None
+    # M107: many-to-many bridge tables. Sit alongside ``tables`` (dim/fact/
+    # event) but in their own list so the existing Table model keeps its
+    # grain and PK constraints untouched. Empty default — configs that
+    # don't opt in pay zero cost.
+    bridges: list[BridgeTableConfig] = Field(default_factory=list, max_length=20)
+    # M107: post-generation data-quality injection. Empty default; configs
+    # without quality_issues produce clean output identical to pre-M107
+    # baselines.
+    quality: QualityConfig = Field(default_factory=QualityConfig)
     # FIX-05 / SF-3: locale threaded to every Faker instance built by the
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
@@ -1623,6 +1828,145 @@ class PlotsimConfig(_Frozen):
                     f"'metric:{ref_metric}'. Add a metric column or point "
                     f"trigger_metric at a fact that exposes the metric."
                 )
+
+        # M107: bridge table cross-references.
+        bridge_names: set[str] = set()
+        per_entity_dim_table_count = {
+            t.name: sum(e.size for e in self.entities)
+            for t in self.tables
+            if t.type == "dim" and t.grain == "per_entity"
+        }
+        per_reference_dim_static_count = {}
+        for t in self.tables:
+            if t.type == "dim" and t.grain == "per_reference":
+                n_rows = 1
+                for c in t.columns:
+                    parsed = parse_source(c.source)
+                    if isinstance(parsed, StaticSource):
+                        parts = [p.strip() for p in parsed.value.split(",")]
+                        n_rows = max(n_rows, len(parts))
+                per_reference_dim_static_count[t.name] = n_rows
+        for bridge in self.bridges:
+            if bridge.name in bridge_names:
+                raise ValueError(
+                    f"duplicate bridge name {bridge.name!r}; each bridge "
+                    f"must have a unique name"
+                )
+            if bridge.name in table_names:
+                raise ValueError(
+                    f"bridge name {bridge.name!r} collides with an existing "
+                    f"table; bridges and tables share an output namespace"
+                )
+            bridge_names.add(bridge.name)
+            for connect in bridge.connects:
+                if connect not in table_names:
+                    raise ValueError(
+                        f"bridge {bridge.name!r} connects to unknown table "
+                        f"{connect!r}; known: {sorted(table_names)}"
+                    )
+                connect_tbl = next(t for t in self.tables if t.name == connect)
+                if connect_tbl.type != "dim":
+                    raise ValueError(
+                        f"bridge {bridge.name!r} connects to {connect!r} of "
+                        f"type {connect_tbl.type!r}; bridges connect dim "
+                        f"tables only"
+                    )
+                if connect_tbl.grain == "per_period":
+                    raise ValueError(
+                        f"bridge {bridge.name!r} connects to {connect!r} which "
+                        f"has grain {connect_tbl.grain!r}; bridges cannot "
+                        f"connect to dim_date or other per_period dims"
+                    )
+            first_dim_tbl = next(
+                t for t in self.tables if t.name == bridge.connects[0]
+            )
+            if first_dim_tbl.grain != "per_entity":
+                raise ValueError(
+                    f"bridge {bridge.name!r} first connects entry "
+                    f"{bridge.connects[0]!r} has grain "
+                    f"{first_dim_tbl.grain!r}; the first dim of a bridge must "
+                    f"be per_entity (the engine iterates entities to choose "
+                    f"how many associations each one gets)"
+                )
+            second_dim = bridge.connects[1]
+            second_dim_count: Optional[int] = None
+            if second_dim in per_entity_dim_table_count:
+                second_dim_count = per_entity_dim_table_count[second_dim]
+            elif second_dim in per_reference_dim_static_count:
+                second_dim_count = per_reference_dim_static_count[second_dim]
+            if second_dim_count is not None and bridge.cardinality.max > second_dim_count:
+                raise ValueError(
+                    f"bridge {bridge.name!r} cardinality.max "
+                    f"({bridge.cardinality.max}) exceeds the row count of the "
+                    f"second dim {second_dim!r} ({second_dim_count}); each "
+                    f"first-dim entity can associate with at most "
+                    f"{second_dim_count} second-dim row(s)"
+                )
+            for bm in bridge.metrics:
+                parsed_bm = parse_source(bm.source)
+                if isinstance(parsed_bm, MetricSource):
+                    if parsed_bm.metric not in metric_names:
+                        raise ValueError(
+                            f"bridge {bridge.name!r} metric {bm.name!r} source "
+                            f"{bm.source!r} references unknown metric "
+                            f"{parsed_bm.metric!r}; known: "
+                            f"{sorted(metric_names)}"
+                        )
+
+        # M107: quality injection cross-references.
+        for issue_idx, issue in enumerate(self.quality.quality_issues):
+            target_tbl = next(
+                (t for t in self.tables if t.name == issue.target_table), None,
+            )
+            if target_tbl is None:
+                if issue.target_table in bridge_names:
+                    raise ValueError(
+                        f"quality_issues[{issue_idx}].target_table "
+                        f"{issue.target_table!r} is a bridge table; quality "
+                        f"injection targets fact and event tables only"
+                    )
+                raise ValueError(
+                    f"quality_issues[{issue_idx}].target_table "
+                    f"{issue.target_table!r} is not a known table; known: "
+                    f"{sorted(table_names)}"
+                )
+            if target_tbl.type not in ("fact", "event"):
+                raise ValueError(
+                    f"quality_issues[{issue_idx}].target_table "
+                    f"{issue.target_table!r} has type {target_tbl.type!r}; "
+                    f"quality injection targets fact and event tables only"
+                )
+            protected_cols: set[str] = set()
+            for col in target_tbl.columns:
+                parsed_col = parse_source(col.source)
+                if isinstance(parsed_col, FKSource):
+                    protected_cols.add(col.name)
+                if col.name in ("date_key", "period", "period_index", "period_label"):
+                    protected_cols.add(col.name)
+            target_col_names = {c.name for c in target_tbl.columns}
+            if "*" in issue.target_columns and len(issue.target_columns) > 1:
+                raise ValueError(
+                    f"quality_issues[{issue_idx}].target_columns mixes the "
+                    f"'*' sentinel with explicit names {issue.target_columns}; "
+                    f"use either '*' alone or an explicit list, not both"
+                )
+            if issue.target_columns != ["*"]:
+                for col_name in issue.target_columns:
+                    if col_name not in target_col_names:
+                        raise ValueError(
+                            f"quality_issues[{issue_idx}].target_columns "
+                            f"references column {col_name!r} not present on "
+                            f"table {issue.target_table!r}; known columns: "
+                            f"{sorted(target_col_names)}"
+                        )
+                    if col_name in protected_cols:
+                        raise ValueError(
+                            f"quality_issues[{issue_idx}].target_columns "
+                            f"includes {col_name!r}, which is a FK or "
+                            f"period/date_key column on "
+                            f"{issue.target_table!r}; FK and period columns "
+                            f"are protected from corruption"
+                        )
 
         return self
 

@@ -40,6 +40,109 @@
       "title": "Archetype",
       "type": "object"
     },
+    "BridgeCardinality": {
+      "additionalProperties": false,
+      "description": "How many associations each entity in the first dim makes with the second.\n\n``min`` and ``max`` are inclusive integers. ``trajectory_driven`` on\nthe parent ``BridgeTableConfig`` decides whether ``n`` is sampled\nfrom the entity's trajectory position (closer to ``max`` for higher\npositions) or uniformly at random in ``[min, max]``.",
+      "properties": {
+        "min": {
+          "minimum": 0,
+          "title": "Min",
+          "type": "integer"
+        },
+        "max": {
+          "minimum": 1,
+          "title": "Max",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "BridgeCardinality",
+      "type": "object"
+    },
+    "BridgeMetric": {
+      "additionalProperties": false,
+      "description": "M107: a single metric column on a bridge (M:M) table.\n\nBridges are static (one row per association, no period axis), so a\nbridge metric resolves to a single value per row rather than a\nper-period series. Supported sources mirror the fact-column dispatch\nfor non-temporal columns:\n\n  * ``metric:<name>`` — value derived from the first-dim entity's\n    already-generated metric series (the engine collapses the\n    per-period series to its mean, so the bridge cell reflects the\n    entity's overall trajectory-driven level for that metric).\n  * ``static:<value>`` — literal cell value.\n  * ``generated:faker.<method>[...]`` — Faker-driven cell.\n\nSources that depend on a period (``fk:dim_date.*``,\n``derived:period_index``, ``threshold:``, ``proportional:``,\n``lag:``, ``generated:timestamp/date_key/period_label``) are\nrejected at load — bridges have no time axis to anchor those\nsources against.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "enum": [
+            "int",
+            "float",
+            "string",
+            "date",
+            "boolean",
+            "id"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "source"
+      ],
+      "title": "BridgeMetric",
+      "type": "object"
+    },
+    "BridgeTableConfig": {
+      "additionalProperties": false,
+      "description": "M107: many-to-many bridge between two dim tables.\n\nBridge tables sit alongside fact and event tables but in their own\nlist — ``PlotsimConfig.bridges`` — so the existing ``Table`` model\nkeeps its dim/fact/event constraints intact. A bridge produces one\nrow per (first-dim entity, second-dim entity) association. The\nnumber of associations per first-dim entity ranges over\n``cardinality.min..max``; when ``trajectory_driven=True`` the count\nis biased toward ``max`` for entities at high trajectory positions\nand toward ``min`` for low ones, so bridge density tracks the same\narchetype-driven signal that shapes fact metrics.\n\nSCD-aware FKs: when a connected dim is SCD-enabled (carries an\n``scd_type2`` column), the bridge FK references the ``dim_row_id``\nof the active (``is_current=True``) row for that entity rather than\nthe natural business key. Non-SCD dims use their PK column directly.\n\nBridge rows are static — they're generated once per run, not per\nperiod. Temporal M:M (a relationship that opens and closes over\ntime) is intentionally out of scope for V1.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "bridge",
+          "default": "bridge",
+          "title": "Type",
+          "type": "string"
+        },
+        "connects": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Connects",
+          "type": "array"
+        },
+        "cardinality": {
+          "$ref": "#/$defs/BridgeCardinality"
+        },
+        "trajectory_driven": {
+          "default": true,
+          "title": "Trajectory Driven",
+          "type": "boolean"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/BridgeMetric"
+          },
+          "maxItems": 20,
+          "title": "Metrics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "connects",
+        "cardinality"
+      ],
+      "title": "BridgeTableConfig",
+      "type": "object"
+    },
     "CausalLag": {
       "additionalProperties": false,
       "description": "A metric whose value trails another metric by N periods.\n\nsupport_tickets.causal_lag = {driver: engagement, lag_periods: 2} means\nsupport_tickets at period T reads engagement at period T-2, not T.\nCross-reference integrity enforces: driver exists in metrics; driver is\nnot the metric itself; the induced lag graph has no cycles.\n\n``blend_weight`` controls how strongly the driver's past position\noverrides the metric's own current trajectory position. Blend formula:\n``current_position * (1 - w) + driver_past * w``. The 0.4.0 default of\n``1.0`` means \"full override\" — metric at T equals driver at T-N, and\ncross-correlation peaks at exactly N. Values below 1.0 soften the lag\n(xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded\nbehavior is recovered with ``blend_weight: 0.6``.",
@@ -522,6 +625,73 @@
       "title": "OutputConfig",
       "type": "object"
     },
+    "QualityConfig": {
+      "additionalProperties": false,
+      "description": "M107: top-level wrapper for the post-generation quality injection layer.\n\nDefault empty list — configs that don't opt in produce clean output\nidentical to pre-M107 baselines. ``output.write_tables`` skips the\nquality pipeline entirely when ``quality_issues`` is empty so the\ncost is zero for non-injected runs.",
+      "properties": {
+        "quality_issues": {
+          "items": {
+            "$ref": "#/$defs/QualityIssue"
+          },
+          "maxItems": 50,
+          "title": "Quality Issues",
+          "type": "array"
+        }
+      },
+      "title": "QualityConfig",
+      "type": "object"
+    },
+    "QualityIssue": {
+      "additionalProperties": false,
+      "description": "M107: one configured data-quality corruption to apply post-generation.\n\nFive issue types are supported, each producing a distinct corruption\npattern but sharing the same config shape:\n\n  * ``null_injection`` — set ``rate`` of cells in each target column to\n    null (NaN for numeric, ``None`` for string/object).\n  * ``duplicate_rows`` — insert exact copies of ``rate`` of rows at\n    random positions.\n  * ``type_mismatch`` — convert ``rate`` of values in each target\n    column to the wrong type (numerics rendered as strings, etc.).\n  * ``late_arrival`` — for ``rate`` of rows, append an\n    ``_arrival_period`` column equal to the original period plus a\n    random 1-5 offset; unaffected rows get null in the new column.\n  * ``schema_drift`` — for ``rate`` of rows in each target column,\n    copy the cell value to a new ``{column}_v2`` column and set the\n    original to null; unaffected rows retain the original and have\n    null in ``_v2``.\n\nDeterminism: each issue draws from a dedicated\n``np.random.default_rng(global_seed + seed_offset)`` so reordering\nissues in the config does not perturb earlier issues' draws.\nDefault ``seed_offset=0`` is fine for single-issue configs but\nmulti-issue configs should set distinct offsets to keep the\naffected row sets independent.\n\n``target_columns`` accepts ``\"*\"`` as a sentinel meaning \"all\neligible metric and attribute columns\" (FK and period/date_key\ncolumns are excluded automatically). Explicit lists are validated\nat load against the resolved target_table's columns.",
+      "properties": {
+        "type": {
+          "enum": [
+            "null_injection",
+            "duplicate_rows",
+            "type_mismatch",
+            "late_arrival",
+            "schema_drift"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "target_table": {
+          "title": "Target Table",
+          "type": "string"
+        },
+        "target_columns": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Target Columns",
+          "type": "array"
+        },
+        "rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Rate",
+          "type": "number"
+        },
+        "seed_offset": {
+          "default": 0,
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Seed Offset",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "target_table",
+        "target_columns",
+        "rate"
+      ],
+      "title": "QualityIssue",
+      "type": "object"
+    },
     "SCDType2Config": {
       "additionalProperties": false,
       "description": "M106: Slowly Changing Dimension Type 2 spec on a dim column.\n\nAttached to a ``Column`` whose source is the literal string\n``\"scd_type2\"``; the source marker and this config object are\npaired (both present, or both absent — never one without the\nother; ``Column._scd_pairing`` enforces).\n\nFields:\n\n  * ``trigger_metric`` — ``\"<table_name>.<metric_name>\"``. The\n    ``table_name`` must be a fact table declared in\n    ``config.tables``; the ``metric_name`` must be a metric in\n    ``config.metrics`` AND must appear as a ``metric:<name>``\n    source on a column of that fact table. The fact-table reference\n    is documentary: thresholds are evaluated against the\n    per-entity trajectory positions (the same trajectory that\n    feeds every other metric the engine generates), not against\n    the metric's noisy/distributed cell values. Naming the fact\n    column anchors the SCD label to a concrete downstream join\n    target so a reader of the config knows \"plan tier changes\n    when MRR moves\" rather than \"plan tier changes when an\n    opaque trajectory shifts.\"\n\n  * ``thresholds`` — strictly ascending floats in the open\n    interval ``(0, 1)``. Bands are ``[0, t0), [t0, t1), ..., [tN, 1]``\n    — N thresholds yield N+1 bands.\n\n  * ``labels`` — one per band; ``len(labels) == len(thresholds) + 1``.\n    Order follows the bands: ``labels[0]`` is the lowest-position\n    band, ``labels[-1]`` is the highest. The SCD column's value\n    for an entity in band k is ``labels[k]``.\n\nHysteresis: an entity that crosses upward into a new band and\nlater returns to a lower band does NOT spawn a new dim row on the\nreturn — band assignment uses ``np.maximum.accumulate`` over the\nraw per-period band index, so a dim row is emitted only when the\ncursor advances. Mirrors the M102 ``StageDefinition.threshold_exit``\nmonotonic semantics so SCD versioning has a single behavioural\ncontract with the rest of the engine.",
@@ -849,6 +1019,17 @@
         }
       ],
       "default": null
+    },
+    "bridges": {
+      "items": {
+        "$ref": "#/$defs/BridgeTableConfig"
+      },
+      "maxItems": 20,
+      "title": "Bridges",
+      "type": "array"
+    },
+    "quality": {
+      "$ref": "#/$defs/QualityConfig"
     },
     "locale": {
       "anyOf": [

@@ -68,6 +68,7 @@ from plotsim.config import (
     parse_source,
 )
 from plotsim.manifest import ManifestSchema, write_manifest
+from plotsim.quality import apply_issues as _apply_quality_issues
 from plotsim.validation import ValidationReport, validate_tables
 
 
@@ -422,13 +423,35 @@ def write_tables(
     target = _resolve_target(raw_target, base_dir)
     target.mkdir(parents=True, exist_ok=True)
 
-    for name, df in tables.items():
+    # M107: post-generation data-quality injection. Clean ``tables`` are
+    # already finished (and just consumed by ``validate_tables`` above and
+    # by the manifest builder before this call); the quality layer
+    # produces a corrupted dict the writer hands to disk while leaving
+    # the in-memory clean copy untouched. Manifest's ground-truth
+    # ``quality_injections`` field is patched in via
+    # ``ManifestSchema.model_copy(update=...)`` so the on-disk
+    # manifest.json names every corrupted (table, column, row_indices,
+    # clean_values) tuple. Configs without ``quality_issues`` short-
+    # circuit and behavior is byte-identical to pre-M107.
+    tables_to_write = tables
+    manifest_to_write = manifest
+    if config.quality.quality_issues:
+        corrupted, ground_truth = _apply_quality_issues(
+            tables, config, int(config.seed),
+        )
+        tables_to_write = corrupted
+        if manifest_to_write is not None:
+            manifest_to_write = manifest_to_write.model_copy(
+                update={"quality_injections": ground_truth},
+            )
+
+    for name, df in tables_to_write.items():
         write_single_table(name, df, target, config=config, float_format=float_format)
 
     write_config_copy(config, target)
     write_validation_report(report, target, generated_at=generated_at, config=config)
-    if manifest is not None and config.manifest.include:
-        write_manifest(manifest, target)
+    if manifest_to_write is not None and config.manifest.include:
+        write_manifest(manifest_to_write, target)
     return target
 
 

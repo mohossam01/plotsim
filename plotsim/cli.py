@@ -167,6 +167,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         manifest = build_manifest(
             config, gen_state.trajectories, tables,
             scd_state=gen_state.scd,
+            bridge_state=gen_state.bridges,
         )
 
     output_dir = Path(args.output_dir) if args.output_dir else None

@@ -108,8 +108,12 @@ tables:
     grain: "per_reference"
     columns:
       - {name: "course_id", dtype: "id", source: "pk"}
-      - {name: "course_name", dtype: "string", source: "static:intro_cs"}
-      - {name: "credits", dtype: "int", source: "static:3"}
+      # M107: a multi-row catalogue so the bridge_enrollment M:M has more
+      # than one course to associate with. The comma-delimited static
+      # source fans out into one row per label (existing engine behavior
+      # in ``plotsim.dimensions.build_dim_reference``).
+      - {name: "course_name", dtype: "string", source: "static:intro_cs,calculus,history,physics,literature,statistics"}
+      - {name: "credits", dtype: "int", source: "static:3,4,3,4,3,4"}
     primary_key: "course_id"
 
   - name: "fct_grades"
@@ -160,6 +164,25 @@ noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.01
   mcar_rate: 0.01
+
+# M107: many-to-many bridge between students (per_entity) and courses
+# (per_reference). Cardinality is trajectory-driven — late-bloomers and
+# steady-learners (high mean trajectory positions) enrol in more
+# courses; the at_risk_cohort (low position) enrols in fewer. The
+# ``grade`` metric on each association reads from the student's
+# assignment_score series (collapsed to a NaN-aware mean, so a
+# student's grade on a given course tracks their overall academic
+# level — exactly the trajectory-first signal the engine produces for
+# the fact tables).
+bridges:
+  - name: "bridge_enrollment"
+    type: "bridge"
+    connects: ["dim_student", "dim_course"]
+    cardinality: {min: 2, max: 5}
+    trajectory_driven: true
+    metrics:
+      - {name: "grade", dtype: "float", source: "metric:assignment_score"}
+      - {name: "enrollment_status", dtype: "string", source: "static:enrolled"}
 
 output:
   format: "csv"
