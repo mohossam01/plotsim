@@ -13,6 +13,7 @@ Quick start:
 __version__ = "0.5.0"
 
 from plotsim import inspect
+from plotsim.builder import create, create_from_yaml
 from plotsim.config import (
     DIRTY,
     NOISE_PRESETS,
@@ -53,6 +54,9 @@ __all__ = [
     "__version__",
     # Introspection
     "inspect",
+    # Builder (one-call public API; M115)
+    "create",
+    "create_from_yaml",
     # Config
     "PlotsimConfig",
     "SurrogateKeyWarning",
