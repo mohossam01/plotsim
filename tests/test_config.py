@@ -1235,6 +1235,21 @@ def test_downgrade_delay_defaults_to_none():
     assert seq.downgrade_delay is None
 
 
+def test_enforce_order_defaults_to_false():
+    """``enforce_order`` defaults to False — free-mode per-period assignment.
+    Monotonic stage walks must be opted into explicitly with
+    ``enforce_order: true``. Irreversible transitions live in SCD Type 2;
+    stages reflect current lifecycle state."""
+    seq = StageSequence(
+        field="m1",
+        sequence=[
+            StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.5),
+            StageDefinition(name="high", threshold_enter=0.5, threshold_exit=None),
+        ],
+    )
+    assert seq.enforce_order is False
+
+
 def test_downgrade_delay_accepts_positive_int():
     seq = StageSequence(
         field="m1",
@@ -1359,7 +1374,7 @@ def test_all_bundled_templates_pass_name_validation():
     """
     import warnings as _w
     configs_dir = ROOT / "plotsim" / "configs"
-    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+    for stem in ("saas", "hr", "education", "retail", "marketing"):
         path = configs_dir / f"sample_{stem}.yaml"
         with _w.catch_warnings():
             _w.simplefilter("ignore", SurrogateKeyWarning)
@@ -1761,7 +1776,7 @@ def test_all_bundled_templates_pass_layer1_bounds():
     # before the cap landed. Regression test that they keep loading cleanly.
     import warnings as _w
     configs_dir = ROOT / "plotsim" / "configs"
-    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+    for stem in ("saas", "hr", "education", "retail", "marketing"):
         with _w.catch_warnings():
             _w.simplefilter("ignore", SurrogateKeyWarning)
             load_config(configs_dir / f"sample_{stem}.yaml")
@@ -1877,7 +1892,7 @@ def test_estimator_event_upper_bound_absent_when_no_range(capsys):
 def test_estimator_all_bundled_templates_have_no_warning(capsys):
     import warnings as _w
     configs_dir = ROOT / "plotsim" / "configs"
-    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+    for stem in ("saas", "hr", "education", "retail", "marketing"):
         with _w.catch_warnings():
             _w.simplefilter("ignore", SurrogateKeyWarning)
             load_config(configs_dir / f"sample_{stem}.yaml")

@@ -1384,6 +1384,16 @@ class StageSequence(_Frozen):
     PlotsimConfig. ``enforce_order`` is stored for Mission 006 to
     consume at generation time.
 
+    ``enforce_order`` defaults to ``False`` (free-mode per-period
+    assignment). Each period independently picks the highest-enter
+    stage the realized value satisfies — no forward-only cursor, no
+    lock-in. Set ``enforce_order: true`` explicitly to opt into the
+    monotonic stage walk (cursor advances only, optionally with the
+    ``downgrade_delay`` relaxation below). Irreversible lifecycle
+    transitions are already covered by SCD Type 2; stages are intended
+    to reflect *current* lifecycle state, which is why free-mode is
+    the default.
+
     FIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity
     under ``enforce_order=True`` by letting the cursor step backwards
     once an entity has sat below the demote threshold for
@@ -1394,7 +1404,7 @@ class StageSequence(_Frozen):
     """
     field: str
     sequence: list[StageDefinition] = Field(min_length=2, max_length=10)
-    enforce_order: bool = True
+    enforce_order: bool = False
     downgrade_delay: Optional[int] = Field(default=None, ge=1, le=120)
 
     @property

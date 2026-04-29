@@ -1479,6 +1479,13 @@ def assign_stages(
 ) -> dict[str, pd.DataFrame]:
     """Annotate the fact table that owns ``stages.field`` with a ``stage`` column.
 
+    Default routing is ``enforce_order=False`` (free-mode): each period
+    independently picks the highest-enter stage the realized value
+    satisfies. ``threshold_exit`` and ``downgrade_delay`` are ignored;
+    free mode is stateless, so hysteresis has no meaning there. Stages
+    can move backward when the driving value falls — by design, since
+    irreversible lifecycle transitions are SCD Type 2's job.
+
     With ``enforce_order=True`` the cursor advances whenever the value
     crosses the next stage's ``threshold_enter``. Cursor reversal depends
     on FIX-06's ``downgrade_delay`` and on the F8 / 0.5 ``mode``:
@@ -1498,11 +1505,6 @@ def assign_stages(
         requires ``N`` consecutive periods below exit before demotion
         fires. The hysteresis band ``[threshold_exit, threshold_enter]``
         keeps the entity in the higher stage on transient dips.
-
-    With ``enforce_order=False``, both ``downgrade_delay`` and
-    ``threshold_exit`` are ignored and each period chooses the
-    highest-enter stage that the value satisfies. Free mode is
-    stateless, so hysteresis has no meaning there.
 
     FIX-07 / SF-5: the implementation is vectorized via pandas
     ``groupby`` + numpy walks (see :func:`_monotonic_stage_walk` and
