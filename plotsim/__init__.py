@@ -12,6 +12,7 @@ Quick start:
 
 __version__ = "0.5.0"
 
+from plotsim import inspect
 from plotsim.config import (
     DIRTY,
     NOISE_PRESETS,
@@ -49,6 +50,8 @@ from plotsim.validation import validate_tables
 
 __all__ = [
     "__version__",
+    # Introspection
+    "inspect",
     # Config
     "PlotsimConfig",
     "SurrogateKeyWarning",
