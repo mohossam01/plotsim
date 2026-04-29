@@ -51,8 +51,9 @@ from plotsim.config import (
     FKSource,
     FakerSource,
     GeneratedSource,
-    PlotsimConfig,
     PKSource,
+    PlotsimConfig,
+    PoolSource,
     SCDType2Source,
     StaticSource,
     Table,
@@ -403,6 +404,7 @@ def _column_value_for_entity(
     entity: Entity,
     entity_pk: str,
     fake: Faker,
+    rng: Optional[np.random.Generator] = None,
 ) -> Any:
     parsed = parse_source(col.source)
     if isinstance(parsed, PKSource):
@@ -439,6 +441,29 @@ def _column_value_for_entity(
         # initial dim row carries the column slot; the expansion step
         # rewrites both the label and the row count.
         return None
+    if isinstance(parsed, PoolSource):
+        # M114: per-entity value pool. ``Column._pool_pairing`` and
+        # ``validate_value_pool_coverage`` already guarantee value_pool
+        # is set and contains an entry for this entity. Sample one value
+        # via the caller-supplied RNG so determinism is preserved under
+        # the engine's single-seed contract; rng is required when any
+        # column on the table has a PoolSource.
+        if rng is None:
+            raise ValueError(
+                f"column {col.name!r} has source {col.source!r} but no "
+                f"RNG was supplied to _column_value_for_entity; pool "
+                f"sampling requires the per-table RNG"
+            )
+        assert col.value_pool is not None  # _pool_pairing
+        choices = col.value_pool.get(entity.name)
+        if not choices:
+            raise ValueError(
+                f"column {col.name!r} value_pool has no entry for entity "
+                f"{entity.name!r}; coverage is enforced at config load — "
+                f"reaching this branch means the validator was bypassed"
+            )
+        idx = int(rng.integers(0, len(choices)))
+        return _coerce_static(choices[idx], col.dtype)
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity dimension tables"
@@ -564,7 +589,7 @@ def build_dim_entity(
     for entity, pk in zip(entities, ids):
         row: dict[str, Any] = {}
         for col in table_config.columns:
-            row[col.name] = _column_value_for_entity(col, entity, pk, fake)
+            row[col.name] = _column_value_for_entity(col, entity, pk, fake, rng)
         rows.append(row)
 
     df = pd.DataFrame(rows, columns=[c.name for c in table_config.columns])

@@ -233,6 +233,24 @@
             }
           ],
           "default": null
+        },
+        "value_pool": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Pool"
         }
       },
       "required": [
@@ -633,6 +651,17 @@
           ],
           "default": null,
           "title": "Params"
+        },
+        "value_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "MetricOverride",

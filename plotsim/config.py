@@ -237,11 +237,37 @@ class TextBucketSource(_Frozen):
     buckets: tuple[str, ...] = Field(min_length=2, max_length=20)
 
 
+class PoolSource(_Frozen):
+    """M114: per-entity value pool on a dimension column.
+
+    Grammar: ``pool:<name>``. ``<name>`` is a free-form identifier that
+    distinguishes multiple pool columns on the same table (e.g. ``industry``
+    vs ``segment``); the actual values are stored on the column under
+    ``Column.value_pool: dict[entity_name, list[str]]``.
+
+    A column with this source MUST also declare ``value_pool`` (validated
+    on ``Column``); a column with a non-``pool:`` source MUST NOT declare
+    ``value_pool``. The two are paired or both absent — same discipline
+    as the SCD Type 2 pairing.
+
+    Architectural firewall: pools resolve entity-membership only, never
+    trajectory-derived. The dim layer never sees a trajectory; pool
+    selection consumes one RNG draw per row, deterministic under the
+    engine's single-seed contract.
+    """
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_identifier(cls, v: str) -> str:
+        return _validate_identifier("pool name", v)
+
+
 ParsedSource = (
     PKSource | FKSource | MetricSource | GeneratedSource | FakerSource
     | StaticSource | DerivedSource
     | ThresholdSource | ProportionalSource | LagSource
-    | TextBucketSource | SCDType2Source
+    | TextBucketSource | SCDType2Source | PoolSource
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -252,7 +278,8 @@ _SOURCE_FORMAT_HELP = (
     "'proportional:<metric>:scale:<multiplier>', "
     "'lag:<metric>:periods:<N>', "
     "'text:bucket:[<label1>, <label2>, ...]', "
-    "'scd_type2'"
+    "'scd_type2', "
+    "'pool:<name>'"
 )
 
 
@@ -410,6 +437,22 @@ def parse_source(source: str) -> ParsedSource:
                 f"lag source {source!r}: non-integer periods {periods_str!r}"
             ) from e
         return LagSource(metric=metric, periods=periods)
+
+    if source.startswith("pool:"):
+        body = source[len("pool:"):]
+        if not body:
+            raise ValueError(
+                f"pool source {source!r}: prefix 'pool:' requires a name "
+                f"(e.g. 'pool:industry')"
+            )
+        # Reject embedded colons: ``pool:industry:extra`` would be ambiguous
+        # under any future grammar extension. Surface it now.
+        if ":" in body:
+            raise ValueError(
+                f"pool source {source!r} must be 'pool:<name>' with no extra "
+                f"colons; the actual values live on Column.value_pool"
+            )
+        return PoolSource(name=body)
 
     if source.startswith("text:bucket:"):
         body = source[len("text:bucket:"):]
@@ -633,6 +676,14 @@ class CurveSegment(_Frozen):
 class MetricOverride(_Frozen):
     distribution: Optional[Distribution] = None
     params: Optional[dict[str, float]] = None
+    # M114: per-archetype value range override. When present, this range
+    # replaces the global ``Metric.value_range`` for entities assigned to
+    # the owning archetype — the threading happens in
+    # ``plotsim.metrics._apply_archetype_overrides``. The override range
+    # MUST be a subset of the global range; overrides restrict, never
+    # expand. Subset enforcement is cross-model (needs the metric's range)
+    # and lives in ``PlotsimConfig._cross_reference_integrity``.
+    value_range: Optional[ValueRange] = None
 
 
 class Archetype(_Frozen):
@@ -856,6 +907,12 @@ class Column(_Frozen):
     # the engine in ``plotsim.tables`` consumes ``scd_type2.thresholds``
     # and ``scd_type2.labels`` to expand the dim into versioned rows.
     scd_type2: Optional[SCDType2Config] = None
+    # M114: per-entity value pool. Keys are ``Entity.name`` values that
+    # produce rows in this dim table; each entity's row(s) get a value
+    # sampled from its list. Must be paired with ``source: "pool:<name>"``
+    # (validated by ``_pool_pairing``); entity coverage is enforced
+    # cross-model in ``plotsim.validation.validate_value_pool_coverage``.
+    value_pool: Optional[dict[str, list[str]]] = None
 
     @field_validator("source")
     @classmethod
@@ -892,6 +949,65 @@ class Column(_Frozen):
                 f"value, so set source to 'scd_type2' or remove the "
                 f"scd_type2 config"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _pool_pairing(self) -> "Column":
+        """M114: source ``pool:<name>`` and ``value_pool`` must be paired.
+
+        Either both are present (the column samples per-entity from the
+        declared pool) or both are absent. Mirrors ``_scd_pairing``: a
+        column with ``pool:`` source but no ``value_pool`` would emit
+        nothing meaningful, and a column with ``value_pool`` but a
+        non-``pool:`` source is silently ignored data — both reject at
+        load.
+
+        Per-entity value lists are also locally validated here:
+
+          * each list has at least one value (an empty list would force
+            an undefined RNG draw at generation time);
+          * each value is a non-empty string.
+
+        Cross-model checks — that the dict's keys cover every entity
+        producing rows in this column's dim table — happen in
+        ``plotsim.validation.validate_value_pool_coverage`` because they
+        need the ``PlotsimConfig`` entity list, not just the column.
+        """
+        is_pool_source = self.source.startswith("pool:")
+        has_pool_cfg = self.value_pool is not None
+        if is_pool_source and not has_pool_cfg:
+            raise ValueError(
+                f"column {self.name!r} declares source {self.source!r} but "
+                f"no 'value_pool' block; add 'value_pool: {{<entity_name>: "
+                f"[<value>, ...], ...}}' or change the source"
+            )
+        if has_pool_cfg and not is_pool_source:
+            raise ValueError(
+                f"column {self.name!r} has a value_pool block but source "
+                f"{self.source!r}; pool sampling replaces the column value, "
+                f"so set source to 'pool:<name>' or remove value_pool"
+            )
+        if has_pool_cfg:
+            for entity_name, values in self.value_pool.items():
+                if not entity_name:
+                    raise ValueError(
+                        f"column {self.name!r} value_pool has an empty "
+                        f"entity-name key"
+                    )
+                if not values:
+                    raise ValueError(
+                        f"column {self.name!r} value_pool for entity "
+                        f"{entity_name!r} is empty; provide at least one "
+                        f"value to sample from"
+                    )
+                for v in values:
+                    if not isinstance(v, str) or not v:
+                        raise ValueError(
+                            f"column {self.name!r} value_pool for entity "
+                            f"{entity_name!r} has an empty or non-string "
+                            f"value {v!r}; pool values must be non-empty "
+                            f"strings"
+                        )
         return self
 
     @field_validator("distribution", mode="before")
@@ -1659,13 +1775,64 @@ class PlotsimConfig(_Frozen):
         if len(table_names) != len(self.tables):
             raise ValueError("duplicate table names in tables list")
 
+        metric_by_name = {m.name: m for m in self.metrics}
         for arch in self.archetypes:
-            for override_metric in arch.metric_overrides:
+            for override_metric, override in arch.metric_overrides.items():
                 if override_metric not in metric_names:
                     raise ValueError(
                         f"archetype {arch.name!r} overrides unknown metric "
                         f"{override_metric!r}; known metrics: {sorted(metric_names)}"
                     )
+                # M114: per-archetype value_range override must be a subset
+                # of the global metric's value_range. Overrides restrict;
+                # they never expand. A global metric without value_range
+                # has no bounds to constrain, so the override is rejected
+                # in that case to preserve "subset of nothing is undefined"
+                # semantics.
+                if override.value_range is not None:
+                    metric = metric_by_name[override_metric]
+                    if metric.value_range is None:
+                        raise ValueError(
+                            f"archetype {arch.name!r} metric_override "
+                            f"{override_metric!r} declares value_range but "
+                            f"metric {override_metric!r} has no global "
+                            f"value_range; declare a global value_range "
+                            f"first or remove the override"
+                        )
+                    g_min = metric.value_range.min
+                    g_max = metric.value_range.max
+                    o_min = override.value_range.min
+                    o_max = override.value_range.max
+                    if g_min is not None and o_min is not None and o_min < g_min:
+                        raise ValueError(
+                            f"archetype {arch.name!r} metric_override "
+                            f"{override_metric!r} value_range.min ({o_min}) "
+                            f"is below the global metric value_range.min "
+                            f"({g_min}); overrides must restrict, not expand"
+                        )
+                    if g_max is not None and o_max is not None and o_max > g_max:
+                        raise ValueError(
+                            f"archetype {arch.name!r} metric_override "
+                            f"{override_metric!r} value_range.max ({o_max}) "
+                            f"is above the global metric value_range.max "
+                            f"({g_max}); overrides must restrict, not expand"
+                        )
+                    if g_min is not None and o_min is None:
+                        raise ValueError(
+                            f"archetype {arch.name!r} metric_override "
+                            f"{override_metric!r} value_range omits min "
+                            f"but the global metric value_range.min "
+                            f"({g_min}) is set; the override would "
+                            f"otherwise drop the lower bound (expand)"
+                        )
+                    if g_max is not None and o_max is None:
+                        raise ValueError(
+                            f"archetype {arch.name!r} metric_override "
+                            f"{override_metric!r} value_range omits max "
+                            f"but the global metric value_range.max "
+                            f"({g_max}) is set; the override would "
+                            f"otherwise drop the upper bound (expand)"
+                        )
 
         for ent in self.entities:
             if ent.archetype not in archetype_names:
@@ -2108,6 +2275,27 @@ class PlotsimConfig(_Frozen):
         from plotsim.validation import validate_entity_features_config
 
         errors = validate_entity_features_config(self)
+        if errors:
+            raise ValueError(errors[0])
+        return self
+
+    @model_validator(mode="after")
+    def _value_pool_gates(self) -> "PlotsimConfig":
+        """M114: load-time gates for ``PoolSource`` columns.
+
+        Cross-model coverage check (per_entity dim restriction + key set
+        equals entity set) lives in
+        ``plotsim.validation.validate_value_pool_coverage``; the local
+        Column-level pairing check is on ``Column._pool_pairing``. Same
+        split as the SCD Type 2 / entity-features gates: structural
+        per-Column rules belong on the Column model, cross-model rules
+        belong here.
+        """
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import validate_value_pool_coverage
+
+        errors = validate_value_pool_coverage(self)
         if errors:
             raise ValueError(errors[0])
         return self

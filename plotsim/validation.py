@@ -40,8 +40,9 @@ from plotsim.config import (
     GeneratedSource,
     LagSource,
     MetricSource,
-    PlotsimConfig,
     PKSource,
+    PlotsimConfig,
+    PoolSource,
     StaticSource,
     Table,
     ThresholdSource,
@@ -355,6 +356,79 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
         errors.append(
             "holdout cannot be combined with quality_issues in this version"
         )
+
+    return errors
+
+
+# --- Pre-generation: PoolSource entity-coverage gates (M114) ----------------
+
+
+def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for M114 ``PoolSource`` columns.
+
+    Mirrors ``validate_entity_features_config`` and
+    ``validate_holdout_config``: pure config check, no DataFrame inputs.
+    Called from a Pydantic ``model_validator`` on ``PlotsimConfig`` so a
+    misconfigured YAML fails at load instead of mid-generation.
+
+    Returns an empty list when no column declares a ``pool:`` source or
+    when every gate is satisfied. The first message in a non-empty list
+    is the one ``PlotsimConfig._value_pool_gates`` raises.
+
+    Gates (in order):
+      1. ``PoolSource`` columns are only meaningful on ``per_entity``
+         dim tables in M114. Sub-entity (variable-grain) and reference
+         dims have no per-entity 1:1 binding to look up against.
+      2. The ``value_pool`` dict's keys must cover every ``Entity.name``
+         that produces rows in this dim table. Per-entity dims emit
+         exactly one row per entity, so the key set must equal the
+         entity set. Missing keys → error naming each missing entity.
+      3. Extra keys (entities present in ``value_pool`` but not in
+         ``config.entities``) are flagged as a separate error so the
+         author notices stale-after-edit pool entries.
+    """
+    errors: list[str] = []
+    entity_names = {e.name for e in config.entities}
+    per_entity_dim_names = {
+        t.name for t in config.tables
+        if t.type == "dim" and t.grain == "per_entity"
+    }
+
+    for tbl in config.tables:
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if not isinstance(parsed, PoolSource):
+                continue
+            if tbl.name not in per_entity_dim_names:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} declares a "
+                    f"'pool:' source but the table is not a per_entity dim "
+                    f"(type={tbl.type!r}, grain={tbl.grain!r}); pool sources "
+                    f"are only supported on per_entity dim tables in this "
+                    f"version"
+                )
+                continue
+            if col.value_pool is None:
+                # _pool_pairing on Column already rejects this; the guard
+                # here keeps the cross-ref pass independent of column
+                # validator ordering.
+                continue
+            pool_keys = set(col.value_pool.keys())
+            missing = sorted(entity_names - pool_keys)
+            extra = sorted(pool_keys - entity_names)
+            if missing:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} value_pool "
+                    f"is missing entries for entities {missing}; per_entity "
+                    f"dim {tbl.name!r} emits one row per entity, so every "
+                    f"entity must appear in value_pool"
+                )
+            if extra:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} value_pool "
+                    f"has entries for unknown entities {extra}; remove them "
+                    f"or correct the entity names in config.entities"
+                )
 
     return errors
 

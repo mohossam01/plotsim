@@ -779,9 +779,30 @@ def _toposort_metrics(metrics: list[Metric]) -> list[Metric]:
 def _apply_archetype_overrides(
     metric: Metric, archetype: Optional[Archetype],
 ) -> Metric:
-    """Return `metric` with distribution/params substituted when the archetype
-    declares an override for it. Polarity, value_range, and causal_lag are
-    never overridable — only the distribution family and its shape params.
+    """Return `metric` with overridable fields substituted from the archetype.
+
+    Distribution, distribution params, and (M114) ``value_range`` may be
+    overridden per-archetype. Polarity and causal_lag are never overridable —
+    polarity flips would silently invert the archetype's directional intent,
+    and lag chains are global structural objects.
+
+    The ``value_range`` substitution propagates through the entire downstream
+    pipeline because every center/sampler/clamper helper reads
+    ``metric.value_range`` from the (possibly overridden) effective Metric:
+
+      * ``position_to_center`` (``beta`` branch) shifts the center into the
+        override span;
+      * ``sample_single_metric`` (``beta`` branch) draws against the
+        override span;
+      * ``_get_scipy_dist`` (``beta`` branch) parameterizes the copula CDF
+        consistently with the override span;
+      * ``_clamp_and_round`` clamps every distribution to the override
+        bounds AFTER noise.
+
+    Subset semantics (``override.value_range`` ⊆ ``metric.value_range``) are
+    enforced at config load in
+    ``PlotsimConfig._cross_reference_integrity``; this helper trusts the
+    pre-validated config.
     """
     if archetype is None:
         return metric
@@ -793,6 +814,8 @@ def _apply_archetype_overrides(
         updates["distribution"] = override.distribution
     if override.params is not None:
         updates["params"] = override.params
+    if override.value_range is not None:
+        updates["value_range"] = override.value_range
     return metric.model_copy(update=updates) if updates else metric
 
 
