@@ -1537,9 +1537,13 @@ def test_entities_list_at_limit_passes():
 
 
 def test_entities_list_above_limit_fails():
+    # M117: cap raised from 100 → 100,000 to accommodate per-segment
+    # expansion in the builder path. The Pydantic length check fires
+    # before the cell-count gate, so this test never materialises a
+    # generation envelope — only the list length matters.
     raw = _minimal_valid()
     raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(101)
+        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100_001)
     ]
     with pytest.raises(ValidationError, match="entities"):
         PlotsimConfig(**raw)

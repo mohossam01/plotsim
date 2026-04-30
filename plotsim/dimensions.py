@@ -666,14 +666,18 @@ def build_dim_subentity(
         parent_pk_column = parsed.column
 
     fake = _make_faker(rng, locale)
-    total_rows = sum(e.size for e in entities)
+    # M117: per-parent row count is ``entity.size * table_config.count``.
+    # Engine-direct configs (Entity.size=N, Table.count=1) resolve to N×1=N;
+    # builder configs (Entity.size=1, Table.count=K) resolve to 1×K=K. The
+    # multiplication handles both paths without branching.
+    total_rows = sum(e.size * table_config.count for e in entities)
     ids = _make_ids(table_config.name, total_rows)
 
     rows: list[dict[str, Any]] = []
     cursor = 0
     for entity, (_, parent_row) in zip(entities, dim_entity.iterrows()):
         parent_pk_value = parent_row[parent_pk_column]
-        for _ in range(entity.size):
+        for _ in range(entity.size * table_config.count):
             row: dict[str, Any] = {}
             local_pk = ids[cursor]
             for col in table_config.columns:

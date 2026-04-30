@@ -104,7 +104,15 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     correlations = _build_correlations(user_input)
     stages = _build_stages(user_input)
 
-    tables = _build_tables(user_input, metric_by_name)
+    # M117: ``segment.count`` columns translate to a PoolSource on the dim
+    # table; the value_pool maps each expanded entity name to the original
+    # cohort population value. After segment expansion the per-entity
+    # ``Entity.size`` is always 1 in the builder path, so a previously
+    # ``derived:size`` source would have emitted 1 for every row — losing
+    # the original cohort size the column is meant to carry.
+    segment_count_value_pool = _build_segment_count_value_pool(user_input)
+
+    tables = _build_tables(user_input, metric_by_name, segment_count_value_pool)
 
     seed = secrets.randbelow(2**32)
 
@@ -234,11 +242,19 @@ def _build_archetypes_and_entities(
     n_periods: int,
     metric_by_name: dict[str, Metric],
 ) -> tuple[list[Archetype], list[Entity]]:
-    """One archetype per segment, one entity per segment.
+    """One archetype per segment, ``segment.count`` entities per segment.
 
-    Segments and archetypes share their name — the user thinks of a
-    cohort and its behavioural shape as one concept. Baselines on the
-    segment translate into per-archetype ``MetricOverride.value_range``.
+    M117 expansion: each segment with ``count: N`` produces N individual
+    ``Entity(size=1)`` objects named ``{segment_name}_{i:04d}``, all
+    sharing the segment's archetype. Pre-M117 the interpreter emitted a
+    single ``Entity(size=N)``, which silently collapsed auto-schema
+    ``dim_unit`` to one row per segment instead of N. ``Entity.size``
+    remains the engine-direct sub-entity dim multiplier (untouched by
+    this change); ``Table.count`` carries that role in the builder path.
+
+    Baselines on the segment still translate into per-archetype
+    ``MetricOverride.value_range`` — applied once per archetype, shared
+    by all expanded entities of that archetype.
     """
     archetypes: list[Archetype] = []
     entities: list[Entity] = []
@@ -253,13 +269,36 @@ def _build_archetypes_and_entities(
             curve_segments=curve_segments,
             metric_overrides=metric_overrides,
         ))
-        entities.append(Entity(
-            name=s.name,
-            archetype=s.name,
-            size=s.count,
-        ))
+        for i in range(s.count):
+            entities.append(Entity(
+                name=f"{s.name}_{i:04d}",
+                archetype=s.name,
+                size=1,
+            ))
 
     return archetypes, entities
+
+
+def _build_segment_count_value_pool(user_input: UserInput) -> dict[str, list[str]]:
+    """Map every expanded entity name to its segment's original ``count``.
+
+    M117: ``segment.count`` column types resolve to a PoolSource on the
+    dim. PoolSource value_pool keys must cover every entity that produces
+    a row in the per_entity dim (``validate_value_pool_coverage``); after
+    expansion that means one key per individual entity in
+    ``config.entities``. The pool list is a single-element list per entity
+    because the value is constant within a segment — every expanded entity
+    from the same segment shares the original ``count``. Pool sampling
+    consumes one RNG draw per row regardless of pool length, so the
+    one-element pool keeps the resolution deterministic without polluting
+    the RNG stream beyond what the existing PoolSource path already does.
+    """
+    pool: dict[str, list[str]] = {}
+    for s in user_input.segments:
+        value = [str(s.count)]
+        for i in range(s.count):
+            pool[f"{s.name}_{i:04d}"] = value
+    return pool
 
 
 def _baseline_to_overrides(
@@ -355,12 +394,17 @@ def _stage_sequence_from_lifecycle(lc: LifecycleInput) -> StageSequence:
 def _build_tables(
     user_input: UserInput,
     metric_by_name: dict[str, Metric],
+    segment_count_value_pool: dict[str, list[str]],
 ) -> list[Table]:
     """Translate the schema section, or auto-generate when none provided.
 
     When dimensions/facts/events are all empty, generate a minimal viable
     schema: dim_date (per_period), dim_{unit} (per_entity), fct_{unit}
     (per_entity_per_period) carrying every metric.
+
+    ``segment_count_value_pool`` threads the M117 cohort-population pool
+    through to ``_translate_column`` so ``segment.count`` columns can
+    resolve to a PoolSource keyed by expanded entity names.
     """
     if (not user_input.dimensions
             and not user_input.facts
@@ -390,7 +434,9 @@ def _build_tables(
 
     tables: list[Table] = []
     for d in user_input.dimensions:
-        tables.append(_translate_dim(d, dim_pk, metric_to_fact))
+        tables.append(_translate_dim(
+            d, dim_pk, metric_to_fact, segment_count_value_pool,
+        ))
     for f in user_input.facts:
         tables.append(_translate_fact(
             f, dim_pk, metric_by_name, reference_dims,
@@ -417,6 +463,7 @@ def _translate_dim(
     d: DimInput,
     dim_pk: dict[str, str],
     metric_to_fact: dict[str, str],
+    segment_count_value_pool: dict[str, list[str]],
 ) -> Table:
     columns: list[Column] = []
     for col in d.columns:
@@ -426,13 +473,16 @@ def _translate_dim(
             dim_pk=dim_pk,
             metric_to_fact=metric_to_fact,
             is_dim_date=(d.name == "dim_date"),
+            segment_count_value_pool=segment_count_value_pool,
         ))
     pk = _dim_primary_key(d)
     foreign_keys = _foreign_keys(d.columns, dim_pk)
     grain = _dim_grain(d)
-    # ``count > 1`` (sub-entity dim with row multiplier) is reserved for
-    # a follow-up — the bundled templates all use count=1, where the
-    # engine infers "one row per parent" from the FK relationship.
+    # M117: ``DimInput.count`` is the sub-entity dim row multiplier from the
+    # builder surface; on engine variable-grain dims this becomes
+    # ``Table.count`` and composes with ``Entity.size`` in the dim builder.
+    # On non-variable dims ``Table.count > 1`` would raise at engine load,
+    # so the engine model rejects the misconfiguration upstream.
     return Table(
         name=d.name,
         type="dim",
@@ -440,6 +490,7 @@ def _translate_dim(
         columns=columns,
         primary_key=pk,
         foreign_keys=foreign_keys,
+        count=d.count,
     )
 
 
@@ -487,6 +538,11 @@ def _translate_fact(
             dim_pk=dim_pk,
             metric_to_fact=metric_to_fact,
             metric_by_name=metric_by_name,
+            # Fact columns can't legitimately use ``segment.count`` (the
+            # column type is dim-only); empty pool keeps the signature
+            # uniform and ``_translate_column`` raises the type-not-allowed
+            # error if a user declares it here.
+            segment_count_value_pool={},
         )
         for col in f.columns
     ]
@@ -578,6 +634,11 @@ def _translate_event_column(
         owning_table=e.name,
         dim_pk=dim_pk,
         metric_to_fact={},  # events don't host SCDs
+        # ``segment.count`` columns are only valid on per_entity dims
+        # (PoolSource validation rejects them elsewhere); empty pool here
+        # is fine — _translate_column raises the dim-only error if a user
+        # declares the type on an event column.
+        segment_count_value_pool={},
     )
 
 
@@ -590,6 +651,7 @@ def _translate_column(
     owning_table: str,
     dim_pk: dict[str, str],
     metric_to_fact: dict[str, str],
+    segment_count_value_pool: dict[str, list[str]],
     metric_by_name: Optional[dict[str, Metric]] = None,
     is_dim_date: bool = False,
 ) -> Column:
@@ -602,12 +664,18 @@ def _translate_column(
       * ``metric.{name}``          → dtype=int|float, source=metric:{name}
       * ``faker.{kind}``           → dtype=string|int, source=generated:faker.{kind}
       * ``static.{value}``         → dtype=float|string, source=static:{value}
-      * ``segment.count``          → dtype=int,     source=derived:size
+      * ``segment.count``          → dtype=int,     source=pool:cohort_size + value_pool
       * ``timestamp``              → dtype=date,    source=generated:timestamp
       * ``date``/``int``/``string``/``float`` (dim_date dtype words)
                                    → dtype=<word>,  source=generated:date_key
       * ``bucket``                 → dtype=string,  source=text:bucket:[labels]
       * ``scd``                    → dtype=string,  source=scd_type2 + SCDType2Config
+
+    M117: ``segment.count`` translates to a PoolSource (not the pre-M117
+    ``derived:size``). After segment expansion every ``Entity.size`` is
+    1 in the builder path, so ``derived:size`` would emit 1 for every
+    row instead of the cohort population. The PoolSource's value_pool
+    maps each expanded entity name to ``[str(original_count)]``.
     """
     t = col.type
 
@@ -659,9 +727,19 @@ def _translate_column(
             dtype = "string"
         return Column(name=col.name, dtype=dtype, source=f"static:{value}")
 
-    # ─── segment.count → derived:size ───────────────────────────────────
+    # ─── segment.count → pool:cohort_size + value_pool ──────────────────
     if t == "segment.count":
-        return Column(name=col.name, dtype="int", source="derived:size")
+        if not segment_count_value_pool:
+            raise ValueError(
+                f"column {col.name!r} in {owning_table!r}: type "
+                f"'segment.count' is only valid on per_entity dim columns "
+                f"(an unreachable branch under normal builder flow — fact "
+                f"and event paths supply an empty pool to surface this)"
+            )
+        return Column(
+            name=col.name, dtype="int", source="pool:cohort_size",
+            value_pool=dict(segment_count_value_pool),
+        )
 
     # ─── timestamp ──────────────────────────────────────────────────────
     if t == "timestamp":

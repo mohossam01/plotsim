@@ -301,7 +301,16 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     """Per saas_template.yaml: 2 cohorts have baseline mrr=high (promising_client,
     steady_enterprise), 2 have baseline mrr=low (slow_churn, dormant), 2 have
     baseline mrr=mid. Baseline overrides should produce a clear top-vs-bottom
-    separation in cohort-level mean MRR."""
+    separation in archetype-level mean MRR.
+
+    M117: post-expansion ``cfg.entities`` is one Entity per simulated company
+    (not one per cohort), so a company-level groupby would pick the two
+    lowest individuals of 95 instead of the low-baseline cohorts. The test
+    aggregates company means up to archetype using ``cfg.entities`` order
+    + the dim builder's deterministic ID convention (``c-001``..``c-095``)
+    so each company maps to its archetype, then takes top-2 vs bottom-2
+    archetype means.
+    """
     cfg: PlotsimConfig = saas_dataset["cfg"]
     fact = saas_dataset["tables"]["fct_revenue"]
 
@@ -315,21 +324,30 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     if n_high == 0:
         pytest.skip("template has no high-baseline cohorts")
 
-    # Group fact rows by cohort PK; compute per-cohort mean MRR.
-    cohort_means = (
-        fact.groupby("company_id")["mrr"].mean().sort_values()
+    # Build company_id → archetype using the dim builder's predictable PK
+    # convention (one row per Entity in cfg.entities order, prefix from
+    # table name, zero-padded to width=max(3, len(str(N)))).
+    n_entities = len(cfg.entities)
+    width = max(3, len(str(n_entities)))
+    company_to_archetype = {
+        f"c-{i+1:0{width}d}": e.archetype
+        for i, e in enumerate(cfg.entities)
+    }
+
+    fact_with_arch = fact.assign(
+        archetype=fact["company_id"].map(company_to_archetype),
     )
-    # The bottom-2 cohorts are the low-baseline group; top-2 are high-baseline
-    # (the template happens to have 2 of each).
-    bottom_2_mean = cohort_means.iloc[:2].mean()
-    top_2_mean = cohort_means.iloc[-2:].mean()
-    # Loose factor: top_2 should be at least 2× bottom_2 — a much weaker
-    # claim than the configured upper-third vs lower-third bands, but
-    # large enough to fail catastrophically if baseline overrides drop out.
+    archetype_means = (
+        fact_with_arch.groupby("archetype")["mrr"].mean().sort_values()
+    )
+    # Two high-baseline + two low-baseline archetypes; bottom-2 vs top-2
+    # archetype means should split sharply.
+    bottom_2_mean = archetype_means.iloc[:2].mean()
+    top_2_mean = archetype_means.iloc[-2:].mean()
     assert top_2_mean > 2.0 * bottom_2_mean, (
-        f"top-2 cohort mean MRR ({top_2_mean:.0f}) should be at least 2× "
-        f"bottom-2 cohort mean MRR ({bottom_2_mean:.0f}); per-cohort means: "
-        f"{cohort_means.to_dict()}"
+        f"top-2 archetype mean MRR ({top_2_mean:.0f}) should be at least 2× "
+        f"bottom-2 archetype mean MRR ({bottom_2_mean:.0f}); per-archetype "
+        f"means: {archetype_means.to_dict()}"
     )
 
 

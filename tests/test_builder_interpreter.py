@@ -507,12 +507,21 @@ def test_static_column_string_value_dtype_string():
     assert name_col.source == "static:starter"
 
 
-def test_segment_count_column_translates_to_derived_size():
+def test_segment_count_column_translates_to_pool_cohort_size():
+    """M117: ``segment.count`` column type translates to a PoolSource. The
+    pre-M117 ``derived:size`` source emitted ``Entity.size`` per row, which
+    was always 1 after expansion — losing the cohort population the column
+    is meant to carry. Now the column carries a ``pool:cohort_size`` source
+    plus a value_pool keyed by every expanded entity name."""
     cfg = interpret(_saas_like_input())
     dim = next(t for t in cfg.tables if t.name == "dim_company")
     cohort_col = next(c for c in dim.columns if c.name == "cohort_size")
     assert cohort_col.dtype == "int"
-    assert cohort_col.source == "derived:size"
+    assert cohort_col.source == "pool:cohort_size"
+    assert cohort_col.value_pool is not None
+    # Coverage: every expanded entity has a pool entry.
+    entity_names = {e.name for e in cfg.entities}
+    assert set(cohort_col.value_pool.keys()) == entity_names
 
 
 def test_timestamp_column_translates_correctly():

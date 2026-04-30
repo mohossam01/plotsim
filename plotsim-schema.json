@@ -968,6 +968,12 @@
           ],
           "default": null,
           "title": "Row Count Source"
+        },
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
         }
       },
       "required": [
@@ -1073,7 +1079,7 @@
       "items": {
         "$ref": "#/$defs/Entity"
       },
-      "maxItems": 100,
+      "maxItems": 100000,
       "minItems": 1,
       "title": "Entities",
       "type": "array"

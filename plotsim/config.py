@@ -594,7 +594,6 @@ class TimeWindow(_Frozen):
             )
         return self
 
-
 class ValueRange(_Frozen):
     min: Optional[float] = None
     max: Optional[float] = None
@@ -741,6 +740,13 @@ class EntityOverrides(_Frozen):
 class Entity(_Frozen):
     name: str
     archetype: str
+    # ``size`` is the sub-entity dim row multiplier on engine-direct configs:
+    # one ``Entity(size=50)`` produces 50 rows in any per_entity dim's child
+    # sub-entity (variable-grain) dim. The builder path (M117) instead emits
+    # ``size=1`` for every expanded entity and pushes the row multiplier onto
+    # ``Table.count``; the two compose multiplicatively in
+    # ``dimensions.build_dim_subentity``, so engine-direct configs keep their
+    # pre-M117 semantics unchanged.
     size: int = Field(ge=1, le=5_000)
     overrides: Optional[EntityOverrides] = None
     # FIX-04: per-cohort cross-dim FK anchoring. Maps a child column name
@@ -1036,6 +1042,14 @@ class Table(_Frozen):
     primary_key: str | list[str]
     foreign_keys: list[str] = Field(default_factory=list)
     row_count_source: Optional[str] = None
+    # M117: sub-entity dim row multiplier. Composes multiplicatively with
+    # ``Entity.size`` in ``dimensions.build_dim_subentity`` so a builder
+    # config (every ``Entity(size=1)``) with ``Table.count=3`` and an
+    # engine-direct config (``Entity.size=50``, ``Table.count=1`` default)
+    # both resolve their parent's child-row count without branching. Only
+    # meaningful on variable-grain dim tables — rejected at load on any
+    # other type/grain.
+    count: int = Field(default=1, ge=1)
 
     @property
     def primary_key_cols(self) -> list[str]:
@@ -1095,6 +1109,22 @@ class Table(_Frozen):
             raise ValueError(
                 f"table {self.name!r} has row_count_source but type is "
                 f"{self.type!r}; row_count_source is only allowed on event tables"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _count_only_on_variable_dim(self) -> "Table":
+        # M117: ``count`` is the sub-entity dim row multiplier and is only
+        # meaningful on variable-grain dim tables. Default 1 is always valid;
+        # any larger value on a non-(dim+variable) table is rejected so the
+        # field never silently no-ops.
+        if self.count > 1 and not (self.type == "dim" and self.grain == "variable"):
+            raise ValueError(
+                f"table {self.name!r} has count={self.count} but type="
+                f"{self.type!r} grain={self.grain!r}; Table.count > 1 is only "
+                f"valid on dim tables with grain='variable' (sub-entity dims). "
+                f"Default count=1 produces 'one row per parent' on per_entity "
+                f"dim children."
             )
         return self
 
@@ -1629,7 +1659,13 @@ class PlotsimConfig(_Frozen):
     seed: int
     metrics: list[Metric] = Field(max_length=50)
     archetypes: list[Archetype] = Field(max_length=20)
-    entities: list[Entity] = Field(min_length=1, max_length=100)
+    # M117: cap raised from 100 → 100,000 to accommodate the builder's
+    # per-segment expansion (one ``Entity(size=1)`` per row in the resulting
+    # dim table). The combined-scale gate
+    # (``_combined_scale_estimator``) still bounds runtime cell-count via
+    # ``sum(entities.size) × period_count``, so this raise relaxes the
+    # per-row-count cap without weakening the runtime envelope.
+    entities: list[Entity] = Field(min_length=1, max_length=100_000)
     tables: list[Table] = Field(max_length=50)
     # 1_225 = 50 choose 2 — the upper bound on unique pairwise correlations
     # given the 50-metric cap. Anything larger is either duplicates (rejected
