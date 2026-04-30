@@ -181,6 +181,38 @@ def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
 # --- Fact tables -------------------------------------------------------------
 
 
+def _build_seasonal_factors(
+    config: PlotsimConfig, n_periods: int,
+) -> Optional[np.ndarray]:
+    """M119: pre-compute the per-period summed seasonal strength.
+
+    Returns a length-``n_periods`` ``float64`` array where entry ``t`` is the
+    sum of every ``SeasonalEffect.strength`` whose ``months`` set contains
+    period ``t``'s calendar month. Returns ``None`` when no effects are
+    configured — keeps the metrics pipeline byte-identical to pre-M119
+    baselines (the metric loop short-circuits when ``seasonal_global == 0.0``).
+
+    The returned array is a global (entity-independent) lookup; per-entity
+    and per-metric sensitivities apply downstream in
+    ``generate_metrics_for_period``.
+    """
+    if not config.seasonal_effects:
+        return None
+    months = config.time_window.period_calendar_months()
+    if len(months) != n_periods:
+        raise ValueError(
+            f"seasonal factor length mismatch: time_window yields "
+            f"{len(months)} periods but dim_date has {n_periods}"
+        )
+    factors = np.zeros(n_periods, dtype=np.float64)
+    for effect in config.seasonal_effects:
+        month_set = set(effect.months)
+        for t, m in enumerate(months):
+            if m in month_set:
+                factors[t] += effect.strength
+    return factors
+
+
 def _compute_entity_metrics(
     config: PlotsimConfig,
     trajectories: dict[str, np.ndarray],
@@ -195,8 +227,14 @@ def _compute_entity_metrics(
     (which would consume RNG twice and break determinism). Each entity's
     RNG draws share the top-level rng so output is identical to the prior
     pre-M107 inline path when only fact-building consumes the result.
+
+    M119: when ``config.seasonal_effects`` is non-empty, computes a global
+    per-period strength array once and threads it (along with each
+    entity's ``seasonal_sensitivity``) into ``generate_entity_metrics``.
+    Empty effects → ``seasonal_factors=None`` → byte-identical to pre-M119.
     """
     arch_by_name = {a.name: a for a in config.archetypes}
+    seasonal_factors = _build_seasonal_factors(config, n_periods)
     entity_metrics: dict[str, dict[str, np.ndarray]] = {}
     for entity in config.entities:
         traj = trajectories[entity.name]
@@ -213,6 +251,8 @@ def _compute_entity_metrics(
             rng,
             archetype=arch_by_name.get(entity.archetype),
             cholesky_L=cholesky_L,
+            seasonal_factors=seasonal_factors,
+            entity_seasonal_sensitivity=entity.seasonal_sensitivity,
         )
     return entity_metrics
 

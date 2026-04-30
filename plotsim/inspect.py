@@ -71,6 +71,7 @@ from plotsim.metrics import (
     sample_single_metric,
 )
 from plotsim.tables import (
+    _build_seasonal_factors,
     expand_scd_dims,
     generate_tables_with_state,
 )
@@ -107,6 +108,7 @@ class TraceResult:
         trajectory_position
             → effective_position    (after causal_lag blend, if configured)
             → distribution_center   (after polarity flip + dist-specific map)
+            → modulated_center      (M119: after seasonal modulation + clamp)
             → independent_draw      (raw distributional sample)
             → correlated_draw       (after Gaussian-copula transform)
             → noised_value          (after gaussian/outlier/MCAR)
@@ -115,6 +117,16 @@ class TraceResult:
 
     A ``realized_cell == fct.<metric> at (entity, period) row`` equality check
     is the load-bearing assertion this dataclass exists to support.
+
+    M119 fields:
+      * ``seasonal_factor`` — effective multiplier at this cell:
+        ``seasonal_global × metric.seasonal_sensitivity ×
+        entity.seasonal_sensitivity``. ``0.0`` when no
+        ``seasonal_effects`` are configured.
+      * ``modulated_center`` — ``distribution_center × (1 + seasonal_factor)``,
+        clamped to ``value_range``. Equals ``distribution_center`` when
+        ``seasonal_factor == 0.0``. This is the value the distribution is
+        actually sampled around.
     """
 
     entity_name: str
@@ -128,6 +140,8 @@ class TraceResult:
     causal_lag_blend_weight: Optional[float]
     distribution_family: str
     distribution_center: float
+    seasonal_factor: float
+    modulated_center: float
     independent_draw: float
     correlated_draw: float
     bypass_in_copula: bool
@@ -248,6 +262,12 @@ def trace_metric_cell(
 
     cholesky_L = _hoist_cholesky(config)
 
+    # M119: pre-compute the global per-period seasonal-strength array. The
+    # replay must thread the same factors that ``tables._compute_entity_metrics``
+    # uses, otherwise the RNG-consuming sample around a (modulated) center
+    # diverges from the engine and the §7 ``realized_cell`` equality breaks.
+    seasonal_factors = _build_seasonal_factors(config, n_periods)
+
     # Consume RNG for entities [0..target_entity_idx) by running their full
     # entity-metric pipelines. Output is discarded — the goal is to advance
     # the RNG to the same state the engine reaches when it starts the target
@@ -262,6 +282,8 @@ def trace_metric_cell(
             replay_rng,
             archetype=arch_by_name.get(prior.archetype),
             cholesky_L=cholesky_L,
+            seasonal_factors=seasonal_factors,
+            entity_seasonal_sensitivity=prior.seasonal_sensitivity,
         )
 
     # Walk the target entity's period loop manually so we can capture the
@@ -276,6 +298,9 @@ def trace_metric_cell(
 
     for t in range(period_index):
         pos = float(target_traj[t])
+        seasonal_global_t = (
+            float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
+        )
         generate_metrics_for_period(
             pos,
             sorted_metrics,
@@ -286,6 +311,8 @@ def trace_metric_cell(
             replay_rng,
             archetype=archetype,
             cholesky_L=cholesky_L,
+            seasonal_global=seasonal_global_t,
+            entity_seasonal_sensitivity=target_entity.seasonal_sensitivity,
         )
 
     # At ``period_index``, mirror generate_metrics_for_period's body manually
@@ -293,9 +320,16 @@ def trace_metric_cell(
     # touching engine internals beyond the public/private helpers we're
     # already authorized to call.
     pos_target = float(target_traj[period_index])
+    seasonal_global_target = (
+        float(seasonal_factors[period_index])
+        if seasonal_factors is not None else 0.0
+    )
+    entity_seasonal_sens = target_entity.seasonal_sensitivity
     centers: dict[str, float] = {}
+    pre_modulation_centers: dict[str, float] = {}
     independent: dict[str, Optional[float]] = {}
     target_effective_position: Optional[float] = None
+    target_seasonal_factor = 0.0
     for em in effective_metrics:
         eff_pos = _compute_effective_position(
             pos_target, em, lag_buffer, period_index,
@@ -304,14 +338,41 @@ def trace_metric_cell(
         # mirrors generate_metrics_for_period, so multi-hop causal_lag chains
         # see the freshly-resolved driver value.
         lag_buffer[em.name].append(eff_pos)
-        center = position_to_center(eff_pos, em)
+        base_center = position_to_center(eff_pos, em)
+        pre_modulation_centers[em.name] = base_center
+        center = base_center
+        # M119: mirror generate_metrics_for_period's seasonal modulation. We
+        # apply it for every effective metric (not just the target) so the
+        # sample_single_metric RNG draws happen around the same center the
+        # engine sees, keeping replay RNG state aligned with generation.
+        if seasonal_global_target != 0.0:
+            effective_strength = (
+                seasonal_global_target
+                * em.seasonal_sensitivity
+                * entity_seasonal_sens
+            )
+            if effective_strength != 0.0:
+                center = base_center * (1.0 + effective_strength)
+                vr = em.value_range
+                if vr is not None:
+                    if vr.min is not None and center < vr.min:
+                        center = vr.min
+                    if vr.max is not None and center > vr.max:
+                        center = vr.max
+        if em.name == metric_name:
+            target_seasonal_factor = (
+                seasonal_global_target
+                * em.seasonal_sensitivity
+                * entity_seasonal_sens
+            )
         centers[em.name] = center
         independent[em.name] = sample_single_metric(center, em, replay_rng)
         if em.name == metric_name:
             target_effective_position = eff_pos
 
     assert target_effective_position is not None  # toposort includes target
-    target_distribution_center = centers[metric_name]
+    target_distribution_center = pre_modulation_centers[metric_name]
+    target_modulated_center = centers[metric_name]
     target_independent_draw = independent[metric_name]
 
     # Apply correlations (deterministic — no RNG draws).
@@ -329,9 +390,11 @@ def trace_metric_cell(
 
     # Bypass-in-copula: degenerate distribution at this center, OR no
     # correlation matrix configured at all (no copula step applies, so the
-    # bypass concept doesn't either).
+    # bypass concept doesn't either). The copula transform reads the centers
+    # the sampler actually used — i.e. post-modulation — so the bypass check
+    # uses the modulated center too.
     target_dist_obj = _get_scipy_dist(
-        target_eff_metric, target_distribution_center,
+        target_eff_metric, target_modulated_center,
     )
     bypass_in_copula = bool(config.correlations) and (
         target_dist_obj is None or target_independent_draw is None
@@ -398,6 +461,8 @@ def trace_metric_cell(
         ),
         distribution_family=distribution_family,
         distribution_center=float(target_distribution_center),
+        seasonal_factor=float(target_seasonal_factor),
+        modulated_center=float(target_modulated_center),
         independent_draw=float(target_independent_draw),
         correlated_draw=float(target_correlated_draw),
         bypass_in_copula=bypass_in_copula,

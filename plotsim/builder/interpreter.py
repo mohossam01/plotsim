@@ -39,6 +39,7 @@ from plotsim.config import (
     OutputConfig,
     PlotsimConfig,
     SCDType2Config,
+    SeasonalEffect,
     StageDefinition,
     StageSequence,
     Table,
@@ -114,6 +115,8 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
 
     tables = _build_tables(user_input, metric_by_name, segment_count_value_pool)
 
+    seasonal_effects = _build_seasonal_effects(user_input)
+
     seed = secrets.randbelow(2**32)
 
     return PlotsimConfig(
@@ -126,8 +129,24 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         tables=tables,
         correlations=correlations,
         stages=stages,
+        seasonal_effects=seasonal_effects,
         output=OutputConfig(format="csv", directory="output"),
     )
+
+
+def _build_seasonal_effects(user_input: UserInput) -> list[SeasonalEffect]:
+    """M119: translate ``UserInput.seasonality`` into engine ``SeasonalEffect`` list.
+
+    1:1 translation — months and strength pass through unchanged. The
+    builder's ``SeasonalEffectInput`` and the engine's ``SeasonalEffect``
+    have identical shapes; the split exists so the builder layer can
+    enforce its own validation messages without import-cycling on the
+    engine layer's typed model.
+    """
+    return [
+        SeasonalEffect(months=tuple(eff.months), strength=eff.strength)
+        for eff in user_input.seasonality
+    ]
 
 
 # ── Step 1 + 2: domain, time window ─────────────────────────────────────────
@@ -183,6 +202,7 @@ def _metric_from_input(m: MetricInput) -> Metric:
         polarity=m.polarity,
         value_range=value_range,
         causal_lag=causal_lag,
+        seasonal_sensitivity=m.seasonal_sensitivity,
     )
 
 
@@ -274,6 +294,7 @@ def _build_archetypes_and_entities(
                 name=f"{s.name}_{i:04d}",
                 archetype=s.name,
                 size=1,
+                seasonal_sensitivity=s.seasonal_sensitivity,
             ))
 
     return archetypes, entities

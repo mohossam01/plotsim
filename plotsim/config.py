@@ -594,6 +594,53 @@ class TimeWindow(_Frozen):
             )
         return self
 
+    def period_calendar_months(self) -> list[int]:
+        """Return the calendar month (1-12) for each period in this window.
+
+        M119: anchors ``SeasonalEffect.months`` to period indices.
+
+        - monthly: month from each ``YYYY-MM`` step.
+        - weekly:  month of the FIRST day in the window for that ISO week —
+                   matches the spec rule "a week belongs to the month of its
+                   start date" while staying inside the configured window so
+                   weeks at the boundary aren't miscredited to a date outside
+                   ``[start, end]``.
+        - daily:   month from each ``YYYY-MM-DD`` step.
+        """
+        sy, sm = int(self.start[:4]), int(self.start[5:7])
+        ey, em = int(self.end[:4]), int(self.end[5:7])
+        if self.granularity == "monthly":
+            months: list[int] = []
+            total = (ey - sy) * 12 + (em - sm) + 1
+            for k in range(total):
+                offset = sm - 1 + k
+                months.append(offset % 12 + 1)
+            return months
+        start_d = date(sy, sm, 1)
+        end_d = date(ey, em, calendar.monthrange(ey, em)[1])
+        if self.granularity == "daily":
+            out: list[int] = []
+            d = start_d
+            one_day = timedelta(days=1)
+            while d <= end_d:
+                out.append(d.month)
+                d += one_day
+            return out
+        # weekly — track each ISO-week's first in-window date
+        seen: dict[tuple[int, int], int] = {}
+        order: list[tuple[int, int]] = []
+        d = start_d
+        one_day = timedelta(days=1)
+        while d <= end_d:
+            iso_year, iso_week, _ = d.isocalendar()
+            key = (iso_year, iso_week)
+            if key not in seen:
+                seen[key] = d.month
+                order.append(key)
+            d += one_day
+        return [seen[k] for k in order]
+
+
 class ValueRange(_Frozen):
     min: Optional[float] = None
     max: Optional[float] = None
@@ -603,6 +650,43 @@ class ValueRange(_Frozen):
         if self.min is not None and self.max is not None and self.min > self.max:
             raise ValueError(f"value_range.min ({self.min}) > max ({self.max})")
         return self
+
+
+class SeasonalEffect(_Frozen):
+    """A calendar-driven multiplicative center modifier (M119).
+
+    At each period whose calendar month is in ``months``, every metric's
+    distribution center is scaled by ``(1 + effective)`` BEFORE distribution
+    sampling, where::
+
+        effective = strength × metric.seasonal_sensitivity × entity.seasonal_sensitivity
+
+    Multiple ``SeasonalEffect`` entries are summed at the global level (per
+    period) before per-metric and per-entity sensitivities multiply.
+    Sensitivities default to ``1.0`` (full follow), can go negative (invert),
+    or zero (immunity).
+
+    Modulation is a center modifier, not a trajectory modifier — the
+    trajectory-first invariant is preserved. The trajectory says where the
+    entity is; seasonality says what the world does to that entity at that
+    calendar moment.
+    """
+    months: tuple[int, ...] = Field(min_length=1, max_length=12)
+    strength: float
+
+    @field_validator("months")
+    @classmethod
+    def _months_in_range_unique(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        for m in v:
+            if not 1 <= int(m) <= 12:
+                raise ValueError(
+                    f"seasonal effect month {m} out of range; valid: 1..12"
+                )
+        if len(set(v)) != len(v):
+            raise ValueError(
+                f"seasonal effect months must be unique, got {list(v)}"
+            )
+        return v
 
 
 class CausalLag(_Frozen):
@@ -642,6 +726,11 @@ class Metric(_Frozen):
     polarity: Polarity
     value_range: Optional[ValueRange] = None
     causal_lag: Optional[CausalLag] = None
+    # M119: per-metric seasonal sensitivity. Multiplies the global
+    # ``SeasonalEffect.strength`` (and the entity's sensitivity) at each
+    # period in the effect's months. ``1.0`` follows global exactly,
+    # ``0.0`` is immune, negatives invert.
+    seasonal_sensitivity: float = 1.0
 
     @model_validator(mode="after")
     def _causal_lag_not_self(self) -> "Metric":
@@ -755,6 +844,13 @@ class Entity(_Frozen):
     # Use case: bind expansion-champion accounts to the enterprise plan,
     # connecting archetype narrative to reference data.
     cross_dim_fks: dict[str, str] = Field(default_factory=dict)
+    # M119: per-entity seasonal sensitivity. Multiplies the global
+    # ``SeasonalEffect.strength`` (and the metric's sensitivity) at each
+    # period in the effect's months. ``1.0`` follows global exactly,
+    # ``0.0`` is immune, negatives invert. Builder users typically set
+    # this on a ``SegmentInput``; the interpreter copies the value onto
+    # every expanded entity in that segment.
+    seasonal_sensitivity: float = 1.0
 
 
 class FKDistribution(_Frozen):
@@ -1704,6 +1800,13 @@ class PlotsimConfig(_Frozen):
     # dim/fact/event layers. String (``"en_US"``, ``"ja_JP"``) or list
     # (multi-locale mix). Default ``"en_US"`` preserves prior behavior.
     locale: str | list[str] = "en_US"
+    # M119: global seasonal modulation. Default empty list — configs without
+    # opt-in produce output byte-identical to pre-M119 baselines because the
+    # per-period summed strength is 0.0 and the metrics pipeline short-circuits
+    # the modulation step. ``max_length=12`` matches the calendar-month domain.
+    seasonal_effects: list[SeasonalEffect] = Field(
+        default_factory=list, max_length=12,
+    )
 
     # M111: populated by ``_correlation_matrix_is_psd`` when the user's
     # correlation matrix had to be Higham-projected to nearest PD.

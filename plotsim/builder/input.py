@@ -74,6 +74,11 @@ class MetricInput(BaseModel):
     range: Optional[tuple[float, float]] = None
     follows: Optional[str] = None
     delay: Optional[int] = None
+    # M119: per-metric seasonal sensitivity. Default ``1.0`` (follow the
+    # global ``seasonality`` strength at face value). ``-0.5`` halves and
+    # inverts; ``0.0`` makes the metric immune. Translated unchanged onto
+    # ``Metric.seasonal_sensitivity`` by the interpreter.
+    seasonal_sensitivity: float = 1.0
 
     @field_validator("name")
     @classmethod
@@ -136,6 +141,13 @@ class SegmentInput(BaseModel):
     label: Optional[str] = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     baseline: dict[str, str] = Field(default_factory=dict)
+    # M119: per-segment seasonal sensitivity. Default ``1.0`` (follow
+    # the global ``seasonality`` strength at face value). The interpreter
+    # copies this value onto every expanded ``Entity.seasonal_sensitivity``
+    # within the segment, so two segments with the same archetype but
+    # different sensitivities show different seasonal amplitudes while
+    # sharing the underlying trajectory shape.
+    seasonal_sensitivity: float = 1.0
 
     @field_validator("name")
     @classmethod
@@ -367,6 +379,38 @@ class EventInput(BaseModel):
         return self
 
 
+# ── Seasonality (M119) ─────────────────────────────────────────────────────
+
+
+class SeasonalEffectInput(BaseModel):
+    """One global seasonal effect spanning a set of calendar months.
+
+    Multiple effects may overlap — strengths sum at each period before
+    per-metric and per-segment ``seasonal_sensitivity`` multipliers apply.
+    Months are 1..12; uniqueness within a single effect is enforced. The
+    interpreter translates this 1:1 to ``plotsim.config.SeasonalEffect``.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    months: tuple[int, ...] = Field(min_length=1, max_length=12)
+    strength: float
+
+    @field_validator("months")
+    @classmethod
+    def _months_in_range_unique(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        for m in v:
+            if not 1 <= int(m) <= 12:
+                raise ValueError(
+                    f"seasonality month {m} out of range; valid: 1..12"
+                )
+        if len(set(v)) != len(v):
+            raise ValueError(
+                f"seasonality months must be unique within one effect, "
+                f"got {list(v)}"
+            )
+        return v
+
+
 # ── UserInput root ──────────────────────────────────────────────────────────
 
 
@@ -442,6 +486,10 @@ class UserInput(BaseModel):
     dimensions: list[DimInput] = Field(default_factory=list)
     facts: list[FactInput] = Field(default_factory=list)
     events: list[EventInput] = Field(default_factory=list)
+    # M119: optional global seasonality. Empty list (default) → no
+    # modulation is configured and engine output is byte-identical to
+    # pre-M119 baselines.
+    seasonality: list[SeasonalEffectInput] = Field(default_factory=list)
 
     # ── Pre-normalisation: accept tuple/string shorthand on inputs ─────────
 

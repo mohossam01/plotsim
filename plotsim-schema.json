@@ -405,6 +405,11 @@
           },
           "title": "Cross Dim Fks",
           "type": "object"
+        },
+        "seasonal_sensitivity": {
+          "default": 1.0,
+          "title": "Seasonal Sensitivity",
+          "type": "number"
         }
       },
       "required": [
@@ -602,6 +607,11 @@
             }
           ],
           "default": null
+        },
+        "seasonal_sensitivity": {
+          "default": 1.0,
+          "title": "Seasonal Sensitivity",
+          "type": "number"
         }
       },
       "required": [
@@ -819,6 +829,31 @@
         "labels"
       ],
       "title": "SCDType2Config",
+      "type": "object"
+    },
+    "SeasonalEffect": {
+      "additionalProperties": false,
+      "description": "A calendar-driven multiplicative center modifier (M119).\n\nAt each period whose calendar month is in ``months``, every metric's\ndistribution center is scaled by ``(1 + effective)`` BEFORE distribution\nsampling, where::\n\n    effective = strength × metric.seasonal_sensitivity × entity.seasonal_sensitivity\n\nMultiple ``SeasonalEffect`` entries are summed at the global level (per\nperiod) before per-metric and per-entity sensitivities multiply.\nSensitivities default to ``1.0`` (full follow), can go negative (invert),\nor zero (immunity).\n\nModulation is a center modifier, not a trajectory modifier — the\ntrajectory-first invariant is preserved. The trajectory says where the\nentity is; seasonality says what the world does to that entity at that\ncalendar moment.",
+      "properties": {
+        "months": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Months",
+          "type": "array"
+        },
+        "strength": {
+          "title": "Strength",
+          "type": "number"
+        }
+      },
+      "required": [
+        "months",
+        "strength"
+      ],
+      "title": "SeasonalEffect",
       "type": "object"
     },
     "StageDefinition": {
@@ -1151,6 +1186,14 @@
       ],
       "default": "en_US",
       "title": "Locale"
+    },
+    "seasonal_effects": {
+      "items": {
+        "$ref": "#/$defs/SeasonalEffect"
+      },
+      "maxItems": 12,
+      "title": "Seasonal Effects",
+      "type": "array"
     }
   },
   "required": [

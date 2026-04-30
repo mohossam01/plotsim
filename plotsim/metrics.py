@@ -829,6 +829,8 @@ def generate_metrics_for_period(
     rng: np.random.Generator,
     archetype: Optional[Archetype] = None,
     cholesky_L: Optional[np.ndarray] = None,
+    seasonal_global: float = 0.0,
+    entity_seasonal_sensitivity: float = 1.0,
 ) -> dict[str, Optional[float]]:
     """Generate every metric for one entity at one time step.
 
@@ -836,11 +838,16 @@ def generate_metrics_for_period(
         1. resolve archetype override (distribution/params) if any
         2. current position → optional lag blend with driver's past position
         3. (polarity + distribution-specific) position → center
-        4. sample independent value from the distribution
+        4. M119: seasonal modulation — multiply center by
+           ``(1 + seasonal_global × metric.seasonal_sensitivity ×
+              entity_seasonal_sensitivity)``, then clamp to ``value_range``
+           BEFORE the distributional draw. Skipped (byte-identical) when
+           ``seasonal_global == 0.0``.
+        5. sample independent value from the distribution
     Then once across all metrics:
-        5. apply Cholesky correlation on residuals (if correlations given)
-        6. apply noise (if noise config given): gaussian → outlier → MCAR
-        7. clamp to value_range, round poisson to int
+        6. apply Cholesky correlation on residuals (if correlations given)
+        7. apply noise (if noise config given): gaussian → outlier → MCAR
+        8. clamp to value_range, round poisson to int
     """
     effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
     centers: dict[str, float] = {}
@@ -859,6 +866,20 @@ def generate_metrics_for_period(
             # compose correctly; ``generate_entity_metrics`` does this.
             lag_buffer[em.name].append(eff_pos)
         center = position_to_center(eff_pos, em)
+        if seasonal_global != 0.0:
+            effective_strength = (
+                seasonal_global
+                * em.seasonal_sensitivity
+                * entity_seasonal_sensitivity
+            )
+            if effective_strength != 0.0:
+                center = center * (1.0 + effective_strength)
+                vr = em.value_range
+                if vr is not None:
+                    if vr.min is not None and center < vr.min:
+                        center = vr.min
+                    if vr.max is not None and center > vr.max:
+                        center = vr.max
         centers[em.name] = center
         independent[em.name] = sample_single_metric(center, em, rng)
 
@@ -894,6 +915,8 @@ def generate_entity_metrics(
     rng: np.random.Generator,
     archetype: Optional[Archetype] = None,
     cholesky_L: Optional[np.ndarray] = None,
+    seasonal_factors: Optional[np.ndarray] = None,
+    entity_seasonal_sensitivity: float = 1.0,
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
@@ -931,9 +954,14 @@ def generate_entity_metrics(
         # lag_buffer is now populated inline inside generate_metrics_for_period
         # — no outer-loop append. Effective positions (not raw trajectory) land
         # in the buffer, so chains A→B→C compose.
+        seasonal_global_t = (
+            float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
+        )
         period_out = generate_metrics_for_period(
             pos, sorted_metrics, correlations, noise, lag_buffer, t, rng,
             archetype=archetype, cholesky_L=cholesky_L,
+            seasonal_global=seasonal_global_t,
+            entity_seasonal_sensitivity=entity_seasonal_sensitivity,
         )
         for m in sorted_metrics:
             collected[m.name].append(period_out[m.name])
