@@ -2118,8 +2118,16 @@ class PlotsimConfig(_Frozen):
 
         # M107: bridge table cross-references.
         bridge_names: set[str] = set()
+        # M118: per_entity dim row count is ``len(self.entities)``, not
+        # ``sum(e.size)``. ``Entity.size`` is a cohort-population value
+        # carried as a metadata column (``derived:size``); the dim itself
+        # has one row per ``Entity`` (see ``build_dim_entity`` in
+        # ``plotsim/dimensions.py``). The previous formulation was correct
+        # only by accident in the builder path (where ``size`` is always 1)
+        # and silently permitted bridge ``cardinality.max`` values that
+        # exceeded the actual dim row count for engine-direct configs.
         per_entity_dim_table_count = {
-            t.name: sum(e.size for e in self.entities)
+            t.name: len(self.entities)
             for t in self.tables
             if t.type == "dim" and t.grain == "per_entity"
         }
