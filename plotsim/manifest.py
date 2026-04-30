@@ -200,6 +200,56 @@ class CorrelationAdjustment(_ManifestBase):
     adjustment: float
 
 
+class CorrelationCompensation(_ManifestBase):
+    """M120: ground-truth record of one trajectory-aware compensation.
+
+    Emitted in the manifest's ``correlation_compensations`` list when
+    ``config.compensate_correlations=True`` and at least one declared
+    correlation pair was compensated. Distinct from M111's
+    ``CorrelationAdjustment`` (which records "your matrix wasn't PD,
+    Higham picked a nearby valid one") — this records the structural
+    re-targeting the engine performed to make the user's table-wide
+    correlation visible against the trajectory's covariance.
+
+      * ``user_target`` — coefficient the user wrote in YAML
+        (``connections`` for builder configs, ``correlations`` directly
+        for engine-direct configs).
+      * ``trajectory_contribution`` — within-archetype-weighted Pearson
+        the trajectory's centers induce between this pair, before the
+        copula touches anything. Range ``[-1, 1]``; sign tells the
+        operator whether the trajectory amplifies or opposes the
+        configured target.
+      * ``compensated_target`` — pre-clamp ``user_target -
+        trajectory_contribution``. May fall outside ``[-1, 1]`` when the
+        trajectory contribution exceeds the user target's magnitude in
+        the opposite direction, in which case the copula target is
+        infeasible and the engine clamps.
+      * ``achievable`` — ``compensated_target`` clamped to ``[-1, 1]``.
+        Equal to ``compensated_target`` for feasible pairs; the bound
+        for infeasible ones.
+      * ``infeasible`` — True when ``compensated_target`` fell outside
+        ``[-1, 1]``. The engine still produces valid output, but the
+        realized table-wide Pearson for this pair will land at
+        ``user_target ± something < |user_target|`` rather than at the
+        user target exactly.
+      * ``adjustment`` — ``abs(user_target - achievable)``; surfaced
+        for sort/filter without recomputation.
+
+    All declared pairs that fall in the metric set produce a record,
+    feasible or not. Auto-zero off-diagonals (pairs the user didn't
+    declare) are not recorded — they're implicitly feasible and don't
+    change the user's contract.
+    """
+    metric_a: str
+    metric_b: str
+    user_target: float
+    trajectory_contribution: float
+    compensated_target: float
+    achievable: float
+    infeasible: bool
+    adjustment: float
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -250,6 +300,16 @@ class ManifestSchema(_ManifestBase):
     # correlations were configured. Backwards compatible with pre-M111
     # manifests (default reads as None).
     correlation_adjustments: Optional[list[CorrelationAdjustment]] = None
+    # M120: filled by ``build_manifest`` from
+    # ``config._correlation_compensations`` when
+    # ``compensate_correlations=True`` and pre-compensation ran (at least
+    # one declared pair). ``None`` for engine-direct runs that skip the
+    # feature, runs whose configs have no ``correlations``, and runs
+    # whose metric count exceeds ``_MAX_METRICS_FOR_COMPENSATION`` (the
+    # warning-and-fall-through path). An empty list is reserved for "ran
+    # but no in-scope pairs" and currently shouldn't surface — the
+    # generator only sets the attr when at least one record was emitted.
+    correlation_compensations: Optional[list[CorrelationCompensation]] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -547,6 +607,17 @@ def build_manifest(
     else:
         correlation_adjustments = None
 
+    # M120: read trajectory-aware compensation records the same way M111
+    # reads its Higham adjustments. The two flows are independent — a run
+    # can emit one, both, or neither.
+    raw_compensations = getattr(config, "_correlation_compensations", None)
+    if raw_compensations:
+        correlation_compensations: Optional[list[CorrelationCompensation]] = [
+            CorrelationCompensation(**rec) for rec in raw_compensations
+        ]
+    else:
+        correlation_compensations = None
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -558,6 +629,7 @@ def build_manifest(
         bridge_associations=bridge_associations,
         quality_injections=[],
         correlation_adjustments=correlation_adjustments,
+        correlation_compensations=correlation_compensations,
     )
 
 
@@ -586,6 +658,7 @@ __all__ = [
     "MANIFEST_SCHEMA_VERSION",
     "BridgeAssociationRecord",
     "CorrelationAdjustment",
+    "CorrelationCompensation",
     "EntityArchetypeAssignment",
     "EventFiring",
     "HoldoutInfo",

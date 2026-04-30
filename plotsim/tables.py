@@ -45,6 +45,7 @@ Mission-spec deviations (also flagged in the completion report):
 from __future__ import annotations
 
 import datetime as _dt
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -2547,17 +2548,69 @@ def generate_tables_with_state(
         mat = _build_correlation_matrix(
             sorted_metrics, list(config.correlations),
         )
+        # M120: when ``compensate_correlations=True`` (builder default), the
+        # user-specified matrix is the table-wide target; subtract the
+        # trajectory's structural contribution off-diagonally so the copula
+        # delivers what the user asked for, recombined additively with the
+        # trajectory contribution at sample time. The metric cap mirrors the
+        # mission spec — above 20 metrics the additive decomposition is too
+        # noisy to satisfy the sign-match floor, so emit a warning and fall
+        # through to the legacy direct-copula path.
+        compensation_records: Optional[list[dict]] = None
+        if config.compensate_correlations:
+            from plotsim.metrics import (
+                _MAX_METRICS_FOR_COMPENSATION,
+                _format_correlation_compensation_warning,
+                compensate_correlation_matrix,
+                estimate_trajectory_covariance,
+            )
+
+            n_metrics = len(sorted_metrics)
+            if n_metrics > _MAX_METRICS_FOR_COMPENSATION:
+                warnings.warn(
+                    f"compensate_correlations=true but config has "
+                    f"{n_metrics} metrics (cap {_MAX_METRICS_FOR_COMPENSATION}); "
+                    "trajectory-aware pre-compensation skipped — the additive "
+                    "decomposition becomes too noisy at this scale. Falling "
+                    "back to the direct copula path.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                traj_cov = estimate_trajectory_covariance(
+                    config, metric_order=sorted_metrics,
+                )
+                mat, compensation_records = compensate_correlation_matrix(
+                    mat, traj_cov, sorted_metrics, list(config.correlations),
+                )
+                warning_text = _format_correlation_compensation_warning(
+                    compensation_records,
+                )
+                if warning_text:
+                    warnings.warn(warning_text, UserWarning, stacklevel=2)
+
         # M111: project to nearest PD if needed. The load-time validator on
         # PlotsimConfig already projected and warned the user, but it built
         # the matrix in declaration order while this hoist uses toposort
         # order — so re-project deterministically here rather than thread
         # an order-aware permutation through the engine. PD inputs pass
         # through unchanged (byte-identical to pre-M111 for every config
-        # whose user-specified matrix is already PD).
+        # whose user-specified matrix is already PD). Under M120 this also
+        # absorbs the compensated matrix when pre-compensation pushed it
+        # off the PD cone (compensation alters off-diagonals — Higham
+        # restores PD without un-doing the compensation).
         from plotsim.metrics import project_correlation_matrix
 
         projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
         cholesky_L = np.linalg.cholesky(projected_mat)
+
+        # M120: stash compensation records on the (private) config attr so
+        # ``plotsim.manifest.build_manifest`` can surface them alongside the
+        # M111 Higham records. ``None`` (no compensation, no records) ≠
+        # empty list (compensation ran but every pair was already feasible
+        # AND in scope) — keep the distinction in the manifest's wire shape.
+        if compensation_records is not None:
+            config._correlation_compensations = compensation_records
 
     # M107: compute the per-entity metric series ONCE and pass to both
     # ``build_fact_tables`` and ``build_bridge_tables``. Without this hoist

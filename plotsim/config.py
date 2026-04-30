@@ -1808,6 +1808,15 @@ class PlotsimConfig(_Frozen):
         default_factory=list, max_length=12,
     )
 
+    # M120: trajectory-aware correlation pre-compensation. Default ``false``
+    # for engine-direct configs so the bundled templates (and any pre-M120
+    # YAML on disk) keep producing byte-identical CSV output. The builder
+    # interpreter sets ``true`` explicitly so user-declared connections land
+    # as table-wide correlations matching the configured signs and
+    # magnitudes — the trajectory's own structural covariance otherwise
+    # dominates the copula at mixed-archetype scale.
+    compensate_correlations: bool = False
+
     # M111: populated by ``_correlation_matrix_is_psd`` when the user's
     # correlation matrix had to be Higham-projected to nearest PD.
     # ``None`` for runs where the matrix was already PD (the common case)
@@ -1818,6 +1827,18 @@ class PlotsimConfig(_Frozen):
     # through ``model_dump`` would pollute the YAML round-trip and the
     # config_sha256 fingerprint.
     _correlation_adjustments: Optional[list[dict]] = PrivateAttr(default=None)
+
+    # M120: populated by ``plotsim.tables.generate_tables_with_state`` when
+    # ``compensate_correlations=True`` and at least one user-declared pair
+    # was compensated. ``None`` for runs without compensation (engine-direct
+    # default, builder runs without ``connections``). Read by
+    # ``plotsim.manifest.build_manifest`` to surface
+    # ``manifest.correlation_compensations``. Distinct from the M111
+    # ``_correlation_adjustments`` attr: that records "your matrix wasn't PD,
+    # we projected it"; this records "your target's been compensated for the
+    # trajectory's structural contribution before reaching the copula." Both
+    # may populate on a single run.
+    _correlation_compensations: Optional[list[dict]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":

@@ -280,6 +280,28 @@ into an actual metric value through a fixed pipeline.
    Cholesky factor of the (PD-projected) correlation matrix, then mapped
    back through the original CDF. This preserves marginals while honouring
    pairwise correlations.
+
+   **M120: trajectory-aware pre-compensation.** When
+   `config.compensate_correlations=True` (default for builder-produced
+   configs, opt-in for engine-direct configs), an extra step runs once
+   before the Cholesky factor is built: `estimate_trajectory_covariance`
+   computes the within-archetype Pearson the trajectory's centers
+   themselves induce between every metric pair (with M119 seasonal
+   modulation applied), weighted by entity proportion across archetypes.
+   `compensate_correlation_matrix` then subtracts that contribution from
+   each declared `CorrelationPair` before the matrix reaches Higham. The
+   per-cell copula is unchanged — it just receives a different Cholesky
+   factor. Without this compensation, mixed-archetype configs land
+   table-wide Pearson values dominated by the trajectory's structural
+   covariance and the configured `connections` are invisible. Undeclared
+   off-diagonals are NOT compensated: forcing `r_copula = -r_traj` for
+   every silent zero pushes the matrix into a near-degenerate region
+   that Higham then heavily distorts, leaking back into the declared
+   pairs and undoing the compensation we wanted there. The metric cap
+   `_MAX_METRICS_FOR_COMPENSATION = 20` falls back to the legacy direct
+   path with a warning above that count — the additive trajectory +
+   copula decomposition becomes too noisy at higher M to satisfy the
+   sign-match floor.
 6. **Noise** — `apply_noise` adds gaussian σ-jitter, replaces a small
    fraction with outliers, and inserts MCAR nulls.
 7. **Clamp / round** — `_clamp_and_round` enforces `value_range` and
@@ -882,6 +904,36 @@ Practical consequence: a bridge whose second dim is `per_entity` has a
 row-count ceiling of `len(config.entities)`, which the cardinality.max
 validator now enforces. None of the bundled engine templates exercise
 this path (no bundled bridge points at a per_entity second dim).
+
+### 4.7 Trajectory-aware correlation compensation only touches declared pairs
+
+`compensate_correlation_matrix` (M120) subtracts
+`estimate_trajectory_covariance` from each `CorrelationPair` the user
+declared in `config.correlations` (or the builder's `connections`
+list). Undeclared off-diagonals — pairs the user never wrote — keep
+their auto-zero value in the matrix instead of being compensated to
+`-r_traj`.
+
+This was a hidden contract because the mission spec's "for each metric
+pair" wording reads like "every off-diagonal," but compensating
+undeclared pairs has a subtle Higham interaction: with mixed-archetype
+configs the within-archetype trajectory contribution is close to ±1
+between same-polarity metrics, so the compensated matrix lands at
+unit-magnitude off-diagonals everywhere — a near-rank-1 / near-
+degenerate input. Higham's Frobenius-optimal projection then collapses
+the structure back toward identity, and the *declared* pair's
+compensation gets lost in the projection drift. Restricting
+compensation to declared pairs keeps Higham close to identity in the
+non-target rows/columns and lets the declared pair land where the
+math says it should.
+
+Practical consequence: pairs the user didn't mention follow whatever
+the trajectory does (the pre-M120 contract), and the manifest's
+`correlation_compensations` list contains exactly one record per
+declared pair (no auto-emitted records for silent zeros). If a future
+mission wants to extend the compensation surface, it should also
+generalize the Higham step (e.g., shrinkage projection that preserves
+target rows) — the present implementation does not.
 
 ---
 

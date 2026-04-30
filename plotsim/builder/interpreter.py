@@ -130,6 +130,15 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         correlations=correlations,
         stages=stages,
         seasonal_effects=seasonal_effects,
+        # M120: pre-compensation is always on for builder-produced configs.
+        # User-declared ``connections`` are table-wide intent ("satisfaction
+        # opposes support_tickets"), and the trajectory's structural
+        # covariance otherwise washes out the copula's signal at mixed-
+        # archetype scale. Engine-direct configs default to ``False`` for
+        # backwards compatibility; the builder layer flips that contract
+        # because the ``connections`` vocabulary explicitly promises
+        # table-wide visibility.
+        compensate_correlations=True,
         output=OutputConfig(format="csv", directory="output"),
     )
 

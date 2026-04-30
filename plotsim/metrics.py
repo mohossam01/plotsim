@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import warnings
 from graphlib import CycleError, TopologicalSorter
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from scipy import stats as sp_stats
@@ -55,6 +55,9 @@ from plotsim.config import (
     Metric,
     NoiseConfig,
 )
+
+if TYPE_CHECKING:
+    from plotsim.config import PlotsimConfig
 
 
 # Below this absolute value, a center is treated as zero for correlation
@@ -656,6 +659,305 @@ def apply_correlations(
         u_corr = min(max(u_corr, _CDF_CLAMP), 1.0 - _CDF_CLAMP)
         out[name] = float(frozen_dists[i].ppf(u_corr))
     return out
+
+
+# --- M120: trajectory-aware correlation pre-compensation --------------------
+
+# Above this metric count the additive trajectory + copula decomposition gets
+# noisy enough that the realized table-wide Pearson signs flip on enough pairs
+# to fall below the mission's 80% sign-match floor. Configs with more metrics
+# than this skip pre-compensation and emit a warning rather than degrade
+# silently. Mirrors `MAX_METRICS_FOR_COMPENSATION` in the mission spec.
+_MAX_METRICS_FOR_COMPENSATION = 20
+
+
+def _archetype_seasonal_sensitivity(
+    archetype_name: str,
+    config: "PlotsimConfig",
+) -> float:
+    """Size-weighted mean of ``entity.seasonal_sensitivity`` for this archetype.
+
+    M119 entity sensitivities scale the global seasonal modulation per entity.
+    The trajectory-covariance estimator runs once per archetype, so it needs a
+    representative scalar — size-weighted mean keeps a 10-entity-cohort with
+    sensitivity 2.0 from being equally weighted with a single-entity cohort
+    at 0.5 inside the same archetype. Returns 1.0 if the archetype has no
+    entities (defensive — config validators reject this earlier).
+    """
+    total_size = 0
+    weighted = 0.0
+    for ent in config.entities:
+        if ent.archetype != archetype_name:
+            continue
+        size = max(1, int(ent.size))
+        total_size += size
+        weighted += size * float(ent.seasonal_sensitivity)
+    if total_size == 0:
+        return 1.0
+    return weighted / total_size
+
+
+def _archetype_centers(
+    archetype: Archetype,
+    metrics: list[Metric],
+    n_periods: int,
+    seasonal_factors: Optional[np.ndarray],
+    entity_seasonal_sensitivity: float,
+) -> np.ndarray:
+    """Compute the ``(n_periods, n_metrics)`` center matrix for this archetype.
+
+    Per-cell value is ``position_to_center(traj[t], effective_metric)`` with
+    archetype overrides applied to the metric, then multiplied by the M119
+    seasonal modulation factor when ``seasonal_factors`` is non-None.
+    Causal-lag blending is intentionally NOT applied here — the trajectory
+    covariance estimate is a population-level model of "what the engine
+    expects to draw before the copula touches it," and the lag blend
+    introduces per-entity history that doesn't apply to a one-shot estimate.
+    Documented as a known limitation in the docstring of
+    ``estimate_trajectory_covariance``.
+    """
+    from plotsim.trajectory import compute_trajectory
+
+    traj = compute_trajectory(archetype, n_periods, overrides=None)
+    effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
+    centers = np.zeros((n_periods, len(metrics)), dtype=np.float64)
+    for j, em in enumerate(effective):
+        for t in range(n_periods):
+            center = position_to_center(float(traj[t]), em)
+            if seasonal_factors is not None:
+                strength = (
+                    float(seasonal_factors[t])
+                    * em.seasonal_sensitivity
+                    * entity_seasonal_sensitivity
+                )
+                if strength != 0.0:
+                    center = center * (1.0 + strength)
+                    vr = em.value_range
+                    if vr is not None:
+                        if vr.min is not None and center < vr.min:
+                            center = vr.min
+                        if vr.max is not None and center > vr.max:
+                            center = vr.max
+            centers[t, j] = center
+    return centers
+
+
+def _safe_corrcoef(centers: np.ndarray) -> np.ndarray:
+    """Pearson correlation across columns of ``centers`` (period axis = rows).
+
+    Constant-column metrics (std == 0) make ``np.corrcoef`` return NaN for
+    the affected pairs. Treat those as "no trajectory contribution" — sub a
+    zero off-diagonal so the compensation step doesn't propagate NaN into
+    the user matrix. Diagonal is forced to 1.0 regardless.
+    """
+    n_metrics = centers.shape[1]
+    if n_metrics == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    if centers.shape[0] < 2:
+        # One period → no variance, no correlation. Returns an identity-shaped
+        # matrix so callers can subtract it without dimension errors.
+        out = np.eye(n_metrics, dtype=np.float64)
+        return out
+    stds = centers.std(axis=0, ddof=0)
+    n = n_metrics
+    out = np.eye(n, dtype=np.float64)
+    nonconst = np.where(stds > 0.0)[0]
+    if len(nonconst) >= 2:
+        sub = np.corrcoef(centers[:, nonconst], rowvar=False)
+        # ``np.corrcoef`` on a degenerate input may still emit NaNs; scrub.
+        sub = np.nan_to_num(sub, nan=0.0, posinf=0.0, neginf=0.0)
+        out[np.ix_(nonconst, nonconst)] = sub
+    np.fill_diagonal(out, 1.0)
+    return out
+
+
+def estimate_trajectory_covariance(
+    config: "PlotsimConfig",
+    metric_order: Optional[list[Metric]] = None,
+) -> np.ndarray:
+    """Expected within-archetype trajectory correlation, weighted by entity count.
+
+    For each archetype:
+
+      1. Build the base trajectory ``compute_trajectory(archetype, n_periods)``
+         (no per-entity ``inflection_month`` overrides — this is a
+         population-level estimate).
+      2. Apply ``_apply_archetype_overrides`` to every metric so distribution-
+         family swaps and ``value_range`` overrides feed into the centers.
+      3. For each period, compute ``position_to_center`` per metric and
+         multiply by the M119 seasonal modulation factor (per-entity
+         sensitivity is the size-weighted mean across entities of this
+         archetype). Causal-lag blending is **not** applied — see
+         ``_archetype_centers`` for the rationale.
+      4. Pearson-correlate metric columns across the period axis to get
+         ``r_traj_a``, with NaN-safe handling for constant centers.
+
+    The archetype-level matrices are then averaged with weights
+    ``w_a = sum(entity.size for entity in archetype) / total_entity_size``
+    to produce the table-wide trajectory contribution.
+
+    The output is in the same order as ``metric_order`` (defaults to
+    ``_toposort_metrics(config.metrics)`` so the returned matrix lines up
+    with the Cholesky factor ``tables.py`` builds in toposort order).
+
+    Returns a ``(n_metrics, n_metrics)`` matrix with diagonal 1.0 and
+    off-diagonals in [-1, 1]. Empty correlations or zero archetypes →
+    identity (compensation against identity is a no-op).
+    """
+    if metric_order is None:
+        metric_order = _toposort_metrics(list(config.metrics))
+    n = len(metric_order)
+    if n == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+
+    # Local import: ``plotsim.tables`` already imports from ``plotsim.metrics``,
+    # so a top-level import here would create a cycle.
+    from plotsim.tables import _build_seasonal_factors
+
+    n_periods = config.time_window.period_count()
+    seasonal_factors = _build_seasonal_factors(config, n_periods)
+
+    arch_by_name = {a.name: a for a in config.archetypes}
+    archetype_sizes: dict[str, int] = {}
+    for ent in config.entities:
+        archetype_sizes[ent.archetype] = (
+            archetype_sizes.get(ent.archetype, 0) + max(1, int(ent.size))
+        )
+    total_size = sum(archetype_sizes.values())
+    if total_size == 0:
+        return np.eye(n, dtype=np.float64)
+
+    accumulator = np.zeros((n, n), dtype=np.float64)
+    for arch_name, size in archetype_sizes.items():
+        archetype = arch_by_name.get(arch_name)
+        if archetype is None:
+            continue
+        sensitivity = _archetype_seasonal_sensitivity(arch_name, config)
+        centers = _archetype_centers(
+            archetype, metric_order, n_periods,
+            seasonal_factors, sensitivity,
+        )
+        r_a = _safe_corrcoef(centers)
+        accumulator += (size / total_size) * r_a
+
+    np.fill_diagonal(accumulator, 1.0)
+    # Numerical hygiene — Pearson within ±1 by definition, but float-mean
+    # accumulation can drift by an ULP.
+    accumulator = np.clip(accumulator, -1.0, 1.0)
+    np.fill_diagonal(accumulator, 1.0)
+    return accumulator
+
+
+def compensate_correlation_matrix(
+    user_matrix: np.ndarray,
+    traj_covariance: np.ndarray,
+    metrics: list[Metric],
+    correlations: list[CorrelationPair],
+) -> tuple[np.ndarray, list[dict]]:
+    """Subtract the trajectory contribution from declared pairs only.
+
+    Off-diagonal cells of ``user_matrix`` correspond to the operator's
+    declared correlation pairs (their explicit contract). Subtracting
+    ``traj_covariance`` from those targets gives the copula a goal whose
+    realized output, after the trajectory contribution recombines
+    additively, lands close to what the user wrote.
+
+    Crucially, **undeclared** pairs (auto-zero off-diagonals) are NOT
+    compensated. Compensating them would treat ``0`` as a structural
+    user contract and force ``r_copula = -r_traj`` everywhere, which
+    pushes the matrix into a near-rank-1 / near-degenerate region that
+    Higham heavily distorts; the Higham distortion then leaks back into
+    the declared pairs and undoes the compensation we wanted there.
+    Leaving undeclared pairs at zero matches the pre-M120 contract
+    ("pairs the user didn't mention follow whatever the trajectory does")
+    and keeps Higham's downstream projection close to identity.
+
+    Records are emitted only for the declared ``correlations`` pairs
+    (the user wrote them; they're the contract the manifest reports
+    against). Each record includes:
+
+      * ``user_target`` — coefficient as written in the YAML.
+      * ``trajectory_contribution`` — within-archetype-weighted Pearson the
+        trajectory itself induces between this pair.
+      * ``compensated_target`` — pre-clamp ``user_target - trajectory_contribution``.
+      * ``achievable`` — ``compensated_target`` clamped to ``[-1, 1]``.
+      * ``infeasible`` — True when ``compensated_target`` fell outside
+        ``[-1, 1]`` (sign of the user target was preserved through the clamp
+        but magnitude is bounded by what the copula can produce).
+      * ``adjustment`` — ``abs(user_target - achievable)`` for sort/filter.
+
+    Diagonal is forced to 1.0 so the result is a valid correlation
+    matrix. The returned matrix is **not** Higham-projected — callers
+    are expected to feed it through ``project_correlation_matrix``
+    before ``np.linalg.cholesky``.
+    """
+    n = user_matrix.shape[0]
+    if n == 0 or not correlations:
+        return user_matrix.copy(), []
+
+    names = [m.name for m in metrics]
+    idx = {name: pos for pos, name in enumerate(names)}
+
+    compensated = user_matrix.copy()
+    np.fill_diagonal(compensated, 1.0)
+
+    seen: set[tuple[str, str]] = set()
+    records: list[dict] = []
+    for pair in correlations:
+        if pair.metric_a not in idx or pair.metric_b not in idx:
+            continue
+        key = tuple(sorted((pair.metric_a, pair.metric_b)))
+        if key in seen:
+            continue
+        seen.add(key)
+        i, j = idx[pair.metric_a], idx[pair.metric_b]
+        target = float(user_matrix[i, j])
+        traj = float(traj_covariance[i, j])
+        raw = target - traj
+        achievable = max(-1.0, min(1.0, raw))
+        infeasible = (raw != achievable)
+        compensated[i, j] = achievable
+        compensated[j, i] = achievable
+        records.append({
+            "metric_a": pair.metric_a,
+            "metric_b": pair.metric_b,
+            "user_target": target,
+            "trajectory_contribution": traj,
+            "compensated_target": raw,
+            "achievable": achievable,
+            "infeasible": infeasible,
+            "adjustment": abs(target - achievable),
+        })
+    records.sort(key=lambda r: (r["metric_a"], r["metric_b"]))
+    return compensated, records
+
+
+def _format_correlation_compensation_warning(records: list[dict]) -> str:
+    """Render the per-pair compensation warning text for infeasible pairs.
+
+    Only infeasible records (the copula target fell outside ``[-1, 1]`` after
+    the trajectory subtraction) get a user-visible line — feasible ones are
+    invisible to the operator because the compensated copula simply delivers
+    what they asked for. Empty input → empty string (caller short-circuits).
+    """
+    infeasible = [r for r in records if r["infeasible"]]
+    if not infeasible:
+        return ""
+    parts = [
+        f"{r['metric_a']} ↔ {r['metric_b']}: configured "
+        f"{r['user_target']:.4f}, trajectory contributes "
+        f"{r['trajectory_contribution']:+.4f}, copula target "
+        f"{r['compensated_target']:.4f} (infeasible), achievable "
+        f"≈ {r['achievable']:.4f}"
+        for r in infeasible
+    ]
+    return (
+        f"Trajectory-aware correlation pre-compensation: {len(infeasible)} "
+        "configured correlation(s) are not jointly achievable given the "
+        "archetype mix's trajectory covariance — copula targets clamped to "
+        "the achievable range. "
+        + "; ".join(parts)
+    )
 
 
 # --- Causal lag --------------------------------------------------------------

@@ -490,13 +490,32 @@ def _hoist_cholesky(config: PlotsimConfig) -> Optional[np.ndarray]:
     """Re-derive the engine's Cholesky factor for replay.
 
     Mirrors ``generate_tables_with_state``'s hoist exactly: assemble the
-    correlation matrix in toposorted-metric order, project to nearest-PD if
-    needed, factor.
+    correlation matrix in toposorted-metric order, optionally apply the
+    M120 trajectory-aware pre-compensation (matching the engine's
+    ``compensate_correlations`` flag and ``_MAX_METRICS_FOR_COMPENSATION``
+    cap), project to nearest-PD if needed, factor. The mirror is required
+    so ``trace_metric_cell`` reports the compensated coefficient the
+    engine actually drove the cell against rather than the raw user
+    target.
     """
     if not config.correlations:
         return None
     sorted_metrics = _toposort_metrics(list(config.metrics))
     mat = _build_correlation_matrix(sorted_metrics, list(config.correlations))
+    if config.compensate_correlations:
+        from plotsim.metrics import (
+            _MAX_METRICS_FOR_COMPENSATION,
+            compensate_correlation_matrix,
+            estimate_trajectory_covariance,
+        )
+
+        if len(sorted_metrics) <= _MAX_METRICS_FOR_COMPENSATION:
+            traj_cov = estimate_trajectory_covariance(
+                config, metric_order=sorted_metrics,
+            )
+            mat, _records = compensate_correlation_matrix(
+                mat, traj_cov, sorted_metrics, list(config.correlations),
+            )
     projected_mat, _used, _fallback = project_correlation_matrix(mat)
     return np.linalg.cholesky(projected_mat)
 

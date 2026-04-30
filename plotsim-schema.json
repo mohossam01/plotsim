@@ -1194,6 +1194,11 @@
       "maxItems": 12,
       "title": "Seasonal Effects",
       "type": "array"
+    },
+    "compensate_correlations": {
+      "default": false,
+      "title": "Compensate Correlations",
+      "type": "boolean"
     }
   },
   "required": [
