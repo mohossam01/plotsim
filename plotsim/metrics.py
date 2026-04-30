@@ -1278,3 +1278,688 @@ def generate_entity_metrics(
         else:
             result[em.name] = np.array(values, dtype=float)
     return result
+
+
+# --- M121: vectorized (archetype-batched) generation -----------------------
+#
+# The per-(entity, period) Python loop in ``generate_entity_metrics`` walks
+# each entity through every period one cell at a time. M121 adds a parallel
+# path that groups entities by archetype, batches the metric draws + copula
+# across the entity axis at each period, and produces the same dict-shaped
+# result the orchestrator already consumes from the serial path. Selection
+# is per-config via ``PlotsimConfig.generation_mode``.
+#
+# Design constraints (from `docs/engine-internals.md` §2.4a):
+#   * Per-archetype Cholesky is *not* recomputed — the caller passes the
+#     same ``cholesky_L`` that the serial path consumes (M120 compensation
+#     and M111 Higham projection both happen at orchestrator level).
+#   * Entities with per-entity overrides (``inflection_month`` etc.) are
+#     excluded from the batch by the caller and processed via the serial
+#     path. A batch only contains the "no-override" subset of entities
+#     sharing one archetype.
+#   * Vectorized and serial RNG consumption orders differ. Same seed +
+#     same mode → byte-identical output; same seed across modes →
+#     statistically equivalent but distinct cell values. Documented as
+#     part of the dual-path determinism contract.
+#   * Causal-lag chains use a (n_batch, n_periods) per-metric buffer so
+#     each batch row carries its own lag history — no cross-entity
+#     leakage.
+
+# Threshold below which ``PlotsimConfig.generation_mode == "auto"`` selects
+# the serial path. Vectorization wins above this; below it the constant
+# overhead (archetype grouping, full-axis ndarray allocation) eats the
+# small-config savings.
+#
+# M121b basis: ``analysis/perf/m121_vectorized.py`` measured the
+# `saas_template.yaml` builder config (95 entities across 6 segments,
+# 6 metrics, 24 monthly periods, 1 connection) and the stress config
+# (1,020 entities across 3 segments, 20 metrics, 24 periods, 4
+# connections). Speedups (serial / vectorized wall-clock):
+#
+#   * baseline (95 entities, 6 segments) → 3.75×
+#   * stress (1,020 entities, 3 segments) → 69.6×
+#
+# The baseline lands above 2× even at 95 entities split across 6
+# archetypes (largest archetype-batch ~25 entities). 50 stays the right
+# threshold: the smallest archetype batch in the baseline is ~10
+# entities and the run still beats serial by a factor of 4. Re-tuning
+# down to ~30 would not change behavior on any bundled template (all
+# already cross 50); re-tuning up would lose the baseline-config win.
+#
+# Open question deferred to a follow-up: should the threshold key on
+# ``max(archetype_group_size)`` instead of ``len(config.entities)``?
+# At 50 total entities × 10 archetypes the largest batch is 5, which
+# may not amortize numpy overhead. Manifest's
+# ``vectorized_threshold_used`` field carries the constant value at
+# generation time so downstream tooling can detect drift if the
+# heuristic refines.
+_VECTORIZED_AUTO_THRESHOLD = 50
+
+
+def sample_single_metric_batch(
+    centers: np.ndarray,
+    metric: Metric,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Batched draw of one metric across ``n`` entities at one period.
+
+    Mirrors ``sample_single_metric``'s per-distribution math but consumes
+    one vectorized RNG call per metric instead of ``n`` scalar calls.
+    ``centers`` is shape ``(n,)``; the return is shape ``(n,)``. Value-
+    range clamping and poisson rounding still happen later in the caller
+    (``_clamp_and_round_batch``), AFTER noise. Degenerate cells (eg gamma
+    ``shape <= 0`` or center ``<= 0``) are zeroed in-place so the per-row
+    bypass mask in ``_apply_correlations_batch`` can preserve their
+    independent draws unchanged.
+    """
+    dist = metric.distribution
+    params = metric.params
+    n = centers.shape[0]
+    centers = centers.astype(np.float64, copy=False)
+
+    if dist == "lognorm":
+        s = float(params["s"])
+        safe = np.maximum(centers, _CENTER_EPS)
+        return rng.lognormal(mean=np.log(safe), sigma=s, size=n).astype(np.float64)
+
+    if dist == "gamma":
+        shape = float(params["shape"])
+        if shape <= 0.0:
+            # Degenerate metric — every cell is bypass. Returning zeros
+            # preserves scalar behavior; ``apply_correlations_batch``
+            # marks the column as bypass via ``_get_scipy_dist_batch``.
+            return np.zeros(n, dtype=np.float64)
+        # rng.gamma needs scale > 0 in every slot. Substitute 1.0 in
+        # masked-out cells; we'll zero them after the call.
+        active = centers > 0.0
+        scales = np.where(active, centers / shape, 1.0)
+        draws = rng.gamma(shape=shape, scale=scales, size=n)
+        return np.where(active, draws, 0.0)
+
+    if dist == "poisson":
+        lam = np.maximum(centers, 0.0)
+        return rng.poisson(lam=lam, size=n).astype(np.float64)
+
+    if dist == "beta":
+        alpha = float(params["alpha"])
+        beta = float(params["beta"])
+        raw = rng.beta(a=alpha, b=beta, size=n)
+        base_mean = alpha / (alpha + beta)
+        vr = metric.value_range
+        if vr is not None and vr.min is not None and vr.max is not None:
+            span = float(vr.max - vr.min)
+            return centers + (raw - base_mean) * span
+        scale = float(params.get("scale", 1.0))
+        return (raw - base_mean + centers) * scale
+
+    if dist == "normal":
+        sigma = float(params["sigma"])
+        return rng.normal(loc=centers, scale=sigma, size=n).astype(np.float64)
+
+    if dist == "weibull":
+        shape = float(params["shape"])
+        if shape <= 0.0:
+            return np.zeros(n, dtype=np.float64)
+        return rng.weibull(a=shape, size=n).astype(np.float64) * centers
+
+    raise ValueError(f"unsupported distribution {dist!r}")
+
+
+def _bypass_mask_batch(
+    centers: np.ndarray,
+    metrics: list[Metric],
+) -> np.ndarray:
+    """Per-cell bypass mask shaped ``(n, M)`` for a batch at one period.
+
+    Mirrors the scalar branch in ``_get_scipy_dist`` — a cell is bypass
+    when its center makes the underlying distribution degenerate (no
+    meaningful CDF, so the copula has nothing to apply). The independent
+    draw passes through unchanged for those cells; the surrounding
+    metrics' correlation is still resolved over the active subset.
+    """
+    n, M = centers.shape
+    mask = np.zeros((n, M), dtype=bool)
+    for j, m in enumerate(metrics):
+        dist = m.distribution
+        col = centers[:, j]
+        if dist == "lognorm":
+            mask[:, j] = col <= _CENTER_EPS
+        elif dist == "gamma":
+            shape = float(m.params.get("shape", 0.0))
+            if shape <= 0.0:
+                mask[:, j] = True
+            else:
+                mask[:, j] = col <= 0.0
+        elif dist == "poisson":
+            mask[:, j] = col <= _CENTER_EPS
+        elif dist == "beta":
+            mask[:, j] = False
+        elif dist == "normal":
+            sigma = float(m.params.get("sigma", 0.0))
+            if sigma <= 0.0:
+                mask[:, j] = True
+        elif dist == "weibull":
+            shape = float(m.params.get("shape", 0.0))
+            if shape <= 0.0:
+                mask[:, j] = True
+            else:
+                mask[:, j] = col <= 0.0
+        else:
+            raise ValueError(f"unsupported distribution {dist!r}")
+    return mask
+
+
+def _column_cdf_batch(
+    values: np.ndarray,
+    centers: np.ndarray,
+    metric: Metric,
+) -> np.ndarray:
+    """Column-batched CDF of one metric's distribution at per-row centers.
+
+    Used by the batched copula to push independent draws into uniform
+    [0, 1] space before the inverse-normal step. Mirrors
+    ``_get_scipy_dist(...).cdf(value)`` from the scalar path but operates
+    on shape ``(n,)`` arrays. Caller guarantees no bypass cells in the
+    column (full-column bypass triggers the scalar fallback path).
+    """
+    dist = metric.distribution
+    params = metric.params
+    if dist == "lognorm":
+        s = float(params["s"])
+        return sp_stats.lognorm(s=s, scale=centers).cdf(values)
+    if dist == "gamma":
+        shape = float(params["shape"])
+        return sp_stats.gamma(a=shape, scale=centers / shape).cdf(values)
+    if dist == "poisson":
+        return sp_stats.poisson(mu=np.maximum(centers, 0.0)).cdf(values)
+    if dist == "beta":
+        alpha = float(params["alpha"])
+        beta = float(params["beta"])
+        base_mean = alpha / (alpha + beta)
+        vr = metric.value_range
+        if vr is not None and vr.min is not None and vr.max is not None:
+            span = float(vr.max - vr.min)
+            return sp_stats.beta(
+                a=alpha, b=beta,
+                loc=centers - base_mean * span,
+                scale=span,
+            ).cdf(values)
+        scale = float(params.get("scale", 1.0))
+        return sp_stats.beta(
+            a=alpha, b=beta,
+            loc=scale * (centers - base_mean),
+            scale=scale,
+        ).cdf(values)
+    if dist == "normal":
+        sigma = float(params["sigma"])
+        return sp_stats.norm(loc=centers, scale=sigma).cdf(values)
+    if dist == "weibull":
+        shape = float(params["shape"])
+        return sp_stats.weibull_min(c=shape, scale=centers).cdf(values)
+    raise ValueError(f"unsupported distribution {dist!r}")
+
+
+def _column_ppf_batch(
+    uniform: np.ndarray,
+    centers: np.ndarray,
+    metric: Metric,
+) -> np.ndarray:
+    """Column-batched PPF, paired with ``_column_cdf_batch``.
+
+    Pulls the correlated uniform back into the marginal distribution to
+    close the copula round-trip. Same parameterizations as the CDF helper
+    so the round-trip ``ppf(cdf(x)) == x`` (up to float precision).
+    """
+    dist = metric.distribution
+    params = metric.params
+    if dist == "lognorm":
+        s = float(params["s"])
+        return sp_stats.lognorm(s=s, scale=centers).ppf(uniform)
+    if dist == "gamma":
+        shape = float(params["shape"])
+        return sp_stats.gamma(a=shape, scale=centers / shape).ppf(uniform)
+    if dist == "poisson":
+        return sp_stats.poisson(mu=np.maximum(centers, 0.0)).ppf(uniform)
+    if dist == "beta":
+        alpha = float(params["alpha"])
+        beta = float(params["beta"])
+        base_mean = alpha / (alpha + beta)
+        vr = metric.value_range
+        if vr is not None and vr.min is not None and vr.max is not None:
+            span = float(vr.max - vr.min)
+            return sp_stats.beta(
+                a=alpha, b=beta,
+                loc=centers - base_mean * span,
+                scale=span,
+            ).ppf(uniform)
+        scale = float(params.get("scale", 1.0))
+        return sp_stats.beta(
+            a=alpha, b=beta,
+            loc=scale * (centers - base_mean),
+            scale=scale,
+        ).ppf(uniform)
+    if dist == "normal":
+        sigma = float(params["sigma"])
+        return sp_stats.norm(loc=centers, scale=sigma).ppf(uniform)
+    if dist == "weibull":
+        shape = float(params["shape"])
+        return sp_stats.weibull_min(c=shape, scale=centers).ppf(uniform)
+    raise ValueError(f"unsupported distribution {dist!r}")
+
+
+def _apply_correlations_batch(
+    independent: np.ndarray,
+    centers: np.ndarray,
+    metrics: list[Metric],
+    correlations: list[CorrelationPair],
+    cholesky_L: Optional[np.ndarray],
+) -> tuple[np.ndarray, int]:
+    """Vectorized Gaussian copula across the batch axis at one period.
+
+    ``independent`` and ``centers`` are shape ``(n, M)``. ``cholesky_L``
+    is the Cholesky factor of the (already M120-compensated, M111
+    Higham-projected) correlation matrix. The math is identical to
+    scalar ``apply_correlations`` — push each marginal through CDF →
+    standard-normal PPF → multiply by L^T → standard-normal CDF →
+    marginal PPF — but the per-cell scalar Python calls become
+    column-vectorized ``scipy.stats`` calls with broadcasting over the
+    ``n``-row axis.
+
+    Bypass handling: per-cell degenerate cells (``_bypass_mask_batch``)
+    have no meaningful CDF, so their independent draw passes through
+    unchanged. When every column is fully active (no bypass), the
+    correlation transform applies to all rows uniformly. When *any*
+    cell is bypassed, fall back to per-row scalar
+    ``apply_correlations`` — the per-row bypass-aware submatrix
+    Cholesky path is non-trivial to vectorize cleanly and the fall-
+    back is rare in production configs (positive centers throughout).
+
+    M121b: returns ``(correlated, bypass_cell_count)``. The count is the
+    number of ``(row, metric)`` cells that triggered the per-row scalar
+    fallback at this period — surfaced to the manifest as
+    ``bypass_fallback_counts`` so users investigating "vectorization
+    isn't faster on my config" can see whether bypass is the cause.
+    Zero on the all-active fast path; equal to ``bypass.sum()`` on the
+    fallback branch.
+    """
+    n, M = independent.shape
+    if not correlations or M == 0 or cholesky_L is None:
+        return independent.copy(), 0
+
+    bypass = _bypass_mask_batch(centers, metrics)
+    if bypass.any():
+        bypass_count = int(bypass.sum())
+        # Per-row scalar fallback — preserves exact bypass-aware
+        # submatrix Cholesky behavior. Hot path stays vectorized via
+        # the no-bypass branch below.
+        out = np.empty_like(independent, dtype=np.float64)
+        names = [m.name for m in metrics]
+        for i in range(n):
+            ind_dict = {names[j]: float(independent[i, j]) for j in range(M)}
+            ctr_dict = {names[j]: float(centers[i, j]) for j in range(M)}
+            corr = apply_correlations(
+                ind_dict, ctr_dict, correlations, metrics,
+                cholesky_L=cholesky_L,
+            )
+            for j in range(M):
+                out[i, j] = corr[names[j]]
+        return out, bypass_count
+
+    # All-active fast path. Push each marginal through its CDF, clamp
+    # away from 0/1 to avoid ±inf under the inverse normal, transform
+    # via L^T, push back through.
+    z = np.empty((n, M), dtype=np.float64)
+    for j, m in enumerate(metrics):
+        u_col = _column_cdf_batch(independent[:, j], centers[:, j], m)
+        u_col = np.clip(u_col, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
+        z[:, j] = sp_norm.ppf(u_col)
+
+    corr_z = z @ cholesky_L.T
+
+    out = np.empty((n, M), dtype=np.float64)
+    for j, m in enumerate(metrics):
+        u_corr = sp_norm.cdf(corr_z[:, j])
+        u_corr = np.clip(u_corr, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
+        out[:, j] = _column_ppf_batch(u_corr, centers[:, j], m)
+    return out, 0
+
+
+def _apply_noise_batch(
+    values: np.ndarray,
+    noise: NoiseConfig,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Vectorized gaussian → outlier → MCAR pipeline across a 1-D batch.
+
+    Mirrors ``apply_noise`` but operates on shape ``(n,)``. MCAR cells
+    become ``np.nan`` (caller decides the dtype based on whether NaNs
+    appeared in the full series). Each branch consumes one batched RNG
+    call so the inner loop is O(M·P) RNG calls instead of O(n·M·P).
+
+    Ordering matches the scalar version: gaussian first, then outlier
+    replacement (independent of gaussian), then MCAR null. Outlier-
+    replaced values can still be MCAR-nulled in the same step. Each
+    branch consumes RNG only when its rate/sigma is non-zero, so a
+    fully-zero ``NoiseConfig`` is a pass-through.
+    """
+    n = values.shape[0]
+    v = values.astype(np.float64, copy=True)
+
+    if noise.gaussian_sigma > 0.0:
+        # Multiplicative jitter. Where v==0, fall back to absolute sigma.
+        mag = np.where(v != 0.0, np.abs(v), 1.0)
+        v = v + rng.normal(loc=0.0, scale=noise.gaussian_sigma * mag, size=n)
+
+    if noise.outlier_rate > 0.0:
+        coin = rng.random(size=n)
+        triggered = coin < noise.outlier_rate
+        sign = np.where(v >= 0.0, 1.0, -1.0)
+        mag = np.where(v != 0.0, np.abs(v), 1.0)
+        # Unconditional ``rng.uniform`` keeps RNG order deterministic
+        # within the vectorized path even when ``triggered`` is empty —
+        # the cross-mode RNG-divergence contract already covers any
+        # difference vs the scalar path's per-cell branching.
+        outlier = sign * rng.uniform(low=mag * 3.0, high=mag * 10.0, size=n)
+        v = np.where(triggered, outlier, v)
+
+    if noise.mcar_rate > 0.0:
+        coin = rng.random(size=n)
+        v = np.where(coin < noise.mcar_rate, np.nan, v)
+
+    return v
+
+
+def _clamp_and_round_batch(
+    values: np.ndarray,
+    metric: Metric,
+) -> np.ndarray:
+    """Vectorized ``_clamp_and_round`` — preserves NaN cells."""
+    vr = metric.value_range
+    nan_mask = np.isnan(values)
+    out = values.astype(np.float64, copy=True)
+    if vr is not None:
+        if vr.min is not None:
+            out = np.where(out < vr.min, vr.min, out)
+        if vr.max is not None:
+            out = np.where(out > vr.max, vr.max, out)
+    if metric.distribution == "poisson":
+        rounded = np.rint(out)
+        out = rounded
+    if nan_mask.any():
+        out = np.where(nan_mask, np.nan, out)
+    return out
+
+
+def generate_archetype_batch(
+    archetype: Archetype,
+    batch_entities: list,
+    metrics: list[Metric],
+    correlations: Optional[list[CorrelationPair]],
+    noise: Optional[NoiseConfig],
+    n_periods: int,
+    rng: np.random.Generator,
+    cholesky_L: Optional[np.ndarray] = None,
+    seasonal_factors: Optional[np.ndarray] = None,
+    bypass_counter: Optional[dict[str, int]] = None,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Generate every metric series for ``len(batch_entities)`` entities.
+
+    All entities in the batch share one archetype (so one trajectory)
+    and have NO per-entity ``overrides``. They may differ in
+    ``seasonal_sensitivity``, which scales the M119 modulation per row.
+
+    Pipeline at each period (vectorized along the batch axis):
+
+      1. Resolve archetype overrides on every metric → effective metrics.
+      2. Compute the (n_batch, M) center matrix:
+           ``position_to_center(traj[t], em)`` per metric, then
+           ``× (1 + seasonal[t] × em.sens × entity.sens[i])``,
+           then clamp to ``value_range``.
+      3. Apply causal-lag blending in topological driver→target order;
+         maintains a (n_batch, n_periods) buffer per metric so chains
+         A→B→C compose batch-wise without cross-entity leakage.
+      4. Sample independent values via ``sample_single_metric_batch``.
+      5. Apply the batched copula via ``_apply_correlations_batch``.
+      6. Apply noise via ``_apply_noise_batch``.
+      7. Clamp + round via ``_clamp_and_round_batch``.
+
+    Returns ``dict[entity.name → dict[metric.name → np.ndarray]]`` —
+    same shape as the serial path's return so the orchestrator can
+    union vectorized + serial entity_metrics into one dict before
+    handing it to ``build_fact_tables`` and ``build_bridge_tables``.
+
+    Determinism: same ``(archetype, batch_entities, metrics, ..., rng_state)``
+    → byte-identical output. RNG order differs from the serial path
+    (per-batch ``size=n`` calls vs serial's per-cell scalar calls), so
+    cross-mode cell values are not byte-identical even at the same seed.
+    Documented as part of the dual-path determinism contract.
+
+    M121b: ``bypass_counter`` is an optional mutable dict the caller
+    supplies to record the total number of ``(row, metric)`` cells that
+    triggered ``_apply_correlations_batch``'s per-row scalar fallback
+    across all periods of this archetype. When non-``None``, the function
+    increments ``bypass_counter[archetype.name]`` (defaulting to 0)
+    by the across-period sum. The orchestrator threads a fresh dict
+    through the dispatcher per generation run; ``build_manifest`` then
+    surfaces it as the ``bypass_fallback_counts`` field. ``None`` (the
+    default) is a no-op so direct callers — including the M121a unit
+    tests — keep working unchanged.
+    """
+    from plotsim.trajectory import compute_trajectory
+
+    n_batch = len(batch_entities)
+    if n_batch == 0:
+        return {}
+    bypass_total = 0  # accumulates across periods; surfaced via bypass_counter
+
+    sorted_metrics = _toposort_metrics(list(metrics))
+    effective = [_apply_archetype_overrides(m, archetype) for m in sorted_metrics]
+    M = len(effective)
+
+    # Trajectory is shared across the batch (no per-entity overrides in
+    # the batch by construction; overridden entities run the serial path).
+    traj = compute_trajectory(archetype, n_periods, overrides=None)
+
+    # Per-entity seasonal sensitivity vector — broadcast across the
+    # period axis when modulating centers.
+    ent_sens = np.array(
+        [float(e.seasonal_sensitivity) for e in batch_entities],
+        dtype=np.float64,
+    )  # shape (n_batch,)
+
+    # Pre-compute base centers per (period, metric) — these are the
+    # archetype-common values BEFORE seasonal modulation. Shape (P, M).
+    base_centers = np.zeros((n_periods, M), dtype=np.float64)
+    for j, em in enumerate(effective):
+        for t in range(n_periods):
+            base_centers[t, j] = position_to_center(float(traj[t]), em)
+
+    # Per-metric seasonal sensitivity scalar — applied to the global
+    # per-period strength alongside the entity sensitivity vector.
+    em_sens = np.array(
+        [float(em.seasonal_sensitivity) for em in effective],
+        dtype=np.float64,
+    )  # shape (M,)
+
+    # Lag buffers — one (n_batch, n_periods) array per metric, holding
+    # the *effective position* (post-lag-blend) at each period. Mirrors
+    # the scalar ``lag_buffer`` dict-of-lists; shape switches to a 2D
+    # ndarray so per-batch lookups stay vectorized.
+    lag_buffer = {em.name: np.full((n_batch, n_periods), np.nan, dtype=np.float64)
+                  for em in effective}
+
+    # Output: per-entity dict-of-arrays accumulator. Each metric's
+    # series is built up period-by-period so we can decide dtype at the
+    # end (object if any NaN appeared, int for poisson, else float).
+    series = {
+        e.name: {em.name: np.full(n_periods, np.nan, dtype=np.float64)
+                 for em in effective}
+        for e in batch_entities
+    }
+
+    for t in range(n_periods):
+        # 1. Effective positions per (batch, metric) at this period.
+        #    Drivers walk the batch in declaration order; metrics walk
+        #    in topo order so a chain A→B→C resolves A's effective
+        #    position before B reads it.
+        eff_pos = np.empty((n_batch, M), dtype=np.float64)
+        for j, em in enumerate(effective):
+            base_pos = float(traj[t])
+            if em.causal_lag is None:
+                eff_pos[:, j] = base_pos
+                lag_buffer[em.name][:, t] = base_pos
+                continue
+            lag = em.causal_lag.lag_periods
+            if t < lag:
+                eff_pos[:, j] = base_pos
+                lag_buffer[em.name][:, t] = base_pos
+                continue
+            driver = em.causal_lag.driver
+            driver_buf = lag_buffer.get(driver)
+            if driver_buf is None:
+                eff_pos[:, j] = base_pos
+                lag_buffer[em.name][:, t] = base_pos
+                continue
+            driver_past = driver_buf[:, t - lag]  # shape (n_batch,)
+            # If driver_past has NaN (history not yet populated for that
+            # row — shouldn't happen since topo order resolves drivers
+            # first), fall back to the base position.
+            driver_past = np.where(np.isnan(driver_past), base_pos, driver_past)
+            w = float(em.causal_lag.blend_weight)
+            blended = base_pos * (1.0 - w) + driver_past * w
+            eff_pos[:, j] = blended
+            lag_buffer[em.name][:, t] = blended
+
+        # 2. Centers per (batch, metric) at this period — apply seasonal
+        #    modulation row-wise + clamp to value_range. When seasonal
+        #    factor is exactly 0 (M119 default) the multiplier is 1.0 and
+        #    the result equals the base centers (matches scalar's branch
+        #    elision so cross-mode equivalence holds at the center level).
+        if seasonal_factors is not None and float(seasonal_factors[t]) != 0.0:
+            # Recompute centers from effective positions (lag may have
+            # shifted them off the trajectory's t-th position).
+            centers = np.empty((n_batch, M), dtype=np.float64)
+            for j, em in enumerate(effective):
+                # Vectorized position_to_center along the batch axis.
+                # The scalar call uses metric-specific arithmetic; for
+                # batch we reuse ``_position_to_center_batch`` (defined
+                # below) which dispatches by distribution.
+                centers[:, j] = _position_to_center_batch(eff_pos[:, j], em)
+            seasonal_t = float(seasonal_factors[t])
+            mult = 1.0 + seasonal_t * em_sens[None, :] * ent_sens[:, None]
+            centers = centers * mult
+            # Clamp to value_range column-by-column (each metric may
+            # have different bounds).
+            for j, em in enumerate(effective):
+                vr = em.value_range
+                if vr is not None:
+                    if vr.min is not None:
+                        centers[:, j] = np.where(centers[:, j] < vr.min,
+                                                 vr.min, centers[:, j])
+                    if vr.max is not None:
+                        centers[:, j] = np.where(centers[:, j] > vr.max,
+                                                 vr.max, centers[:, j])
+        else:
+            centers = np.empty((n_batch, M), dtype=np.float64)
+            for j, em in enumerate(effective):
+                centers[:, j] = _position_to_center_batch(eff_pos[:, j], em)
+
+        # 3. Independent draws (one batched RNG call per metric).
+        independent = np.empty((n_batch, M), dtype=np.float64)
+        for j, em in enumerate(effective):
+            independent[:, j] = sample_single_metric_batch(centers[:, j], em, rng)
+
+        # 4. Batched copula. ``_apply_correlations_batch`` returns
+        #    ``(values, bypass_cell_count)``; the count goes to the
+        #    optional manifest counter and the values feed the next stage.
+        #    With no correlations or no Cholesky factor, the copula
+        #    short-circuits and bypass is structurally zero.
+        if correlations:
+            correlated, period_bypass = _apply_correlations_batch(
+                independent, centers, effective, correlations, cholesky_L,
+            )
+            bypass_total += period_bypass
+        else:
+            correlated = independent
+
+        # 5+6+7. Noise + clamp/round per metric column.
+        for j, em in enumerate(effective):
+            col = correlated[:, j]
+            if noise is not None:
+                col = _apply_noise_batch(col, noise, rng)
+            col = _clamp_and_round_batch(col, em)
+            for i, ent in enumerate(batch_entities):
+                series[ent.name][em.name][t] = col[i]
+
+    # Coerce dtypes per entity per metric — matches scalar's contract.
+    result: dict[str, dict[str, np.ndarray]] = {}
+    for ent in batch_entities:
+        per_metric: dict[str, np.ndarray] = {}
+        for em in effective:
+            arr = series[ent.name][em.name]
+            if np.isnan(arr).any():
+                # Carry NaN as Python ``None`` (object dtype) so the
+                # downstream ``_build_metrics_3d`` scrub matches the
+                # serial path's MCAR contract.
+                obj = np.empty(n_periods, dtype=object)
+                for k in range(n_periods):
+                    if np.isnan(arr[k]):
+                        obj[k] = None
+                    elif em.distribution == "poisson":
+                        obj[k] = int(round(float(arr[k])))
+                    else:
+                        obj[k] = float(arr[k])
+                per_metric[em.name] = obj
+            elif em.distribution == "poisson":
+                per_metric[em.name] = arr.astype(int)
+            else:
+                per_metric[em.name] = arr.astype(float)
+        result[ent.name] = per_metric
+
+    # M121b: surface the per-archetype bypass total to the optional
+    # mutable counter the orchestrator threads through. Adding to the
+    # existing value handles the (unlikely) case where the same
+    # archetype name reaches this function twice in one run.
+    if bypass_counter is not None:
+        bypass_counter[archetype.name] = (
+            bypass_counter.get(archetype.name, 0) + bypass_total
+        )
+
+    return result
+
+
+def _position_to_center_batch(
+    positions: np.ndarray,
+    metric: Metric,
+) -> np.ndarray:
+    """Vectorized ``position_to_center`` along the batch axis.
+
+    Mirrors the scalar branch by branch. Polarity is applied on the
+    array first; per-distribution math follows. Returns shape ``(n,)``.
+    """
+    p = np.where(metric.polarity == "negative", 1.0 - positions, positions)
+    dist = metric.distribution
+    params = metric.params
+    if dist == "lognorm":
+        loc = float(params.get("loc", 0.0))
+        scale = float(params.get("scale", 1.0))
+        return loc + scale * p
+    if dist == "gamma":
+        shape = float(params["shape"])
+        scale = float(params.get("scale", 1.0))
+        return shape * scale * p
+    if dist == "poisson":
+        lam = float(params.get("lambda", 1.0))
+        return lam * p
+    if dist == "beta":
+        vr = metric.value_range
+        if vr is not None and vr.min is not None and vr.max is not None:
+            return float(vr.min) + p * float(vr.max - vr.min)
+        return p
+    if dist == "normal":
+        mu = float(params.get("mu", 0.0))
+        return mu * p
+    if dist == "weibull":
+        scale = float(params.get("scale", 1.0))
+        return scale * p
+    raise ValueError(f"unsupported distribution {dist!r}")

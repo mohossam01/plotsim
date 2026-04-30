@@ -139,6 +139,15 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         # because the ``connections`` vocabulary explicitly promises
         # table-wide visibility.
         compensate_correlations=True,
+        # M121: builder-produced configs target the dual-path "auto"
+        # selector — the per-segment expansion (M117) easily produces
+        # multi-hundred-entity configs where vectorization is a clear
+        # speedup. Below the auto threshold (50 entities) the resolver
+        # falls back to ``serial`` so small interactive previews keep
+        # the byte-identical-to-pre-M121 baseline. Engine-direct configs
+        # stay on ``serial`` by default so bundled templates round-trip
+        # byte-identically on disk.
+        generation_mode="auto",
         output=OutputConfig(format="csv", directory="output"),
     )
 

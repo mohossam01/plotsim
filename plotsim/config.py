@@ -1817,6 +1817,20 @@ class PlotsimConfig(_Frozen):
     # dominates the copula at mixed-archetype scale.
     compensate_correlations: bool = False
 
+    # M121: dual-path generation. ``serial`` walks entities one at a time
+    # through ``generate_entity_metrics`` (the pre-M121 hot path);
+    # ``vectorized`` groups entities by archetype and runs batched numpy
+    # samplers + a batched copula across the entity axis at each period;
+    # ``auto`` selects ``vectorized`` when the total entity count meets
+    # ``_VECTORIZED_AUTO_THRESHOLD`` (50) and ``serial`` below it. Default
+    # ``serial`` for engine-direct configs preserves bundled-template
+    # byte-identity on disk; the builder interpreter sets ``auto``
+    # explicitly. The two paths consume RNG in different orders, so output
+    # is statistically equivalent but not byte-identical between modes —
+    # within a mode, ``(config, seed, generation_mode)`` reproduces bytes
+    # exactly. Documented in `docs/engine-internals.md` §2.4 and §2.4a.
+    generation_mode: Literal["serial", "vectorized", "auto"] = "serial"
+
     # M111: populated by ``_correlation_matrix_is_psd`` when the user's
     # correlation matrix had to be Higham-projected to nearest PD.
     # ``None`` for runs where the matrix was already PD (the common case)
@@ -1839,6 +1853,18 @@ class PlotsimConfig(_Frozen):
     # trajectory's structural contribution before reaching the copula." Both
     # may populate on a single run.
     _correlation_compensations: Optional[list[dict]] = PrivateAttr(default=None)
+
+    # M121b: populated by ``plotsim.tables.generate_tables_with_state`` only
+    # in vectorized mode. ``dict[archetype_name → cell_count]`` of cells
+    # that triggered ``_apply_correlations_batch``'s per-row scalar
+    # fallback. ``None`` in serial mode so the manifest's
+    # ``bypass_fallback_counts`` field can distinguish "vectorized with
+    # zero bypass" (empty dict) from "serial — never measured" (None).
+    # PrivateAttr because the value is a per-run side-effect of generation,
+    # not a user input — round-tripping it through ``model_dump`` would
+    # pollute the YAML and the config_sha256 fingerprint, same reasoning
+    # as the M111 / M120 sibling attrs.
+    _bypass_fallback_counts: Optional[dict[str, int]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":

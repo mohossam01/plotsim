@@ -1199,6 +1199,16 @@
       "default": false,
       "title": "Compensate Correlations",
       "type": "boolean"
+    },
+    "generation_mode": {
+      "default": "serial",
+      "enum": [
+        "serial",
+        "vectorized",
+        "auto"
+      ],
+      "title": "Generation Mode",
+      "type": "string"
     }
   },
   "required": [

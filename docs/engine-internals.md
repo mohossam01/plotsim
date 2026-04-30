@@ -342,6 +342,128 @@ is the fallback when Higham doesn't converge fast enough.
 - `project_correlation_matrix(M) -> (M_pd, adjustment_records)`
 - `generate_metrics_for_period(...)` — single period across all metrics.
 - `generate_entity_metrics(...)` — full per-period series for one entity.
+- `generate_archetype_batch(...)` — full per-period series for a batch
+  of entities sharing one archetype (M121 vectorized path).
+
+### 2.4a Vectorized generation — `plotsim/metrics.py` (M121)
+
+**Role.** A second, optional metric-generation path that groups entities
+by archetype and runs batched numpy samplers + a batched copula across
+the entity axis at each period. Selected per-config via
+`PlotsimConfig.generation_mode`:
+
+| Mode          | Behavior                                                                    | Default for          |
+|---------------|-----------------------------------------------------------------------------|----------------------|
+| `serial`      | Pre-M121 per-(entity, period) loop in `generate_entity_metrics`.            | Engine-direct configs |
+| `vectorized`  | Archetype-batched numpy via `generate_archetype_batch`.                     | Builder configs (via `auto`) |
+| `auto`        | Resolves to `vectorized` when `len(config.entities) >= 50`, else `serial`. | Builder configs      |
+
+The dispatch lives in `tables._compute_entity_metrics`. In `vectorized`
+mode the function:
+
+1. Groups entities by archetype, preserving the order each archetype
+   first appears in `config.entities` so RNG draw order is stable.
+2. Excludes entities with `EntityOverrides` (e.g., `inflection_month`)
+   from the batch — overridden entities run the per-entity serial path
+   *after* the batch closes, so all batch RNG draws happen first in a
+   fixed order.
+3. Calls `generate_archetype_batch(...)` per archetype, then the serial
+   fallback for the overridden subset, and unions both into the
+   `entity_metrics` dict the rest of the pipeline consumes.
+
+**Per-period vectorized pipeline** (inside `generate_archetype_batch`):
+
+1. **Effective positions** — for each metric in topological driver→target
+   order, blend the trajectory position at `t` with the driver's past
+   effective position from a `(n_batch, n_periods)` lag buffer. No
+   cross-entity leakage: each batch row carries its own lag history.
+2. **Centers** — `_position_to_center_batch` over the batch axis, then
+   M119 seasonal modulation `× (1 + S_t × em.sens × ent.sens[i])`,
+   then `value_range` clamp.
+3. **Independent draws** — one batched `rng.<dist>(size=n_batch)` call
+   per metric (dispatched in `sample_single_metric_batch`).
+4. **Batched copula** — `_apply_correlations_batch` pushes each
+   marginal through scipy's `cdf`, clips to `[1e-10, 1−1e-10]`, applies
+   the inverse normal, multiplies by `cholesky_L.T`, then closes the
+   round-trip via `cdf(N(0,1))` → marginal `ppf`. Per-cell degenerate
+   cells (`_bypass_mask_batch`) trigger a per-row scalar fallback to
+   preserve the bypass-aware submatrix Cholesky behavior of the scalar
+   path; the all-active fast path covers production configs with
+   positive centers throughout the trajectory.
+5. **Noise** — `_apply_noise_batch` runs gaussian → outlier → MCAR with
+   one batched RNG call per branch; MCAR cells become `np.nan`.
+6. **Clamp / round** — `_clamp_and_round_batch` enforces `value_range`
+   and rounds poisson columns, preserving NaN cells.
+
+**Cholesky factor sharing.** The orchestrator's `cholesky_L` (built
+once after M120 compensation + M111 Higham projection in toposort
+order) is passed straight through to `_apply_correlations_batch` —
+the vectorized path does *not* recompute it per archetype.
+
+**RNG-order divergence.** Vectorized and serial paths consume RNG in
+different orders (`size=n_batch` calls per metric per period vs. `n`
+scalar calls per metric per period). Same seed across modes →
+**statistically equivalent but distinct cell values**. Same seed
+within a mode → byte-identical. The two contracts coexist:
+
+- `(config[mode=serial], seed)` → byte-identical bytes (matches
+  pre-M121 baseline → bundled templates round-trip unchanged).
+- `(config[mode=vectorized], seed)` → byte-identical bytes across
+  runs of the same plotsim version on the same platform.
+- Cross-mode comparison: same per-archetype mean trajectories,
+  same correlation sign matches, same shape recovery — but distinct
+  individual cell values.
+
+**Bypass fallback.** When *any* cell in the batch at the current
+period has a degenerate distribution (gamma `shape ≤ 0`, lognorm
+center `≤ 1e-9`, etc.), `_apply_correlations_batch` falls back to a
+per-row scalar `apply_correlations` call. This is correct but slow.
+
+**M121b bypass observability.** `_apply_correlations_batch` now
+returns `(values, bypass_cell_count)`; `generate_archetype_batch`
+accumulates the count across periods and writes it into an optional
+mutable `bypass_counter` dict the orchestrator threads through. The
+orchestrator stashes the resulting `dict[archetype_name → int]` on
+`PlotsimConfig._bypass_fallback_counts` (PrivateAttr, mirrors the
+M111 / M120 sibling pattern); `manifest.build_manifest` surfaces it
+as `bypass_fallback_counts: Optional[dict[str, int]]`:
+
+* `None` → serial-mode run; bypass is unmeasured because the path
+  has no batched copula to fall back from.
+* `{}` → vectorized run with zero bypass cells; the all-active fast
+  path covered every period.
+* `{archetype: count, ...}` → vectorized run where one or more
+  archetypes hit degenerate centers. A user investigating
+  "vectorized isn't faster on my config" reads this directly to see
+  whether bypass is the cause.
+
+**Auto-threshold provenance.** `_VECTORIZED_AUTO_THRESHOLD = 50`
+is justified by `analysis/perf/m121_vectorized.py`: at 95 entities
+across 6 archetypes (smallest archetype-batch ~10) the saas builder
+template still beats serial by 3.75×; at 1,020 entities across 3
+archetypes the stress config lands at ~70×. `manifest.vectorized_threshold_used`
+records the constant value at generation time so a re-run after a
+threshold change can be detected by comparing against the current
+constant. Open question deferred: should the threshold key on
+`max(archetype_group_size)` instead of `len(config.entities)`? At
+~10 entities per archetype the numpy-overhead amortization is
+narrow; the bundled templates all clear that bar but a multi-
+archetype edge config might not.
+
+**What stays per-entity even in vectorized mode.** Entities with any
+non-`None` `Entity.overrides` (currently `inflection_month`) are routed
+to the serial path inside the dispatcher. Their batch is the empty
+set; the rest of the archetype's entities still batch as usual. The
+conservative check is `if entity.overrides:` — any `EntityOverrides`
+instance triggers serial fallback, future-proofing the dispatch
+against new override fields without silent batching of fields the
+batch doesn't yet honour.
+
+**Public functions added:**
+
+- `generate_archetype_batch(...)` — batch generator for one archetype.
+- `sample_single_metric_batch(centers, metric, rng) -> np.ndarray` —
+  batched draw for one metric across `n` entities.
 
 ### 2.5 Dimensions — `plotsim/dimensions.py`
 
@@ -587,6 +709,18 @@ rather than re-derive from noisy cell values.
 - `holdout: HoldoutInfo | None` — *populated at write time (§4)*.
 - `correlation_adjustments: list[CorrelationAdjustment] | None` — Higham
   projection records.
+- `correlation_compensations: list[CorrelationCompensation] | None` —
+  M120 trajectory-aware pre-compensation records.
+- `bypass_fallback_counts: dict[archetype, int] | None` — M121b
+  per-archetype count of cells that triggered the per-row scalar
+  fallback in `_apply_correlations_batch`. `None` in serial mode
+  (the path doesn't measure bypass); `{}` in vectorized mode with
+  no bypass; populated dict surfaces "vectorized isn't faster on
+  my config" investigations.
+- `vectorized_threshold_used: int | None` — M121b value of
+  `_VECTORIZED_AUTO_THRESHOLD` at generation time, recorded so old
+  manifests stay reproducible if the constant changes in a later
+  release.
 
 **Determinism.** JSON serialization is byte-identical: `sort_keys=True`,
 `indent=2`, `ensure_ascii=False`, trailing newline. Every numeric field is
@@ -626,7 +760,66 @@ only the encoder differs.
 - Engine: `pyarrow` (`plotsim[parquet]` extra). No other engines in V1.
 - Same column ordering and Int64 coercion as CSV.
 - Compression: snappy (explicit).
-- Same DataFrame + same plotsim/pyarrow versions → byte-identical output.
+- Same DataFrame + same plotsim/pyarrow versions → byte-identical output
+  for the non-streaming path. Streaming and non-streaming Parquet
+  agree on read-back DataFrames but **not** raw bytes — row group
+  metadata (count, sizes) differs by construction (see §2.12a).
+
+### 2.12a Streaming Parquet — `plotsim/output.py` (M121b)
+
+**When it fires.** `_streaming_parquet_eligible(config)` returns
+True iff `output.format == "parquet"` AND
+`_resolve_generation_mode(config) == "vectorized"`. Engine-direct
+configs default to `serial` so bundled-template Parquet output (when
+opted in via `output.format: parquet`) keeps the single-shot
+`to_parquet` path. Builder configs above the auto threshold pick up
+the streaming branch automatically.
+
+**What it does.** Fact tables (`per_entity_per_period` and
+`per_period`) are written via `pyarrow.parquet.ParquetWriter` with
+one row group per archetype batch (yielded by
+`tables.iter_fact_chunks`). `per_period` facts and any fact whose
+row count doesn't equal `len(config.entities) × n_periods` (e.g.,
+sub-entity-FK facts the helper conservatively rejects) write as a
+single row group under the sentinel chunk key `"__per_period__"`.
+Dim, event, and bridge tables continue through the existing
+`write_single_table` path — they don't have the per-archetype row
+layout the streaming model needs.
+
+**Memory contract.** The unified DataFrames are still resident in
+memory because downstream consumers (`attach_dim_row_id_to_facts`,
+`assign_stages`, `build_event_tables`, `build_bridge_tables`,
+`entity_features`) all consumed them before the writer ran. The
+streaming win is the *additional* peak from `to_parquet`'s pyarrow
+conversion of the full DataFrame, which the architecture-scalability
+doc identified as the dominant transient overhead. Realistic
+projection (replaces architecture-scalability §4's optimistic
+numbers):
+
+| Scale | Non-streaming | Streaming Parquet | Notes |
+|---|---|---|---|
+| DE daily (10K × 365 × 20) | ~1.7 GB | ~1.0–1.2 GB | unified DF still resident |
+| Extreme (50K × 365 × 20) | ~8.7 GB | ~4–5 GB | same |
+
+The original M121 600 MB / 1.2 GB targets are only reachable if
+events, stages, and entity_features also stream — out of scope here
+and tracked as a follow-up.
+
+**Determinism contract.** Streaming and non-streaming Parquet
+produce read-back DataFrames that are equal cell-for-cell for the
+same `(config, seed, generation_mode)`. Raw file bytes differ:
+streaming writes one row group per archetype, non-streaming writes
+one row group containing all rows. Use `pd.read_parquet` to compare;
+do not compare file bytes directly.
+
+**Schema inference.** ParquetWriter requires a schema upfront, but
+empty-DataFrame inference returns `null` type for object columns
+(no values to type-resolve from). The streaming path defers writer
+creation until the first non-empty chunk for each fact table,
+infers schema from that chunk's pyarrow Table, and reuses the
+schema for every subsequent row group via `pa.Table.cast(schema)`
+when needed. All chunks of the same fact are slices of the same
+prepared DataFrame, so dtypes are consistent.
 
 **Side-effect ordering inside `write_tables`** (this is what makes the
 hidden contracts in §4 land where they do):

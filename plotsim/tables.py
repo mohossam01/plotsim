@@ -79,8 +79,10 @@ from plotsim.dimensions import (
     sample_fk_values,
 )
 from plotsim.metrics import (
+    _VECTORIZED_AUTO_THRESHOLD,
     _build_correlation_matrix,
     _toposort_metrics,
+    generate_archetype_batch,
     generate_entity_metrics,
 )
 from plotsim.trajectory import compute_all_trajectories
@@ -214,12 +216,29 @@ def _build_seasonal_factors(
     return factors
 
 
+def _resolve_generation_mode(config: PlotsimConfig) -> str:
+    """Resolve ``"auto"`` to ``"serial"`` or ``"vectorized"`` from entity count.
+
+    Returns ``"serial"`` or ``"vectorized"`` — the two concrete modes
+    ``_compute_entity_metrics`` dispatches against. ``"auto"`` selects
+    ``vectorized`` when ``len(config.entities) >= _VECTORIZED_AUTO_THRESHOLD``
+    (50). The threshold trades constant overhead (archetype grouping,
+    full-axis ndarray allocation) against per-cell loop savings; small
+    configs run faster on the serial path.
+    """
+    mode = config.generation_mode
+    if mode == "auto":
+        return "vectorized" if len(config.entities) >= _VECTORIZED_AUTO_THRESHOLD else "serial"
+    return mode
+
+
 def _compute_entity_metrics(
     config: PlotsimConfig,
     trajectories: dict[str, np.ndarray],
     n_periods: int,
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
+    bypass_counter: Optional[dict[str, int]] = None,
 ) -> dict[str, dict[str, np.ndarray]]:
     """Generate the per-entity metric series dict the engine reads from.
 
@@ -233,10 +252,47 @@ def _compute_entity_metrics(
     per-period strength array once and threads it (along with each
     entity's ``seasonal_sensitivity``) into ``generate_entity_metrics``.
     Empty effects → ``seasonal_factors=None`` → byte-identical to pre-M119.
+
+    M121: dispatches on ``config.generation_mode``. ``serial`` retains the
+    pre-M121 per-entity loop (default, byte-identical to the prior baseline).
+    ``vectorized`` groups entities by archetype and calls
+    ``generate_archetype_batch`` for each archetype's no-override subset;
+    overridden entities still run the per-entity serial path inside the
+    same dispatch so their exact behavior is preserved. ``auto`` resolves
+    via ``_resolve_generation_mode``. The two paths consume RNG in
+    different orders → cross-mode cell values are not byte-identical
+    even at the same seed.
     """
     arch_by_name = {a.name: a for a in config.archetypes}
     seasonal_factors = _build_seasonal_factors(config, n_periods)
-    entity_metrics: dict[str, dict[str, np.ndarray]] = {}
+    mode = _resolve_generation_mode(config)
+    if mode == "serial":
+        entity_metrics: dict[str, dict[str, np.ndarray]] = {}
+        for entity in config.entities:
+            traj = trajectories[entity.name]
+            if len(traj) != n_periods:
+                raise ValueError(
+                    f"trajectory for entity {entity.name!r} has length {len(traj)} "
+                    f"but dim_date has {n_periods} periods"
+                )
+            entity_metrics[entity.name] = generate_entity_metrics(
+                traj,
+                list(config.metrics),
+                list(config.correlations),
+                config.noise,
+                rng,
+                archetype=arch_by_name.get(entity.archetype),
+                cholesky_L=cholesky_L,
+                seasonal_factors=seasonal_factors,
+                entity_seasonal_sensitivity=entity.seasonal_sensitivity,
+            )
+        return entity_metrics
+
+    # Vectorized: archetype-batched.
+    #
+    # 1. Validate trajectory shapes for every entity (matches the serial
+    #    path's contract — fail-fast on a mismatch is preferable to
+    #    confusing downstream array-shape errors).
     for entity in config.entities:
         traj = trajectories[entity.name]
         if len(traj) != n_periods:
@@ -244,18 +300,190 @@ def _compute_entity_metrics(
                 f"trajectory for entity {entity.name!r} has length {len(traj)} "
                 f"but dim_date has {n_periods} periods"
             )
-        entity_metrics[entity.name] = generate_entity_metrics(
-            traj,
-            list(config.metrics),
-            list(config.correlations),
-            config.noise,
-            rng,
-            archetype=arch_by_name.get(entity.archetype),
-            cholesky_L=cholesky_L,
-            seasonal_factors=seasonal_factors,
-            entity_seasonal_sensitivity=entity.seasonal_sensitivity,
+
+    # 2. Group entities by archetype — preserve the order in which each
+    #    archetype first appears in ``config.entities`` so the RNG draw
+    #    order is stable across runs. Within each group, preserve
+    #    declaration order. Standard (no overrides) entities go to the
+    #    batch; overridden entities run the serial path AFTER the batch
+    #    closes, so all batch RNG draws happen first in a fixed order.
+    archetype_order: list[str] = []
+    standard_by_arch: dict[str, list] = {}
+    overridden_by_arch: dict[str, list] = {}
+    for entity in config.entities:
+        if entity.archetype not in standard_by_arch:
+            standard_by_arch[entity.archetype] = []
+            overridden_by_arch[entity.archetype] = []
+            archetype_order.append(entity.archetype)
+        if entity.overrides:
+            overridden_by_arch[entity.archetype].append(entity)
+        else:
+            standard_by_arch[entity.archetype].append(entity)
+
+    # 3. Run batched generation per archetype, then serial fallback for
+    #    overridden entities. The result dict is keyed by entity.name —
+    #    downstream ``_build_metrics_3d`` reorders into config.entities
+    #    order via ``entity_names_ordered``, so insertion order here
+    #    doesn't affect on-disk row order.
+    entity_metrics_v: dict[str, dict[str, np.ndarray]] = {}
+    for arch_name in archetype_order:
+        archetype = arch_by_name.get(arch_name)
+        if archetype is None:
+            # Defensive — config validators reject unknown archetypes
+            # at load time. If this fires, the operator constructed a
+            # PlotsimConfig programmatically and bypassed validation.
+            raise ValueError(
+                f"entity references unknown archetype {arch_name!r}; "
+                "vectorized generation cannot proceed"
+            )
+        standard_batch = standard_by_arch[arch_name]
+        if standard_batch:
+            batch_result = generate_archetype_batch(
+                archetype,
+                standard_batch,
+                list(config.metrics),
+                list(config.correlations),
+                config.noise,
+                n_periods,
+                rng,
+                cholesky_L=cholesky_L,
+                seasonal_factors=seasonal_factors,
+                bypass_counter=bypass_counter,
+            )
+            entity_metrics_v.update(batch_result)
+        for entity in overridden_by_arch[arch_name]:
+            traj = trajectories[entity.name]
+            entity_metrics_v[entity.name] = generate_entity_metrics(
+                traj,
+                list(config.metrics),
+                list(config.correlations),
+                config.noise,
+                rng,
+                archetype=archetype,
+                cholesky_L=cholesky_L,
+                seasonal_factors=seasonal_factors,
+                entity_seasonal_sensitivity=entity.seasonal_sensitivity,
+            )
+    return entity_metrics_v
+
+
+# --- M121b: chunked fact builder seam ---------------------------------------
+
+
+def iter_fact_chunks(
+    config: PlotsimConfig,
+    fact_tables: dict[str, pd.DataFrame],
+):
+    """Yield per-archetype fact-DataFrame chunks for streaming Parquet.
+
+    The streaming Parquet writer in ``plotsim.output`` consumes this
+    generator to write each archetype batch as its own Parquet row
+    group, instead of materializing the full pyarrow table from the
+    unified DataFrame. Downstream consumers
+    (``attach_dim_row_id_to_facts``, ``assign_stages``,
+    ``build_event_tables``, ``build_bridge_tables``,
+    ``entity_features``) all continue to receive the unified
+    DataFrames returned by ``build_fact_tables`` — the chunked
+    iterator is an additive seam, not a replacement.
+
+    Yields ``(archetype_name, dict[fact_name → DataFrame])``. For
+    ``per_entity_per_period`` facts, ``archetype_name`` is the
+    archetype each chunk's entities share; the DataFrame is a slice
+    of the unified DataFrame keyed by the row indices that belong to
+    those entities. For ``per_period`` facts (no entity axis, no
+    archetype concept), the full DataFrame is yielded once under the
+    sentinel name ``"__per_period__"``.
+
+    Implementation notes:
+
+    * Slicing uses precomputed row-index spans derived from
+      ``config.entities`` order and ``n_periods``. The fact builders
+      emit rows in entity-major order
+      (``[e0×p1..pN, e1×p1..pN, ...]``), so each entity contributes
+      a contiguous run of ``n_periods`` rows. An archetype's chunk
+      may not be a single contiguous block when entities of multiple
+      archetypes are interleaved in ``config.entities``; the helper
+      uses ``df.iloc`` with a list of row indices in those cases,
+      which is still O(rows-in-chunk) and memory-efficient.
+    * When the unified DataFrame's row count doesn't equal
+      ``len(config.entities) × n_periods`` (e.g., a fact table whose
+      entity-FK targets a per_subentity dim with a different
+      cardinality), the helper falls back to yielding the full
+      DataFrame under the sentinel name. The streaming writer treats
+      that as a single-row-group write — correct, just no per-archetype
+      decomposition.
+    * Archetype iteration order matches ``_compute_entity_metrics``
+      (first appearance in ``config.entities``) so streaming and
+      non-streaming Parquet write row groups in the same logical
+      order. Read-back DataFrames must compare equal across modes.
+    """
+    n_periods = config.time_window.period_count()
+    expected_rows = len(config.entities) * n_periods
+
+    # Build per-archetype lists of entity indices in config.entities order.
+    archetype_order: list[str] = []
+    indices_by_arch: dict[str, list[int]] = {}
+    for i, entity in enumerate(config.entities):
+        if entity.archetype not in indices_by_arch:
+            indices_by_arch[entity.archetype] = []
+            archetype_order.append(entity.archetype)
+        indices_by_arch[entity.archetype].append(i)
+
+    # Decide which fact tables stream per-archetype. The
+    # per_entity_per_period grain has the entity-major row layout the
+    # slicing model assumes. per_period facts (and any with a row-count
+    # mismatch) yield once under the sentinel name.
+    per_arch_facts: list[str] = []
+    per_period_facts: list[str] = []
+    for tbl in config.tables:
+        if tbl.type != "fact":
+            continue
+        df = fact_tables.get(tbl.name)
+        if df is None:
+            continue
+        if tbl.grain == "per_entity_per_period" and len(df) == expected_rows:
+            per_arch_facts.append(tbl.name)
+        else:
+            per_period_facts.append(tbl.name)
+
+    # First emit per-archetype chunks for the entity-period facts.
+    # When an archetype's entities are contiguous in ``config.entities``
+    # (the production case — builder segments group by archetype, and
+    # engine-direct configs with mixed archetypes are rare), the
+    # archetype's row indices form a single contiguous slice and the
+    # chunk is a pandas view instead of a fancy-indexed copy. This
+    # matters for memory: a deep copy per chunk adds O(chunk-size)
+    # Python heap on top of the unified DataFrame, swamping the
+    # streaming Parquet pyarrow-buffer win on small/medium configs.
+    # The non-contiguous fall-back (interleaved archetypes) does
+    # allocate a copy via ``df.iloc[indices]`` — unavoidable for
+    # discontiguous row sets.
+    for arch in archetype_order:
+        ent_indices = indices_by_arch[arch]
+        is_contiguous = (
+            len(ent_indices) > 0
+            and ent_indices[-1] - ent_indices[0] + 1 == len(ent_indices)
         )
-    return entity_metrics
+        chunk: dict[str, pd.DataFrame] = {}
+        for fact_name in per_arch_facts:
+            df = fact_tables[fact_name]
+            if is_contiguous:
+                start = ent_indices[0] * n_periods
+                stop = (ent_indices[-1] + 1) * n_periods
+                chunk[fact_name] = df.iloc[start:stop]
+            else:
+                row_indices: list[int] = []
+                for i in ent_indices:
+                    row_indices.extend(range(i * n_periods, (i + 1) * n_periods))
+                chunk[fact_name] = df.iloc[row_indices]
+        if chunk:
+            yield arch, chunk
+
+    # Then emit per-period facts (and any rejected entity-period facts)
+    # as a single chunk under the sentinel name.
+    if per_period_facts:
+        chunk = {name: fact_tables[name] for name in per_period_facts}
+        yield "__per_period__", chunk
 
 
 def build_fact_tables(
@@ -2618,10 +2846,26 @@ def generate_tables_with_state(
     # downstream of fact construction, producing different fact values than
     # the pre-M107 baseline. Configs with empty ``bridges`` skip the bridge
     # call entirely; they still benefit from the single computation.
+    #
+    # M121b: thread a fresh ``bypass_counter`` dict through the dispatcher
+    # so the vectorized path can accumulate per-archetype bypass-cell
+    # counts. Stashed on the config's ``_bypass_fallback_counts`` private
+    # attr (mirrors the M111 ``_correlation_adjustments`` /
+    # M120 ``_correlation_compensations`` pattern); ``build_manifest``
+    # surfaces it as ``bypass_fallback_counts``. Always created (never
+    # None) so the manifest field can distinguish "vectorized run with
+    # no bypass" (empty dict) from "serial run, never measured" (None).
     n_periods = len(dim_tables["dim_date"])
+    bypass_fallback_counts: dict[str, int] = {}
     entity_metrics = _compute_entity_metrics(
-        config, trajectories, n_periods, rng, cholesky_L=cholesky_L,
+        config, trajectories, n_periods, rng,
+        cholesky_L=cholesky_L,
+        bypass_counter=bypass_fallback_counts,
     )
+    if _resolve_generation_mode(config) == "vectorized":
+        config._bypass_fallback_counts = bypass_fallback_counts
+    else:
+        config._bypass_fallback_counts = None
 
     fact_tables = build_fact_tables(
         config, trajectories, dim_tables, rng,

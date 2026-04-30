@@ -92,6 +92,13 @@ _PARQUET_INSTALL_HINT = (
 )
 
 
+# M121b: sentinel archetype name ``iter_fact_chunks`` yields for
+# per_period facts (no entity/archetype axis). The streaming writer
+# treats it as a single-row-group write — same on-disk shape as the
+# non-streaming path.
+_PER_PERIOD_CHUNK_KEY = "__per_period__"
+
+
 # --- Helpers -----------------------------------------------------------------
 
 
@@ -164,6 +171,160 @@ def _coerce_integer_columns(
 
 
 # --- Single-table writer -----------------------------------------------------
+
+
+def _streaming_parquet_eligible(config: Optional[PlotsimConfig]) -> bool:
+    """Whether the streaming Parquet path applies to ``config``'s fact writes.
+
+    Triggers when output format is parquet AND the resolved generation
+    mode is vectorized (M121b). Serial mode and CSV output keep the
+    pre-mission unified-DataFrame write path. Engine-direct configs
+    that never opted into vectorized mode are unaffected because their
+    ``generation_mode`` defaults to ``"serial"``.
+    """
+    if config is None:
+        return False
+    if _resolve_output_format(config) != "parquet":
+        return False
+    # Local import: ``plotsim.tables`` imports ``plotsim.output``
+    # transitively for non-streaming writes; importing at module
+    # scope would create a cycle.
+    from plotsim.tables import _resolve_generation_mode
+    return _resolve_generation_mode(config) == "vectorized"
+
+
+def _streaming_fact_table_names(config: PlotsimConfig) -> set[str]:
+    """Set of fact-table names the streaming path writes per row group.
+
+    Only ``per_entity_per_period`` facts get the per-archetype row-group
+    decomposition; ``per_period`` facts (no entity/archetype axis) are
+    written as a single row group via the same ParquetWriter so the
+    on-disk layout matches the non-streaming output exactly except for
+    row group boundaries.
+    """
+    return {
+        tbl.name for tbl in config.tables
+        if tbl.type == "fact"
+    }
+
+
+def _write_streaming_parquet_facts(
+    config: PlotsimConfig,
+    fact_tables: dict[str, pd.DataFrame],
+    output_dir: Path,
+) -> set[str]:
+    """Write fact tables as per-archetype Parquet row groups.
+
+    Uses ``pyarrow.parquet.ParquetWriter`` to stream each archetype
+    chunk yielded by ``plotsim.tables.iter_fact_chunks`` as one row
+    group. Per_period facts (no entity axis) write as a single row
+    group under the sentinel chunk key. Returns the set of fact-table
+    names this function wrote so the caller knows to skip them in the
+    standard ``write_single_table`` loop.
+
+    Memory contract: peak transient pyarrow buffer is bounded by the
+    largest single-archetype chunk size, not the unified DataFrame.
+    The unified DataFrame is still resident in memory because
+    downstream consumers (``attach_dim_row_id_to_facts``,
+    ``assign_stages``, ``build_event_tables``, ``build_bridge_tables``,
+    ``entity_features``) all consumed it before the writer ran — so
+    the M121b memory win is the *additional* peak from
+    ``to_parquet``'s pyarrow conversion of the full DataFrame, which
+    the architecture-scalability doc identified as the dominant
+    transient overhead.
+
+    The streaming branch only fires for fact tables. Dim/event/bridge
+    tables continue through ``write_single_table``'s single-shot
+    ``to_parquet`` path.
+    """
+    _check_parquet_engine_available()
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from plotsim.tables import iter_fact_chunks
+
+    streaming_names = _streaming_fact_table_names(config)
+    streaming_facts = {
+        name: df for name, df in fact_tables.items() if name in streaming_names
+    }
+    if not streaming_facts:
+        return set()
+
+    # Pre-process columns once per fact table — column reordering +
+    # nullable-Int64 coercion mirror what ``write_single_table`` would
+    # do, hoisted up so the schema seen by ParquetWriter matches the
+    # non-streaming output exactly.
+    prepared: dict[str, pd.DataFrame] = {}
+    for name, df in streaming_facts.items():
+        tbl = _table_by_name(config, name)
+        if tbl is not None:
+            ordered = _ordered_columns(tbl, list(df.columns))
+            prep = df.loc[:, ordered].copy(deep=False)
+            _coerce_integer_columns(tbl, prep)
+        else:
+            prep = df
+        prepared[name] = prep
+
+    # ParquetWriter requires a schema upfront, but empty-DataFrame
+    # schema inference returns ``null`` type for object/string columns
+    # (no values to type-resolve from). Defer writer creation until
+    # the first non-empty chunk for each fact table; infer schema from
+    # that first chunk's pyarrow conversion and reuse it for every
+    # subsequent row group. Subsequent chunks are slices of the same
+    # prepared DataFrame, so dtypes are already consistent — pyarrow
+    # accepts them via the ``schema=`` kwarg.
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    resolved_dir = output_dir.resolve()
+
+    # Pre-resolve and validate paths up front so SEC-02 sandbox
+    # rejection happens before any RNG work runs (none here, but
+    # the fail-fast contract matches the single-table writer).
+    paths: dict[str, Path] = {}
+    for name in prepared:
+        path = output_dir / f"{name}.parquet"
+        if path.resolve().parent != resolved_dir:
+            raise ValueError(
+                f"_write_streaming_parquet_facts: table name {name!r} "
+                f"resolves outside output_dir {str(output_dir)!r}; names "
+                f"must be SQL-safe identifiers (no path separators, no ..)"
+            )
+        paths[name] = path
+
+    writers: dict[str, tuple] = {}
+    try:
+        # Stream chunks. ``iter_fact_chunks`` yields chunks for the SAME
+        # set of fact tables we filtered into ``prepared`` (per_period
+        # facts come through under the sentinel chunk key, written as a
+        # single row group).
+        for _arch_name, chunk in iter_fact_chunks(config, prepared):
+            for fact_name, df_chunk in chunk.items():
+                if fact_name not in paths:
+                    continue  # defensive — shouldn't happen given filter
+                pa_table = pa.Table.from_pandas(
+                    df_chunk, preserve_index=False,
+                )
+                if fact_name not in writers:
+                    schema = pa_table.schema
+                    writer = pq.ParquetWriter(
+                        paths[fact_name], schema, compression="snappy",
+                    )
+                    writers[fact_name] = (writer, schema)
+                else:
+                    # Reuse the first-chunk schema; cast in case pyarrow
+                    # inferred a slightly narrower type for this chunk
+                    # (e.g., a chunk with only non-null values where the
+                    # first chunk had nulls). ``cast`` is a no-op when
+                    # types already match.
+                    schema = writers[fact_name][1]
+                    if pa_table.schema != schema:
+                        pa_table = pa_table.cast(schema)
+                writers[fact_name][0].write_table(pa_table)
+    finally:
+        for writer, _schema in writers.values():
+            writer.close()
+
+    return set(prepared.keys())
 
 
 def _resolve_output_format(config: Optional[PlotsimConfig]) -> str:
@@ -450,7 +611,21 @@ def write_tables(
                 update={"quality_injections": ground_truth},
             )
 
+    # M121b: streaming Parquet path. When format=parquet AND the
+    # resolved generation_mode is vectorized, fact tables are written
+    # via ``_write_streaming_parquet_facts`` (per-archetype row groups
+    # via ParquetWriter) and skipped in the standard loop below. Dim,
+    # event, and bridge tables continue through ``write_single_table``.
+    # Serial mode and CSV output skip this branch entirely.
+    streaming_written: set[str] = set()
+    if _streaming_parquet_eligible(config):
+        streaming_written = _write_streaming_parquet_facts(
+            config, tables_to_write, target,
+        )
+
     for name, df in tables_to_write.items():
+        if name in streaming_written:
+            continue
         write_single_table(name, df, target, config=config, float_format=float_format)
 
     write_config_copy(config, target)

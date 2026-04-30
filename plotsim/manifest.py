@@ -310,6 +310,22 @@ class ManifestSchema(_ManifestBase):
     # but no in-scope pairs" and currently shouldn't surface — the
     # generator only sets the attr when at least one record was emitted.
     correlation_compensations: Optional[list[CorrelationCompensation]] = None
+    # M121b: per-archetype count of cells that triggered
+    # ``_apply_correlations_batch``'s per-row scalar fallback in
+    # vectorized mode. ``None`` in serial mode (the path doesn't
+    # measure bypass — there's no batched copula to fall back from).
+    # An empty dict means vectorized ran with zero bypass cells (the
+    # production-shape case); a non-empty dict surfaces "vectorized
+    # isn't faster on this config" investigations directly. Backwards
+    # compatible with pre-M121b manifests via the default.
+    bypass_fallback_counts: Optional[dict[str, int]] = None
+    # M121b: value of ``plotsim.metrics._VECTORIZED_AUTO_THRESHOLD`` at
+    # generation time. Recorded so old manifests stay reproducible if
+    # the constant changes — a re-run that lands a different
+    # ``_resolve_generation_mode`` decision can be detected by
+    # comparing this to the current constant. Always populated;
+    # default ``None`` is reserved for pre-M121b manifests on disk.
+    vectorized_threshold_used: Optional[int] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -618,6 +634,22 @@ def build_manifest(
     else:
         correlation_compensations = None
 
+    # M121b: pull the bypass-fallback counts off the config's private
+    # attr (set by ``generate_tables_with_state`` after the dispatcher
+    # runs). ``None`` for serial-mode runs (the field encodes "never
+    # measured"); empty dict for vectorized runs with no bypass cells
+    # (production shape); populated dict for runs where pathological
+    # configs forced the per-row scalar fallback.
+    bypass_fallback_counts = getattr(config, "_bypass_fallback_counts", None)
+
+    # M121b: record the auto-threshold constant at generation time so
+    # old manifests stay reproducible if the constant changes in a
+    # later release. Read from ``plotsim.metrics`` rather than caching
+    # at config-load time — this keeps the manifest builder pure
+    # without coupling to the orchestrator's state shape.
+    from plotsim.metrics import _VECTORIZED_AUTO_THRESHOLD
+    vectorized_threshold_used = int(_VECTORIZED_AUTO_THRESHOLD)
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -630,6 +662,8 @@ def build_manifest(
         quality_injections=[],
         correlation_adjustments=correlation_adjustments,
         correlation_compensations=correlation_compensations,
+        bypass_fallback_counts=bypass_fallback_counts,
+        vectorized_threshold_used=vectorized_threshold_used,
     )
 
 
