@@ -7,7 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] — 2026-04-25
+### Added
+
+- **Builder API (M115).** `plotsim.create()` and
+  `plotsim.create_from_yaml()` — a one-call public surface that takes a
+  high-level user shape (`about`, `unit`, `window`, `metrics`,
+  `segments`, optional `connections` / `lifecycle` / `dimensions` /
+  `facts` / `events`) and returns a fully-validated `PlotsimConfig`.
+  Construction goes through a `UserInput` Pydantic model first, so
+  structural problems raise `ValidationError` with the offending field
+  named before the interpreter runs. The engine-direct
+  `load_config()` / `dump_config()` path is preserved as the advanced
+  surface; the builder is now the documented front door.
+- **Builder feature parity (M122).** The `create()` shape can now
+  drive every engine feature available via YAML: `pool.{attr}` columns
+  for per-entity attribute pools, M:N `bridges`, `quality` injection
+  knobs, `holdout` train/test splits, and per-entity flat aggregate
+  `entity_features` tables. The builder reaches feature-parity with
+  `load_config()`.
+- **Builder DX (M124).** `UserInput.seed` is now a first-class field
+  (was only reachable via raw kwargs). The interpreter auto-prepends
+  `dim_date` and auto-appends bridge-referenced `dim_{unit}` tables
+  when the user omits them. The CLI dispatches `plotsim run | validate
+  | info` between builder YAML and engine YAML by peeking the top-level
+  keys; `plotsim list-templates` surfaces a "Builder templates" section
+  alongside the bundled engine templates.
+- **Builder templates (M112).** Four new bundled YAMLs targeting the
+  builder shape: `hr_template.yaml`, `education_template.yaml`,
+  `retail_template.yaml`, `marketing_template.yaml`, plus the existing
+  `bare_minimum.yaml` and `saas_template.yaml`. Each is a complete
+  reference config you can copy out with `plotsim template <name>` and
+  edit. The legacy engine-shape `sample_ecommerce.yaml` and
+  `sample_healthcare.yaml` are removed (replaced by retail and the
+  healthcare slot in the post-0.6.0 catalog).
+- **`plotsim.inspect` (M114).** Public introspection surface for
+  notebook / dashboard consumers — exposes per-entity trajectory
+  positions, archetype assignments, and tolerance constants without
+  re-deriving them from generated tables.
+- **`PoolSource` + `MetricOverride.value_range` (M114).** Per-entity
+  pools (`pool:<dim_table>.<column>`) for cross-dimension attribute
+  draws, and a per-archetype `value_range` override that re-scales a
+  metric's bounded distribution at the archetype level.
+- **Higham correlation projection (M111).** Non-positive-definite
+  correlation matrices are now projected to the nearest PSD matrix via
+  Higham's algorithm rather than rejected at load. The pre-projection
+  matrix is preserved on the manifest under
+  `_correlation_adjustments` so analysts can audit how far the
+  configured triangle moved.
+- **Global seasonal modulation (M119).** `seasonality` block on the
+  metric pipeline lets a single periodic signal modulate all metric
+  draws (e.g. holiday lift, fiscal-quarter cycles) without per-metric
+  oscillation segments.
+- **Correlation pre-compensation (M120).** When a configured pairwise
+  correlation conflicts with the trajectory-driven covariance the
+  archetype already imposes, the engine subtracts the trajectory
+  contribution from the target before sampling. Configured negative
+  correlations on growth-and-decline mixes recover their target sign
+  instead of clamping to zero.
+- **Vectorized generation path (M121).** Per-(entity, period) metric
+  sampling is now an `(E, P, M)` tensor op for the pure-MetricSource
+  fast path; scalar fallback preserved for `FakerSource` and boolean
+  metric columns. End-to-end wall-clock improves by 20–35 % on the
+  bundled templates.
+- **Streaming Parquet writer (M121b).** `output.format: parquet` with
+  `streaming: true` writes fact and event tables row-group-by-row-group
+  via PyArrow, capping peak memory at the largest single chunk rather
+  than the full table. Requires the `[parquet]` extra.
+- **`segment.count` expansion (M117).** When the builder sees
+  `segments[*].count > 1`, each segment is expanded into per-row
+  `Entity` instances on the engine config rather than collapsed to a
+  single Entity with `size = count`. Sub-entity dim cardinality and
+  fact-row counts now match the user's intuition.
+- **Tutorial notebooks (M123).** Eight Jupyter walkthroughs at
+  `docs/tutorial-notebooks/` covering the builder API surface:
+  `getting_started`, `schema_and_dimensions`, `designing_archetypes`,
+  `seasonality_and_correlations`, `data_quality`, `pipeline_testing`,
+  `bridges_and_advanced`, `ds_use_cases`, `de_use_cases`,
+  `ml_readiness`. Each picks a single feature surface and ends with a
+  pointer to the relevant `docs/builder-reference.md` section.
+- **Builder docs (M116).**
+  `docs/builder-{quickstart,reference,errors}.md` — annotated
+  walkthroughs (bare-minimum + saas), the full vocabulary reference,
+  and an enumerated validation-error catalog. Crosslinked from the
+  tutorial notebooks and from the README.
+
+### Changed
+
+- **`StageSequence.enforce_order` defaults to `False`** (M114, free-mode
+  stages). The strict-monotonic stage walk is opt-in rather than the
+  default; bundled templates that relied on the prior default carry an
+  explicit `enforce_order: true` post-0.6.0. Behavior break for any
+  config with `stages` and no explicit `enforce_order` field — the
+  on-disk stage column is now stateless instead of latched.
+- **Builder is the documented entry point.** README, `__init__`
+  docstring, and `docs/getting-started.md` lead with `create()` /
+  `create_from_yaml()`. `load_config()` is retained as the advanced
+  engine-direct surface but is no longer the recommended quickstart.
+
+### Fixed
+
+- **Bridge cardinality validator (M118).** `validate_bridge_cardinality`
+  used `sum(e.size for e in entities)` instead of `len(entities)` for
+  per-entity dim row counts. Builder configs (where every `Entity.size`
+  is 1 post-M117) were correct-by-accident; engine-direct configs with
+  `size > 1` saw spurious warnings on bridges into per-entity dims.
+- **Bridge auto-resolution + proportional-event float cast (M124).**
+  The interpreter now auto-resolves bridge-referenced `dim_{unit}` and
+  `dim_date` tables when the user omits them. `_build_proportional_event`
+  casts driver values to `float64` before `np.isnan`, fixing a
+  count-driver bug that surfaced when a count metric drove a
+  proportional event table.
+
+
 
 ### Documentation
 

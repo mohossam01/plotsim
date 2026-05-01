@@ -1,13 +1,28 @@
 """plotsim — generate realistic multi-table datasets from behavioral archetypes.
 
 Quick start:
-    import numpy as np
-    from plotsim import load_config, generate_tables, validate, write_tables
+    from plotsim import create, generate_tables, write_tables
 
-    config = load_config("config.yaml")
-    tables = generate_tables(config, np.random.default_rng(config.seed))
-    report = validate(config, tables)
-    write_tables(tables, config, report)
+    cfg = create(
+        about="Subscription customers",
+        unit="customer",
+        window=("2024-01", "2024-12", "monthly"),
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "payments",   "type": "count", "polarity": "positive"},
+        ],
+        segments=[
+            {"name": "active",   "count": 50, "archetype": "growth"},
+            {"name": "inactive", "count": 30, "archetype": "decline"},
+        ],
+    )
+    tables = generate_tables(cfg)
+    write_tables(tables, cfg)
+
+The CLI offers the same flow against a YAML file:
+
+    plotsim template saas -o config.yaml
+    plotsim run config.yaml -o ./output
 """
 
 __version__ = "0.5.0"
@@ -51,13 +66,18 @@ from plotsim.validation import (
 from plotsim.validation import validate_tables
 
 __all__ = [
-    "__version__",
-    # Introspection
-    "inspect",
-    # Builder (one-call public API; M115)
+    # Builder (one-call public API; M115/M122)
     "create",
     "create_from_yaml",
-    # Config
+    # Generation + validation
+    "generate_tables",
+    "validate",
+    # Output
+    "write_tables",
+    "write_single_table",
+    "write_config_copy",
+    "write_validation_report",
+    # Config (advanced / engine-direct)
     "PlotsimConfig",
     "SurrogateKeyWarning",
     "ManifestConfig",
@@ -70,8 +90,7 @@ __all__ = [
     "SLIGHTLY_MESSY",
     "REALISTIC",
     "DIRTY",
-    # Generation
-    "generate_tables",
+    # Generation extras
     "generate_tables_with_state",
     "GenerationState",
     # Manifest
@@ -81,14 +100,12 @@ __all__ = [
     "EventFiring",
     "build_manifest",
     "write_manifest",
-    # Validation
-    "validate",
+    # Validation extras
     "validate_tables",
     "ValidationReport",
     "ValidationIssue",
-    # Output
-    "write_tables",
-    "write_single_table",
-    "write_config_copy",
-    "write_validation_report",
+    # Introspection
+    "inspect",
+    # Version
+    "__version__",
 ]
