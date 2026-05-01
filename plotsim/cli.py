@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import yaml
 
 from plotsim import __version__
 from plotsim.config import PlotsimConfig, load_config
@@ -36,6 +37,57 @@ from plotsim.output import write_tables
 
 TEMPLATE_PREFIX = "sample_"
 TEMPLATE_SUFFIX = ".yaml"
+# M124: builder-template directory. Files here are ``UserInput`` shape
+# (``about`` / ``unit`` / ``segments`` at the top level) — the front door
+# the builder docs walk users through. ``list-templates`` surfaces these
+# alongside the engine-direct ``sample_*`` configs.
+BUILDER_DIR_NAME = "new"
+
+
+# --- Config dispatcher (M124) ------------------------------------------------
+
+
+def _is_builder_yaml(path: Path) -> bool:
+    """Peek the YAML to decide which loader to use.
+
+    Builder YAML is identified by the presence of the top-level ``about``
+    key together with ``unit`` and ``segments`` — three required fields on
+    ``UserInput`` that engine-direct ``PlotsimConfig`` never carries.
+    Engine-direct YAML uses ``domain`` + ``time_window`` + ``entities``.
+
+    The peek is permissive: a malformed YAML or a non-dict top-level
+    falls through to ``load_config`` so the engine's existing error
+    surface stays the source of truth for engine YAML problems.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return (
+        "about" in data
+        and "unit" in data
+        and "segments" in data
+        and "domain" not in data
+    )
+
+
+def load_either_config(path: str | Path) -> PlotsimConfig:
+    """Load a config file, dispatching to the builder when it looks like one.
+
+    Builder-shape YAML is routed through ``create_from_yaml`` (which runs
+    UserInput validation and the interpreter). Everything else falls
+    through to ``load_config``. The dispatch keeps every CLI command
+    (``run``, ``validate``, ``info``) on a single entry point so users
+    can hand either flavour of YAML to any command.
+    """
+    p = Path(path)
+    if _is_builder_yaml(p):
+        from plotsim.builder import create_from_yaml
+        return create_from_yaml(p)
+    return load_config(p)
 
 
 # --- Template discovery -------------------------------------------------------
@@ -48,7 +100,11 @@ def _configs_dir() -> resources.abc.Traversable:
 def list_templates() -> list[tuple[str, Path]]:
     """Return ``[(name, path), ...]`` for every bundled sample config.
 
-    Names are the file stem with ``sample_`` stripped. Sorted alphabetically.
+    Names are the file stem with ``sample_`` stripped (engine-direct) or
+    ``_template`` stripped (builder). Sorted alphabetically by name. M124
+    surfaces builder templates from ``plotsim/configs/new/`` alongside the
+    engine-direct ``sample_*`` configs — the CLI's ``run`` / ``validate`` /
+    ``info`` commands accept either flavour.
     """
     out: list[tuple[str, Path]] = []
     root = _configs_dir()
@@ -62,8 +118,40 @@ def list_templates() -> list[tuple[str, Path]]:
     return out
 
 
+def list_builder_templates() -> list[tuple[str, Path]]:
+    """Return ``[(name, path), ...]`` for every builder-template YAML.
+
+    Builder templates live in ``plotsim/configs/new/`` and are
+    ``UserInput`` shape — the ``create_from_yaml`` dispatcher route. Names
+    are the file stem with the ``_template`` suffix stripped (so
+    ``saas_template.yaml`` -> ``saas``); ``bare_minimum.yaml`` is kept
+    verbatim. The ``.py`` companions in the directory (annotated kwargs
+    examples) are skipped.
+    """
+    out: list[tuple[str, Path]] = []
+    root = _configs_dir() / BUILDER_DIR_NAME
+    if not root.is_dir():
+        return out
+    for entry in root.iterdir():
+        name = entry.name
+        if not name.endswith(TEMPLATE_SUFFIX):
+            continue
+        stem = name[: -len(TEMPLATE_SUFFIX)]
+        if stem.endswith("_template"):
+            stem = stem[: -len("_template")]
+        out.append((stem, Path(str(entry))))
+    out.sort(key=lambda pair: pair[0])
+    return out
+
+
 def find_template(name: str) -> Optional[Path]:
+    """Resolve a template name to a path. Engine-direct names take
+    precedence; falls back to builder templates if no engine-direct match.
+    """
     for stem, path in list_templates():
+        if stem == name:
+            return path
+    for stem, path in list_builder_templates():
         if stem == name:
             return path
     return None
@@ -124,7 +212,9 @@ def _estimate_rows(config: PlotsimConfig, n_periods: int) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     try:
-        config = load_config(args.config)
+        # M124: route builder-shape YAML through the builder pipeline
+        # (UserInput → interpret); engine-direct YAML still uses load_config.
+        config = load_either_config(args.config)
     except Exception as exc:
         print(f"Error loading config: {exc}", file=sys.stderr)
         return 1
@@ -224,7 +314,7 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     No output files are written under either invocation.
     """
     try:
-        load_config(args.config)
+        load_either_config(args.config)
     except Exception as exc:
         print(f"INVALID: {args.config}", file=sys.stdout)
         print(f"  {exc}", file=sys.stdout)
@@ -235,7 +325,7 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
 
 def cmd_info(args: argparse.Namespace) -> int:
     try:
-        config = load_config(args.config)
+        config = load_either_config(args.config)
     except Exception as exc:
         print(f"Error loading config: {exc}", file=sys.stderr)
         return 1
@@ -270,25 +360,46 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 
 def cmd_list_templates(_args: argparse.Namespace) -> int:
-    templates = list_templates()
-    if not templates:
+    engine_templates = list_templates()
+    builder_templates = list_builder_templates()
+    if not engine_templates and not builder_templates:
         print("No templates bundled. (Reinstall plotsim to restore.)")
         return 0
 
-    descriptions = {
+    engine_descriptions = {
         "saas": "B2B SaaS - customer accounts, engagement, revenue, churn",
         "hr": "HR department - employees, performance, training, attrition",
         "ecommerce": "E-commerce - customers, orders, cart abandonment, returns",
         "education": "University - students, courses, grades, enrollment",
         "healthcare": "Clinic - patients, visits, treatments, outcomes",
+        "retail": "Retail - stores, transactions, inventory, returns",
+        "marketing": "Marketing - campaigns, channels, conversions, attribution",
     }
-    width = max(len(name) for name, _ in templates)
-    print("Available templates:")
-    for name, _path in templates:
-        desc = descriptions.get(name, "")
-        print(f"  {name.ljust(width)}  {desc}".rstrip())
-    print("")
-    first_name = templates[0][0]
+    builder_descriptions = {
+        "bare_minimum": "Smallest valid builder config — start here",
+        "saas": "Builder shape: B2B SaaS customer success",
+        "hr": "Builder shape: HR engagement / attrition",
+        "education": "Builder shape: University course enrollment",
+        "retail": "Builder shape: Retail transactions / loyalty",
+        "marketing": "Builder shape: Marketing campaigns / attribution",
+    }
+
+    all_names = [n for n, _ in engine_templates] + [n for n, _ in builder_templates]
+    width = max(len(name) for name in all_names) if all_names else 0
+
+    if builder_templates:
+        print("Builder templates (recommended — front door for new users):")
+        for name, _path in builder_templates:
+            desc = builder_descriptions.get(name, "")
+            print(f"  {name.ljust(width)}  {desc}".rstrip())
+        print("")
+    if engine_templates:
+        print("Engine-direct templates (full PlotsimConfig YAML):")
+        for name, _path in engine_templates:
+            desc = engine_descriptions.get(name, "")
+            print(f"  {name.ljust(width)}  {desc}".rstrip())
+        print("")
+    first_name = (builder_templates or engine_templates)[0][0]
     print(
         f"Usage: plotsim template {first_name} -o my_config.yaml && "
         f"plotsim run my_config.yaml"

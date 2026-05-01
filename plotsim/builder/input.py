@@ -704,6 +704,12 @@ class UserInput(BaseModel):
     quality: list[QualityIssueInput] = Field(default_factory=list, max_length=50)
     holdout: Optional[HoldoutInput] = None
     entity_features: Optional[EntityFeaturesInput] = None
+    # M124: optional explicit seed. When ``None`` the interpreter draws one
+    # from ``secrets.randbelow(2**32)`` (preserves prior non-determinism for
+    # callers that don't pin a seed). When set, the interpreter threads the
+    # value onto ``PlotsimConfig.seed`` verbatim — same seed in, same
+    # output out, every run.
+    seed: Optional[int] = Field(default=None, ge=0, le=2**32 - 1)
 
     # ── Pre-normalisation: accept tuple/string shorthand on inputs ─────────
 

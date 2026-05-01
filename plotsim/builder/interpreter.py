@@ -138,7 +138,11 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
 
     seasonal_effects = _build_seasonal_effects(user_input)
 
-    seed = secrets.randbelow(2**32)
+    # M124: honor an explicit ``UserInput.seed`` so users can pin determinism
+    # via ``create(seed=N)`` / ``seed: N`` in YAML. Falls back to the prior
+    # ``secrets.randbelow`` draw when no seed is declared, preserving the
+    # non-reproducible default behaviour for callers that didn't ask for one.
+    seed = user_input.seed if user_input.seed is not None else secrets.randbelow(2**32)
 
     return PlotsimConfig(
         domain=domain,
@@ -515,6 +519,34 @@ def _build_tables(
         ))
     for e in user_input.events:
         tables.append(_translate_event(e, dim_pk))
+
+    # M124: auto-fill ``dim_date`` when the user declared an explicit schema
+    # but omitted it. The fact/event builders unconditionally key on the
+    # ``dim_date.date_key`` PK; without this the engine raises
+    # ``KeyError: 'dim_date'`` deep inside dim resolution. Auto-generation
+    # only fires when ALL of dimensions/facts/events are empty, so explicit-
+    # schema users used to have to remember to declare dim_date themselves
+    # for every config — even though the date_key column is fully derivable
+    # from the time window.
+    table_names = {t.name for t in tables}
+    if "dim_date" not in table_names:
+        tables.insert(0, _make_default_dim_date())
+        table_names.add("dim_date")
+
+    # M124: bridges may reference ``dim_{unit}`` even when the user didn't
+    # declare it as a dimension. The builder's
+    # ``_bridge_references_resolve`` validator already accepts this name as
+    # always-available, but the engine ``PlotsimConfig`` validator rejects
+    # it because the table isn't actually present. Auto-prepend a minimal
+    # ``dim_{unit}`` so the engine sees it.
+    bridge_targets = {side for b in user_input.bridges for side in (b.left, b.right)}
+    auto_unit_dim = f"dim_{user_input.unit}"
+    if auto_unit_dim in bridge_targets and auto_unit_dim not in table_names:
+        tables.append(_make_default_dim_unit(
+            user_input, attribute_value_pools,
+        ))
+        table_names.add(auto_unit_dim)
+
     return tables
 
 
@@ -917,6 +949,60 @@ def _translate_column(
 # ── Auto-generated schema ───────────────────────────────────────────────────
 
 
+def _make_default_dim_date() -> Table:
+    """The minimal ``dim_date`` shape used by both the auto-schema branch
+    and the M124 explicit-schema fallback. Five columns: PK + date / year /
+    month / quarter, all derivable from the time window.
+    """
+    return Table(
+        name="dim_date",
+        type="dim",
+        grain="per_period",
+        columns=[
+            Column(name="date_key", dtype="id", source="pk"),
+            Column(name="date", dtype="date", source="generated:date_key"),
+            Column(name="year", dtype="int", source="generated:date_key"),
+            Column(name="month", dtype="int", source="generated:date_key"),
+            Column(name="quarter", dtype="int", source="generated:date_key"),
+        ],
+        primary_key="date_key",
+    )
+
+
+def _make_default_dim_unit(
+    user_input: UserInput,
+    attribute_value_pools: dict[str, dict[str, list[str]]],
+) -> Table:
+    """The minimal ``dim_{unit}`` shape — PK + faker-name column, plus one
+    ``pool:{attr}`` column per attribute declared on every segment.
+
+    Used by the auto-schema branch and the M124 explicit-schema fallback
+    when a bridge references ``dim_{unit}`` but the user didn't declare it.
+    """
+    unit = user_input.unit
+    pk_col = f"{unit}_id"
+    name_col = f"{unit}_name"
+    faker_kind = UNIT_FAKER_MAP.get(unit, "faker.company")
+
+    columns: list[Column] = [
+        Column(name=pk_col, dtype="id", source="pk"),
+        Column(name=name_col, dtype="string", source=f"generated:{faker_kind}"),
+    ]
+    for attr_name in sorted(attribute_value_pools):
+        columns.append(Column(
+            name=attr_name, dtype="string",
+            source=f"pool:{attr_name}",
+            value_pool=dict(attribute_value_pools[attr_name]),
+        ))
+    return Table(
+        name=f"dim_{unit}",
+        type="dim",
+        grain="per_entity",
+        columns=columns,
+        primary_key=pk_col,
+    )
+
+
 def _auto_generate_schema(
     user_input: UserInput,
     metric_by_name: dict[str, Metric],
@@ -938,39 +1024,9 @@ def _auto_generate_schema(
     unit_dim = f"dim_{unit}"
     fact_table = f"fct_{unit}"
     pk_col = f"{unit}_id"
-    name_col = f"{unit}_name"
-    faker_kind = UNIT_FAKER_MAP.get(unit, "faker.company")
 
-    dim_date = Table(
-        name="dim_date",
-        type="dim",
-        grain="per_period",
-        columns=[
-            Column(name="date_key", dtype="id", source="pk"),
-            Column(name="date", dtype="date", source="generated:date_key"),
-            Column(name="year", dtype="int", source="generated:date_key"),
-            Column(name="month", dtype="int", source="generated:date_key"),
-            Column(name="quarter", dtype="int", source="generated:date_key"),
-        ],
-        primary_key="date_key",
-    )
-    dim_unit_columns: list[Column] = [
-        Column(name=pk_col, dtype="id", source="pk"),
-        Column(name=name_col, dtype="string", source=f"generated:{faker_kind}"),
-    ]
-    for attr_name in sorted(attribute_value_pools):
-        dim_unit_columns.append(Column(
-            name=attr_name, dtype="string",
-            source=f"pool:{attr_name}",
-            value_pool=dict(attribute_value_pools[attr_name]),
-        ))
-    dim_unit = Table(
-        name=unit_dim,
-        type="dim",
-        grain="per_entity",
-        columns=dim_unit_columns,
-        primary_key=pk_col,
-    )
+    dim_date = _make_default_dim_date()
+    dim_unit = _make_default_dim_unit(user_input, attribute_value_pools)
 
     fact_columns: list[Column] = [
         Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),

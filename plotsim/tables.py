@@ -1301,7 +1301,13 @@ def _build_proportional_event(
     date_keys_arr = fact_df[fact_date_col_name].to_numpy()
     # Coerce to float64 with NaN for nulls — handles both vectorized fact
     # output (float64) and scalar-fallback output (object with None).
-    values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy()
+    # M124: ``to_numpy(dtype=np.float64)`` forces a float container even when
+    # the metric column is integer-typed (count drivers, poisson-distributed
+    # metrics). Without the cast, ``np.isnan`` raises
+    # ``TypeError: ufunc 'isnan' not supported for input types`` on int dtype.
+    values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy(
+        dtype=np.float64
+    )
 
     # NaN-as-null cells contribute zero rows. Replace NaN before the cast so
     # np.int64 doesn't emit a garbage-value RuntimeWarning on the NaN lane.
