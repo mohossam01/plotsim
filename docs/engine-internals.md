@@ -9,7 +9,7 @@
 > grading a PR, and AI assistants asked to reason about plotsim without
 > being handed the source tree.
 >
-> **Aligns with:** `__version__ = 0.5.0` · post-M119 (global seasonality) · pending commit · 2026-04-30
+> **Aligns with:** `__version__ = 0.5.0` · post-M124 (builder DX + CLI dispatcher) · commit `40ac524` · 2026-05-01
 >
 > **Maintenance contract.** Whenever a change to `plotsim/*.py` (other than
 > `cli.py`) lands, this file is updated in the same session. The
@@ -552,7 +552,7 @@ polarity and noise already baked in):
 | Stages (free mode, **default**) | `_free_mode_stages` ([`tables.py:1454`](../plotsim/tables.py#L1454))     | realized metric values from the fact table                                   | `[s.threshold_enter for s in seq]` only — `threshold_exit` ignored in free mode    | metric value                |
 | Stages (monotonic, opt-in via `enforce_order: true`) | `_monotonic_stage_walk` ([`tables.py:1369`](../plotsim/tables.py#L1369)) | realized metric values from the fact table (`values: np.ndarray`)            | `[s.threshold_enter for s in seq]`; optional `s.threshold_exit` for hysteresis demote | metric value                |
 | Threshold events    | `_build_threshold_event` ([`tables.py:1208`](../plotsim/tables.py#L1208))        | `fact_row[metric_col]` per period                                            | `ts.value` with `ts.direction ∈ {above, below}` and `ts.consecutive`               | metric value                |
-| Proportional events | `_build_proportional_event` ([`tables.py:973`](../plotsim/tables.py#L973))       | `fact_df[metric_col]` (vectorized)                                            | *no comparison* — row count = `np.rint(value · rc.scale).astype(int64)`            | metric value (scaled to count) |
+| Proportional events | `_build_proportional_event` ([`tables.py:973`](../plotsim/tables.py#L973))       | `fact_df[metric_col]` cast to `float64` (vectorized; M124 — count / poisson drivers used to break `np.isnan` on int dtype) | *no comparison* — row count = `np.rint(value · rc.scale).astype(int64)`            | metric value (scaled to count) |
 
 A reader reasoning about how thresholds interact with polarity or
 `value_range` needs to know which space a feature lives in. SCD Type 2
@@ -891,9 +891,22 @@ function importable from `plotsim`.
 | `plotsim run <config.yaml>`            | Generate CSV/Parquet from a config.                     |
 | `plotsim validate <config.yaml>`       | Validate the config without generating tables.          |
 | `plotsim info <config.yaml>`           | Summarise what a config would generate.                 |
-| `plotsim list-templates`               | List bundled `sample_*` configs.                        |
+| `plotsim list-templates`               | List bundled builder templates and engine-direct configs. |
 | `plotsim template <name> [--output]`   | Copy a sample config out for editing.                   |
 | `plotsim schema [--output]`            | Emit JSON Schema for `PlotsimConfig`.                   |
+
+**M124 dispatcher.** `run` / `validate` / `info` accept either YAML
+flavour. The internal `_is_builder_yaml(path)` peek classifies a
+config: if the YAML has a top-level `about` + `unit` + `segments` and
+no `domain`, the dispatcher routes through `create_from_yaml`
+(builder layer); otherwise it falls back to `load_config`
+(engine-direct). Malformed YAML or non-dict top-level falls through
+to the engine loader so its existing error messages stay the source
+of truth. `list-templates` surfaces a "Builder templates" section
+above the engine-direct one; `find_template` falls back to builder
+templates when no engine-direct match exists, but engine-direct names
+retain precedence (e.g. `template saas` resolves to the engine-direct
+`sample_saas.yaml`).
 
 ### 2.16 Builder — `plotsim/builder/{__init__,recipes,parser,input,interpreter,schema}.py`
 
@@ -930,7 +943,16 @@ public surfaces — `plotsim.create(**kwargs)` (Python) and
   The `segment.count` column type translates to a `pool:cohort_size`
   PoolSource whose value_pool maps each expanded entity to the original
   cohort population — the pre-M117 `derived:size` would have emitted 1
-  for every row after expansion.
+  for every row after expansion. **M124 explicit-schema auto-dim
+  fallback**: when the user declares any explicit dim/fact/event but
+  omits `dim_date`, the interpreter auto-prepends a default `dim_date`
+  (PK + date / year / month / quarter, all derivable from the time
+  window). When bridges reference `dim_{unit}` but the user didn't
+  declare it, the interpreter auto-appends a default `dim_{unit}` (PK
+  + faker name column + any `pool:{attr}` columns from segment
+  attributes). Both factories live in `_make_default_dim_date()` and
+  `_make_default_dim_unit()` and are shared with the auto-schema
+  branch.
 - `schema` (M116) — `generate_user_input_schema()` returning a Draft
   2020-12 JSON Schema for `UserInput`, plus five vocabulary lookup
   dicts (`METRIC_TYPES`, `SHAPE_WORDS`, `RELATIONSHIP_WORDS`,
@@ -958,10 +980,13 @@ public surfaces — `plotsim.create(**kwargs)` (Python) and
   `SHAPE_WORDS`, `RELATIONSHIP_WORDS`, `BASELINE_WORDS`, `COLUMN_TYPES`.
 
 **Determinism caveat.** `interpret` draws `seed` from
-`secrets.randbelow(2**32)` — calling `create()` twice on the same input
-yields two `PlotsimConfig`s with different seeds. To reproduce a
-dataset, copy the seed from the first config (or its manifest) before
-the second call.
+`secrets.randbelow(2**32)` *only when no explicit seed is declared*.
+M124 added an optional `UserInput.seed` field — `create(seed=N)` /
+top-level `seed: N` in YAML threads onto `PlotsimConfig.seed` verbatim.
+Without it, calling `create()` twice on the same input yields two
+`PlotsimConfig`s with different seeds; to reproduce, either pin
+`seed=` or copy the seed from the first config's manifest before the
+second call.
 
 ---
 
