@@ -98,6 +98,7 @@ COLUMN_TYPES: dict[str, str] = {
     "faker.{kind}":   "Generated text via faker (company, name, sentence, year, ...).",
     "static.{value}": "Fixed literal value for every row (numeric → float, else string).",
     "segment.count":  "Engine fills with the segment's row count.",
+    "pool.{attr}":    "Per-entity value pool drawn from the segment's `attributes[attr]` list.",
     "timestamp":      "Datetime sampled within each row's period.",
     "flag":           "Boolean derived from a threshold-trigger event firing.",
     "bucket":         "Categorical label derived from trajectory (requires `labels`).",

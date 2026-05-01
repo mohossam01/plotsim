@@ -152,7 +152,7 @@ def test_column_types_cover_every_interpreter_stem():
     """
     expected = {
         "id", "ref.{dim}", "metric.{name}", "faker.{kind}", "static.{value}",
-        "segment.count", "timestamp", "flag", "bucket", "scd",
+        "segment.count", "pool.{attr}", "timestamp", "flag", "bucket", "scd",
         "date", "int", "string", "float",
     }
     assert set(COLUMN_TYPES) == expected

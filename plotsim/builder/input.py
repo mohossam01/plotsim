@@ -141,6 +141,42 @@ class SegmentInput(BaseModel):
     label: Optional[str] = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     baseline: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("attributes")
+    @classmethod
+    def _attributes_are_str_or_str_list(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Each attribute value must be a string or a list of strings.
+
+        M122: ``attributes`` doubles as the source for ``pool.{attr}``
+        column types — every value must be coerce-able to a list of
+        strings (scalars wrap into a single-element list at the
+        interpreter step). Numeric attribute values are stringified
+        because PoolSource is dtype=string only.
+        """
+        for key, value in v.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError(
+                    f"segment attribute key {key!r} must be a non-empty string"
+                )
+            if isinstance(value, (list, tuple)):
+                if not value:
+                    raise ValueError(
+                        f"attribute {key!r}: list must be non-empty"
+                    )
+                for item in value:
+                    if not isinstance(item, (str, int, float, bool)):
+                        raise ValueError(
+                            f"attribute {key!r}: list entries must be "
+                            f"scalars (str/int/float/bool), got "
+                            f"{type(item).__name__}"
+                        )
+            elif not isinstance(value, (str, int, float, bool)):
+                raise ValueError(
+                    f"attribute {key!r}: value must be a scalar "
+                    f"(str/int/float/bool) or a list of scalars, got "
+                    f"{type(value).__name__}"
+                )
+        return v
     # M119: per-segment seasonal sensitivity. Default ``1.0`` (follow
     # the global ``seasonality`` strength at face value). The interpreter
     # copies this value onto every expanded ``Entity.seasonal_sensitivity``
@@ -411,6 +447,176 @@ class SeasonalEffectInput(BaseModel):
         return v
 
 
+# ── Quality / Holdout / EntityFeatures / Bridges (M122) ────────────────────
+
+
+class QualityIssueInput(BaseModel):
+    """One post-generation data-quality corruption.
+
+    Five issue types map 1:1 to the engine's ``QualityIssue.type``. The
+    builder accepts a single ``column`` name (or omits it for
+    ``duplicate_rows`` / ``late_arrival``); the interpreter expands to
+    ``target_columns=[column]`` or the ``"*"`` sentinel when omitted.
+
+    Engine-level cross-references (table exists, column exists on that
+    table, rate honored against table size) are validated by
+    ``PlotsimConfig._quality_gates`` at interpreter exit.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    table: str = Field(min_length=1)
+    issue: Literal[
+        "null_injection",
+        "duplicate_rows",
+        "type_mismatch",
+        "late_arrival",
+        "schema_drift",
+    ]
+    rate: float = Field(ge=0.0, le=1.0)
+    column: Optional[str] = None
+    seed_offset: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _column_required_for_column_typed_issues(self) -> "QualityIssueInput":
+        if self.issue in ("null_injection", "type_mismatch", "schema_drift"):
+            if not self.column:
+                raise ValueError(
+                    f"quality issue {self.issue!r} on table "
+                    f"{self.table!r} requires a `column` name (the column "
+                    f"to corrupt). `column` is only optional for "
+                    f"`duplicate_rows` and `late_arrival`."
+                )
+        return self
+
+
+class HoldoutInput(BaseModel):
+    """Temporal train/holdout split for ML target workflows.
+
+    Maps to ``HoldoutConfig(enabled=True, target_metric=target,
+    holdout_periods=periods)`` — see engine-side ``HoldoutConfig``
+    docstring for cutoff math and gate rules. The engine raises at
+    ``PlotsimConfig`` load if ``periods`` exceeds ``n_periods -
+    min_training_periods``; we surface a builder-side message for the
+    most common error (target not declared) and let the engine catch
+    the rest.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target: str = Field(min_length=1)
+    periods: int = Field(ge=1, le=10_000)
+    min_training_periods: int = Field(default=3, ge=1, le=10_000)
+
+
+class EntityFeaturesInput(BaseModel):
+    """Per-entity flat feature table emission settings.
+
+    The bool shorthand ``entity_features: true`` translates to this
+    model with all defaults (every numeric metric, labels on). The
+    dict form lets callers narrow the metric set or strip labels.
+
+    Engine-side gates (manifest required, no quality_issues, metric
+    references resolve to numeric fact columns) raise at PlotsimConfig
+    load.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    metrics: list[str] = Field(default_factory=list, max_length=50)
+    include_labels: bool = True
+
+
+class BridgeColumnInput(BaseModel):
+    """A single bridge-row column. Same shorthand as fact/dim columns.
+
+    Bridge rows are static per (entity_a, entity_b) pair — no period
+    axis — so only ``metric.{name}``, ``static.{value}``, and
+    ``faker.{kind}`` types are valid here. The interpreter rejects
+    anything else with a context-rich error.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+
+
+class BridgeInput(BaseModel):
+    """Many-to-many bridge between two dim tables.
+
+    Both ``left`` and ``right`` reference dim table names. ``cardinality``
+    is an inclusive ``[min, max]`` pair: each ``left`` entity associates
+    with ``min..max`` ``right`` entities (sampled uniformly when no
+    ``driver`` is set; biased by trajectory position when ``driver``
+    is set).
+
+    ``driver`` (optional) is a metric name. Non-null values flip the
+    engine's ``trajectory_driven`` to True; null leaves it at the
+    engine default (which is also True). The driver name is mostly
+    documentary at the builder layer — engine bridge generation
+    queries the entity's trajectory directly, not a specific metric.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    left: str = Field(min_length=1)
+    right: str = Field(min_length=1)
+    cardinality: tuple[int, int]
+    driver: Optional[str] = None
+    columns: list[BridgeColumnInput] = Field(default_factory=list, max_length=20)
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_simple(cls, v: str) -> str:
+        if not v.replace("_", "").isalnum():
+            raise ValueError(
+                f"bridge name {v!r} must be alphanumeric or underscores only"
+            )
+        return v
+
+    @field_validator("cardinality")
+    @classmethod
+    def _cardinality_bounds(cls, v: tuple[int, int]) -> tuple[int, int]:
+        lo, hi = v
+        if lo < 0:
+            raise ValueError(
+                f"bridge cardinality min ({lo}) must be >= 0"
+            )
+        if hi < 1:
+            raise ValueError(
+                f"bridge cardinality max ({hi}) must be >= 1"
+            )
+        if lo > hi:
+            raise ValueError(
+                f"bridge cardinality [min, max] = [{lo}, {hi}]: "
+                f"min must be <= max"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _left_and_right_distinct(self) -> "BridgeInput":
+        if self.left == self.right:
+            raise ValueError(
+                f"bridge {self.name!r}: left and right must be distinct "
+                f"dim tables (got both as {self.left!r}; self-join "
+                f"bridges are not supported)"
+            )
+        return self
+
+
+# ── Coercion helpers for shorthand forms ────────────────────────────────────
+
+
+def _coerce_entity_features(value: Any) -> Any:
+    """Accept ``True`` / ``False`` shorthand on the ``entity_features`` field.
+
+    ``True`` → empty ``EntityFeaturesInput()`` (defaults). ``False`` →
+    ``None`` (no entity-features section). Dicts pass through unchanged.
+    """
+    if value is True:
+        return {}
+    if value is False:
+        return None
+    return value
+
+
 # ── UserInput root ──────────────────────────────────────────────────────────
 
 
@@ -490,6 +696,14 @@ class UserInput(BaseModel):
     # modulation is configured and engine output is byte-identical to
     # pre-M119 baselines.
     seasonality: list[SeasonalEffectInput] = Field(default_factory=list)
+    # M122: power-user features — bridges, quality injection, holdout
+    # split, and entity-features emission. All four are optional; their
+    # default empty / disabled forms produce engine output identical to
+    # pre-M122 baselines.
+    bridges: list[BridgeInput] = Field(default_factory=list, max_length=20)
+    quality: list[QualityIssueInput] = Field(default_factory=list, max_length=50)
+    holdout: Optional[HoldoutInput] = None
+    entity_features: Optional[EntityFeaturesInput] = None
 
     # ── Pre-normalisation: accept tuple/string shorthand on inputs ─────────
 
@@ -505,6 +719,10 @@ class UserInput(BaseModel):
             normalised["connections"] = [
                 _coerce_connection(c) for c in normalised["connections"]
             ]
+        if "entity_features" in normalised:
+            normalised["entity_features"] = _coerce_entity_features(
+                normalised["entity_features"]
+            )
         return normalised
 
     # ── Structural cross-reference validators ──────────────────────────────
@@ -593,6 +811,51 @@ class UserInput(BaseModel):
                 f"lifecycle.track={self.lifecycle.track!r} is not a "
                 f"declared metric. Available: {sorted(metric_names)}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _bridge_references_resolve(self) -> "UserInput":
+        """M122: bridge.left/right must reference a declared dim or the
+        auto-generated ``dim_{unit}`` / ``dim_date``; bridge.driver must
+        reference a declared metric.
+
+        Auto-generated dims are always available — when the user omits
+        the schema entirely, ``dim_date`` and ``dim_{unit}`` are still
+        emitted by the interpreter. Explicit-schema users may also bridge
+        between user-declared dims.
+        """
+        if not self.bridges:
+            return self
+        declared_dims: set[str] = {d.name for d in self.dimensions}
+        declared_dims.add("dim_date")
+        declared_dims.add(f"dim_{self.unit}")
+        metric_names = {m.name for m in self.metrics}
+        for b in self.bridges:
+            for side, dim in (("left", b.left), ("right", b.right)):
+                if dim not in declared_dims:
+                    raise ValueError(
+                        f"bridge {b.name!r} {side}={dim!r}: not a declared "
+                        f"dimension. Available: {sorted(declared_dims)}"
+                    )
+            if b.driver is not None and b.driver not in metric_names:
+                raise ValueError(
+                    f"bridge {b.name!r} driver={b.driver!r}: not a declared "
+                    f"metric. Available: {sorted(metric_names)}"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _entity_features_metrics_exist(self) -> "UserInput":
+        """M122: entity_features.metrics must reference declared metrics."""
+        if self.entity_features is None or not self.entity_features.metrics:
+            return self
+        metric_names = {m.name for m in self.metrics}
+        for name in self.entity_features.metrics:
+            if name not in metric_names:
+                raise ValueError(
+                    f"entity_features.metrics: {name!r} is not a declared "
+                    f"metric. Available: {sorted(metric_names)}"
+                )
         return self
 
     @model_validator(mode="after")

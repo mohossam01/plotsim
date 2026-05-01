@@ -29,15 +29,22 @@ from typing import Optional
 
 from plotsim.config import (
     Archetype,
+    BridgeCardinality,
+    BridgeMetric,
+    BridgeTableConfig,
     CausalLag,
     Column,
     CorrelationPair,
     Domain,
     Entity,
+    EntityFeaturesConfig,
+    HoldoutConfig,
     Metric,
     MetricOverride,
     OutputConfig,
     PlotsimConfig,
+    QualityConfig,
+    QualityIssue,
     SCDType2Config,
     SeasonalEffect,
     StageDefinition,
@@ -48,6 +55,7 @@ from plotsim.config import (
 )
 
 from .input import (
+    BridgeColumnInput,
     ColumnInput,
     DimInput,
     EventInput,
@@ -113,7 +121,20 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     # the original cohort size the column is meant to carry.
     segment_count_value_pool = _build_segment_count_value_pool(user_input)
 
-    tables = _build_tables(user_input, metric_by_name, segment_count_value_pool)
+    # M122: ``pool.{attr}`` columns map each expanded entity to the list of
+    # values declared on its segment's ``attributes[attr]``. Built once and
+    # threaded down through ``_build_tables`` → ``_translate_column``.
+    attribute_value_pools = _build_attribute_value_pools(user_input)
+
+    tables = _build_tables(
+        user_input, metric_by_name, segment_count_value_pool,
+        attribute_value_pools,
+    )
+
+    bridges = _translate_bridges(user_input, metric_by_name)
+    quality = _translate_quality(user_input)
+    holdout = _translate_holdout(user_input)
+    entity_features = _translate_entity_features(user_input)
 
     seasonal_effects = _build_seasonal_effects(user_input)
 
@@ -127,6 +148,10 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         archetypes=archetypes,
         entities=entities,
         tables=tables,
+        bridges=bridges,
+        quality=quality,
+        holdout=holdout,
+        entity_features=entity_features,
         correlations=correlations,
         stages=stages,
         seasonal_effects=seasonal_effects,
@@ -434,6 +459,7 @@ def _build_tables(
     user_input: UserInput,
     metric_by_name: dict[str, Metric],
     segment_count_value_pool: dict[str, list[str]],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> list[Table]:
     """Translate the schema section, or auto-generate when none provided.
 
@@ -444,11 +470,17 @@ def _build_tables(
     ``segment_count_value_pool`` threads the M117 cohort-population pool
     through to ``_translate_column`` so ``segment.count`` columns can
     resolve to a PoolSource keyed by expanded entity names.
+
+    ``attribute_value_pools`` (M122) is the per-attribute value_pool
+    keyed by attribute name; ``pool.{attr}`` columns resolve to a
+    PoolSource using the value list at that key.
     """
     if (not user_input.dimensions
             and not user_input.facts
             and not user_input.events):
-        return _auto_generate_schema(user_input, metric_by_name)
+        return _auto_generate_schema(
+            user_input, metric_by_name, attribute_value_pools,
+        )
 
     # Build a dim PK lookup for FK resolution. dim_date is special-cased
     # because it might not appear in user_input.dimensions explicitly.
@@ -475,6 +507,7 @@ def _build_tables(
     for d in user_input.dimensions:
         tables.append(_translate_dim(
             d, dim_pk, metric_to_fact, segment_count_value_pool,
+            attribute_value_pools,
         ))
     for f in user_input.facts:
         tables.append(_translate_fact(
@@ -503,6 +536,7 @@ def _translate_dim(
     dim_pk: dict[str, str],
     metric_to_fact: dict[str, str],
     segment_count_value_pool: dict[str, list[str]],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> Table:
     columns: list[Column] = []
     for col in d.columns:
@@ -513,6 +547,7 @@ def _translate_dim(
             metric_to_fact=metric_to_fact,
             is_dim_date=(d.name == "dim_date"),
             segment_count_value_pool=segment_count_value_pool,
+            attribute_value_pools=attribute_value_pools,
         ))
     pk = _dim_primary_key(d)
     foreign_keys = _foreign_keys(d.columns, dim_pk)
@@ -577,11 +612,14 @@ def _translate_fact(
             dim_pk=dim_pk,
             metric_to_fact=metric_to_fact,
             metric_by_name=metric_by_name,
-            # Fact columns can't legitimately use ``segment.count`` (the
-            # column type is dim-only); empty pool keeps the signature
-            # uniform and ``_translate_column`` raises the type-not-allowed
-            # error if a user declares it here.
+            # Fact columns can't legitimately use ``segment.count`` /
+            # ``pool.{attr}`` (column types are dim-only); empty pools
+            # keep the signature uniform and the ``pool_columns_allowed``
+            # flag flips the error message from "attribute not declared"
+            # to "dim-only" when a user declares either here.
             segment_count_value_pool={},
+            attribute_value_pools={},
+            pool_columns_allowed=False,
         )
         for col in f.columns
     ]
@@ -673,11 +711,14 @@ def _translate_event_column(
         owning_table=e.name,
         dim_pk=dim_pk,
         metric_to_fact={},  # events don't host SCDs
-        # ``segment.count`` columns are only valid on per_entity dims
-        # (PoolSource validation rejects them elsewhere); empty pool here
-        # is fine — _translate_column raises the dim-only error if a user
-        # declares the type on an event column.
+        # ``segment.count`` / ``pool.{attr}`` columns are only valid on
+        # per_entity dims (PoolSource validation rejects them elsewhere);
+        # ``pool_columns_allowed=False`` flips the error message to the
+        # dim-only path if a user declares either type on an event
+        # column.
         segment_count_value_pool={},
+        attribute_value_pools={},
+        pool_columns_allowed=False,
     )
 
 
@@ -691,6 +732,8 @@ def _translate_column(
     dim_pk: dict[str, str],
     metric_to_fact: dict[str, str],
     segment_count_value_pool: dict[str, list[str]],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
+    pool_columns_allowed: bool = True,
     metric_by_name: Optional[dict[str, Metric]] = None,
     is_dim_date: bool = False,
 ) -> Column:
@@ -766,6 +809,36 @@ def _translate_column(
             dtype = "string"
         return Column(name=col.name, dtype=dtype, source=f"static:{value}")
 
+    # ─── pool.{attr} → pool:{attr} + value_pool keyed by entity ─────────
+    if t.startswith("pool."):
+        attr_name = t.split(".", 1)[1]
+        if not attr_name:
+            raise ValueError(
+                f"column {col.name!r} in {owning_table!r}: type 'pool.' "
+                f"requires an attribute name (e.g. 'pool.industry')"
+            )
+        if not pool_columns_allowed:
+            raise ValueError(
+                f"column {col.name!r} in {owning_table!r}: type "
+                f"'pool.{attr_name}' is only valid on per_entity dim "
+                f"columns (segment attributes are not exposed on fact / "
+                f"event tables)"
+            )
+        pool = attribute_value_pools.get(attr_name)
+        if pool is None:
+            available = sorted(attribute_value_pools)
+            raise ValueError(
+                f"column {col.name!r} in {owning_table!r}: type "
+                f"'pool.{attr_name}' references attribute {attr_name!r} "
+                f"which is not declared on every segment. Available "
+                f"attributes (declared on every segment): "
+                f"{available if available else '<none>'}"
+            )
+        return Column(
+            name=col.name, dtype="string", source=f"pool:{attr_name}",
+            value_pool=dict(pool),
+        )
+
     # ─── segment.count → pool:cohort_size + value_pool ──────────────────
     if t == "segment.count":
         if not segment_count_value_pool:
@@ -836,7 +909,8 @@ def _translate_column(
     raise ValueError(
         f"column {col.name!r} in {owning_table!r}: unknown type {t!r}. "
         f"Valid types: id, ref.X, metric.X, faker.X, static.X, "
-        f"segment.count, timestamp, date, int, string, float, bucket, scd"
+        f"segment.count, pool.X, timestamp, date, int, string, float, "
+        f"bucket, scd"
     )
 
 
@@ -846,6 +920,7 @@ def _translate_column(
 def _auto_generate_schema(
     user_input: UserInput,
     metric_by_name: dict[str, Metric],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> list[Table]:
     """Minimal default schema: dim_date + dim_{unit} + fct_{unit}.
 
@@ -853,6 +928,11 @@ def _auto_generate_schema(
     fact table; sub-entity dims, multi-fact splits, and events are
     out of scope for the auto path — users who need those declare an
     explicit schema.
+
+    M122: when ``attribute_value_pools`` is non-empty, ``dim_{unit}``
+    gains one ``pool:{attr}`` column per attribute, alphabetically
+    ordered. Auto-schema users who declare segment attributes get those
+    attributes surfaced on the dim without writing the schema by hand.
     """
     unit = user_input.unit
     unit_dim = f"dim_{unit}"
@@ -874,14 +954,21 @@ def _auto_generate_schema(
         ],
         primary_key="date_key",
     )
+    dim_unit_columns: list[Column] = [
+        Column(name=pk_col, dtype="id", source="pk"),
+        Column(name=name_col, dtype="string", source=f"generated:{faker_kind}"),
+    ]
+    for attr_name in sorted(attribute_value_pools):
+        dim_unit_columns.append(Column(
+            name=attr_name, dtype="string",
+            source=f"pool:{attr_name}",
+            value_pool=dict(attribute_value_pools[attr_name]),
+        ))
     dim_unit = Table(
         name=unit_dim,
         type="dim",
         grain="per_entity",
-        columns=[
-            Column(name=pk_col, dtype="id", source="pk"),
-            Column(name=name_col, dtype="string", source=f"generated:{faker_kind}"),
-        ],
+        columns=dim_unit_columns,
         primary_key=pk_col,
     )
 
@@ -905,3 +992,194 @@ def _auto_generate_schema(
     )
 
     return [dim_date, dim_unit, fact]
+
+
+# ── M122: pool.{attr} value-pool builder ────────────────────────────────────
+
+
+def _build_attribute_value_pools(
+    user_input: UserInput,
+) -> dict[str, dict[str, list[str]]]:
+    """Build per-attribute value pools keyed by expanded entity name.
+
+    Returns ``{attr_name: {entity_name: [values]}}`` for every attribute
+    declared on EVERY segment. Attributes declared on only some segments
+    are omitted from the auto-schema (they would leave entities in other
+    segments with no pool entry, which the engine's
+    ``validate_value_pool_coverage`` rejects). Explicit ``pool.{attr}``
+    columns referencing partial attributes raise at column-translate
+    time with a clear message.
+
+    Scalar attribute values (``tier: enterprise``) wrap into a
+    single-element list per the M122 spec — PoolSource value lists are
+    always ``list[str]`` and a single value is just a one-element list.
+    Numeric / bool attribute values are stringified because PoolSource
+    columns are ``dtype=string``; round-tripping ints via the pool
+    machinery is intentional (the engine writes string cells).
+    """
+    if not user_input.segments:
+        return {}
+
+    # Find attributes declared on every segment.
+    per_segment_keys = [set(s.attributes.keys()) for s in user_input.segments]
+    if not per_segment_keys:
+        return {}
+    common_keys = set.intersection(*per_segment_keys) if per_segment_keys else set()
+
+    pools: dict[str, dict[str, list[str]]] = {}
+    for attr in common_keys:
+        per_entity: dict[str, list[str]] = {}
+        for s in user_input.segments:
+            raw = s.attributes[attr]
+            if isinstance(raw, (list, tuple)):
+                values = [str(v) for v in raw]
+            else:
+                values = [str(raw)]
+            for i in range(s.count):
+                per_entity[f"{s.name}_{i:04d}"] = values
+        pools[attr] = per_entity
+    return pools
+
+
+# ── M122: bridges / quality / holdout / entity_features translators ─────────
+
+
+def _translate_bridges(
+    user_input: UserInput,
+    metric_by_name: dict[str, Metric],
+) -> list[BridgeTableConfig]:
+    """Translate ``UserInput.bridges`` into engine ``BridgeTableConfig``.
+
+    1:1 by construction:
+      * ``left`` / ``right`` → ``connects=[left, right]``
+      * ``cardinality=(min, max)`` → ``BridgeCardinality(min, max)``
+      * ``driver`` non-null → ``trajectory_driven=True`` (engine default
+        is also True; the field is documentary on the builder side —
+        engine bridge generation reads the entity's trajectory directly,
+        not a specific metric)
+      * ``columns[*]`` → ``BridgeMetric`` via the same column-type
+        vocabulary, restricted to ``metric.X``, ``static.X``, and
+        ``faker.X`` (the only sources the engine ``BridgeMetric``
+        validator allows)
+    """
+    bridges: list[BridgeTableConfig] = []
+    for b in user_input.bridges:
+        bridge_metrics = [
+            _translate_bridge_column(col, metric_by_name, b.name)
+            for col in b.columns
+        ]
+        bridges.append(BridgeTableConfig(
+            name=b.name,
+            connects=[b.left, b.right],
+            cardinality=BridgeCardinality(min=b.cardinality[0], max=b.cardinality[1]),
+            trajectory_driven=True,
+            metrics=bridge_metrics,
+        ))
+    return bridges
+
+
+def _translate_bridge_column(
+    col: BridgeColumnInput,
+    metric_by_name: dict[str, Metric],
+    bridge_name: str,
+) -> BridgeMetric:
+    """Translate one bridge column to a BridgeMetric.
+
+    Bridge metrics support ``metric:X`` / ``static:X`` /
+    ``generated:faker.X`` only — bridges are static rows with no period
+    axis, so period-anchored sources (timestamps, threshold-firing,
+    proportional row counts, lag, refs) are rejected by the engine.
+    The builder layer raises a clearer message before the engine sees
+    it.
+    """
+    t = col.type
+    if t.startswith("metric."):
+        metric_name = t.split(".", 1)[1]
+        metric = metric_by_name.get(metric_name)
+        dtype = "float"
+        if metric is not None and metric.distribution == "poisson":
+            dtype = "int"
+        return BridgeMetric(
+            name=col.name, dtype=dtype, source=f"metric:{metric_name}",
+        )
+    if t.startswith("static."):
+        value = t.split(".", 1)[1]
+        try:
+            float(value)
+            dtype = "float"
+        except ValueError:
+            dtype = "string"
+        return BridgeMetric(
+            name=col.name, dtype=dtype, source=f"static:{value}",
+        )
+    if t.startswith("faker."):
+        kind = t.split(".", 1)[1]
+        dtype = "int" if kind == "year" else "string"
+        return BridgeMetric(
+            name=col.name, dtype=dtype, source=f"generated:faker.{kind}",
+        )
+    raise ValueError(
+        f"bridge {bridge_name!r} column {col.name!r}: type {t!r} is not "
+        f"supported on bridge rows. Bridge metrics accept metric.X, "
+        f"static.X, and faker.X only — bridges have no period axis to "
+        f"anchor period-derived sources against."
+    )
+
+
+def _translate_quality(user_input: UserInput) -> QualityConfig:
+    """Translate ``UserInput.quality`` into engine ``QualityConfig``.
+
+    Each input issue maps to one ``QualityIssue``:
+      * ``column`` set → ``target_columns=[column]``.
+      * ``column`` omitted (only valid for ``duplicate_rows`` /
+        ``late_arrival``) → ``target_columns=["*"]`` — the engine's
+        sentinel for "every eligible column on the resolved table".
+    """
+    issues: list[QualityIssue] = []
+    for q in user_input.quality:
+        target_columns = [q.column] if q.column else ["*"]
+        issues.append(QualityIssue(
+            type=q.issue,
+            target_table=q.table,
+            target_columns=target_columns,
+            rate=q.rate,
+            seed_offset=q.seed_offset,
+        ))
+    return QualityConfig(quality_issues=issues)
+
+
+def _translate_holdout(user_input: UserInput) -> HoldoutConfig:
+    """Translate ``UserInput.holdout`` into engine ``HoldoutConfig``.
+
+    No holdout declared → disabled config (the PlotsimConfig default).
+    Engine-side gates (target metric resolves to a numeric fact column,
+    train_periods >= min_training_periods, no overlap with quality
+    issues) raise at PlotsimConfig load.
+    """
+    h = user_input.holdout
+    if h is None:
+        return HoldoutConfig()
+    return HoldoutConfig(
+        enabled=True,
+        target_metric=h.target,
+        holdout_periods=h.periods,
+        min_training_periods=h.min_training_periods,
+    )
+
+
+def _translate_entity_features(user_input: UserInput) -> EntityFeaturesConfig:
+    """Translate ``UserInput.entity_features`` into ``EntityFeaturesConfig``.
+
+    No declaration → disabled (default). The boolean shorthand
+    ``entity_features: true`` is normalised to an empty
+    ``EntityFeaturesInput`` upstream, so reaching here with a non-None
+    value always means "enabled, with these settings."
+    """
+    ef = user_input.entity_features
+    if ef is None:
+        return EntityFeaturesConfig()
+    return EntityFeaturesConfig(
+        enabled=True,
+        metrics=list(ef.metrics),
+        include_labels=ef.include_labels,
+    )
