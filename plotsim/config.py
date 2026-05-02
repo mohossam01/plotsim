@@ -56,6 +56,21 @@ def _validate_identifier(kind: str, value: str) -> str:
     return value
 
 
+def _identifier_field_validator(kind: str):
+    """Return a ``field_validator(\"name\")`` callable that delegates to
+    ``_validate_identifier(kind, value)``.
+
+    Five Pydantic models (``PoolSource``, ``Column``, ``Table``, ``BridgeMetric``,
+    ``BridgeTableConfig``) used to declare a near-verbatim 3-line classmethod
+    ``_name_is_identifier`` — they only differed in the ``kind`` label
+    surfaced in the error message. This factory collapses the duplication
+    while preserving identical error text.
+    """
+    def _check(cls, v: str) -> str:
+        return _validate_identifier(kind, v)
+    return classmethod(_check)
+
+
 CURVE_TYPES: frozenset[str] = frozenset({
     "sigmoid", "exp_decay", "step", "logistic",
     "plateau", "oscillating", "compound", "sawtooth",
@@ -109,11 +124,11 @@ class SurrogateKeyWarning(UserWarning):
 class RedundantCorrelationWarning(UserWarning):
     """Warn when a correlation entry has coefficient 0.0 (the default).
 
-    F-01 / 0.4.0. Unlisted metric pairs already get zero off-diagonal, so an
-    explicit ``coefficient: 0.0`` entry is either a mistake (the user meant
-    a different value and typed zero) or unnecessary (it has no effect). We
-    warn but don't reject — the entry is still structurally valid, and the
-    built matrix is unchanged.
+    Unlisted metric pairs already get zero off-diagonal, so an explicit
+    ``coefficient: 0.0`` entry is either a mistake (the user meant a
+    different value and typed zero) or unnecessary (it has no effect).
+    We warn but don't reject — the entry is still structurally valid,
+    and the built matrix is unchanged.
     """
 
 
@@ -149,7 +164,7 @@ class GeneratedSource(_Frozen):
 class FakerSource(_Frozen):
     """A Faker provider call, optionally parameterized.
 
-    FIX-05 / MF-2. Grammar:
+    Grammar:
 
       * ``generated:faker.name`` → ``FakerSource(method="name", kwargs={})``
       * ``generated:faker.date_between:start_date:2020-01-01:end_date:2024-12-31``
@@ -185,10 +200,10 @@ class ThresholdSource(_Frozen):
 class ProportionalSource(_Frozen):
     """Number of event rows per entity per period = metric_value * scale.
 
-    ``scale`` is capped at 100 per Category B / SEC-07: the scalability report
-    (§6) showed that event-row construction dominates wall-clock and RSS at
-    high scales. The cap preserves legitimate event-per-period multipliers
-    while keeping the per-run row count bounded.
+    ``scale`` is capped at 100: event-row construction dominates wall-clock
+    and RSS at high scales, and the cap preserves legitimate
+    event-per-period multipliers while keeping the per-run row count
+    bounded.
     """
     metric: str
     scale: float = Field(gt=0.0, le=100.0)
@@ -201,7 +216,7 @@ class LagSource(_Frozen):
 
 
 class SCDType2Source(_Frozen):
-    """M106: marker source for a dim column carrying SCD Type 2 labels.
+    """Marker source for a dim column carrying SCD Type 2 labels.
 
     The literal source string ``scd_type2`` parses to this marker; the
     actual versioning configuration (trigger metric, thresholds, labels)
@@ -217,7 +232,7 @@ class SCDType2Source(_Frozen):
 
 
 class TextBucketSource(_Frozen):
-    """M105: text emission keyed by trajectory-position bands.
+    """Text emission keyed by trajectory-position bands.
 
     Grammar: ``text:bucket:[<label1>, <label2>, ..., <labelN>]``. Labels are
     comma-separated, whitespace around each label is stripped, and the
@@ -238,7 +253,7 @@ class TextBucketSource(_Frozen):
 
 
 class PoolSource(_Frozen):
-    """M114: per-entity value pool on a dimension column.
+    """Per-entity value pool on a dimension column.
 
     Grammar: ``pool:<name>``. ``<name>`` is a free-form identifier that
     distinguishes multiple pool columns on the same table (e.g. ``industry``
@@ -257,10 +272,7 @@ class PoolSource(_Frozen):
     """
     name: str
 
-    @field_validator("name")
-    @classmethod
-    def _name_is_identifier(cls, v: str) -> str:
-        return _validate_identifier("pool name", v)
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("pool name"))
 
 
 ParsedSource = (
@@ -597,7 +609,7 @@ class TimeWindow(_Frozen):
     def period_calendar_months(self) -> list[int]:
         """Return the calendar month (1-12) for each period in this window.
 
-        M119: anchors ``SeasonalEffect.months`` to period indices.
+        Anchors ``SeasonalEffect.months`` to period indices.
 
         - monthly: month from each ``YYYY-MM`` step.
         - weekly:  month of the FIRST day in the window for that ISO week —
@@ -653,7 +665,7 @@ class ValueRange(_Frozen):
 
 
 class SeasonalEffect(_Frozen):
-    """A calendar-driven multiplicative center modifier (M119).
+    """A calendar-driven multiplicative center modifier.
 
     At each period whose calendar month is in ``months``, every metric's
     distribution center is scaled by ``(1 + effective)`` BEFORE distribution
@@ -883,7 +895,7 @@ class FKDistribution(_Frozen):
 
 
 class SCDType2Config(_Frozen):
-    """M106: Slowly Changing Dimension Type 2 spec on a dim column.
+    """Slowly Changing Dimension Type 2 spec on a dim column.
 
     Attached to a ``Column`` whose source is the literal string
     ``"scd_type2"``; the source marker and this config object are
@@ -919,9 +931,9 @@ class SCDType2Config(_Frozen):
     later returns to a lower band does NOT spawn a new dim row on the
     return — band assignment uses ``np.maximum.accumulate`` over the
     raw per-period band index, so a dim row is emitted only when the
-    cursor advances. Mirrors the M102 ``StageDefinition.threshold_exit``
-    monotonic semantics so SCD versioning has a single behavioural
-    contract with the rest of the engine.
+    cursor advances. Mirrors ``StageDefinition.threshold_exit`` monotonic
+    semantics so SCD versioning has a single behavioural contract with
+    the rest of the engine.
     """
     trigger_metric: str
     thresholds: tuple[float, ...] = Field(min_length=1, max_length=20)
@@ -983,10 +995,8 @@ class Column(_Frozen):
     dtype: Dtype
     source: str
 
-    @field_validator("name")
-    @classmethod
-    def _name_is_identifier(cls, v: str) -> str:
-        return _validate_identifier("column name", v)
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("column name"))
+
     # Optional human-readable note that this column may contain PII (names,
     # emails, addresses generated via Faker). Pure metadata — no generation
     # behavior change. Surfaces in dump_config so downstream consumers can
@@ -1055,7 +1065,7 @@ class Column(_Frozen):
 
     @model_validator(mode="after")
     def _pool_pairing(self) -> "Column":
-        """M114: source ``pool:<name>`` and ``value_pool`` must be paired.
+        """Source ``pool:<name>`` and ``value_pool`` must be paired.
 
         Either both are present (the column samples per-entity from the
         declared pool) or both are absent. Mirrors ``_scd_pairing``: a
@@ -1152,10 +1162,7 @@ class Table(_Frozen):
         """Return the PK as a list, whether declared as str or list[str]."""
         return [self.primary_key] if isinstance(self.primary_key, str) else list(self.primary_key)
 
-    @field_validator("name")
-    @classmethod
-    def _name_is_identifier(cls, v: str) -> str:
-        return _validate_identifier("table name", v)
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("table name"))
 
     @field_validator("row_count_source")
     @classmethod
@@ -1226,7 +1233,7 @@ class Table(_Frozen):
 
 
 class BridgeMetric(_Frozen):
-    """M107: a single metric column on a bridge (M:M) table.
+    """A single metric column on a bridge (M:M) table.
 
     Bridges are static (one row per association, no period axis), so a
     bridge metric resolves to a single value per row rather than a
@@ -1250,10 +1257,7 @@ class BridgeMetric(_Frozen):
     dtype: Dtype
     source: str
 
-    @field_validator("name")
-    @classmethod
-    def _name_is_identifier(cls, v: str) -> str:
-        return _validate_identifier("bridge metric column name", v)
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("bridge metric column name"))
 
     @field_validator("source")
     @classmethod
@@ -1293,7 +1297,7 @@ class BridgeCardinality(_Frozen):
 
 
 class BridgeTableConfig(_Frozen):
-    """M107: many-to-many bridge between two dim tables.
+    """Many-to-many bridge between two dim tables.
 
     Bridge tables sit alongside fact and event tables but in their own
     list — ``PlotsimConfig.bridges`` — so the existing ``Table`` model
@@ -1321,10 +1325,7 @@ class BridgeTableConfig(_Frozen):
     trajectory_driven: bool = True
     metrics: list[BridgeMetric] = Field(default_factory=list, max_length=20)
 
-    @field_validator("name")
-    @classmethod
-    def _name_is_identifier(cls, v: str) -> str:
-        return _validate_identifier("bridge table name", v)
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("bridge table name"))
 
     @field_validator("connects")
     @classmethod
@@ -1354,7 +1355,7 @@ class BridgeTableConfig(_Frozen):
 
 
 class QualityIssue(_Frozen):
-    """M107: one configured data-quality corruption to apply post-generation.
+    """One configured data-quality corruption to apply post-generation.
 
     Five issue types are supported, each producing a distinct corruption
     pattern but sharing the same config shape:
@@ -1411,12 +1412,12 @@ class QualityIssue(_Frozen):
 
 
 class QualityConfig(_Frozen):
-    """M107: top-level wrapper for the post-generation quality injection layer.
+    """Top-level wrapper for the post-generation quality injection layer.
 
     Default empty list — configs that don't opt in produce clean output
-    identical to pre-M107 baselines. ``output.write_tables`` skips the
-    quality pipeline entirely when ``quality_issues`` is empty so the
-    cost is zero for non-injected runs.
+    identical to baseline. ``output.write_tables`` skips the quality
+    pipeline entirely when ``quality_issues`` is empty so the cost is
+    zero for non-injected runs.
     """
     quality_issues: list[QualityIssue] = Field(default_factory=list, max_length=50)
 
@@ -1434,7 +1435,7 @@ class NoiseConfig(_Frozen):
 
 
 class ManifestConfig(_Frozen):
-    """M105: ground-truth manifest emission config.
+    """Ground-truth manifest emission config.
 
     When ``include`` is True (default), ``write_tables`` writes a
     ``manifest.json`` alongside the table files. The manifest records:
@@ -1465,7 +1466,7 @@ class ManifestConfig(_Frozen):
 
 
 class EntityFeaturesConfig(_Frozen):
-    """M108: per-entity flat feature table emission config.
+    """Per-entity flat feature table emission config.
 
     When ``enabled`` is True, ``write_tables`` derives a single
     one-row-per-entity DataFrame by aggregating every fact metric over
@@ -1503,7 +1504,7 @@ class EntityFeaturesConfig(_Frozen):
 
 
 class HoldoutConfig(_Frozen):
-    """M109: temporal holdout split for ML target / training workflows.
+    """Temporal holdout split for ML target / training workflows.
 
     When ``enabled`` is True, ``write_tables`` writes two extra companion
     files alongside every per-entity-per-period fact table:
@@ -1543,7 +1544,7 @@ class HoldoutConfig(_Frozen):
         whose semantics depend silently on whether quality was applied
         before or after the slice. Deferred to a future mission).
 
-    Disabled (default) is byte-identical to pre-M109 output.
+    Disabled (default) skips the split entirely.
     """
     enabled: bool = False
     target_metric: Optional[str] = None
@@ -1554,11 +1555,10 @@ class HoldoutConfig(_Frozen):
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
-    M104 / 0.6: ``format`` accepts ``"parquet"`` in addition to the
-    long-standing ``"csv"`` default. CSV remains the default; existing
-    configs that omit ``format`` (or set ``format: csv``) continue to
-    write ``.csv`` files unchanged. Parquet output is column-typed and
-    typically 5-10x smaller on the bundled templates; the engine path
+    ``format`` accepts ``"parquet"`` in addition to the default ``"csv"``.
+    CSV remains the default; configs that omit ``format`` (or set
+    ``format: csv``) write ``.csv`` files. Parquet output is column-typed
+    and typically 5-10x smaller on the bundled templates; the engine path
     is identical, only the on-disk encoding differs.
 
     Parquet writes go through ``pyarrow``, declared as the optional
@@ -1607,8 +1607,8 @@ class StageSequence(_Frozen):
       ``_monotonic_stage_walk`` and ``_free_mode_stages`` consume only
       ``threshold_enter``. The five bundled templates use this mode.
 
-    * **Hysteresis** (``threshold_exit ≤ threshold_enter``) — F8 / 0.5
-      addition. ``threshold_enter`` is the upward entry threshold;
+    * **Hysteresis** (``threshold_exit ≤ threshold_enter``) —
+      ``threshold_enter`` is the upward entry threshold;
       ``threshold_exit`` is the downward demotion threshold (lower than
       enter, providing a hysteresis band where the entity stays in the
       higher stage on transient dips). Constraint:
@@ -1636,13 +1636,12 @@ class StageSequence(_Frozen):
     to reflect *current* lifecycle state, which is why free-mode is
     the default.
 
-    FIX-06 / SF-8: ``downgrade_delay`` relaxes strict monotonicity
-    under ``enforce_order=True`` by letting the cursor step backwards
-    once an entity has sat below the demote threshold for
-    ``downgrade_delay`` consecutive periods. ``None`` (default)
-    preserves strict-monotonic behavior under legacy mode and
-    immediate-demote behavior under hysteresis mode. Ignored when
-    ``enforce_order=False``.
+    ``downgrade_delay`` relaxes strict monotonicity under
+    ``enforce_order=True`` by letting the cursor step backwards once an
+    entity has sat below the demote threshold for ``downgrade_delay``
+    consecutive periods. ``None`` (default) preserves strict-monotonic
+    behavior under legacy mode and immediate-demote behavior under
+    hysteresis mode. Ignored when ``enforce_order=False``.
     """
     field: str
     sequence: list[StageDefinition] = Field(min_length=2, max_length=10)
@@ -1653,13 +1652,13 @@ class StageSequence(_Frozen):
     def mode(self) -> str:
         """Derived per-config: ``'legacy'`` or ``'hysteresis'``.
 
-        F8 / 0.5: derived from the relationship between
-        ``threshold_exit`` and ``threshold_enter`` on the first
-        non-terminal stage. ``_sequence_is_valid`` enforces consistency,
-        so the mode is unambiguous after load. Sequences with only a
-        terminal stage cannot exist (``min_length=2``); a sequence whose
-        non-terminal stages all have ``exit > enter`` is ``'legacy'``;
-        otherwise ``'hysteresis'``.
+        Derived from the relationship between ``threshold_exit`` and
+        ``threshold_enter`` on the first non-terminal stage.
+        ``_sequence_is_valid`` enforces consistency, so the mode is
+        unambiguous after load. Sequences with only a terminal stage
+        cannot exist (``min_length=2``); a sequence whose non-terminal
+        stages all have ``exit > enter`` is ``'legacy'``; otherwise
+        ``'hysteresis'``.
         """
         seq_non_terminal = self.sequence[:-1]
         first = seq_non_terminal[0]
@@ -1831,7 +1830,7 @@ class PlotsimConfig(_Frozen):
     # exactly. Documented in `docs/engine-internals.md` §2.4 and §2.4a.
     generation_mode: Literal["serial", "vectorized", "auto"] = "serial"
 
-    # M111: populated by ``_correlation_matrix_is_psd`` when the user's
+    # Populated by ``_correlation_matrix_is_psd`` when the user's
     # correlation matrix had to be Higham-projected to nearest PD.
     # ``None`` for runs where the matrix was already PD (the common case)
     # or where no correlations were configured. Read by
@@ -1842,19 +1841,19 @@ class PlotsimConfig(_Frozen):
     # config_sha256 fingerprint.
     _correlation_adjustments: Optional[list[dict]] = PrivateAttr(default=None)
 
-    # M120: populated by ``plotsim.tables.generate_tables_with_state`` when
+    # Populated by ``plotsim.tables.generate_tables_with_state`` when
     # ``compensate_correlations=True`` and at least one user-declared pair
     # was compensated. ``None`` for runs without compensation (engine-direct
     # default, builder runs without ``connections``). Read by
     # ``plotsim.manifest.build_manifest`` to surface
-    # ``manifest.correlation_compensations``. Distinct from the M111
+    # ``manifest.correlation_compensations``. Distinct from the
     # ``_correlation_adjustments`` attr: that records "your matrix wasn't PD,
     # we projected it"; this records "your target's been compensated for the
     # trajectory's structural contribution before reaching the copula." Both
     # may populate on a single run.
     _correlation_compensations: Optional[list[dict]] = PrivateAttr(default=None)
 
-    # M121b: populated by ``plotsim.tables.generate_tables_with_state`` only
+    # Populated by ``plotsim.tables.generate_tables_with_state`` only
     # in vectorized mode. ``dict[archetype_name → cell_count]`` of cells
     # that triggered ``_apply_correlations_batch``'s per-row scalar
     # fallback. ``None`` in serial mode so the manifest's
@@ -1863,7 +1862,7 @@ class PlotsimConfig(_Frozen):
     # PrivateAttr because the value is a per-run side-effect of generation,
     # not a user input — round-tripping it through ``model_dump`` would
     # pollute the YAML and the config_sha256 fingerprint, same reasoning
-    # as the M111 / M120 sibling attrs.
+    # as the sibling attrs above.
     _bypass_fallback_counts: Optional[dict[str, int]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
@@ -1950,510 +1949,49 @@ class PlotsimConfig(_Frozen):
 
     @model_validator(mode="after")
     def _cross_reference_integrity(self) -> "PlotsimConfig":
-        metric_names = {m.name for m in self.metrics}
-        archetype_names = {a.name for a in self.archetypes}
-        table_names = {t.name for t in self.tables}
+        """Cross-table integrity orchestrator.
 
-        if len(metric_names) != len(self.metrics):
-            raise ValueError("duplicate metric names in metrics list")
-        if len(archetype_names) != len(self.archetypes):
-            raise ValueError("duplicate archetype names in archetypes list")
-        if len(table_names) != len(self.tables):
-            raise ValueError("duplicate table names in tables list")
+        Each rule group lives in ``plotsim.validation`` so it can be
+        called and tested independently. The first error from any group
+        is raised here; advisory warnings (e.g. zero-coefficient
+        correlations) are emitted as side effects of the validator
+        functions and survive through to the user.
+        """
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import (
+            validate_advanced,
+            validate_archetype_refs,
+            validate_correlations,
+            validate_names,
+            validate_stages,
+            validate_table_schema,
+        )
 
-        metric_by_name = {m.name: m for m in self.metrics}
-        for arch in self.archetypes:
-            for override_metric, override in arch.metric_overrides.items():
-                if override_metric not in metric_names:
-                    raise ValueError(
-                        f"archetype {arch.name!r} overrides unknown metric "
-                        f"{override_metric!r}; known metrics: {sorted(metric_names)}"
-                    )
-                # M114: per-archetype value_range override must be a subset
-                # of the global metric's value_range. Overrides restrict;
-                # they never expand. A global metric without value_range
-                # has no bounds to constrain, so the override is rejected
-                # in that case to preserve "subset of nothing is undefined"
-                # semantics.
-                if override.value_range is not None:
-                    metric = metric_by_name[override_metric]
-                    if metric.value_range is None:
-                        raise ValueError(
-                            f"archetype {arch.name!r} metric_override "
-                            f"{override_metric!r} declares value_range but "
-                            f"metric {override_metric!r} has no global "
-                            f"value_range; declare a global value_range "
-                            f"first or remove the override"
-                        )
-                    g_min = metric.value_range.min
-                    g_max = metric.value_range.max
-                    o_min = override.value_range.min
-                    o_max = override.value_range.max
-                    if g_min is not None and o_min is not None and o_min < g_min:
-                        raise ValueError(
-                            f"archetype {arch.name!r} metric_override "
-                            f"{override_metric!r} value_range.min ({o_min}) "
-                            f"is below the global metric value_range.min "
-                            f"({g_min}); overrides must restrict, not expand"
-                        )
-                    if g_max is not None and o_max is not None and o_max > g_max:
-                        raise ValueError(
-                            f"archetype {arch.name!r} metric_override "
-                            f"{override_metric!r} value_range.max ({o_max}) "
-                            f"is above the global metric value_range.max "
-                            f"({g_max}); overrides must restrict, not expand"
-                        )
-                    if g_min is not None and o_min is None:
-                        raise ValueError(
-                            f"archetype {arch.name!r} metric_override "
-                            f"{override_metric!r} value_range omits min "
-                            f"but the global metric value_range.min "
-                            f"({g_min}) is set; the override would "
-                            f"otherwise drop the lower bound (expand)"
-                        )
-                    if g_max is not None and o_max is None:
-                        raise ValueError(
-                            f"archetype {arch.name!r} metric_override "
-                            f"{override_metric!r} value_range omits max "
-                            f"but the global metric value_range.max "
-                            f"({g_max}) is set; the override would "
-                            f"otherwise drop the upper bound (expand)"
-                        )
-
-        for ent in self.entities:
-            if ent.archetype not in archetype_names:
-                raise ValueError(
-                    f"entity {ent.name!r} references unknown archetype "
-                    f"{ent.archetype!r}; known: {sorted(archetype_names)}"
-                )
-
-        for tbl in self.tables:
-            for col in tbl.columns:
-                parsed = parse_source(col.source)
-                if isinstance(parsed, MetricSource):
-                    if parsed.metric not in metric_names:
-                        raise ValueError(
-                            f"table {tbl.name!r} column {col.name!r} source "
-                            f"{col.source!r} references unknown metric "
-                            f"{parsed.metric!r}; known: {sorted(metric_names)}"
-                        )
-                elif isinstance(parsed, (ThresholdSource, ProportionalSource, LagSource)):
-                    if parsed.metric not in metric_names:
-                        raise ValueError(
-                            f"table {tbl.name!r} column {col.name!r} source "
-                            f"{col.source!r} references unknown metric "
-                            f"{parsed.metric!r}; known: {sorted(metric_names)}"
-                        )
-                # F12 (M102): reject ``dtype: boolean`` on MetricSource or
-                # LagSource columns. ``bool(continuous_metric_value)`` is
-                # near-constant True for any positive-skewed distribution
-                # (poisson with λ > 0, lognorm, gamma, weibull) — the
-                # cell value carries no information, just a noisy
-                # confirmation that the metric exists. ThresholdSource
-                # produces booleans by design and is correctly typed
-                # ``dtype: boolean`` (e.g., ``churn_flag`` on the bundled
-                # saas template). The has_bool_metric scalar-fallback
-                # gate this validator complements was removed by F3
-                # (the vectorized path now coerces booleans correctly);
-                # F12 closes the input-side hole the gate used to mask.
-                #
-                # M105: same discipline applies to TextBucketSource —
-                # ``bool("delighted")`` is always True, the dtype carries
-                # no banding signal. dtype: string is the only sensible
-                # choice for text-bucket columns.
-                if (
-                    col.dtype == "boolean"
-                    and isinstance(parsed, (MetricSource, LagSource, TextBucketSource))
-                ):
-                    if isinstance(parsed, MetricSource):
-                        source_kind = "metric"
-                    elif isinstance(parsed, LagSource):
-                        source_kind = "lag"
-                    else:
-                        source_kind = "text-bucket"
-                    raise ValueError(
-                        f"table {tbl.name!r} column {col.name!r} declares "
-                        f"dtype: boolean with {source_kind}-source "
-                        f"{col.source!r}, which produces a continuous "
-                        f"value the boolean cast collapses to a near-constant "
-                        f"True. Use dtype: float (or int for poisson) to "
-                        f"preserve the metric value, or switch to a "
-                        f"threshold source if a boolean indicator is what "
-                        f"you want."
-                    )
-                elif isinstance(parsed, FKSource):
-                    if parsed.table not in table_names:
-                        raise ValueError(
-                            f"table {tbl.name!r} column {col.name!r} has FK to "
-                            f"unknown table {parsed.table!r}; known: "
-                            f"{sorted(table_names)}"
-                        )
-                elif isinstance(parsed, StaticSource) and col.dtype == "date":
-                    # F11 (M102): validate the static value(s) parse as
-                    # ISO dates at config load. Pre-fix,
-                    # ``dimensions._coerce_static`` caught the ValueError
-                    # from ``datetime.fromisoformat`` and returned the raw
-                    # string, leaving a date column with str values in the
-                    # generated dim table (silent type corruption).
-                    # Multi-value statics
-                    # ("static:2024-01-01,2024-02-01,2024-03-01") split on
-                    # commas before validation, mirroring
-                    # ``dimensions._split_static``.
-                    raw_values = [
-                        part.strip() for part in parsed.value.split(",")
-                    ]
-                    for raw in raw_values:
-                        try:
-                            date.fromisoformat(raw)
-                        except ValueError as exc:
-                            raise ValueError(
-                                f"table {tbl.name!r} column {col.name!r} has "
-                                f"dtype: date with static value {raw!r} that "
-                                f"is not a valid ISO date (expected "
-                                f"YYYY-MM-DD). Source: {col.source!r}."
-                            ) from exc
-
-            if tbl.row_count_source is not None:
-                rcs_parsed = parse_source(tbl.row_count_source)
-                ref_metric = getattr(rcs_parsed, "metric", None)
-                if ref_metric is not None and ref_metric not in metric_names:
-                    raise ValueError(
-                        f"table {tbl.name!r} row_count_source "
-                        f"{tbl.row_count_source!r} references unknown metric "
-                        f"{ref_metric!r}; known: {sorted(metric_names)}"
-                    )
-
-            for fk in tbl.foreign_keys:
-                if "." not in fk:
-                    raise ValueError(
-                        f"table {tbl.name!r} foreign_keys entry {fk!r} must be "
-                        f"'<table>.<column>' format"
-                    )
-                fk_table = fk.split(".", 1)[0]
-                if fk_table not in table_names:
-                    raise ValueError(
-                        f"table {tbl.name!r} foreign_keys references unknown "
-                        f"table {fk_table!r}; known: {sorted(table_names)}"
-                    )
-
-        # F7 (M102): reject duplicate (metric_a, metric_b) entries before
-        # the PSD check picks one with last-write-wins. Treat the pair as
-        # unordered: (a, b) == (b, a). Pre-fix, _build_correlation_matrix
-        # silently overwrote earlier entries with later ones, so a config
-        # with conflicting coefficients on the same pair picked one with
-        # no signal to the user.
-        seen_pairs: dict[frozenset, float] = {}
-        for corr in self.correlations:
-            pair = frozenset((corr.metric_a, corr.metric_b))
-            if pair in seen_pairs:
-                prior = seen_pairs[pair]
-                raise ValueError(
-                    f"duplicate correlation entries for unordered pair "
-                    f"({corr.metric_a!r}, {corr.metric_b!r}): "
-                    f"coefficients {prior} and {corr.coefficient}; "
-                    f"declare each metric pair at most once"
-                )
-            seen_pairs[pair] = corr.coefficient
-
-        for corr in self.correlations:
-            for m in (corr.metric_a, corr.metric_b):
-                if m not in metric_names:
-                    raise ValueError(
-                        f"correlation references unknown metric {m!r}; "
-                        f"known: {sorted(metric_names)}"
-                    )
-            # F-01 / 0.4.0: flag explicit zero-coefficient entries.
-            if corr.coefficient == 0.0:
-                warnings.warn(
-                    f"Correlation between {corr.metric_a!r} and "
-                    f"{corr.metric_b!r} is configured as 0.0, which is "
-                    f"already the default for unlisted pairs. This entry "
-                    f"has no effect.",
-                    RedundantCorrelationWarning,
-                    stacklevel=2,
-                )
-
-        # F10 (M102): per-granularity ``causal_lag.lag_periods`` cap.
-        # Field-level cap accepts up to 3650 (the daily ceiling); this
-        # validator narrows to the configured granularity. Pre-F10 the
-        # cap was a flat ``le=120`` regardless of granularity, which
-        # was simultaneously too generous (10 years of monthly lag) and
-        # too tight (4 months of daily lag).
-        granularity_cap = _LAG_PERIOD_LIMITS[self.time_window.granularity]
-        for m in self.metrics:
-            if m.causal_lag is not None:
-                if m.causal_lag.driver not in metric_names:
-                    raise ValueError(
-                        f"metric {m.name!r} causal_lag.driver "
-                        f"{m.causal_lag.driver!r} is not a known metric; "
-                        f"known: {sorted(metric_names)}"
-                    )
-                if m.causal_lag.lag_periods > granularity_cap:
-                    raise ValueError(
-                        f"metric {m.name!r} causal_lag.lag_periods "
-                        f"({m.causal_lag.lag_periods}) exceeds the "
-                        f"{self.time_window.granularity!r} granularity "
-                        f"cap of {granularity_cap}. Per-granularity "
-                        f"caps: {_LAG_PERIOD_LIMITS}"
-                    )
-
-        # Detect cycles in the induced lag graph (A lags B lags A, or longer).
-        lag_graph = {
-            m.name: m.causal_lag.driver
-            for m in self.metrics if m.causal_lag is not None
-        }
-        for start in lag_graph:
-            seen = {start}
-            curr = lag_graph[start]
-            while curr in lag_graph:
-                if curr in seen:
-                    raise ValueError(
-                        f"circular causal_lag chain detected involving "
-                        f"metric {start!r}"
-                    )
-                seen.add(curr)
-                curr = lag_graph[curr]
-
-        if self.stages is not None:
-            if self.stages.field not in metric_names:
-                raise ValueError(
-                    f"stages.field {self.stages.field!r} is not a known metric; "
-                    f"known: {sorted(metric_names)}"
-                )
-
-        # M106: SCD Type 2 cross-references.
-        # For every dim column with an scd_type2 config:
-        #   * trigger_metric's table_name must be a fact table in this config
-        #   * trigger_metric's metric_name must be a metric in this config
-        #   * the named fact table must expose that metric via a metric: column
-        #   * a single dim table may declare at most one SCD column (V1 scope)
-        # The first three rules give the user a load-time error rather than a
-        # silent mis-resolution at generation. The single-SCD-column rule
-        # bounds the per-row expansion fan-out at generation time — combining
-        # multiple SCD axes on one dim is a future mission, not an ambient
-        # capability the V1 engine accidentally supports.
-        scd_dim_tables: set[str] = set()
-        for tbl in self.tables:
-            scd_cols_on_table = [
-                col for col in tbl.columns if col.scd_type2 is not None
-            ]
-            if not scd_cols_on_table:
-                continue
-            if tbl.type != "dim":
-                raise ValueError(
-                    f"table {tbl.name!r} declares an scd_type2 column "
-                    f"({scd_cols_on_table[0].name!r}) but is type "
-                    f"{tbl.type!r}; SCD versioning only applies to dim tables"
-                )
-            if tbl.grain != "per_entity":
-                raise ValueError(
-                    f"dim table {tbl.name!r} declares an scd_type2 column "
-                    f"({scd_cols_on_table[0].name!r}) but grain is "
-                    f"{tbl.grain!r}; V1 SCD Type 2 only versions per_entity "
-                    f"dims (one entity → many versions). Reference and date "
-                    f"dims have no entity axis to version against"
-                )
-            if len(scd_cols_on_table) > 1:
-                names = [c.name for c in scd_cols_on_table]
-                raise ValueError(
-                    f"dim table {tbl.name!r} has {len(scd_cols_on_table)} "
-                    f"scd_type2 columns ({names}); V1 supports at most one "
-                    f"SCD axis per dim table — combining axes would multiply "
-                    f"versioned-row fan-out"
-                )
-            scd_dim_tables.add(tbl.name)
-            scd_cfg = scd_cols_on_table[0].scd_type2
-            assert scd_cfg is not None  # for type-narrowing; checked above
-            ref_table, ref_metric = scd_cfg.trigger_metric.split(".", 1)
-            if ref_metric not in metric_names:
-                raise ValueError(
-                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
-                    f"scd_type2.trigger_metric references unknown metric "
-                    f"{ref_metric!r}; known: {sorted(metric_names)}"
-                )
-            ref_table_cfg = next(
-                (t for t in self.tables if t.name == ref_table), None,
-            )
-            if ref_table_cfg is None:
-                raise ValueError(
-                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
-                    f"scd_type2.trigger_metric references unknown table "
-                    f"{ref_table!r}; known: {sorted(table_names)}"
-                )
-            if ref_table_cfg.type != "fact":
-                raise ValueError(
-                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
-                    f"scd_type2.trigger_metric references table {ref_table!r} "
-                    f"of type {ref_table_cfg.type!r}; expected a fact table "
-                    f"(SCD trajectory bands are anchored to a fact metric "
-                    f"for documentation/joinability)"
-                )
-            metric_on_ref_table = any(
-                isinstance(parse_source(c.source), MetricSource)
-                and parse_source(c.source).metric == ref_metric  # type: ignore[union-attr]
-                for c in ref_table_cfg.columns
-            )
-            if not metric_on_ref_table:
-                raise ValueError(
-                    f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
-                    f"scd_type2.trigger_metric={scd_cfg.trigger_metric!r}, "
-                    f"but fact table {ref_table!r} has no column with source "
-                    f"'metric:{ref_metric}'. Add a metric column or point "
-                    f"trigger_metric at a fact that exposes the metric."
-                )
-
-        # M107: bridge table cross-references.
-        bridge_names: set[str] = set()
-        # M118: per_entity dim row count is ``len(self.entities)``, not
-        # ``sum(e.size)``. ``Entity.size`` is a cohort-population value
-        # carried as a metadata column (``derived:size``); the dim itself
-        # has one row per ``Entity`` (see ``build_dim_entity`` in
-        # ``plotsim/dimensions.py``). The previous formulation was correct
-        # only by accident in the builder path (where ``size`` is always 1)
-        # and silently permitted bridge ``cardinality.max`` values that
-        # exceeded the actual dim row count for engine-direct configs.
-        per_entity_dim_table_count = {
-            t.name: len(self.entities)
-            for t in self.tables
-            if t.type == "dim" and t.grain == "per_entity"
-        }
-        per_reference_dim_static_count = {}
-        for t in self.tables:
-            if t.type == "dim" and t.grain == "per_reference":
-                n_rows = 1
-                for c in t.columns:
-                    parsed = parse_source(c.source)
-                    if isinstance(parsed, StaticSource):
-                        parts = [p.strip() for p in parsed.value.split(",")]
-                        n_rows = max(n_rows, len(parts))
-                per_reference_dim_static_count[t.name] = n_rows
-        for bridge in self.bridges:
-            if bridge.name in bridge_names:
-                raise ValueError(
-                    f"duplicate bridge name {bridge.name!r}; each bridge "
-                    f"must have a unique name"
-                )
-            if bridge.name in table_names:
-                raise ValueError(
-                    f"bridge name {bridge.name!r} collides with an existing "
-                    f"table; bridges and tables share an output namespace"
-                )
-            bridge_names.add(bridge.name)
-            for connect in bridge.connects:
-                if connect not in table_names:
-                    raise ValueError(
-                        f"bridge {bridge.name!r} connects to unknown table "
-                        f"{connect!r}; known: {sorted(table_names)}"
-                    )
-                connect_tbl = next(t for t in self.tables if t.name == connect)
-                if connect_tbl.type != "dim":
-                    raise ValueError(
-                        f"bridge {bridge.name!r} connects to {connect!r} of "
-                        f"type {connect_tbl.type!r}; bridges connect dim "
-                        f"tables only"
-                    )
-                if connect_tbl.grain == "per_period":
-                    raise ValueError(
-                        f"bridge {bridge.name!r} connects to {connect!r} which "
-                        f"has grain {connect_tbl.grain!r}; bridges cannot "
-                        f"connect to dim_date or other per_period dims"
-                    )
-            first_dim_tbl = next(
-                t for t in self.tables if t.name == bridge.connects[0]
-            )
-            if first_dim_tbl.grain != "per_entity":
-                raise ValueError(
-                    f"bridge {bridge.name!r} first connects entry "
-                    f"{bridge.connects[0]!r} has grain "
-                    f"{first_dim_tbl.grain!r}; the first dim of a bridge must "
-                    f"be per_entity (the engine iterates entities to choose "
-                    f"how many associations each one gets)"
-                )
-            second_dim = bridge.connects[1]
-            second_dim_count: Optional[int] = None
-            if second_dim in per_entity_dim_table_count:
-                second_dim_count = per_entity_dim_table_count[second_dim]
-            elif second_dim in per_reference_dim_static_count:
-                second_dim_count = per_reference_dim_static_count[second_dim]
-            if second_dim_count is not None and bridge.cardinality.max > second_dim_count:
-                raise ValueError(
-                    f"bridge {bridge.name!r} cardinality.max "
-                    f"({bridge.cardinality.max}) exceeds the row count of the "
-                    f"second dim {second_dim!r} ({second_dim_count}); each "
-                    f"first-dim entity can associate with at most "
-                    f"{second_dim_count} second-dim row(s)"
-                )
-            for bm in bridge.metrics:
-                parsed_bm = parse_source(bm.source)
-                if isinstance(parsed_bm, MetricSource):
-                    if parsed_bm.metric not in metric_names:
-                        raise ValueError(
-                            f"bridge {bridge.name!r} metric {bm.name!r} source "
-                            f"{bm.source!r} references unknown metric "
-                            f"{parsed_bm.metric!r}; known: "
-                            f"{sorted(metric_names)}"
-                        )
-
-        # M107: quality injection cross-references.
-        for issue_idx, issue in enumerate(self.quality.quality_issues):
-            target_tbl = next(
-                (t for t in self.tables if t.name == issue.target_table), None,
-            )
-            if target_tbl is None:
-                if issue.target_table in bridge_names:
-                    raise ValueError(
-                        f"quality_issues[{issue_idx}].target_table "
-                        f"{issue.target_table!r} is a bridge table; quality "
-                        f"injection targets fact and event tables only"
-                    )
-                raise ValueError(
-                    f"quality_issues[{issue_idx}].target_table "
-                    f"{issue.target_table!r} is not a known table; known: "
-                    f"{sorted(table_names)}"
-                )
-            if target_tbl.type not in ("fact", "event"):
-                raise ValueError(
-                    f"quality_issues[{issue_idx}].target_table "
-                    f"{issue.target_table!r} has type {target_tbl.type!r}; "
-                    f"quality injection targets fact and event tables only"
-                )
-            protected_cols: set[str] = set()
-            for col in target_tbl.columns:
-                parsed_col = parse_source(col.source)
-                if isinstance(parsed_col, FKSource):
-                    protected_cols.add(col.name)
-                if col.name in ("date_key", "period", "period_index", "period_label"):
-                    protected_cols.add(col.name)
-            target_col_names = {c.name for c in target_tbl.columns}
-            if "*" in issue.target_columns and len(issue.target_columns) > 1:
-                raise ValueError(
-                    f"quality_issues[{issue_idx}].target_columns mixes the "
-                    f"'*' sentinel with explicit names {issue.target_columns}; "
-                    f"use either '*' alone or an explicit list, not both"
-                )
-            if issue.target_columns != ["*"]:
-                for col_name in issue.target_columns:
-                    if col_name not in target_col_names:
-                        raise ValueError(
-                            f"quality_issues[{issue_idx}].target_columns "
-                            f"references column {col_name!r} not present on "
-                            f"table {issue.target_table!r}; known columns: "
-                            f"{sorted(target_col_names)}"
-                        )
-                    if col_name in protected_cols:
-                        raise ValueError(
-                            f"quality_issues[{issue_idx}].target_columns "
-                            f"includes {col_name!r}, which is a FK or "
-                            f"period/date_key column on "
-                            f"{issue.target_table!r}; FK and period columns "
-                            f"are protected from corruption"
-                        )
-
+        for check in (
+            validate_names,
+            validate_archetype_refs,
+            validate_table_schema,
+            validate_correlations,
+            validate_stages,
+            validate_advanced,
+        ):
+            errors = check(self)
+            if errors:
+                raise ValueError(errors[0])
         return self
+
+    # The pre-split implementation lived here as the body of
+    # ``_cross_reference_integrity``. Its rule groups now live in
+    # ``plotsim.validation`` as ``validate_names``,
+    # ``validate_archetype_refs``, ``validate_table_schema``,
+    # ``validate_correlations``, ``validate_stages``, and
+    # ``validate_advanced``. The orchestrator above is the only entry
+    # point.
 
     @model_validator(mode="after")
     def _entity_features_gates(self) -> "PlotsimConfig":
-        """M108: load-time gates for the entity-features feature.
+        """Load-time gates for the entity-features feature.
 
         Mutual-exclusion rules are enforced here rather than at
         generation time so a misconfigured YAML fails before the engine
@@ -2475,7 +2013,7 @@ class PlotsimConfig(_Frozen):
 
     @model_validator(mode="after")
     def _value_pool_gates(self) -> "PlotsimConfig":
-        """M114: load-time gates for ``PoolSource`` columns.
+        """Load-time gates for ``PoolSource`` columns.
 
         Cross-model coverage check (per_entity dim restriction + key set
         equals entity set) lives in
@@ -2496,7 +2034,7 @@ class PlotsimConfig(_Frozen):
 
     @model_validator(mode="after")
     def _holdout_gates(self) -> "PlotsimConfig":
-        """M109: load-time gates for the holdout-split feature.
+        """Load-time gates for the holdout-split feature.
 
         Mirrors the ``_entity_features_gates`` pattern — pure config
         check, no DataFrame inputs. Delegates to
@@ -2516,17 +2054,13 @@ class PlotsimConfig(_Frozen):
 
     @model_validator(mode="after")
     def _correlation_matrix_is_psd(self) -> "PlotsimConfig":
-        """M111: project non-PD correlation matrices and warn — don't reject.
+        """Project non-PD correlation matrices and warn — don't reject.
 
-        Pre-M111 (FIX-F04) raised ``ValueError`` here on any non-PD
-        matrix, on the rationale that "non-PD coefficients are a config
-        defect, not a runtime condition." That treatment broke at
-        scale: 8+ correlated metrics with moderate coefficients are
-        often non-PD by combinatorial accident, not by user error.
-        M111 instead runs Higham nearest-PD projection (in
-        ``plotsim.metrics``), emits a per-pair adjustment warning so
-        the user sees what changed, and stashes the adjustment records
-        on a private attribute that the manifest reads.
+        8+ correlated metrics with moderate coefficients are often non-PD
+        by combinatorial accident, not by user error. We run Higham
+        nearest-PD projection (in ``plotsim.metrics``), emit a per-pair
+        adjustment warning so the user sees what changed, and stash the
+        adjustment records on a private attribute that the manifest reads.
 
         The projected matrix is NOT stashed: it lives in declaration
         order, while ``plotsim.tables.generate_tables`` builds the

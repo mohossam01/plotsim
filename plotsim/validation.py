@@ -5,8 +5,8 @@ What it does:
     ``plotsim.tables.generate_tables``) through a battery of checks and
     returns a ``ValidationReport``. Also exposes one pre-generation check
     (``validate_correlation_psd``) that fires on the config alone so a bad
-    correlation matrix is caught before M004's Cholesky path falls back to
-    independent samples.
+    correlation matrix is caught before the engine's Cholesky path falls
+    back to independent samples.
 
     Checks:
       * correlation_psd      — configured correlation matrix is PD
@@ -27,7 +27,9 @@ Output:
 from __future__ import annotations
 
 import datetime as _dt
+import warnings
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Optional
 
 import numpy as np
@@ -43,9 +45,13 @@ from plotsim.config import (
     PKSource,
     PlotsimConfig,
     PoolSource,
+    ProportionalSource,
+    RedundantCorrelationWarning,
     StaticSource,
     Table,
+    TextBucketSource,
     ThresholdSource,
+    _LAG_PERIOD_LIMITS,
     parse_source,
 )
 
@@ -183,7 +189,7 @@ def _numeric_series(series) -> np.ndarray:
 
 
 def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
-    """Return load-time error messages for the M108 entity-features feature.
+    """Return load-time error messages for the entity-features feature.
 
     Mirrors the pattern established by ``validate_correlation_psd`` —
     pure config check, no DataFrame inputs. Called from a Pydantic
@@ -263,7 +269,7 @@ def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
 
 
 def validate_holdout_config(config: PlotsimConfig) -> list[str]:
-    """Return load-time error messages for the M109 holdout-split feature.
+    """Return load-time error messages for the holdout-split feature.
 
     Mirrors ``validate_entity_features_config``. Pure config check, no
     DataFrame inputs. Called from a Pydantic ``model_validator`` on
@@ -364,7 +370,7 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
 
 
 def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
-    """Return load-time error messages for M114 ``PoolSource`` columns.
+    """Return load-time error messages for ``PoolSource`` columns.
 
     Mirrors ``validate_entity_features_config`` and
     ``validate_holdout_config``: pure config check, no DataFrame inputs.
@@ -377,8 +383,8 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
 
     Gates (in order):
       1. ``PoolSource`` columns are only meaningful on ``per_entity``
-         dim tables in M114. Sub-entity (variable-grain) and reference
-         dims have no per-entity 1:1 binding to look up against.
+         dim tables. Sub-entity (variable-grain) and reference dims have
+         no per-entity 1:1 binding to look up against.
       2. The ``value_pool`` dict's keys must cover every ``Entity.name``
          that produces rows in this dim table. Per-entity dims emit
          exactly one row per entity, so the key set must equal the
@@ -439,7 +445,7 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
 def project_correlation_or_issue(
     config: PlotsimConfig,
 ) -> tuple[list[ValidationIssue], Optional[list[dict]], Optional[np.ndarray]]:
-    """M111 internal: PD-check + Higham projection + adjustment records.
+    """PD-check + Higham projection + adjustment records.
 
     Single source of truth for the project-and-warn flow. Returns
     ``(issues, adjustments, projected_matrix)``:
@@ -498,14 +504,11 @@ def project_correlation_or_issue(
 
 
 def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
-    """M111: project-and-warn check.
+    """Project-and-warn check.
 
-    The pre-M111 contract was "non-PD correlation matrix → error issue
-    so the engine can refuse to run" (FIX-F04 promoted that to a hard
-    raise at load). Under M111, non-PD matrices are auto-corrected via
-    Higham nearest-PD projection at load time; this post-generation
-    check only flags the genuinely-impossible "projection itself
-    failed" case.
+    Non-PD matrices are auto-corrected via Higham nearest-PD projection
+    at load time; this post-generation check only flags the
+    genuinely-impossible "projection itself failed" case.
 
     Returned issue list:
       * Successful projection (or matrix already PD, or no correlations
@@ -530,7 +533,7 @@ def validate_pk_uniqueness(
 ) -> list[ValidationIssue]:
     """Flag duplicate PK values (single-column and composite).
 
-    M106: SCD Type 2-enabled dim tables hold multiple versioned rows per
+    SCD Type 2-enabled dim tables hold multiple versioned rows per
     entity, so the declared natural PK (e.g. ``company_id``) repeats by
     design. The effective uniqueness key on those tables shifts to the
     surrogate ``dim_row_id`` the SCD expansion injects. The validator
@@ -1243,12 +1246,11 @@ def validate_temporal_coherence(
 ) -> list[ValidationIssue]:
     """Warn when a dim column with ``dtype: date`` holds values outside ``time_window``.
 
-    FIX-05 / MF-2 regression guard: catches configs that emit dates
-    from an unparameterized Faker provider (e.g. ``faker.date``) whose
-    uniform 1970–2030 range silently drifts outside the configured
-    window. Columns that legitimately reach outside (birth dates,
-    hire dates, trial timestamps) can set ``allow_outside_window:
-    true`` on the column to suppress the warning.
+    Catches configs that emit dates from an unparameterized Faker
+    provider (e.g. ``faker.date``) whose uniform 1970–2030 range silently
+    drifts outside the configured window. Columns that legitimately reach
+    outside (birth dates, hire dates, trial timestamps) can set
+    ``allow_outside_window: true`` on the column to suppress the warning.
 
     Only dimension tables are checked — fact-table date-FK columns are
     already covered by ``validate_date_spine``, and event tables store
@@ -1314,14 +1316,14 @@ def validate_cross_dim_fk_cardinality(
     """Warn when a multi-row parent dim's PK collapses to a single value
     in any child column.
 
-    Pre-FIX-04, ``dimensions._backfill_fks`` and ``tables._resolve_fact_cell``
-    used ``parent.iloc[0]`` for every row, silently breaking realism the
-    moment a user expanded a reference dim beyond one row. The fix replaces
-    the row-0 collapse with distribution-driven sampling; this validator is
-    the regression guard. Pinned values via ``Entity.cross_dim_fks`` are
-    intentional and won't trigger the warning unless every entity in the
-    config pinned the same value (in which case the warning is still
-    accurate — variation IS missing).
+    Catches configs whose FK-resolution heuristic might silently collapse
+    every row to ``parent.iloc[0]``. ``dimensions._backfill_fks`` and
+    ``tables._resolve_fact_cell`` use distribution-driven sampling
+    instead; this validator is the regression guard. Pinned values via
+    ``Entity.cross_dim_fks`` are intentional and won't trigger the
+    warning unless every entity in the config pinned the same value
+    (in which case the warning is still accurate — variation IS
+    missing).
 
     Single-row parents are skipped (no choice to make).
     """
@@ -1665,6 +1667,595 @@ def validate_bridge_integrity(
                 ))
 
     return issues
+
+
+# --- Pre-generation: cross-reference integrity (split out of config.py) ----
+#
+# The six validators below were extracted from a 500-line
+# ``PlotsimConfig._cross_reference_integrity`` Pydantic ``model_validator``.
+# Each takes a ``PlotsimConfig`` and returns a ``list[str]`` of error messages
+# (the calling validator raises the first). Functions may also emit
+# ``warnings.warn`` for advisory cases (e.g. redundant zero-coefficient
+# correlation entries). Tests can call any of them independently to
+# exercise a single rule group.
+
+
+def validate_names(config: PlotsimConfig) -> list[str]:
+    """Reject duplicate metric / archetype / table names."""
+    errors: list[str] = []
+    metric_names = [m.name for m in config.metrics]
+    archetype_names = [a.name for a in config.archetypes]
+    table_names = [t.name for t in config.tables]
+    if len(set(metric_names)) != len(metric_names):
+        errors.append("duplicate metric names in metrics list")
+    if len(set(archetype_names)) != len(archetype_names):
+        errors.append("duplicate archetype names in archetypes list")
+    if len(set(table_names)) != len(table_names):
+        errors.append("duplicate table names in tables list")
+    return errors
+
+
+def validate_archetype_refs(config: PlotsimConfig) -> list[str]:
+    """Archetype metric_overrides reference known metrics; entities → known archetypes.
+
+    Also enforces the override-restricts-not-expands contract on
+    per-archetype ``value_range`` overrides: when a global metric carries
+    a ``value_range``, the override must declare bounds that are a subset
+    of the global span.
+    """
+    errors: list[str] = []
+    metric_names = {m.name for m in config.metrics}
+    archetype_names = {a.name for a in config.archetypes}
+    metric_by_name = {m.name: m for m in config.metrics}
+
+    for arch in config.archetypes:
+        for override_metric, override in arch.metric_overrides.items():
+            if override_metric not in metric_names:
+                errors.append(
+                    f"archetype {arch.name!r} overrides unknown metric "
+                    f"{override_metric!r}; known metrics: {sorted(metric_names)}"
+                )
+                continue
+            # Per-archetype value_range override must be a subset of the
+            # global metric's value_range. Overrides restrict; they
+            # never expand. A global metric without value_range has no
+            # bounds to constrain, so the override is rejected in that
+            # case to preserve "subset of nothing is undefined" semantics.
+            if override.value_range is None:
+                continue
+            metric = metric_by_name[override_metric]
+            if metric.value_range is None:
+                errors.append(
+                    f"archetype {arch.name!r} metric_override "
+                    f"{override_metric!r} declares value_range but "
+                    f"metric {override_metric!r} has no global "
+                    f"value_range; declare a global value_range "
+                    f"first or remove the override"
+                )
+                continue
+            g_min = metric.value_range.min
+            g_max = metric.value_range.max
+            o_min = override.value_range.min
+            o_max = override.value_range.max
+            if g_min is not None and o_min is not None and o_min < g_min:
+                errors.append(
+                    f"archetype {arch.name!r} metric_override "
+                    f"{override_metric!r} value_range.min ({o_min}) "
+                    f"is below the global metric value_range.min "
+                    f"({g_min}); overrides must restrict, not expand"
+                )
+            if g_max is not None and o_max is not None and o_max > g_max:
+                errors.append(
+                    f"archetype {arch.name!r} metric_override "
+                    f"{override_metric!r} value_range.max ({o_max}) "
+                    f"is above the global metric value_range.max "
+                    f"({g_max}); overrides must restrict, not expand"
+                )
+            if g_min is not None and o_min is None:
+                errors.append(
+                    f"archetype {arch.name!r} metric_override "
+                    f"{override_metric!r} value_range omits min "
+                    f"but the global metric value_range.min "
+                    f"({g_min}) is set; the override would "
+                    f"otherwise drop the lower bound (expand)"
+                )
+            if g_max is not None and o_max is None:
+                errors.append(
+                    f"archetype {arch.name!r} metric_override "
+                    f"{override_metric!r} value_range omits max "
+                    f"but the global metric value_range.max "
+                    f"({g_max}) is set; the override would "
+                    f"otherwise drop the upper bound (expand)"
+                )
+
+    for ent in config.entities:
+        if ent.archetype not in archetype_names:
+            errors.append(
+                f"entity {ent.name!r} references unknown archetype "
+                f"{ent.archetype!r}; known: {sorted(archetype_names)}"
+            )
+
+    return errors
+
+
+def validate_table_schema(config: PlotsimConfig) -> list[str]:
+    """Resolve every column source against metrics/tables and check FK shapes.
+
+    Covers: metric/threshold/proportional/lag source metric refs,
+    boolean-on-continuous-source rejection (the cell would carry no
+    information), FK target-table existence, ISO-date validation on
+    static-source date columns, ``row_count_source`` metric refs,
+    ``foreign_keys`` ``<table>.<column>`` shape and target-table
+    existence.
+    """
+    errors: list[str] = []
+    metric_names = {m.name for m in config.metrics}
+    table_names = {t.name for t in config.tables}
+
+    for tbl in config.tables:
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if isinstance(parsed, MetricSource):
+                if parsed.metric not in metric_names:
+                    errors.append(
+                        f"table {tbl.name!r} column {col.name!r} source "
+                        f"{col.source!r} references unknown metric "
+                        f"{parsed.metric!r}; known: {sorted(metric_names)}"
+                    )
+            elif isinstance(parsed, (ThresholdSource, ProportionalSource, LagSource)):
+                if parsed.metric not in metric_names:
+                    errors.append(
+                        f"table {tbl.name!r} column {col.name!r} source "
+                        f"{col.source!r} references unknown metric "
+                        f"{parsed.metric!r}; known: {sorted(metric_names)}"
+                    )
+            # Reject ``dtype: boolean`` on MetricSource / LagSource /
+            # TextBucketSource columns. ``bool(continuous_metric_value)``
+            # is near-constant True for any positive-skewed distribution
+            # (poisson with λ > 0, lognorm, gamma, weibull), and
+            # ``bool("delighted")`` is always True for text-bucket
+            # cells. ThresholdSource produces booleans by design and is
+            # correctly typed ``dtype: boolean``.
+            if (
+                col.dtype == "boolean"
+                and isinstance(parsed, (MetricSource, LagSource, TextBucketSource))
+            ):
+                if isinstance(parsed, MetricSource):
+                    source_kind = "metric"
+                elif isinstance(parsed, LagSource):
+                    source_kind = "lag"
+                else:
+                    source_kind = "text-bucket"
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} declares "
+                    f"dtype: boolean with {source_kind}-source "
+                    f"{col.source!r}, which produces a continuous "
+                    f"value the boolean cast collapses to a near-constant "
+                    f"True. Use dtype: float (or int for poisson) to "
+                    f"preserve the metric value, or switch to a "
+                    f"threshold source if a boolean indicator is what "
+                    f"you want."
+                )
+            elif isinstance(parsed, FKSource):
+                if parsed.table not in table_names:
+                    errors.append(
+                        f"table {tbl.name!r} column {col.name!r} has FK to "
+                        f"unknown table {parsed.table!r}; known: "
+                        f"{sorted(table_names)}"
+                    )
+            elif isinstance(parsed, StaticSource) and col.dtype == "date":
+                # Validate static value(s) parse as ISO dates at config
+                # load. Without this check, ``dimensions._coerce_static``
+                # catches the ``datetime.fromisoformat`` ValueError and
+                # silently returns the raw string, leaving a date column
+                # with str values in the generated dim table.
+                # Multi-value statics
+                # ("static:2024-01-01,2024-02-01,2024-03-01") split on
+                # commas before validation, mirroring
+                # ``dimensions._split_static``.
+                raw_values = [
+                    part.strip() for part in parsed.value.split(",")
+                ]
+                for raw in raw_values:
+                    try:
+                        date.fromisoformat(raw)
+                    except ValueError:
+                        errors.append(
+                            f"table {tbl.name!r} column {col.name!r} has "
+                            f"dtype: date with static value {raw!r} that "
+                            f"is not a valid ISO date (expected "
+                            f"YYYY-MM-DD). Source: {col.source!r}."
+                        )
+
+        if tbl.row_count_source is not None:
+            rcs_parsed = parse_source(tbl.row_count_source)
+            ref_metric = getattr(rcs_parsed, "metric", None)
+            if ref_metric is not None and ref_metric not in metric_names:
+                errors.append(
+                    f"table {tbl.name!r} row_count_source "
+                    f"{tbl.row_count_source!r} references unknown metric "
+                    f"{ref_metric!r}; known: {sorted(metric_names)}"
+                )
+
+        for fk in tbl.foreign_keys:
+            if "." not in fk:
+                errors.append(
+                    f"table {tbl.name!r} foreign_keys entry {fk!r} must be "
+                    f"'<table>.<column>' format"
+                )
+                continue
+            fk_table = fk.split(".", 1)[0]
+            if fk_table not in table_names:
+                errors.append(
+                    f"table {tbl.name!r} foreign_keys references unknown "
+                    f"table {fk_table!r}; known: {sorted(table_names)}"
+                )
+
+    return errors
+
+
+def validate_correlations(config: PlotsimConfig) -> list[str]:
+    """Reject duplicate / unknown-metric correlation entries; flag zero-coef pairs.
+
+    Also enforces the per-granularity ``causal_lag.lag_periods`` cap and
+    detects cycles in the induced lag graph (A lags B, B lags A, or
+    longer chains).
+
+    Side effect: emits a ``RedundantCorrelationWarning`` for each
+    explicit ``coefficient: 0.0`` entry. The warning fires at
+    ``stacklevel=2``; the caller (load-time validator) is expected to
+    sit one frame above so the user sees their own YAML location.
+    """
+    errors: list[str] = []
+    metric_names = {m.name for m in config.metrics}
+
+    # Reject duplicate (metric_a, metric_b) entries before the PSD check
+    # picks one with last-write-wins. Treat the pair as unordered:
+    # (a, b) == (b, a). Without this, ``_build_correlation_matrix``
+    # silently overwrites earlier entries with later ones.
+    seen_pairs: dict[frozenset, float] = {}
+    for corr in config.correlations:
+        pair = frozenset((corr.metric_a, corr.metric_b))
+        if pair in seen_pairs:
+            prior = seen_pairs[pair]
+            errors.append(
+                f"duplicate correlation entries for unordered pair "
+                f"({corr.metric_a!r}, {corr.metric_b!r}): "
+                f"coefficients {prior} and {corr.coefficient}; "
+                f"declare each metric pair at most once"
+            )
+            continue
+        seen_pairs[pair] = corr.coefficient
+
+    for corr in config.correlations:
+        for m in (corr.metric_a, corr.metric_b):
+            if m not in metric_names:
+                errors.append(
+                    f"correlation references unknown metric {m!r}; "
+                    f"known: {sorted(metric_names)}"
+                )
+        # Flag explicit zero-coefficient entries (advisory warning).
+        if corr.coefficient == 0.0:
+            warnings.warn(
+                f"Correlation between {corr.metric_a!r} and "
+                f"{corr.metric_b!r} is configured as 0.0, which is "
+                f"already the default for unlisted pairs. This entry "
+                f"has no effect.",
+                RedundantCorrelationWarning,
+                stacklevel=3,
+            )
+
+    # Per-granularity ``causal_lag.lag_periods`` cap. The field-level
+    # cap accepts up to 3650 (the daily ceiling); this validator
+    # narrows to the configured granularity.
+    granularity_cap = _LAG_PERIOD_LIMITS[config.time_window.granularity]
+    for m in config.metrics:
+        if m.causal_lag is not None:
+            if m.causal_lag.driver not in metric_names:
+                errors.append(
+                    f"metric {m.name!r} causal_lag.driver "
+                    f"{m.causal_lag.driver!r} is not a known metric; "
+                    f"known: {sorted(metric_names)}"
+                )
+            if m.causal_lag.lag_periods > granularity_cap:
+                errors.append(
+                    f"metric {m.name!r} causal_lag.lag_periods "
+                    f"({m.causal_lag.lag_periods}) exceeds the "
+                    f"{config.time_window.granularity!r} granularity "
+                    f"cap of {granularity_cap}. Per-granularity "
+                    f"caps: {_LAG_PERIOD_LIMITS}"
+                )
+
+    # Detect cycles in the induced lag graph (A lags B lags A, or longer).
+    lag_graph = {
+        m.name: m.causal_lag.driver
+        for m in config.metrics if m.causal_lag is not None
+    }
+    for start in lag_graph:
+        seen = {start}
+        curr = lag_graph[start]
+        while curr in lag_graph:
+            if curr in seen:
+                errors.append(
+                    f"circular causal_lag chain detected involving "
+                    f"metric {start!r}"
+                )
+                break
+            seen.add(curr)
+            curr = lag_graph[curr]
+
+    return errors
+
+
+def validate_stages(config: PlotsimConfig) -> list[str]:
+    """``config.stages.field`` must reference a known metric."""
+    errors: list[str] = []
+    if config.stages is None:
+        return errors
+    metric_names = {m.name for m in config.metrics}
+    if config.stages.field not in metric_names:
+        errors.append(
+            f"stages.field {config.stages.field!r} is not a known metric; "
+            f"known: {sorted(metric_names)}"
+        )
+    return errors
+
+
+def validate_advanced(config: PlotsimConfig) -> list[str]:
+    """SCD Type 2, bridge tables, and quality-injection cross-references.
+
+    SCD: every dim column with an ``scd_type2`` config has a
+    ``trigger_metric`` that resolves to a fact-table metric column;
+    the SCD-bearing dim is ``per_entity`` grain; at most one SCD column
+    per dim table.
+
+    Bridges: unique names; non-collision with table names; both
+    ``connects`` entries are dim tables (not per_period); the first
+    connect is per_entity; ``cardinality.max`` does not exceed the
+    second dim's row count; metric-source bridge metrics resolve to
+    known metrics.
+
+    Quality: every ``target_table`` exists and is a fact/event table
+    (not a bridge); ``target_columns`` either uses the ``"*"`` sentinel
+    alone or names columns present on the table; FK / period /
+    date_key columns are protected from corruption.
+    """
+    errors: list[str] = []
+    metric_names = {m.name for m in config.metrics}
+    table_names = {t.name for t in config.tables}
+
+    # SCD Type 2 cross-references.
+    for tbl in config.tables:
+        scd_cols_on_table = [
+            col for col in tbl.columns if col.scd_type2 is not None
+        ]
+        if not scd_cols_on_table:
+            continue
+        if tbl.type != "dim":
+            errors.append(
+                f"table {tbl.name!r} declares an scd_type2 column "
+                f"({scd_cols_on_table[0].name!r}) but is type "
+                f"{tbl.type!r}; SCD versioning only applies to dim tables"
+            )
+            continue
+        if tbl.grain != "per_entity":
+            errors.append(
+                f"dim table {tbl.name!r} declares an scd_type2 column "
+                f"({scd_cols_on_table[0].name!r}) but grain is "
+                f"{tbl.grain!r}; V1 SCD Type 2 only versions per_entity "
+                f"dims (one entity → many versions). Reference and date "
+                f"dims have no entity axis to version against"
+            )
+            continue
+        if len(scd_cols_on_table) > 1:
+            names = [c.name for c in scd_cols_on_table]
+            errors.append(
+                f"dim table {tbl.name!r} has {len(scd_cols_on_table)} "
+                f"scd_type2 columns ({names}); V1 supports at most one "
+                f"SCD axis per dim table — combining axes would multiply "
+                f"versioned-row fan-out"
+            )
+            continue
+        scd_cfg = scd_cols_on_table[0].scd_type2
+        assert scd_cfg is not None  # for type-narrowing; checked above
+        ref_table, ref_metric = scd_cfg.trigger_metric.split(".", 1)
+        if ref_metric not in metric_names:
+            errors.append(
+                f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                f"scd_type2.trigger_metric references unknown metric "
+                f"{ref_metric!r}; known: {sorted(metric_names)}"
+            )
+            continue
+        ref_table_cfg = next(
+            (t for t in config.tables if t.name == ref_table), None,
+        )
+        if ref_table_cfg is None:
+            errors.append(
+                f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                f"scd_type2.trigger_metric references unknown table "
+                f"{ref_table!r}; known: {sorted(table_names)}"
+            )
+            continue
+        if ref_table_cfg.type != "fact":
+            errors.append(
+                f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                f"scd_type2.trigger_metric references table {ref_table!r} "
+                f"of type {ref_table_cfg.type!r}; expected a fact table "
+                f"(SCD trajectory bands are anchored to a fact metric "
+                f"for documentation/joinability)"
+            )
+            continue
+        metric_on_ref_table = any(
+            isinstance(parse_source(c.source), MetricSource)
+            and parse_source(c.source).metric == ref_metric  # type: ignore[union-attr]
+            for c in ref_table_cfg.columns
+        )
+        if not metric_on_ref_table:
+            errors.append(
+                f"dim {tbl.name!r} column {scd_cols_on_table[0].name!r} "
+                f"scd_type2.trigger_metric={scd_cfg.trigger_metric!r}, "
+                f"but fact table {ref_table!r} has no column with source "
+                f"'metric:{ref_metric}'. Add a metric column or point "
+                f"trigger_metric at a fact that exposes the metric."
+            )
+
+    # Bridge table cross-references. Per-entity dim row count is
+    # ``len(config.entities)`` because ``Entity.size`` is a
+    # cohort-population value carried as a metadata column
+    # (``derived:size``); the dim itself has one row per ``Entity``.
+    bridge_names: set[str] = set()
+    per_entity_dim_table_count = {
+        t.name: len(config.entities)
+        for t in config.tables
+        if t.type == "dim" and t.grain == "per_entity"
+    }
+    per_reference_dim_static_count: dict[str, int] = {}
+    for t in config.tables:
+        if t.type == "dim" and t.grain == "per_reference":
+            n_rows = 1
+            for c in t.columns:
+                parsed = parse_source(c.source)
+                if isinstance(parsed, StaticSource):
+                    parts = [p.strip() for p in parsed.value.split(",")]
+                    n_rows = max(n_rows, len(parts))
+            per_reference_dim_static_count[t.name] = n_rows
+    for bridge in config.bridges:
+        if bridge.name in bridge_names:
+            errors.append(
+                f"duplicate bridge name {bridge.name!r}; each bridge "
+                f"must have a unique name"
+            )
+            continue
+        if bridge.name in table_names:
+            errors.append(
+                f"bridge name {bridge.name!r} collides with an existing "
+                f"table; bridges and tables share an output namespace"
+            )
+            continue
+        bridge_names.add(bridge.name)
+        connects_ok = True
+        for connect in bridge.connects:
+            if connect not in table_names:
+                errors.append(
+                    f"bridge {bridge.name!r} connects to unknown table "
+                    f"{connect!r}; known: {sorted(table_names)}"
+                )
+                connects_ok = False
+                continue
+            connect_tbl = next(t for t in config.tables if t.name == connect)
+            if connect_tbl.type != "dim":
+                errors.append(
+                    f"bridge {bridge.name!r} connects to {connect!r} of "
+                    f"type {connect_tbl.type!r}; bridges connect dim "
+                    f"tables only"
+                )
+                connects_ok = False
+            elif connect_tbl.grain == "per_period":
+                errors.append(
+                    f"bridge {bridge.name!r} connects to {connect!r} which "
+                    f"has grain {connect_tbl.grain!r}; bridges cannot "
+                    f"connect to dim_date or other per_period dims"
+                )
+                connects_ok = False
+        if not connects_ok:
+            continue
+        first_dim_tbl = next(
+            t for t in config.tables if t.name == bridge.connects[0]
+        )
+        if first_dim_tbl.grain != "per_entity":
+            errors.append(
+                f"bridge {bridge.name!r} first connects entry "
+                f"{bridge.connects[0]!r} has grain "
+                f"{first_dim_tbl.grain!r}; the first dim of a bridge must "
+                f"be per_entity (the engine iterates entities to choose "
+                f"how many associations each one gets)"
+            )
+        second_dim = bridge.connects[1]
+        second_dim_count: Optional[int] = None
+        if second_dim in per_entity_dim_table_count:
+            second_dim_count = per_entity_dim_table_count[second_dim]
+        elif second_dim in per_reference_dim_static_count:
+            second_dim_count = per_reference_dim_static_count[second_dim]
+        if second_dim_count is not None and bridge.cardinality.max > second_dim_count:
+            errors.append(
+                f"bridge {bridge.name!r} cardinality.max "
+                f"({bridge.cardinality.max}) exceeds the row count of the "
+                f"second dim {second_dim!r} ({second_dim_count}); each "
+                f"first-dim entity can associate with at most "
+                f"{second_dim_count} second-dim row(s)"
+            )
+        for bm in bridge.metrics:
+            parsed_bm = parse_source(bm.source)
+            if isinstance(parsed_bm, MetricSource):
+                if parsed_bm.metric not in metric_names:
+                    errors.append(
+                        f"bridge {bridge.name!r} metric {bm.name!r} source "
+                        f"{bm.source!r} references unknown metric "
+                        f"{parsed_bm.metric!r}; known: "
+                        f"{sorted(metric_names)}"
+                    )
+
+    # Quality injection cross-references.
+    for issue_idx, issue in enumerate(config.quality.quality_issues):
+        target_tbl = next(
+            (t for t in config.tables if t.name == issue.target_table), None,
+        )
+        if target_tbl is None:
+            if issue.target_table in bridge_names:
+                errors.append(
+                    f"quality_issues[{issue_idx}].target_table "
+                    f"{issue.target_table!r} is a bridge table; quality "
+                    f"injection targets fact and event tables only"
+                )
+                continue
+            errors.append(
+                f"quality_issues[{issue_idx}].target_table "
+                f"{issue.target_table!r} is not a known table; known: "
+                f"{sorted(table_names)}"
+            )
+            continue
+        if target_tbl.type not in ("fact", "event"):
+            errors.append(
+                f"quality_issues[{issue_idx}].target_table "
+                f"{issue.target_table!r} has type {target_tbl.type!r}; "
+                f"quality injection targets fact and event tables only"
+            )
+            continue
+        protected_cols: set[str] = set()
+        for col in target_tbl.columns:
+            parsed_col = parse_source(col.source)
+            if isinstance(parsed_col, FKSource):
+                protected_cols.add(col.name)
+            if col.name in ("date_key", "period", "period_index", "period_label"):
+                protected_cols.add(col.name)
+        target_col_names = {c.name for c in target_tbl.columns}
+        if "*" in issue.target_columns and len(issue.target_columns) > 1:
+            errors.append(
+                f"quality_issues[{issue_idx}].target_columns mixes the "
+                f"'*' sentinel with explicit names {issue.target_columns}; "
+                f"use either '*' alone or an explicit list, not both"
+            )
+            continue
+        if issue.target_columns != ["*"]:
+            for col_name in issue.target_columns:
+                if col_name not in target_col_names:
+                    errors.append(
+                        f"quality_issues[{issue_idx}].target_columns "
+                        f"references column {col_name!r} not present on "
+                        f"table {issue.target_table!r}; known columns: "
+                        f"{sorted(target_col_names)}"
+                    )
+                    continue
+                if col_name in protected_cols:
+                    errors.append(
+                        f"quality_issues[{issue_idx}].target_columns "
+                        f"includes {col_name!r}, which is a FK or "
+                        f"period/date_key column on "
+                        f"{issue.target_table!r}; FK and period columns "
+                        f"are protected from corruption"
+                    )
+
+    return errors
 
 
 # --- Orchestrator ------------------------------------------------------------

@@ -182,7 +182,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
 
 
 def _build_seasonal_effects(user_input: UserInput) -> list[SeasonalEffect]:
-    """M119: translate ``UserInput.seasonality`` into engine ``SeasonalEffect`` list.
+    """Translate ``UserInput.seasonality`` into engine ``SeasonalEffect`` list.
 
     1:1 translation — months and strength pass through unchanged. The
     builder's ``SeasonalEffectInput`` and the engine's ``SeasonalEffect``
@@ -311,15 +311,13 @@ def _build_archetypes_and_entities(
 ) -> tuple[list[Archetype], list[Entity]]:
     """One archetype per segment, ``segment.count`` entities per segment.
 
-    M117 expansion: each segment with ``count: N`` produces N individual
-    ``Entity(size=1)`` objects named ``{segment_name}_{i:04d}``, all
-    sharing the segment's archetype. Pre-M117 the interpreter emitted a
-    single ``Entity(size=N)``, which silently collapsed auto-schema
-    ``dim_unit`` to one row per segment instead of N. ``Entity.size``
-    remains the engine-direct sub-entity dim multiplier (untouched by
-    this change); ``Table.count`` carries that role in the builder path.
+    Each segment with ``count: N`` produces N individual ``Entity(size=1)``
+    objects named ``{segment_name}_{i:04d}``, all sharing the segment's
+    archetype. ``Entity.size`` remains the engine-direct sub-entity dim
+    multiplier (untouched by this expansion); ``Table.count`` carries that
+    role in the builder path.
 
-    Baselines on the segment still translate into per-archetype
+    Baselines on the segment translate into per-archetype
     ``MetricOverride.value_range`` — applied once per archetype, shared
     by all expanded entities of that archetype.
     """
@@ -350,8 +348,8 @@ def _build_archetypes_and_entities(
 def _build_segment_count_value_pool(user_input: UserInput) -> dict[str, list[str]]:
     """Map every expanded entity name to its segment's original ``count``.
 
-    M117: ``segment.count`` column types resolve to a PoolSource on the
-    dim. PoolSource value_pool keys must cover every entity that produces
+    ``segment.count`` column types resolve to a PoolSource on the dim.
+    PoolSource value_pool keys must cover every entity that produces
     a row in the per_entity dim (``validate_value_pool_coverage``); after
     expansion that means one key per individual entity in
     ``config.entities``. The pool list is a single-element list per entity
@@ -433,9 +431,9 @@ def _stage_sequence_from_lifecycle(lc: LifecycleInput) -> StageSequence:
     """Build a legacy-mode StageSequence (threshold_exit > threshold_enter).
 
     Each stage's ``threshold_exit`` is the next stage's ``threshold_enter``;
-    the terminal stage's exit is None. enforce_order defaults to False per
-    the M115 settled decision (free-mode stages, set since the
-    stages-default flip).
+    the terminal stage's exit is None. ``enforce_order`` defaults to False
+    (free-mode stages); irreversible lifecycle transitions are SCD Type 2's
+    job, so stages reflect *current* lifecycle state.
     """
     sequence: list[StageDefinition] = []
     n = len(lc.stages)
@@ -471,13 +469,13 @@ def _build_tables(
     schema: dim_date (per_period), dim_{unit} (per_entity), fct_{unit}
     (per_entity_per_period) carrying every metric.
 
-    ``segment_count_value_pool`` threads the M117 cohort-population pool
+    ``segment_count_value_pool`` threads the cohort-population pool
     through to ``_translate_column`` so ``segment.count`` columns can
     resolve to a PoolSource keyed by expanded entity names.
 
-    ``attribute_value_pools`` (M122) is the per-attribute value_pool
-    keyed by attribute name; ``pool.{attr}`` columns resolve to a
-    PoolSource using the value list at that key.
+    ``attribute_value_pools`` is the per-attribute value_pool keyed by
+    attribute name; ``pool.{attr}`` columns resolve to a PoolSource
+    using the value list at that key.
     """
     if (not user_input.dimensions
             and not user_input.facts
@@ -785,11 +783,11 @@ def _translate_column(
       * ``bucket``                 → dtype=string,  source=text:bucket:[labels]
       * ``scd``                    → dtype=string,  source=scd_type2 + SCDType2Config
 
-    M117: ``segment.count`` translates to a PoolSource (not the pre-M117
-    ``derived:size``). After segment expansion every ``Entity.size`` is
-    1 in the builder path, so ``derived:size`` would emit 1 for every
-    row instead of the cohort population. The PoolSource's value_pool
-    maps each expanded entity name to ``[str(original_count)]``.
+    ``segment.count`` translates to a PoolSource. After segment expansion
+    every ``Entity.size`` is 1 in the builder path, so ``derived:size``
+    would emit 1 for every row instead of the cohort population. The
+    PoolSource's value_pool maps each expanded entity name to
+    ``[str(original_count)]``.
     """
     t = col.type
 
@@ -951,7 +949,7 @@ def _translate_column(
 
 def _make_default_dim_date() -> Table:
     """The minimal ``dim_date`` shape used by both the auto-schema branch
-    and the M124 explicit-schema fallback. Five columns: PK + date / year /
+    and the explicit-schema fallback. Five columns: PK + date / year /
     month / quarter, all derivable from the time window.
     """
     return Table(
@@ -976,8 +974,8 @@ def _make_default_dim_unit(
     """The minimal ``dim_{unit}`` shape — PK + faker-name column, plus one
     ``pool:{attr}`` column per attribute declared on every segment.
 
-    Used by the auto-schema branch and the M124 explicit-schema fallback
-    when a bridge references ``dim_{unit}`` but the user didn't declare it.
+    Used by the auto-schema branch and the explicit-schema fallback when
+    a bridge references ``dim_{unit}`` but the user didn't declare it.
     """
     unit = user_input.unit
     pk_col = f"{unit}_id"
@@ -1015,10 +1013,10 @@ def _auto_generate_schema(
     out of scope for the auto path — users who need those declare an
     explicit schema.
 
-    M122: when ``attribute_value_pools`` is non-empty, ``dim_{unit}``
-    gains one ``pool:{attr}`` column per attribute, alphabetically
-    ordered. Auto-schema users who declare segment attributes get those
-    attributes surfaced on the dim without writing the schema by hand.
+    When ``attribute_value_pools`` is non-empty, ``dim_{unit}`` gains
+    one ``pool:{attr}`` column per attribute, alphabetically ordered.
+    Auto-schema users who declare segment attributes get those attributes
+    surfaced on the dim without writing the schema by hand.
     """
     unit = user_input.unit
     unit_dim = f"dim_{unit}"
@@ -1067,20 +1065,19 @@ def _build_attribute_value_pools(
     time with a clear message.
 
     Scalar attribute values (``tier: enterprise``) wrap into a
-    single-element list per the M122 spec — PoolSource value lists are
-    always ``list[str]`` and a single value is just a one-element list.
-    Numeric / bool attribute values are stringified because PoolSource
-    columns are ``dtype=string``; round-tripping ints via the pool
-    machinery is intentional (the engine writes string cells).
+    single-element list — PoolSource value lists are always ``list[str]``
+    and a single value is just a one-element list. Numeric / bool
+    attribute values are stringified because PoolSource columns are
+    ``dtype=string``; round-tripping ints via the pool machinery is
+    intentional (the engine writes string cells).
     """
     if not user_input.segments:
         return {}
 
-    # Find attributes declared on every segment.
+    # Find attributes declared on every segment. ``user_input.segments`` is
+    # non-empty here (early return above), so ``per_segment_keys`` is too.
     per_segment_keys = [set(s.attributes.keys()) for s in user_input.segments]
-    if not per_segment_keys:
-        return {}
-    common_keys = set.intersection(*per_segment_keys) if per_segment_keys else set()
+    common_keys = set.intersection(*per_segment_keys)
 
     pools: dict[str, dict[str, list[str]]] = {}
     for attr in common_keys:
