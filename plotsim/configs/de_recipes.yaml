@@ -1,0 +1,101 @@
+# =============================================================
+# plotsim — Data Engineering recipes (reference / copy-paste only)
+# =============================================================
+# This file is NOT runnable by ``plotsim run``. It contains a
+# commented YAML snippet demonstrating how to configure a domain
+# template for pipeline-testing workflows that exercise the
+# downstream tooling against deliberately-corrupted output.
+#
+# How to use:
+#   1. Copy the lines between the RECIPE START and RECIPE END
+#      fence markers into your domain template.
+#   2. Remove the leading ``# `` from each copied line.
+#   3. Adjust ``target_table`` / ``target_columns`` per the
+#      per-domain table at the end of this recipe.
+#   4. Run ``plotsim validate --config-only <your-config>.yaml``
+#      to confirm the merged config is valid.
+#   5. Run ``plotsim run`` — the engine writes corrupted CSVs to
+#      disk while ``manifest.json`` records the pre-corruption
+#      ground truth (row indices, clean values) under
+#      ``quality_injections`` so the corruption is reversible
+#      for ML labelling.
+#
+# Compatibility:
+#   * ``quality.quality_issues`` is MUTUALLY EXCLUSIVE with
+#     ``entity_features.enabled`` and ``holdout.enabled`` in this
+#     version. The DS recipes (``ds_recipes.yaml``) use the latter
+#     two; do not combine.
+#   * Compatible with all five domain templates: saas, education,
+#     hr, retail, marketing.
+
+
+# -------------------------------------------------------------
+# Recipe — Pipeline testing (all 5 issue types)
+# -------------------------------------------------------------
+# Workflow: corrupt a fact table along five orthogonal failure
+# modes so a downstream loader / dbt / data-quality tool can be
+# exercised against realistic dirt without hand-curating bad data.
+#
+# The five issue types covered:
+#   * null_injection   — sets ``rate`` of cells in target columns
+#                        to NaN; protected columns (PK, FK, period)
+#                        are skipped automatically.
+#   * duplicate_rows   — inserts exact-copy rows at random
+#                        positions (loader's PK uniqueness check
+#                        should catch).
+#   * type_mismatch    — converts ``rate`` of values to wrong
+#                        types and promotes the column to object
+#                        dtype (parser's schema check should flag).
+#   * late_arrival     — adds an ``_arrival_period`` column where
+#                        ``rate`` of rows arrive 1-5 periods late
+#                        (event-time vs. processing-time gap).
+#   * schema_drift     — for ``rate`` of rows, copies the value to
+#                        ``<col>_v2`` and nulls the original
+#                        (column-rename in the upstream service).
+#
+# Default target below is the saas template's ``fct_revenue.mrr``.
+# Replace per the per-domain table to test the same machinery
+# against any other domain.
+#
+# >>> RECIPE START: pipeline_testing
+# quality:
+#   quality_issues:
+#     - type: "null_injection"
+#       target_table: "fct_revenue"
+#       target_columns: ["mrr"]
+#       rate: 0.05
+#       seed_offset: 0
+#     - type: "duplicate_rows"
+#       target_table: "fct_revenue"
+#       target_columns: ["*"]
+#       rate: 0.01
+#       seed_offset: 1
+#     - type: "type_mismatch"
+#       target_table: "fct_revenue"
+#       target_columns: ["mrr"]
+#       rate: 0.02
+#       seed_offset: 2
+#     - type: "late_arrival"
+#       target_table: "fct_revenue"
+#       target_columns: ["mrr"]
+#       rate: 0.03
+#       seed_offset: 3
+#     - type: "schema_drift"
+#       target_table: "fct_revenue"
+#       target_columns: ["mrr"]
+#       rate: 0.02
+#       seed_offset: 4
+# >>> RECIPE END: pipeline_testing
+#
+# Per-domain ``target_table`` / ``target_columns`` substitutions:
+#   saas        → fct_revenue       / ["mrr"]                       (default)
+#   education   → fct_grades        / ["assignment_score"]
+#   hr          → fct_attendance    / ["absence_rate", "attrition_risk"]
+#   retail      → fct_purchases     / ["cart_value", "return_rate"]
+#   marketing   → fct_campaigns     / ["ad_spend", "impressions"]
+#
+# When using a multi-column target, replace EVERY ``target_columns``
+# in the recipe with the list above (or split into per-column
+# issues if the rates should differ across columns). Some issue
+# types (``duplicate_rows``) ignore ``target_columns`` and use the
+# ``["*"]`` sentinel instead — leave that one as-is.

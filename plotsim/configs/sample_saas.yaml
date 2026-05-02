@@ -245,13 +245,9 @@ tables:
     foreign_keys: ["dim_date.date_key", "dim_company.company_id"]
 
 correlations:
-  # Tightened from (0.82, -0.75, 0.68) to a strictly PD solution
-  # (min eigenvalue +0.02). The engagement ↔ mrr ↔ churn_risk triangle
-  # with r_em²+r_ec² already exceeds 1 at the originals, which is the
-  # root reason M004's Cholesky was falling back to independent samples.
-  - {metric_a: "engagement", metric_b: "mrr", coefficient: 0.72}
-  - {metric_a: "engagement", metric_b: "churn_risk", coefficient: -0.55}
-  - {metric_a: "support_tickets", metric_b: "churn_risk", coefficient: 0.55}
+  - {metric_a: "engagement", metric_b: "mrr", coefficient: 0.82}
+  - {metric_a: "engagement", metric_b: "churn_risk", coefficient: -0.75}
+  - {metric_a: "support_tickets", metric_b: "churn_risk", coefficient: 0.68}
 
 noise:
   gaussian_sigma: 0.05
@@ -270,26 +266,3 @@ stages:
     - {name: "at_risk", threshold_enter: 0.5, threshold_exit: 0.8}
     - {name: "churned", threshold_enter: 0.8, threshold_exit: null}
   enforce_order: true
-
-# M107: post-generation data-quality injection. Commented out by default
-# so the saas template emits clean output identical to pre-M107 baselines
-# (every regression test asserting on bundled-template output stays green).
-# Uncomment the ``quality:`` block to corrupt fct_revenue's mrr column with
-# 5% null injection and to insert exact-copy duplicate rows at 1%. The
-# engine writes corrupted CSVs to disk while the manifest's
-# ``quality_injections`` field records the pre-corruption ground truth
-# (which row indices, which clean values) so a downstream consumer can
-# reverse the corruption for ML training labels.
-#
-# quality:
-#   quality_issues:
-#     - type: "null_injection"
-#       target_table: "fct_revenue"
-#       target_columns: ["mrr"]
-#       rate: 0.05
-#       seed_offset: 0
-#     - type: "duplicate_rows"
-#       target_table: "fct_revenue"
-#       target_columns: ["*"]
-#       rate: 0.01
-#       seed_offset: 1

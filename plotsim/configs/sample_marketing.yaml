@@ -1,0 +1,303 @@
+domain:
+  name: "Marketing analytics warehouse"
+  description: "Acquisition, engagement, conversion, and revenue across customer segments and channels"
+  entity_type: "customer_segment"
+  entity_label: "Customer segments"
+
+time_window:
+  start: "2023-01"
+  end: "2024-12"
+  granularity: "monthly"
+
+seed: 31
+
+metrics:
+  - name: "sessions"
+    label: "Monthly site sessions"
+    distribution: "poisson"
+    params: {lambda: 12.0}
+    polarity: "positive"
+  - name: "bounce_rate"
+    label: "Session bounce rate"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 5.0}
+    polarity: "negative"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "conversion_rate"
+    label: "Visit-to-purchase conversion"
+    distribution: "beta"
+    params: {alpha: 2.0, beta: 8.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "ad_spend"
+    label: "Monthly paid-media spend"
+    distribution: "lognorm"
+    params: {s: 0.7, loc: 0.0, scale: 2000.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 50000.0}
+  - name: "impressions"
+    label: "Ad impressions delivered"
+    distribution: "poisson"
+    params: {lambda: 500.0}
+    polarity: "positive"
+    causal_lag:
+      driver: "ad_spend"
+      lag_periods: 1
+  - name: "click_through_rate"
+    label: "Ad click-through rate"
+    distribution: "beta"
+    params: {alpha: 2.5, beta: 12.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 1.0}
+  - name: "revenue"
+    label: "Monthly revenue per segment"
+    distribution: "lognorm"
+    params: {s: 0.8, loc: 0.0, scale: 5000.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 200000.0}
+  - name: "average_order_value"
+    label: "Average order value"
+    distribution: "lognorm"
+    params: {s: 0.5, loc: 0.0, scale: 85.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 5000.0}
+  - name: "customer_lifetime_value"
+    label: "Customer lifetime value"
+    distribution: "lognorm"
+    params: {s: 0.9, loc: 0.0, scale: 800.0}
+    polarity: "positive"
+    value_range: {min: 0.0, max: 50000.0}
+
+archetypes:
+  - name: "high_value_loyal"
+    label: "Compounding high-value loyalists"
+    description: "Compound revenue growth, premium basket"
+    curve_segments:
+      - curve: "compound"
+        params: {base_rate: 0.06, acceleration: 0.02}
+        start_pct: 0.0
+        end_pct: 1.0
+    metric_overrides:
+      revenue:
+        distribution: "lognorm"
+        params: {s: 0.5, loc: 0.0, scale: 8000.0}
+  - name: "deal_seeker"
+    label: "Promo-driven shoppers"
+    description: "Cyclical engagement tied to discount cycles"
+    curve_segments:
+      - curve: "oscillating"
+        params: {period: 0.25, amplitude: 0.4}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "organic_convert"
+    label: "Organic discovery converters"
+    description: "S-curve adoption from organic traffic"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.6, steepness: 5.0}
+        start_pct: 0.0
+        end_pct: 1.0
+  - name: "paid_acquisition_churn"
+    label: "Paid spike then churn"
+    description: "Sharp paid-acquisition rise, abrupt drop, dormant tail"
+    curve_segments:
+      - curve: "sigmoid"
+        params: {midpoint: 0.2, steepness: 10.0}
+        start_pct: 0.0
+        end_pct: 0.4
+      - curve: "step"
+        params: {threshold: 0.5, before: 1.0, after: 0.15}
+        start_pct: 0.4
+        end_pct: 0.5
+      - curve: "plateau"
+        params: {level: 0.15}
+        start_pct: 0.5
+        end_pct: 1.0
+  - name: "dormant_reactivation"
+    label: "Win-back reactivators"
+    description: "Long dormant plateau, late re-engagement bump"
+    curve_segments:
+      - curve: "plateau"
+        params: {level: 0.15}
+        start_pct: 0.0
+        end_pct: 0.55
+      - curve: "step"
+        params: {threshold: 0.5, before: 0.15, after: 0.65}
+        start_pct: 0.55
+        end_pct: 0.65
+      - curve: "plateau"
+        params: {level: 0.65}
+        start_pct: 0.65
+        end_pct: 1.0
+
+entities:
+  - name: "power_buyers"
+    archetype: "high_value_loyal"
+    size: 20
+  - name: "promo_shoppers"
+    archetype: "deal_seeker"
+    size: 30
+  - name: "organic_discoverers"
+    archetype: "organic_convert"
+    size: 25
+  - name: "ad_acquired"
+    archetype: "paid_acquisition_churn"
+    size: 15
+  - name: "win_backs"
+    archetype: "dormant_reactivation"
+    size: 10
+
+tables:
+  - name: "dim_date"
+    type: "dim"
+    grain: "per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "pk"}
+      - {name: "date", dtype: "date", source: "generated:date_key"}
+      - {name: "year", dtype: "int", source: "generated:date_key"}
+      - {name: "month", dtype: "int", source: "generated:date_key"}
+      - {name: "quarter", dtype: "int", source: "generated:date_key"}
+    primary_key: "date_key"
+
+  - name: "dim_customer"
+    type: "dim"
+    grain: "per_entity"
+    columns:
+      - {name: "customer_id", dtype: "id", source: "pk"}
+      - {name: "segment_name", dtype: "string", source: "generated:faker.company"}
+      - {name: "cohort_size", dtype: "int", source: "derived:size"}
+      - name: "customer_tier"
+        dtype: "string"
+        source: "scd_type2"
+        scd_type2:
+          trigger_metric: "fct_revenue.revenue"
+          thresholds: [0.3, 0.7]
+          labels: ["prospect", "active", "vip"]
+    primary_key: "customer_id"
+
+  - name: "dim_channel"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "channel_id", dtype: "id", source: "pk"}
+      - {name: "channel_name", dtype: "string", source: "static:organic_search,paid_search,paid_social,email,direct,referral"}
+      - {name: "channel_type", dtype: "string", source: "static:organic,paid,paid,owned,organic,organic"}
+    primary_key: "channel_id"
+
+  - name: "dim_campaign"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "campaign_id", dtype: "id", source: "pk"}
+      - {name: "campaign_name", dtype: "string", source: "static:spring_promo,summer_sale,holiday_push,always_on_brand,retargeting"}
+      - {name: "campaign_objective", dtype: "string", source: "static:conversion,conversion,conversion,awareness,reactivation"}
+    primary_key: "campaign_id"
+
+  - name: "dim_product_category"
+    type: "dim"
+    grain: "per_reference"
+    columns:
+      - {name: "category_id", dtype: "id", source: "pk"}
+      - {name: "category_name", dtype: "string", source: "static:electronics,apparel,home,beauty"}
+      - {name: "margin_tier", dtype: "string", source: "static:high,standard,standard,high"}
+    primary_key: "category_id"
+
+  - name: "fct_traffic"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "customer_id", dtype: "id", source: "fk:dim_customer.customer_id"}
+      - {name: "session_count", dtype: "int", source: "metric:sessions"}
+      - {name: "bounce_rate", dtype: "float", source: "metric:bounce_rate"}
+      - {name: "conversion_rate", dtype: "float", source: "metric:conversion_rate"}
+      - {name: "customer_sentiment", dtype: "string", source: "text:bucket:[cold, warming, engaged, advocate]"}
+    primary_key: ["date_key", "customer_id"]
+    foreign_keys: ["dim_date.date_key", "dim_customer.customer_id"]
+
+  - name: "fct_campaigns"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "customer_id", dtype: "id", source: "fk:dim_customer.customer_id"}
+      - {name: "campaign_id", dtype: "id", source: "fk:dim_campaign.campaign_id"}
+      - {name: "ad_spend", dtype: "float", source: "metric:ad_spend"}
+      - {name: "impressions", dtype: "int", source: "metric:impressions"}
+      - {name: "click_through_rate", dtype: "float", source: "metric:click_through_rate"}
+    primary_key: ["date_key", "customer_id"]
+    foreign_keys:
+      - "dim_date.date_key"
+      - "dim_customer.customer_id"
+      - "dim_campaign.campaign_id"
+
+  - name: "fct_revenue"
+    type: "fact"
+    grain: "per_entity_per_period"
+    columns:
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "customer_id", dtype: "id", source: "fk:dim_customer.customer_id"}
+      - {name: "category_id", dtype: "id", source: "fk:dim_product_category.category_id"}
+      - {name: "revenue", dtype: "float", source: "metric:revenue"}
+      - {name: "average_order_value", dtype: "float", source: "metric:average_order_value"}
+      - {name: "customer_lifetime_value", dtype: "float", source: "metric:customer_lifetime_value"}
+    primary_key: ["date_key", "customer_id"]
+    foreign_keys:
+      - "dim_date.date_key"
+      - "dim_customer.customer_id"
+      - "dim_product_category.category_id"
+
+  - name: "evt_churn"
+    type: "event"
+    grain: "variable"
+    columns:
+      - {name: "event_id", dtype: "id", source: "pk"}
+      - {name: "date_key", dtype: "id", source: "fk:dim_date.date_key"}
+      - {name: "customer_id", dtype: "id", source: "fk:dim_customer.customer_id"}
+      - {name: "churn_reason", dtype: "string", source: "generated:faker.sentence"}
+      - {name: "churn_flag", dtype: "boolean", source: "threshold:conversion_rate:below:0.1:for:3"}
+    primary_key: "event_id"
+    foreign_keys: ["dim_date.date_key", "dim_customer.customer_id"]
+
+bridges:
+  - name: "bridge_customer_channel"
+    type: "bridge"
+    connects: ["dim_customer", "dim_channel"]
+    cardinality: {min: 1, max: 4}
+    trajectory_driven: true
+    metrics:
+      - {name: "channel_attribution_share", dtype: "float", source: "metric:conversion_rate"}
+
+  - name: "bridge_customer_campaign"
+    type: "bridge"
+    connects: ["dim_customer", "dim_campaign"]
+    cardinality: {min: 1, max: 3}
+    trajectory_driven: true
+    metrics:
+      - {name: "touchpoint_count", dtype: "int", source: "metric:sessions"}
+
+correlations:
+  - {metric_a: "sessions", metric_b: "conversion_rate", coefficient: 0.45}
+  - {metric_a: "click_through_rate", metric_b: "conversion_rate", coefficient: 0.50}
+  - {metric_a: "bounce_rate", metric_b: "conversion_rate", coefficient: -0.40}
+  - {metric_a: "revenue", metric_b: "customer_lifetime_value", coefficient: 0.65}
+  - {metric_a: "conversion_rate", metric_b: "revenue", coefficient: 0.55}
+
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
+  mcar_rate: 0.01
+
+stages:
+  field: "customer_lifetime_value"
+  sequence:
+    - {name: "prospect", threshold_enter: 0.0, threshold_exit: 0.2}
+    - {name: "first_purchase", threshold_enter: 0.2, threshold_exit: 0.4}
+    - {name: "repeat_buyer", threshold_enter: 0.4, threshold_exit: 0.7}
+    - {name: "loyal", threshold_enter: 0.7, threshold_exit: 0.9}
+    - {name: "champion", threshold_enter: 0.9, threshold_exit: null}
+  enforce_order: true
+
+output:
+  format: "csv"
+  directory: "out/marketing"

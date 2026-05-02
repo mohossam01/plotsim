@@ -34,7 +34,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "layer4_reference"
 
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
-    for stem in ("saas", "hr", "ecommerce", "education", "healthcare"):
+    for stem in ("saas", "hr", "education", "retail", "marketing"):
         cfg = load_config(CONFIGS / f"sample_{stem}.yaml")
         tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
         target = FIXTURE_DIR / stem

@@ -1,0 +1,127 @@
+# =============================================================
+# plotsim — Data Science recipes (reference / copy-paste only)
+# =============================================================
+# This file is NOT runnable by ``plotsim run``. It contains
+# commented YAML snippets demonstrating how to configure a domain
+# template for three classic DS workflows: Classification,
+# Clustering, and Forecasting.
+#
+# How to use a recipe:
+#   1. Pick the recipe matching your workflow.
+#   2. Copy the lines between the START and END fence markers
+#      into your domain template (e.g., sample_saas.yaml).
+#   3. Remove the leading ``# `` from each copied line.
+#   4. Replace ``<TARGET_METRIC>`` per the per-domain table
+#      printed at the end of each recipe.
+#   5. Run ``plotsim validate --config-only <your-config>.yaml``
+#      to confirm the merged config is valid.
+#
+# Compatibility:
+#   * ``entity_features`` requires ``manifest.include: true``
+#     (default) and an empty ``quality.quality_issues`` list.
+#   * ``holdout.enabled`` is mutually exclusive with
+#     ``quality.quality_issues``. See ``de_recipes.yaml`` for
+#     the pipeline-testing recipe that uses ``quality_issues``.
+#
+# Recipe → domain compatibility:
+#   * Classification — saas, education, hr, retail, marketing
+#   * Clustering     — saas, education, hr, retail, marketing
+#   * Forecasting    — saas, education, hr, retail, marketing
+
+
+# -------------------------------------------------------------
+# Recipe 1 — Classification
+# -------------------------------------------------------------
+# Workflow: train a regressor or classifier on a trajectory-
+# driven label, holding the last 3 periods out for evaluation.
+# Produces:
+#   * ``_entity_features.csv`` — one row per entity, six aggregate
+#     columns per metric (mean, std, slope, first, last,
+#     peak_period), plus ``archetype`` and
+#     ``final_trajectory_position`` ground-truth labels (because
+#     ``include_labels: true``).
+#   * ``<fct_*>_train.csv`` / ``<fct_*>_holdout.csv`` for every
+#     ``per_entity_per_period`` fact table. The
+#     ``target_metric``'s aggregate columns are dropped from
+#     ``_entity_features.csv`` (leakage prevention).
+#
+# Copy from RECIPE START to RECIPE END below into your domain
+# config (after un-commenting). Replace ``<TARGET_METRIC>`` per
+# the per-domain table.
+#
+# >>> RECIPE START: classification
+# entity_features:
+#   enabled: true
+#   include_labels: true
+# holdout:
+#   enabled: true
+#   target_metric: "<TARGET_METRIC>"
+#   holdout_periods: 3
+#   min_training_periods: 3
+# >>> RECIPE END: classification
+#
+# Per-domain ``target_metric`` values:
+#   saas        → "churn_risk"
+#   education   → "dropout_risk"
+#   hr          → "attrition_risk"
+#   retail      → "return_rate"
+#   marketing   → "bounce_rate"
+
+
+# -------------------------------------------------------------
+# Recipe 2 — Clustering
+# -------------------------------------------------------------
+# Workflow: produce one feature vector per entity for unsupervised
+# clustering (KMeans, HDBSCAN, etc.). The number of underlying
+# archetypes in the domain template gives you the natural
+# cluster count to compare against.
+# Produces:
+#   * ``_entity_features.csv`` — one row per entity, six aggregate
+#     columns per metric. ``include_labels: false`` omits
+#     ``archetype`` and ``final_trajectory_position`` so the
+#     features are unsupervised; the archetype assignments are
+#     still recoverable from ``manifest.json`` after the fact
+#     for cluster validation.
+# No holdout: clustering doesn't need a temporal split.
+#
+# >>> RECIPE START: clustering
+# entity_features:
+#   enabled: true
+#   include_labels: false
+# >>> RECIPE END: clustering
+#
+# Works on any of the five domain templates without
+# ``target_metric`` substitution.
+
+
+# -------------------------------------------------------------
+# Recipe 3 — Forecasting
+# -------------------------------------------------------------
+# Workflow: fit a per-entity time-series forecaster on the
+# training periods, evaluate on the held-out tail. Recommended
+# when the domain has a clear value driver you want to predict
+# 6 periods ahead.
+# Produces:
+#   * ``<fct_*>_train.csv`` / ``<fct_*>_holdout.csv`` with a 6-
+#     period tail held out, ``min_training_periods: 6`` to keep
+#     short windows from collapsing.
+#   * ``_entity_features.csv`` with ground-truth labels (so the
+#     forecast residuals can be regressed against archetype).
+#
+# >>> RECIPE START: forecasting
+# entity_features:
+#   enabled: true
+#   include_labels: true
+# holdout:
+#   enabled: true
+#   target_metric: "<TARGET_METRIC>"
+#   holdout_periods: 6
+#   min_training_periods: 6
+# >>> RECIPE END: forecasting
+#
+# Per-domain ``target_metric`` values:
+#   saas        → "mrr"
+#   education   → "assignment_score"
+#   hr          → "performance_score"
+#   retail      → "loyalty_score"
+#   marketing   → "revenue"

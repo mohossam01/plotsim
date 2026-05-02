@@ -185,12 +185,9 @@ tables:
     foreign_keys: ["dim_date.date_key", "dim_employee.employee_id"]
 
 correlations:
-  # Tightened from (-0.72, -0.55, 0.61) to strictly PD (min eigenvalue +0.01).
-  # All three pairs point into attrition_risk; their squared sum was just
-  # over 1, so Cholesky was falling back to independent samples.
-  - {metric_a: "engagement_index", metric_b: "attrition_risk", coefficient: -0.65}
-  - {metric_a: "performance_score", metric_b: "attrition_risk", coefficient: -0.50}
-  - {metric_a: "absence_rate", metric_b: "attrition_risk", coefficient: 0.55}
+  - {metric_a: "engagement_index", metric_b: "attrition_risk", coefficient: -0.72}
+  - {metric_a: "performance_score", metric_b: "attrition_risk", coefficient: -0.55}
+  - {metric_a: "absence_rate", metric_b: "attrition_risk", coefficient: 0.61}
 
 noise:
   gaussian_sigma: 0.04

@@ -101,6 +101,13 @@ tables:
       - {name: "student_id", dtype: "id", source: "pk"}
       - {name: "cohort_name", dtype: "string", source: "generated:faker.company"}
       - {name: "cohort_size", dtype: "int", source: "derived:size"}
+      - name: "academic_standing"
+        dtype: "string"
+        source: "scd_type2"
+        scd_type2:
+          trigger_metric: "fct_grades.assignment_score"
+          thresholds: [0.3, 0.6]
+          labels: ["probationary", "good_standing", "honors"]
     primary_key: "student_id"
 
   - name: "dim_course"
@@ -187,3 +194,12 @@ bridges:
 output:
   format: "csv"
   directory: "out/education"
+
+stages:
+  field: "dropout_risk"
+  sequence:
+    - {name: "thriving", threshold_enter: 0.0, threshold_exit: 0.15}
+    - {name: "stable", threshold_enter: 0.15, threshold_exit: 0.35}
+    - {name: "struggling", threshold_enter: 0.35, threshold_exit: 0.6}
+    - {name: "critical", threshold_enter: 0.6, threshold_exit: null}
+  enforce_order: true
