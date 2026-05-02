@@ -9,7 +9,7 @@
 > grading a PR, and AI assistants asked to reason about plotsim without
 > being handed the source tree.
 >
-> **Aligns with:** `__version__ = 0.5.0` · post-M124 (builder DX + CLI dispatcher) · commit `40ac524` · 2026-05-01
+> **Aligns with:** `__version__ = 0.5.0` · post-M127a (validator split + cleanup) + M127b (copula flip + distribution registry + column dispatcher + fixture regen) · commit `b1df0c6` · 2026-05-02
 >
 > **Maintenance contract.** Whenever a change to `plotsim/*.py` (other than
 > `cli.py`) lands, this file is updated in the same session. The
@@ -272,14 +272,33 @@ into an actual metric value through a fixed pipeline.
    trajectory modifier, so the trajectory-first invariant survives.
    `inspect.trace_metric_cell` exposes both `seasonal_factor` (the
    effective multiplier) and `modulated_center` for verification.
-4. **Independent draw** — `sample_single_metric` draws from
-   `lognorm | gamma | poisson | beta | normal | weibull` via `scipy.stats`.
-5. **Correlate** — `apply_correlations` uses a Gaussian copula: each
-   independent draw is mapped to a uniform via the distribution's CDF, then
-   to a Gaussian via the inverse normal, jointly correlated against a
-   Cholesky factor of the (PD-projected) correlation matrix, then mapped
-   back through the original CDF. This preserves marginals while honouring
-   pairwise correlations.
+4. **Independent draw** — `sample_scalar` / `sample_batch` draw from
+   `lognorm | gamma | poisson | beta | normal | weibull` via the
+   per-family handler in `plotsim/_distribution_registry.py`'s
+   `DISTRIBUTION_REGISTRY`. Each `DistributionFamily` exposes
+   `sample_scalar`, `sample_batch`, `ppf_batch`, and (when applicable)
+   `direct_transform` — adding a new family touches one registration
+   site, not 5–6 dispatch ladders.
+5. **Correlate** — `apply_correlations` uses a Gaussian copula in
+   **textbook order** (M127b): `rng.standard_normal(M) → L @ → family-grouped transform → clip`.
+   Normal and lognorm marginals consume the correlated Gaussian via a
+   closed-form `direct_transform` (no `Φ`, no `ppf`). Beta, poisson,
+   gamma, and weibull go through `Φ` (`norm.cdf`) once and then a
+   single per-family `ppf_batch` call — one scipy call per family per
+   cell, not per metric. The **bypass machinery is gone** (M127b
+   deletion of ~170 lines: `_bypass_mask_batch`, bypass-aware
+   submatrix Cholesky in `apply_correlations`, per-row scalar fallback
+   in `_apply_correlations_batch`, bypass counter plumbing). Cells
+   whose pre-M127b center triggered the bypass now produce
+   copula-correlated values: poisson with λ=0 deterministically lands
+   on 0; lognorm with center ≤ ε is handled by the family transform
+   without falling out of the correlated path. Correlations on
+   (active, degenerate) pairs no longer attenuate — a release-noted
+   one-version cell-value boundary. `apply_correlations(samples_dict,
+   metrics, correlations, rng, cholesky_L=None, ...)` gains the `rng=`
+   parameter (caller-supplied standard-Gaussian source); the
+   `independent` argument is preserved for the empty-correlations
+   short-circuit but no longer consumed on the correlated path.
 
    **M120: trajectory-aware pre-compensation.** When
    `config.compensate_correlations=True` (default for builder-produced
@@ -380,16 +399,21 @@ mode the function:
 2. **Centers** — `_position_to_center_batch` over the batch axis, then
    M119 seasonal modulation `× (1 + S_t × em.sens × ent.sens[i])`,
    then `value_range` clamp.
-3. **Independent draws** — one batched `rng.<dist>(size=n_batch)` call
-   per metric (dispatched in `sample_single_metric_batch`).
-4. **Batched copula** — `_apply_correlations_batch` pushes each
-   marginal through scipy's `cdf`, clips to `[1e-10, 1−1e-10]`, applies
-   the inverse normal, multiplies by `cholesky_L.T`, then closes the
-   round-trip via `cdf(N(0,1))` → marginal `ppf`. Per-cell degenerate
-   cells (`_bypass_mask_batch`) trigger a per-row scalar fallback to
-   preserve the bypass-aware submatrix Cholesky behavior of the scalar
-   path; the all-active fast path covers production configs with
-   positive centers throughout the trajectory.
+3. **Independent draws** — one batched `sample_batch(centers, metric, rng)`
+   call per metric, dispatched through `DISTRIBUTION_REGISTRY` (M127b);
+   no inline `if/elif` ladders.
+4. **Batched copula (M127b)** — `_apply_correlations_batch` follows the
+   textbook order: a single `rng.standard_normal((n_batch, M))` draw
+   gets multiplied by `cholesky_L.T`, then split by family. Normal and
+   lognorm columns take the correlated Gaussian directly through their
+   family's `direct_transform` (closed-form, no `Φ`). Beta, poisson,
+   gamma, and weibull columns go through `norm.cdf` once and then a
+   single per-family `ppf_batch` call — one scipy call per family per
+   period, regardless of how many metrics share that family. **No
+   bypass mask, no per-row scalar fallback, no submatrix Cholesky**:
+   the new pipeline handles degenerate centers natively (poisson λ=0
+   → deterministic 0; lognorm center ≤ ε → family transform without
+   leaving the correlated path).
 5. **Noise** — `_apply_noise_batch` runs gaussian → outlier → MCAR with
    one batched RNG call per branch; MCAR cells become `np.nan`.
 6. **Clamp / round** — `_clamp_and_round_batch` enforces `value_range`
@@ -414,28 +438,17 @@ within a mode → byte-identical. The two contracts coexist:
   same correlation sign matches, same shape recovery — but distinct
   individual cell values.
 
-**Bypass fallback.** When *any* cell in the batch at the current
-period has a degenerate distribution (gamma `shape ≤ 0`, lognorm
-center `≤ 1e-9`, etc.), `_apply_correlations_batch` falls back to a
-per-row scalar `apply_correlations` call. This is correct but slow.
-
-**M121b bypass observability.** `_apply_correlations_batch` now
-returns `(values, bypass_cell_count)`; `generate_archetype_batch`
-accumulates the count across periods and writes it into an optional
-mutable `bypass_counter` dict the orchestrator threads through. The
-orchestrator stashes the resulting `dict[archetype_name → int]` on
-`PlotsimConfig._bypass_fallback_counts` (PrivateAttr, mirrors the
-M111 / M120 sibling pattern); `manifest.build_manifest` surfaces it
-as `bypass_fallback_counts: Optional[dict[str, int]]`:
-
-* `None` → serial-mode run; bypass is unmeasured because the path
-  has no batched copula to fall back from.
-* `{}` → vectorized run with zero bypass cells; the all-active fast
-  path covered every period.
-* `{archetype: count, ...}` → vectorized run where one or more
-  archetypes hit degenerate centers. A user investigating
-  "vectorized isn't faster on my config" reads this directly to see
-  whether bypass is the cause.
+**M127b bypass deletion.** The bypass-aware submatrix Cholesky path,
+`_bypass_mask_batch`, the per-row scalar fallback in
+`_apply_correlations_batch`, and the bypass counter plumbing through
+`generate_archetype_batch` / `_compute_entity_metrics` / orchestrator
+are all gone (~170 lines). The `_bypass_fallback_counts` PrivateAttr
+on `PlotsimConfig` is retained — Goal 5c (runtime-PrivateAttr →
+`GenerationState`) was deferred — but nothing populates it, so it
+stays default-empty after every M127b+ generation. The matching
+manifest field `bypass_fallback_counts` is now always `{}`; the key
+is preserved on the schema for backward-compat manifest loading and
+should be treated as deprecated by future consumers.
 
 **Auto-threshold provenance.** `_VECTORIZED_AUTO_THRESHOLD = 50`
 is justified by `analysis/perf/m121_vectorized.py`: at 95 entities
@@ -463,7 +476,8 @@ batch doesn't yet honour.
 
 - `generate_archetype_batch(...)` — batch generator for one archetype.
 - `sample_single_metric_batch(centers, metric, rng) -> np.ndarray` —
-  batched draw for one metric across `n` entities.
+  batched draw for one metric across `n` entities (now a thin wrapper
+  over `DISTRIBUTION_REGISTRY[family].sample_batch`).
 
 ### 2.5 Dimensions — `plotsim/dimensions.py`
 
@@ -497,8 +511,26 @@ resolves entity-membership only and never reads a trajectory.
 
 ### 2.6 Facts, events, bridges, SCD, stages — `plotsim/tables.py`
 
-The largest module (~2,500 lines). Composes trajectories + metrics +
-dimensions into a complete table set.
+The largest module (~2,800 lines post-M127b — see §6 for current LOC).
+Composes trajectories + metrics + dimensions into a complete table set.
+
+**Column resolution (M127b).** Every column builder in `tables.py` and
+`dimensions.py` consumes a shared `COLUMN_DISPATCH` registry from
+`plotsim/_column_dispatch.py`. Each source type (`PKSource`, `FKSource`,
+`MetricSource`, `StaticSource`, `FakerSource`, `DerivedSource`,
+`PoolSource`, `SCDType2Source`, `ThresholdSource`, …) registers a
+resolver per builder kind (per-entity-per-period fact scalar +
+vectorized, per-period fact, proportional event, threshold-event row,
+per-entity dim, sub-entity dim, reference dim — 5 builder kinds total).
+The 5 source-type ladders that previously lived inline collapsed to
+single `COLUMN_DISPATCH[(builder_kind, type(parsed))](context)` lookups.
+Adding a new source type touches one registration per builder kind it
+participates in. The `forces_scalar` predicate names the FakerSource
+contract explicitly: Faker columns always route through the scalar
+path regardless of generation mode, preserving RNG consumption order.
+PK generation, FK resolution, SCD expansion, and bridge association
+stay as they are — those are genuinely different across grains and
+remain in their dedicated builders.
 
 **Public entry points:**
 
@@ -656,7 +688,20 @@ corrupted dict is what callers write to disk.
 ### 2.10 Validation — `plotsim/validation.py`
 
 **Role.** Post-generation integrity and coherence checks; one
-pre-generation check on the config alone.
+pre-generation check on the config alone; **plus** (M127a) the
+six module-level validators that the config-load orchestrator in
+`config.py:_cross_reference_integrity` walks during Pydantic
+validation. The config-side `_cross_reference_integrity` is now a
+22-line orchestrator that delegates to: `validate_names` (duplicate
+checks), `validate_archetype_refs` (entity → archetype + override
+closure), `validate_table_schema` (table cross-refs + FK
+resolution), `validate_correlations` (metric refs + zero-coefficient
+warnings + lag closure), `validate_stages` (stage field refs), and
+`validate_advanced` (SCD + bridge + quality + holdout coherence).
+Each is independently importable and testable; same errors raised
+as the pre-M127a 501-line monolith. The `RedundantCorrelationWarning`
+emitted by `validate_correlations` uses `stacklevel=3` to account
+for the new orchestrator frame (was `2` pre-M127a).
 
 **Checks** (constants on the module, all in `ALL_CHECKS`):
 
@@ -711,12 +756,13 @@ rather than re-derive from noisy cell values.
   projection records.
 - `correlation_compensations: list[CorrelationCompensation] | None` —
   M120 trajectory-aware pre-compensation records.
-- `bypass_fallback_counts: dict[archetype, int] | None` — M121b
-  per-archetype count of cells that triggered the per-row scalar
-  fallback in `_apply_correlations_batch`. `None` in serial mode
-  (the path doesn't measure bypass); `{}` in vectorized mode with
-  no bypass; populated dict surfaces "vectorized isn't faster on
-  my config" investigations.
+- `bypass_fallback_counts: dict[archetype, int]` — **deprecated as of
+  M127b.** The bypass machinery this field measured was deleted; the
+  field is now always `{}` and is preserved on the schema only so old
+  manifests still load. New consumers should ignore it. (Pre-M127b:
+  `None` in serial mode, `{}` in vectorized with no bypass, populated
+  dict when degenerate-center cells triggered the per-row scalar
+  fallback in `_apply_correlations_batch`.)
 - `vectorized_threshold_used: int | None` — M121b value of
   `_VECTORIZED_AUTO_THRESHOLD` at generation time, recorded so old
   manifests stay reproducible if the constant changes in a later
@@ -1178,9 +1224,15 @@ The non-negotiables. A change that breaks any of these is a bug.
 6. **Date spine, never `DATE_TRUNC`.** Consumers join `dim_date` by
    `date_key`; the engine never inlines `DATE_TRUNC` at fact time.
 7. **Config immutability.** `PlotsimConfig` is frozen
-   (`pydantic.ConfigDict(frozen=True)`). The `_correlation_adjustments`
-   PrivateAttr is the single engine-side write, used only to surface
-   Higham projection records on the manifest.
+   (`pydantic.ConfigDict(frozen=True)`). Two PrivateAttrs survive as
+   engine-side writes used only to surface manifest fields:
+   `_correlation_adjustments` (Higham projection records) and
+   `_correlation_compensations` (M120 trajectory-aware compensations).
+   A third — `_bypass_fallback_counts` — is retained for shape but
+   no longer populated post-M127b (the bypass machinery was deleted;
+   the manifest field is always `{}`). Migrating these PrivateAttrs
+   onto `GenerationState` is tracked as `[127a→scope/runtime-state]`
+   for a follow-up mission.
 8. **One filesystem touchpoint.** Only `plotsim.output` writes files.
    Every other module is in-memory and pure.
 
@@ -1190,28 +1242,31 @@ The non-negotiables. A change that breaks any of these is a bug.
 
 | Module                       | LOC   | Role                                                       |
 |------------------------------|-------|------------------------------------------------------------|
-| `plotsim/__init__.py`        | 94    | Public API re-exports.                                     |
-| `plotsim/config.py`          | 2,390 | Pydantic v2 schema + YAML loader + cross-ref validation.   |
+| `plotsim/__init__.py`        | 111   | Public API re-exports.                                     |
+| `plotsim/config.py`          | 2,118 | Pydantic v2 schema + YAML loader + 22-line cross-ref orchestrator (M127a; checks live in `validation.py`). |
 | `plotsim/curves.py`          | 158   | 8 mathematical curves + `evaluate_segment` dispatcher.     |
 | `plotsim/trajectory.py`      | 228   | Stitch curve segments → length-`n_periods` array.          |
-| `plotsim/metrics.py`         | 950   | Position → distribution → copula → noise → clamp.          |
-| `plotsim/dimensions.py`      | 846   | `dim_date`, `dim_<entity>`, sub-entity, reference dims.    |
-| `plotsim/tables.py`          | 2,570 | Facts + events + bridges + SCD + stages.                   |
+| `plotsim/metrics.py`         | 1,742 | Position → distribution → copula → noise → clamp. Copula in textbook order (M127b); bypass machinery deleted. |
+| `plotsim/dimensions.py`      | 970   | `dim_date`, `dim_<entity>`, sub-entity, reference dims; consumes `COLUMN_DISPATCH` (M127b). |
+| `plotsim/tables.py`          | 3,229 | Facts + events + bridges + SCD + stages; consumes `COLUMN_DISPATCH` (M127b). |
 | `plotsim/holdout.py`         | 182   | Temporal train/holdout split.                              |
 | `plotsim/entity_features.py` | 461   | Per-entity flat feature aggregation.                       |
 | `plotsim/quality.py`         | 473   | 5 post-generation corruption types.                        |
-| `plotsim/validation.py`      | 1,693 | 11 named integrity / coherence checks.                     |
-| `plotsim/manifest.py`        | 599   | Ground-truth JSON sidecar.                                 |
-| `plotsim/output.py`          | 606   | CSV / Parquet writer — sole filesystem touchpoint.         |
-| `plotsim/inspect.py`         | 530   | Single-cell pipeline trace (`trace_metric_cell`).          |
+| `plotsim/validation.py`      | 2,284 | 11 named post-generation checks **+ 6 module-level pre-generation validators** (M127a) called from the config orchestrator. |
+| `plotsim/manifest.py`        | 706   | Ground-truth JSON sidecar.                                 |
+| `plotsim/output.py`          | 781   | CSV / Parquet writer — sole filesystem touchpoint.         |
+| `plotsim/inspect.py`         | 628   | Single-cell pipeline trace (`trace_metric_cell`).          |
 | `plotsim/schema.py`          | 51    | JSON Schema export of `PlotsimConfig`.                     |
-| `plotsim/cli.py`             | 466   | `argparse` CLI shell.                                      |
+| `plotsim/cli.py`             | 577   | `argparse` CLI shell.                                      |
+| `plotsim/_faker.py`          | 38    | Shared `_make_faker` + `_faker_seed_from_rng` (M127a; deduplicated from `tables.py` and `dimensions.py`). |
+| `plotsim/_distribution_registry.py` | 308 | `DISTRIBUTION_REGISTRY` per-family math: `sample_scalar`, `sample_batch`, `ppf_batch`, `direct_transform` (M127b). |
+| `plotsim/_column_dispatch.py` | 135  | `COLUMN_DISPATCH` registry — source-type → resolver map per builder kind (M127b). |
 | `plotsim/builder/__init__.py` | 85   | Builder public surface — `create`, `create_from_yaml` (M115). |
 | `plotsim/builder/recipes.py` | 133   | Vocabulary → engine parameters (pure data; M115).          |
 | `plotsim/builder/parser.py`  | 159   | Composite archetype DSL parser (M115).                     |
-| `plotsim/builder/input.py`   | 640   | `UserInput` pydantic model + structural validation (M115). |
-| `plotsim/builder/interpreter.py` | 790 | `interpret(UserInput) → PlotsimConfig` (M115).            |
-| `plotsim/builder/schema.py`  | 121   | `UserInput` JSON Schema export + vocab enum dicts (M116).  |
+| `plotsim/builder/input.py`   | 957   | `UserInput` pydantic model + structural validation (M115). |
+| `plotsim/builder/interpreter.py` | 1,238 | `interpret(UserInput) → PlotsimConfig` (M115).          |
+| `plotsim/builder/schema.py`  | 122   | `UserInput` JSON Schema export + vocab enum dicts (M116).  |
 
 ---
 
