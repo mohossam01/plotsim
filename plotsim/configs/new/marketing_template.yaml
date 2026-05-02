@@ -5,6 +5,10 @@
 about: "Marketing campaign performance — spend, reach, conversion, revenue"
 unit: campaign
 
+# Determinism + slightly-messy noise to mimic ad-platform jitter.
+seed: 80211
+noise: slightly_messy
+
 window:
   start: 2023-01
   end: 2024-12
@@ -63,12 +67,15 @@ metrics:
 
 # ── how metrics connect ─────────────────────────────────
 
+# Numeric coefficients calibrated from a real ad-platform dataset.
+# Mix of vocabulary words and explicit r values — both forms
+# coexist; the engine treats them as a single correlation matrix.
 connections:
   - click_through_rate driven_by impressions
   - conversion_rate driven_by click_through_rate
   - bounce_rate opposes conversion_rate
-  - revenue driven_by conversion_rate
-  - roi related revenue
+  - "revenue 0.62 conversion_rate"             # measured r=0.62
+  - [roi, 0.48, revenue]                        # measured r=0.48
   - leads_generated related click_through_rate
 
 

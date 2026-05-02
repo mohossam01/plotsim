@@ -5,6 +5,10 @@
 about: "HR talent and attrition analytics"
 unit: employee
 
+# Determinism + a touch of noise to mimic real survey jitter.
+seed: 5150
+noise: slightly_messy
+
 window:
   start: 2023-01
   end: 2024-12
@@ -51,11 +55,14 @@ metrics:
 
 # ── how metrics connect ─────────────────────────────────
 
+# Custom coefficient on the comp ↔ performance pair — calibrated
+# off internal performance / pay-band correlation studies. The
+# numeric form is interchangeable with the 9-word vocabulary.
 connections:
   - engagement driven_by performance_score
   - engagement opposes attrition_risk
   - absence_rate related attrition_risk
-  - compensation hints_at performance_score
+  - "compensation 0.27 performance_score"
 
 
 # ── who we're simulating ────────────────────────────────
@@ -135,8 +142,14 @@ segments:
 
 # ── lifecycle funnel ────────────────────────────────────
 
+#  enforce_order: true emits a monotonic stage walk — once an
+#  employee enters `disengaging`, they don't bounce back to
+#  `established` on a transient pulse-survey blip. Without this the
+#  default free-mode stages let entities re-enter earlier stages
+#  whenever the realised risk score dips below the threshold again.
 lifecycle:
   track: attrition_risk
+  enforce_order: true
   stages:
     - new_hire: 0.0
     - established: 0.15

@@ -239,9 +239,14 @@ def test_correlation_signs_match_configured_connections(saas_dataset):
             continue
         # pandas Int64 (nullable integer extension) trips numpy's corrcoef;
         # cast to float64 so the integer poisson-driven count column threads
-        # cleanly into corrcoef.
-        a = merged[col_a].astype("float64").to_numpy()
-        b = merged[col_b].astype("float64").to_numpy()
+        # cleanly into corrcoef. Drop rows where either side is NaN — the
+        # template's `mcar_rate` may have NaN'd cells, and corrcoef returns
+        # NaN if either input contains a single NaN.
+        sub = merged[[col_a, col_b]].astype("float64").dropna()
+        a = sub[col_a].to_numpy()
+        b = sub[col_b].to_numpy()
+        if a.size < 8 or a.std() < 1e-9 or b.std() < 1e-9:
+            continue
         r = np.corrcoef(a, b)[0, 1]
         # Loose sign check — engine adds noise + Higham projection so exact
         # value won't match. Sign agreement is the contract.

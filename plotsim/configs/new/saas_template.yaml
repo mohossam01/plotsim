@@ -1,13 +1,20 @@
 # ═══════════════════════════════════════════════════════
-#  plotsim — Education / student cohort analytics
+#  plotsim — B2B SaaS customer success
 # ═══════════════════════════════════════════════════════
 
-about: "University student academic performance and engagement"
-unit: student
+about: "B2B SaaS customer success"
+unit: company
 
-# Determinism, light realistic noise, default csv output.
-seed: 31337
-noise: realistic
+# Pin determinism — same seed in, byte-identical output every run.
+seed: 1729
+
+# Three builder dials defaulting to "do nothing". Set noise to a
+# preset name for realistic jitter (`slightly_messy` / `realistic` /
+# `dirty`) or use the dict form for full control. See
+# docs/site/config-reference.md §noise / §output / §locale.
+noise: perfectly_clean       # demo: also accepts `slightly_messy`, `realistic`, `dirty`
+# output: parquet            # csv (default) | parquet | {format, directory}
+# locale: en_US              # str or list — threaded to faker.* columns
 
 window:
   start: 2023-01
@@ -15,152 +22,163 @@ window:
   every: monthly
 
 
-# ── academic-calendar seasonality ───────────────────────
+# ── Q4 holiday lift on customer-success metrics ────────────
 #
-#  Engagement / attendance ride the term cycle: lift in
-#  Sep-Nov and Feb-Apr, dip in Jun-Aug (summer) and Dec
-#  (finals week + winter break). Strengths are signed
-#  multipliers added to 1.0 at each named month before
-#  per-metric `seasonal_sensitivity` applies.
+#  Two effects compose: a Q4 lift (Nov-Dec) and a summer dip
+#  (Jun-Aug). Per-metric `seasonal_sensitivity: 0.0` opts a
+#  metric out (e.g. support_tickets, which doesn't ride
+#  calendar peaks the same way).
 
 seasonality:
-  - { months: [9, 10, 11], strength: 0.20 }
-  - { months: [2, 3, 4], strength: 0.15 }
-  - { months: [6, 7, 8], strength: -0.30 }
-  - { months: [12], strength: -0.10 }
+  - { months: [11, 12], strength: 0.30 }
+  - { months: [6, 7, 8], strength: -0.10 }
 
 
 # ── what we measure ─────────────────────────────────────
 
 metrics:
 
-  - name: assignment_score
-    label: Average assignment score
+  - name: engagement
+    label: Product engagement
+    type: score
+    polarity: positive
+
+  - name: mrr
+    label: Monthly recurring revenue
     type: amount
     polarity: positive
-    range: [0, 100]
+    range: [100, 50000]
 
-  - name: attendance_rate
-    label: Class attendance rate
-    type: score
-    polarity: positive
-
-  - name: study_hours
-    label: Weekly study hours
+  - name: support_tickets
+    label: Support ticket volume
     type: count
-    polarity: positive
+    polarity: negative
+    follows: engagement
+    delay: 2
 
-  - name: participation
-    label: Class participation index
+  - name: feature_adoption
+    label: Feature adoption rate
     type: score
     polarity: positive
 
-  - name: dropout_risk
-    label: Dropout risk score
+  - name: churn_risk
+    label: Churn risk score
     type: score
     polarity: negative
 
-  - name: stress_level
-    label: Reported stress index
-    type: score
-    polarity: negative
-    follows: study_hours
-    delay: 1
+  - name: nps
+    label: Net promoter score
+    type: index
+    polarity: positive
+    range: [-100, 100]
 
 
 # ── how metrics connect ─────────────────────────────────
 
+# `connections` accepts both the 9-word vocabulary AND any custom
+# coefficient in [-1, 1]. The numeric form is for cases where you've
+# calibrated the coefficient from a real dataset and want to pin it
+# exactly rather than picking the closest word.
 connections:
-  - attendance_rate driven_by participation
-  - assignment_score related attendance_rate
-  - participation opposes dropout_risk
-  - assignment_score resists dropout_risk
-  - stress_level hints_at dropout_risk
+  - engagement driven_by mrr
+  - engagement opposes churn_risk
+  - support_tickets related churn_risk
+  - "feature_adoption 0.42 mrr"          # custom coefficient (string)
+  - [nps, 0.18, engagement]               # custom coefficient (tuple)
 
 
 # ── who we're simulating ────────────────────────────────
 
 segments:
 
-  - name: high_achievers
+  - name: promising_client
+    count: 20
+    archetype: growth > spike_then_crash > flat @ 8 @ 16
+    label: "Strong start, lost champion at month 8, went dormant by 16"
+    attributes:
+      industry: [Technology, Finance, Healthcare]
+      region: [US, EMEA]
+      tier: enterprise
+    baseline:
+      mrr: high
+      engagement: high
+      support_tickets: low
+
+  - name: steady_enterprise
     count: 25
     archetype: growth
-    label: "Steady academic climb across both years"
+    label: "Reliable accounts, steady climb"
     attributes:
-      program: [computer_science, engineering]
-      year: [sophomore, junior]
+      industry: [Technology, Finance]
+      region: [US, APAC]
+      tier: enterprise
     baseline:
-      assignment_score: high
-      attendance_rate: high
-      dropout_risk: low
+      mrr: high
+      engagement: high
+      support_tickets: low
 
-  - name: late_bloomers
-    count: 20
-    archetype: flat > growth @ 8
-    label: "Struggled the first two terms, then found their footing"
-    attributes:
-      program: [biology, mathematics, history]
-      year: [freshman, sophomore]
-    baseline:
-      assignment_score: mid
-      participation: mid
-
-  - name: early_peakers
+  - name: slow_churn
     count: 15
-    archetype: growth > decline @ 14
-    label: "Strong start, fade by senior year"
+    archetype: flat > decline @ 12
+    label: "Coasted for a year, then quietly faded"
     attributes:
-      program: [business, communications]
-      year: [junior, senior]
+      industry: [Media, Hospitality]
+      region: [EMEA]
+      tier: starter
     baseline:
-      assignment_score: high
-      attendance_rate: mid
+      mrr: low
+      engagement: low
+      support_tickets: high
 
-  - name: at_risk
-    count: 18
-    archetype: decline
-    label: "Steady decline — at risk of dropout from term one"
+  - name: seasonal_accounts
+    count: 15
+    archetype: growth > seasonal @ 6
+    label: "Ramped up first 6 months, then settled into quarterly cycles"
     attributes:
-      program: [undeclared, business]
-      year: [freshman]
+      industry: [Retail, Manufacturing]
+      region: [US]
+      tier: growth
     baseline:
-      assignment_score: low
-      attendance_rate: low
-      dropout_risk: high
+      mrr: mid
+      engagement: mid
+      support_tickets: mid
 
-  - name: exam_burnout
+  - name: dormant
     count: 10
-    archetype: growth > spike_then_crash > flat @ 8 @ 16
-    label: "Pushed hard before finals, crashed, never recovered"
+    archetype: flat
+    label: "Signed up, never activated"
     attributes:
-      program: [pre_med, engineering]
-      year: [junior, senior]
+      industry: [Education]
+      region: [APAC]
+      tier: starter
     baseline:
-      study_hours: high
-      stress_level: high
-      dropout_risk: high
+      mrr: low
+      engagement: low
+      support_tickets: low
 
-  - name: seasonal_engagement
-    count: 12
-    archetype: seasonal
-    label: "Cyclical engagement — strong terms, weak summers"
+  - name: turnaround
+    count: 10
+    archetype: decline > flat > growth @ 6 @ 14
+    label: "Declining, hit bottom at month 6, new leadership turned it around at 14"
     attributes:
-      program: [arts, music, history]
-      year: [sophomore, junior]
+      industry: [Finance, Healthcare]
+      region: [US]
+      tier: growth
     baseline:
-      participation: mid
-      attendance_rate: mid
+      mrr: mid
+      engagement: mid
+      support_tickets: mid
 
 
 # ── lifecycle funnel ────────────────────────────────────
 
 lifecycle:
-  track: dropout_risk
+  track: churn_risk
   stages:
-    - thriving: 0.0
-    - stable: 0.15
-    - struggling: 0.4
-    - critical: 0.7
+    - onboarding: 0.0
+    - active: 0.2
+    - at_risk: 0.5
+    - churned: 0.8
 
 
 # ── schema ──────────────────────────────────────────────
@@ -176,88 +194,89 @@ dimensions:
       - {name: month,     type: int}
       - {name: quarter,   type: int}
 
-  - name: dim_student
+  - name: dim_company
     per: unit
     columns:
-      - {name: student_id,    type: id}
-      - {name: full_name,     type: faker.name}
-      - {name: enroll_year,   type: faker.year}
+      - {name: company_id,    type: id}
+      - {name: company_name,  type: faker.company}
+      - {name: industry,      type: faker.industry}
+      - {name: founded_year,  type: faker.year}
       - {name: cohort_size,   type: segment.count}
-      - name: academic_standing
+      - name: plan_tier
         type: scd
-        tracks: assignment_score
-        tiers: [probation, good_standing, deans_list]
-        at: [0.4, 0.8]
+        tracks: mrr
+        tiers: [starter, growth, enterprise]
+        at: [0.4, 0.7]
 
-  - name: dim_course
+  - name: dim_user
+    per: unit
+    columns:
+      - {name: user_id,     type: id}
+      - {name: company_id,  type: ref.dim_company}
+      - {name: user_name,   type: faker.name}
+      - {name: role,        type: static.member}
+
+  - name: dim_plan
     reference: true
     columns:
-      - {name: course_id,    type: id}
-      - {name: course_name,  type: "static.intro_cs,calculus,history,physics,literature,statistics"}
-      - {name: credits,      type: "static.3,4,3,4,3,4"}
-      - {name: department,   type: "static.computing,math,humanities,sciences,humanities,math"}
-
-  - name: dim_term
-    reference: true
-    columns:
-      - {name: term_id,    type: id}
-      - {name: term_name,  type: "static.spring_2023,fall_2023,spring_2024,fall_2024"}
-      - {name: term_type,  type: "static.spring,fall,spring,fall"}
+      - {name: plan_id,       type: id}
+      - {name: plan_name,     type: static.starter}
+      - {name: monthly_price, type: static.99.00}
 
 facts:
 
-  - name: fct_grades
-    metrics: [assignment_score, participation]
+  - name: fct_engagement
+    metrics: [engagement, feature_adoption]
     columns:
       - {name: date_key,           type: ref.dim_date}
-      - {name: student_id,         type: ref.dim_student}
-      - {name: course_id,          type: ref.dim_course}
-      - {name: assignment_score,   type: metric.assignment_score}
-      - {name: participation,      type: metric.participation}
-      - name: grade_band
+      - {name: company_id,         type: ref.dim_company}
+      - {name: engagement_score,   type: metric.engagement}
+      - {name: feature_adoption,   type: metric.feature_adoption}
+      - name: customer_sentiment
         type: bucket
-        labels: [F, D, C, B, A]
+        labels: [at_risk, lukewarm, satisfied, delighted]
 
-  - name: fct_engagement
-    metrics: [attendance_rate, study_hours, stress_level]
+  - name: fct_revenue
+    metrics: [mrr]
     columns:
-      - {name: date_key,        type: ref.dim_date}
-      - {name: student_id,      type: ref.dim_student}
-      - {name: term_id,         type: ref.dim_term}
-      - {name: attendance_rate, type: metric.attendance_rate}
-      - {name: study_hours,     type: metric.study_hours}
-      - {name: stress_level,    type: metric.stress_level}
+      - {name: date_key,    type: ref.dim_date}
+      - {name: company_id,  type: ref.dim_company}
+      - {name: plan_id,     type: ref.dim_plan}
+      - {name: mrr,         type: metric.mrr}
 
-  - name: fct_risk
-    metrics: [dropout_risk]
+  - name: fct_support_tickets
+    metrics: [support_tickets, churn_risk, nps]
     columns:
       - {name: date_key,      type: ref.dim_date}
-      - {name: student_id,    type: ref.dim_student}
-      - {name: dropout_risk,  type: metric.dropout_risk}
+      - {name: company_id,    type: ref.dim_company}
+      - {name: ticket_count,  type: metric.support_tickets}
+      - {name: churn_risk,    type: metric.churn_risk}
+      - {name: nps,           type: metric.nps}
 
 events:
 
-  - name: evt_office_hours
+  - name: evt_login
     trigger: proportional
-    driver: participation
-    scale: 3.0
+    driver: engagement
+    scale: 5
     columns:
       - {name: event_id,    type: id}
       - {name: date_key,    type: ref.dim_date}
-      - {name: student_id,  type: ref.dim_student}
+      - {name: user_id,     type: ref.dim_user}
+      - {name: company_id,  type: ref.dim_company}
       - {name: event_ts,    type: timestamp}
 
-  - name: evt_dropout
+  - name: evt_churn
     trigger: threshold
-    metric: dropout_risk
-    above: 0.65
-    for: 2
+    metric: churn_risk
+    above: 0.7
+    for: 3
     columns:
-      - {name: event_id,    type: id}
-      - {name: date_key,    type: ref.dim_date}
-      - {name: student_id,  type: ref.dim_student}
-      - {name: reason,      type: faker.sentence}
-      - {name: dropout_flag, type: flag}
+      - {name: event_id,      type: id}
+      - {name: date_key,      type: ref.dim_date}
+      - {name: company_id,    type: ref.dim_company}
+      - {name: churn_reason,  type: faker.sentence}
+      - {name: churn_flag,    type: flag}
 
 
 # ═══════════════════════════════════════════════════════
@@ -269,7 +288,7 @@ events:
 #    employee            HR / workforce
 #    customer            retail / e-commerce
 #    campaign            marketing
-#    student             academic cohorts
+#    (any word)          dim table becomes dim_{unit}
 #
 #  ── every ──────────────────────────────────────────────
 #    monthly             calendar months
@@ -277,9 +296,9 @@ events:
 #    daily               calendar days
 #
 #  ── metric type ────────────────────────────────────────
-#    score               bounded [0,1] — attendance, participation
+#    score               bounded [0,1] — engagement, adoption, risk
 #    amount              bounded business range (requires range)
-#    count               integer event counts — study hours, sessions
+#    count               integer event counts — tickets, logins
 #    index               signed centered metric (requires range)
 #
 #  ── polarity ───────────────────────────────────────────
@@ -287,18 +306,18 @@ events:
 #    negative            higher is worse
 #
 #  ── archetype patterns ─────────────────────────────────
-#    growth              smooth S-curve rise — high_achievers
-#    decline             exponential fade — at_risk
-#    seasonal            2 oscillation cycles — term-based engagement
-#    flat                low and constant — stalled cohorts
-#    spike_then_crash    rapid rise, drop, low plateau — exam burnout
-#    accelerating        compound growth — overachievers
+#    growth              smooth S-curve rise
+#    decline             exponential fade
+#    seasonal            2 oscillation cycles
+#    flat                low and constant
+#    spike_then_crash    rapid rise, drop, low plateau
+#    accelerating        compound growth
 #
 #  ── archetype composition ──────────────────────────────
 #    pattern > pattern   sequential — first then second
 #    @ N                 transition at period N
-#    flat > growth @ 8
-#    growth > spike_then_crash > flat @ 8 @ 16
+#    growth > decline @ 12
+#    decline > flat > growth @ 6 @ 14
 #
 #  ── connections ────────────────────────────────────────
 #    mirrors             +0.75  nearly the same signal
@@ -326,15 +345,15 @@ events:
 #                        count has no range
 #
 #  ── count ──────────────────────────────────────────────
-#    1 – 5000            students per segment
+#    1 – 5000            records per segment
 #
 #  ── schema types ───────────────────────────────────────
 #    id                  primary key, auto-generated
 #    ref.{table}         foreign key to dim table
 #    metric.{name}       populated from named metric
-#    faker.{type}        generated via faker (name, year, sentence)
-#    static.{value}      fixed value or comma-list for fan-out
-#    segment.count       cohort population size
+#    faker.{type}        generated via faker (company, name, etc)
+#    static.{value}      fixed value for all rows
+#    segment.count       entity group size
 #    timestamp           generated datetime within period
 #    flag                boolean derived from event trigger
 #    bucket              categorical label derived from trajectory
@@ -346,5 +365,5 @@ events:
 #
 #  ── dimension per ──────────────────────────────────────
 #    period              one row per time period (dim_date)
-#    unit                one row per entity (dim_student)
-#    reference: true     static lookup (dim_course, dim_term)
+#    unit                one row per entity (dim_company, dim_employee)
+#    reference: true     static lookup (dim_plan)

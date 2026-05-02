@@ -41,6 +41,7 @@ from plotsim.config import (
     HoldoutConfig,
     Metric,
     MetricOverride,
+    NoiseConfig,
     OutputConfig,
     PlotsimConfig,
     QualityConfig,
@@ -144,6 +145,26 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     # non-reproducible default behaviour for callers that didn't ask for one.
     seed = user_input.seed if user_input.seed is not None else secrets.randbelow(2**32)
 
+    # Output / noise / locale — three engine knobs the builder now
+    # surfaces directly. None defaults preserve historical builder
+    # behaviour byte-for-byte (csv to ``output/``, no noise, en_US faker).
+    if user_input.output is not None:
+        output_cfg = OutputConfig(
+            format=user_input.output.format,
+            directory=user_input.output.directory,
+        )
+    else:
+        output_cfg = OutputConfig(format="csv", directory="output")
+
+    if user_input.noise is not None:
+        noise_cfg = NoiseConfig(
+            gaussian_sigma=user_input.noise.gaussian_sigma,
+            outlier_rate=user_input.noise.outlier_rate,
+            mcar_rate=user_input.noise.mcar_rate,
+        )
+    else:
+        noise_cfg = NoiseConfig()
+
     return PlotsimConfig(
         domain=domain,
         time_window=time_window,
@@ -159,6 +180,8 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         correlations=correlations,
         stages=stages,
         seasonal_effects=seasonal_effects,
+        noise=noise_cfg,
+        locale=user_input.locale,
         # M120: pre-compensation is always on for builder-produced configs.
         # User-declared ``connections`` are table-wide intent ("satisfaction
         # opposes support_tickets"), and the trajectory's structural
@@ -177,7 +200,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         # stay on ``serial`` by default so bundled templates round-trip
         # byte-identically on disk.
         generation_mode="auto",
-        output=OutputConfig(format="csv", directory="output"),
+        output=output_cfg,
     )
 
 
@@ -402,12 +425,20 @@ def _baseline_to_overrides(
 
 
 def _build_correlations(user_input: UserInput) -> list[CorrelationPair]:
-    """Skip ``independent`` (coefficient 0) entries — the engine warns on
+    """Skip ``independent`` / ``0.0`` entries — the engine warns on
     explicit-zero pairs (RedundantCorrelationWarning) and unlisted pairs
-    already get zero off-diagonal."""
+    already get zero off-diagonal.
+
+    Each connection carries either a relationship word (looked up in
+    ``RELATIONSHIP_RECIPES``) or an explicit ``coefficient`` in
+    ``[-1.0, 1.0]``; the input model enforces that exactly one is set.
+    """
     pairs: list[CorrelationPair] = []
     for c in user_input.connections:
-        coef = RELATIONSHIP_RECIPES[c.relationship]
+        if c.coefficient is not None:
+            coef = c.coefficient
+        else:
+            coef = RELATIONSHIP_RECIPES[c.relationship]
         if coef == 0.0:
             continue
         pairs.append(CorrelationPair(
@@ -433,7 +464,10 @@ def _stage_sequence_from_lifecycle(lc: LifecycleInput) -> StageSequence:
     Each stage's ``threshold_exit`` is the next stage's ``threshold_enter``;
     the terminal stage's exit is None. ``enforce_order`` defaults to False
     (free-mode stages); irreversible lifecycle transitions are SCD Type 2's
-    job, so stages reflect *current* lifecycle state.
+    job, so stages reflect *current* lifecycle state. Set
+    ``LifecycleInput.enforce_order = True`` to opt into the engine's
+    monotonic stage walk; ``downgrade_delay`` then enables the
+    hysteresis demote path.
     """
     sequence: list[StageDefinition] = []
     n = len(lc.stages)
@@ -450,7 +484,8 @@ def _stage_sequence_from_lifecycle(lc: LifecycleInput) -> StageSequence:
     return StageSequence(
         field=lc.track,
         sequence=sequence,
-        enforce_order=False,
+        enforce_order=lc.enforce_order,
+        downgrade_delay=lc.downgrade_delay,
     )
 
 

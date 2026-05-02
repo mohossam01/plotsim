@@ -9,7 +9,7 @@
 > grading a PR, and AI assistants asked to reason about plotsim without
 > being handed the source tree.
 >
-> **Aligns with:** `__version__ = 0.5.0` · post-M127a (validator split + cleanup) + M127b (copula flip + distribution registry + column dispatcher + fixture regen) · commit `b1df0c6` · 2026-05-02
+> **Aligns with:** `__version__ = 0.5.0` · post-M127a (validator split + cleanup) + M127b (copula flip + distribution registry + column dispatcher + fixture regen) + builder-coverage pass (noise / output / locale / arbitrary correlation coefficient / lifecycle stage ordering surfaced through `UserInput`) · commit `b1df0c6` · 2026-05-02
 >
 > **Maintenance contract.** Whenever a change to `plotsim/*.py` (other than
 > `cli.py`) lands, this file is updated in the same session. The
@@ -975,13 +975,31 @@ public surfaces — `plotsim.create(**kwargs)` (Python) and
 - `input` — `UserInput` Pydantic model + structural validators
   (cross-reference closure, causal-lag cycles, archetype DSL,
   vocabulary membership, baseline targets, lifecycle ordering).
-  Raises `pydantic.ValidationError` at construction.
+  Raises `pydantic.ValidationError` at construction. The model
+  surfaces five engine knobs that previously required post-`create()`
+  mutation: `noise` (preset string OR `NoiseInput` dict),
+  `output` (`csv` / `parquet` shorthand OR `OutputInput` dict),
+  `locale` (str or list, threaded to faker), `coefficient` on
+  `ConnectionInput` (any `r ∈ [-1, 1]` — supersedes the 9-word
+  vocabulary when set), and `enforce_order` + `downgrade_delay`
+  on `LifecycleInput` (monotonic stage walk + hysteresis demote
+  delay). Coercion helpers `_coerce_noise` and `_coerce_output`
+  resolve the string shorthands; `_coerce_connection` routes
+  numeric vs string middle-token to the correct field.
 - `interpreter` — `interpret(UserInput) -> PlotsimConfig`. 10 ordered
   steps: domain → window → metrics → archetypes/entities → correlations
   → stages → tables (or auto-generated `dim_date` + `dim_{unit}` +
-  `fct_{unit}`) → sub-entity dims → seed → final `PlotsimConfig`
-  validation. Anything raised here is an interpreter bug; user-facing
-  validation already ran inside `UserInput`. **M117 segment expansion**:
+  `fct_{unit}`) → sub-entity dims → seed + noise + output + locale →
+  final `PlotsimConfig` validation. Anything raised here is an
+  interpreter bug; user-facing validation already ran inside
+  `UserInput`. The five builder-surfaced engine knobs (noise / output /
+  locale / coefficient / enforce_order+downgrade_delay) thread directly
+  onto their engine counterparts (`NoiseConfig`, `OutputConfig`,
+  `PlotsimConfig.locale`, `CorrelationPair.coefficient`,
+  `StageSequence.enforce_order`/`downgrade_delay`); `None` defaults
+  preserve historical builder output byte-for-byte (no noise, csv to
+  `output/`, en_US faker, polarity-derived coefficient,
+  free-mode stages). **M117 segment expansion**:
   each segment with `count: N` produces N individual `Entity(size=1)`
   objects named `{segment_name}_{i:04d}`; the per-row multiplier (when
   declared via `DimInput.count`) travels onto the engine `Table.count`

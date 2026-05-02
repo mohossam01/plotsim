@@ -13,17 +13,22 @@
 
 ## Quick map
 
-| Function | What it does |
-|---|---|
-| [`create`](#create) | Build a config from Python kwargs |
-| [`create_from_yaml`](#create_from_yaml) | Build a config from a YAML file |
-| [`generate_tables`](#generate_tables) | Generate every dim/fact/event/bridge table |
-| [`generate_tables_with_state`](#generate_tables_with_state) | Same, plus the trajectory tape |
-| [`validate`](#validate) | Run every post-generation check on tables |
-| [`write_tables`](#write_tables) | Write tables, config copy, validation report, manifest |
-| [`build_manifest`](#build_manifest) | Build the ground-truth manifest payload |
-| [`build_entity_features`](#build_entity_features) | Flatten facts into one row per entity |
-| [`trace_metric_cell`](#trace_metric_cell) | Reconstruct one cell's full pipeline path |
+| Function | Module | What it does |
+|---|---|---|
+| [`create`](#create) | `plotsim` | Build a config from Python kwargs |
+| [`create_from_yaml`](#create_from_yaml) | `plotsim` | Build a config from a YAML file |
+| [`generate_tables`](#generate_tables) | `plotsim` | Generate every dim/fact/event/bridge table |
+| [`generate_tables_with_state`](#generate_tables_with_state) | `plotsim` | Same, plus the trajectory tape |
+| [`validate`](#validate) | `plotsim` | Run every post-generation check on tables |
+| [`write_tables`](#write_tables) | `plotsim` | Write tables, config copy, validation report, manifest |
+| [`build_manifest`](#build_manifest) | `plotsim` | Build the ground-truth manifest payload |
+| [`build_entity_features`](#build_entity_features) | `plotsim` | Flatten facts into one row per entity |
+| [`trace_metric_cell`](#trace_metric_cell) | `plotsim.inspect` | Reconstruct one cell's full pipeline path |
+
+Constants exported from `plotsim` for engine-direct mutation:
+`PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`,
+`NOISE_PRESETS`, `PlotsimConfig`, `ManifestSchema`, `GenerationState`,
+`ValidationReport`, `ValidationIssue`, `load_config`, `dump_config`.
 
 ---
 

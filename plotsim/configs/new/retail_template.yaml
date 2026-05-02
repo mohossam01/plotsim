@@ -5,10 +5,29 @@
 about: "Retail customer purchase and loyalty behavior"
 unit: customer
 
+# Determinism + light noise. Switch `output:` to parquet for typed,
+# compressed output (requires `pip install plotsim[parquet]`).
+seed: 90210
+noise: realistic
+# output: parquet              # uncomment if pyarrow is installed
+locale: [en_US, en_GB, fr_FR]  # multi-locale faker mix
+
 window:
   start: 2023-01
   end: 2024-12
   every: monthly
+
+
+# ── holiday-shopping seasonality ────────────────────────
+#
+#  Q4 retail surge (Nov-Dec, Black Friday + holidays) plus
+#  a mid-summer dip (Jul-Aug). Affects sessions, cart_value,
+#  conversion_rate. Per-metric `seasonal_sensitivity` lets
+#  return_rate be immune (returns don't ride the calendar).
+
+seasonality:
+  - { months: [11, 12], strength: 0.45 }
+  - { months: [7, 8], strength: -0.15 }
 
 
 # ── what we measure ─────────────────────────────────────

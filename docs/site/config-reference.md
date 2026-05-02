@@ -16,7 +16,7 @@ window: { start, end, every }
 metrics: [ ... ]
 segments: [ ... ]
 connections: [ ... ]
-lifecycle: { track, stages }
+lifecycle: { track, stages, enforce_order, downgrade_delay }
 dimensions: [ ... ]
 facts: [ ... ]
 events: [ ... ]
@@ -25,6 +25,9 @@ bridges: [ ... ]
 quality: [ ... ]
 holdout: { target, periods, min_training_periods }
 entity_features: true | false | { metrics, include_labels }
+noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate }
+output: csv | parquet | { format, directory }
+locale: <faker locale or list of locales>
 seed: <int>
 ```
 
@@ -256,16 +259,28 @@ authoring a full archetype variant.
 
 ## `connections`
 
-Array of correlation pairs. Optional.
+Array of correlation pairs. Optional. Each entry has three slots —
+left metric, relationship-or-coefficient, right metric — and accepts
+six shorthand forms:
 
 ```yaml
 connections:
-  - "mrr driven_by engagement"             # 3-token string
-  - ["churn_risk", "inverts", "mrr"]        # tuple
-  - {a: "support_tickets", relationship: "related", b: "churn_risk"}  # dict
+  # Word form
+  - "mrr driven_by engagement"                        # 3-token string
+  - ["churn_risk", "inverts", "mrr"]                  # tuple
+  - {metric_a: "support_tickets", relationship: "related", metric_b: "churn_risk"}
+
+  # Numeric form (any coefficient in [-1.0, 1.0])
+  - "engagement 0.42 retention"                       # numeric middle token
+  - ["mrr", -0.31, "support_tickets"]                  # numeric in tuple
+  - {metric_a: "nps", coefficient: 0.18, metric_b: "feature_adoption"}
 ```
 
-Three accepted shapes for each entry — pick whichever reads best.
+The middle slot is parsed as a number when it tokenizes to a float;
+otherwise it's looked up against the relationship vocabulary. Each
+canonical entry sets *exactly one* of `relationship` / `coefficient`
+— passing both raises at construction time, since the word already
+implies a coefficient.
 
 ### Relationship vocabulary
 
@@ -282,6 +297,12 @@ Nine words spanning `-0.75` to `+0.75`:
 | `resists` | -0.40 |
 | `opposes` | -0.55 |
 | `inverts` | -0.75 |
+
+The numeric form accepts any value in `[-1.0, 1.0]` — useful when you've
+calibrated the coefficient from a real dataset and the nine-word
+vocabulary doesn't land on the right magnitude. Coefficients of exactly
+`0.0` are dropped (treated as "independent") with a warning, matching
+the engine's redundant-pair contract.
 
 Both endpoints must reference declared metrics. Self-pairs and connections
 on metrics named in `lifecycle.track` are rejected at construction time.
@@ -306,6 +327,8 @@ lifecycle:
     - { active: 0.3 }
     - { at_risk: 0.6 }
     - { churned: 0.9 }
+  enforce_order: false        # default — stateless free-mode
+  downgrade_delay: null       # ignored when enforce_order is false
 ```
 
 Stage entries accept four shapes:
@@ -314,13 +337,16 @@ Stage entries accept four shapes:
 must be in `[0, 1]`; thresholds must be strictly ascending; stage names
 must be unique.
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `track` | `str` | yes | Must be a declared metric |
-| `stages` | array | yes | At least 2 entries |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `track` | `str` | yes | — | Must be a declared metric |
+| `stages` | array | yes | — | At least 2 entries |
+| `enforce_order` | `bool` | no | `false` | When `false`, every period independently picks the highest threshold the realised value satisfies — stateless free-mode. When `true`, the cursor advances only and an entity can't jump back on a transient dip — a monotonic stage walk |
+| `downgrade_delay` | `int` or `null` | no | `null` | Hysteresis under `enforce_order: true`. The cursor steps back once the entity has sat below the demote threshold for `downgrade_delay` consecutive periods. `null` keeps strict monotonicity. Range `1`–`120` |
 
 The keyword `lifecycle` is canonical; `stages` is also accepted as the
-outer block name as an alias.
+outer block name as an alias (a back-compat path for the early-spec
+keyword — both forms parse identically).
 
 ---
 
@@ -423,6 +449,23 @@ See [`column-types.md`](./column-types.md) for every supported `type`.
 
 Many-to-many associations between two dimension tables.
 
+### How to enable
+
+Append to any config that has (or auto-generates) at least two dim
+tables. Replace `dim_a` / `dim_b` with the names of two distinct dims
+already in your config — `dim_date` and `dim_{unit}` are auto-generated
+and always valid targets.
+
+```yaml
+bridges:
+  - name: a_b
+    left: dim_a
+    right: dim_b
+    cardinality: [1, 3]
+```
+
+### Detailed example
+
 ```yaml
 bridges:
   - name: customer_subscription
@@ -452,6 +495,21 @@ Limit: 20 bridges per config.
 Post-generation data corruption — null injection, duplicates, type
 mismatches, late arrivals, schema drift.
 
+### How to enable
+
+Append to any config. Replace `<fact>` with one of your fact-table
+names and `<metric_col>` with a column on that fact. Mutually exclusive
+with `holdout` and `entity_features` — pick one corruption strategy
+per config.
+
+```yaml
+quality:
+  - { table: <fact>, issue: null_injection, rate: 0.02, column: <metric_col> }
+  - { table: <fact>, issue: duplicate_rows, rate: 0.01 }
+```
+
+### Detailed example
+
 ```yaml
 quality:
   - { table: fct_engagement, issue: null_injection,  rate: 0.02, column: engagement }
@@ -479,6 +537,21 @@ consumer can recover ground truth.
 ## `holdout`
 
 Temporal train/holdout split for ML target workflows.
+
+### How to enable
+
+Append to any config. Replace `<metric>` with any numeric metric
+emitted on a per-entity-per-period fact table. The minimum is two
+lines (`target` + `periods`); `min_training_periods` defaults to 3.
+Requires `quality: []` — the splits work on the clean tables.
+
+```yaml
+holdout:
+  target: <metric>
+  periods: 3
+```
+
+### Detailed example
 
 ```yaml
 holdout:
@@ -508,13 +581,20 @@ dropped to prevent label leakage.
 
 Per-entity flat feature table emission.
 
-Two accepted shapes:
+### How to enable
+
+Append one line to any config. Defaults to "every numeric metric
+emitted on a fact table, with archetype + final-trajectory labels."
+Requires `quality: []` and `manifest.include: true` (the default).
 
 ```yaml
-# Shorthand — emit every numeric metric, with labels
 entity_features: true
+```
 
-# Detailed
+### Detailed example
+
+```yaml
+# Narrow the metric set or strip labels for unsupervised pipelines
 entity_features:
   metrics: [engagement, mrr]
   include_labels: true
@@ -531,3 +611,199 @@ For every selected metric, six aggregate columns are added per entity:
 
 Pre-conditions enforced at load: `manifest.include` must be True;
 `quality.quality_issues` must be empty.
+
+---
+
+## `noise`
+
+Distributional noise applied on top of the trajectory-driven distribution
+center. Three independent dials, all defaulting to zero (no noise — the
+default produces clean output identical to pre-noise baselines).
+
+```yaml
+# Preset shorthand
+noise: realistic
+
+# Detailed
+noise:
+  gaussian_sigma: 0.05
+  outlier_rate: 0.02
+  mcar_rate: 0.01
+```
+
+| Field | Type | Default | Range | Effect |
+|---|---|---|---|---|
+| `gaussian_sigma` | `float` | `0.0` | `0.0`–`5.0` | Multiplicative log-normal jitter on each draw — `value *= exp(N(0, σ²))`. Bigger σ = wider spread |
+| `outlier_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of replacing the value with a 3-σ tail draw |
+| `mcar_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of dropping the value to NaN (missing-completely-at-random) |
+
+Four named presets accept the lower-case canonical name OR a friendly
+alias — pick whichever reads naturally:
+
+| Preset | `gaussian_sigma` | `outlier_rate` | `mcar_rate` | Aliases |
+|---|---|---|---|---|
+| `perfectly_clean` *(default — same as omitting `noise`)* | 0.00 | 0.00 | 0.000 | `clean` |
+| `slightly_messy` | 0.03 | 0.01 | 0.005 | — |
+| `realistic` | 0.05 | 0.02 | 0.010 | `messy` |
+| `dirty` | 0.10 | 0.05 | 0.030 | `very_messy` |
+
+The same constants are exported from `plotsim` for engine-direct
+mutation: `PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`.
+
+`noise` is independent of the `quality` block — `noise` perturbs metric
+values *during* generation (correlations and trajectory still hold);
+`quality` corrupts the output table *after* generation.
+
+---
+
+## `output`
+
+Output-format selector and target directory.
+
+```yaml
+# Word shorthand (uses default directory ./output)
+output: parquet
+
+# Detailed
+output:
+  format: parquet
+  directory: ./fixtures
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `format` | `"csv"` / `"parquet"` | `"csv"` | CSV is the default; `parquet` requires `pip install plotsim[parquet]` (pyarrow). Same engine path, ~5–10× smaller on disk |
+| `directory` | `str` | `"output"` | Where `write_tables` writes. Override at call time with `write_tables(..., output_dir=...)` |
+
+When `format: parquet` and `pyarrow` is missing, `write_tables` raises
+`ImportError` naming the install command — fail-fast at the write call
+rather than mid-iteration. See [Output formats](./user-guide/output-formats.md)
+for the full pickup of column dtypes, dim_date typing, and downstream
+loader notes.
+
+---
+
+## `locale`
+
+Faker locale (or list of locales) threaded to every `faker.*` column.
+
+```yaml
+locale: en_GB                   # single locale
+locale: [en_US, ja_JP, de_DE]   # multi-locale mix
+```
+
+| Type | Default | Notes |
+|---|---|---|
+| `str` or `list[str]` | `"en_US"` | Any locale supported by your installed `faker` package. Lists round-robin across providers — useful when seeded fixtures should look multinational |
+
+Locale only affects `faker.*` columns; `static.*`, `metric.*`, and
+`pool.*` columns are unaffected.
+
+---
+
+## Engine-direct fields
+
+A handful of `PlotsimConfig` fields are not surfaced in the builder YAML
+above. They live on the engine config — set them with
+`load_config()`/`dump_config()` round-trips, or by passing them to a
+hand-authored engine-direct YAML.
+
+### `compensate_correlations`
+
+| | |
+|---|---|
+| Type | `bool` |
+| Default (engine-direct) | `False` |
+| Default (builder) | `True` |
+
+When `True`, the engine pre-compensates the trajectory-driven mean shift
+so the realized Pearson correlations land closer to the declared
+`connections` coefficients on configs with strong archetype mixes.
+Records each adjustment in `manifest.correlation_compensations`. The
+builder layer sets `True` explicitly because `connections` is a
+table-wide intent contract; engine-direct configs default to `False`
+to preserve byte-identical output for pre-M120 YAML on disk.
+
+### `generation_mode`
+
+| | |
+|---|---|
+| Type | `"serial"` / `"vectorized"` / `"auto"` |
+| Default (engine-direct) | `"serial"` |
+| Default (builder) | `"auto"` |
+
+`"vectorized"` batches all entities in an archetype group through one
+copula draw — large speedups on configs above ~5,000 entities, identical
+results modulo the deliberate copula bypass-fallback contract.
+`"auto"` picks per archetype group by entity count; `create()` /
+`create_from_yaml()` set `"auto"` explicitly. Manifest records the
+mode and any bypass-fallback counts under `bypass_fallback_counts`.
+
+### Per-entity overrides — `cross_dim_fks` and `inflection_month`
+
+Both fields live on individual `Entity` objects (the resolved
+counterpart to a builder `segment`). They steer per-entity behavior
+that doesn't belong at the segment level:
+
+```python
+from plotsim.config import EntityOverrides
+cfg.entities[0].cross_dim_fks = {"plan_id": "plan_enterprise"}
+cfg.entities[0].overrides = EntityOverrides(inflection_month=4)
+```
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `cross_dim_fks` | `dict[str, str]` | `{}` | Pin specific FK column values to specific PKs in another dim — e.g. bind expansion-champion accounts to a specific plan row. Bypasses the column's `distribution` for that entity |
+| `overrides.inflection_month` | `int` or `None` | `None` | Shift the archetype's curve segments so its canonical inflection lands on this period index. Per-entity narrative timing (e.g. "this account turned around in March") |
+
+### `manifest`
+
+The manifest emission config. Defaults to `include: true`,
+`trajectory_sample_rate: 1.0` — every run lands a `manifest.json` next
+to the table files. Set `manifest: {include: false}` for microbenchmarks
+or sandboxed CI runs that don't need the ground-truth payload. See
+[Manifest reference](./manifest-reference.md).
+
+### Per-archetype `metric_overrides.curve` and `metric_overrides.distribution`
+
+The builder applies baselines to `metric_overrides.value_range` only.
+Engine-direct configs may override per-archetype curve segments and
+distributions for finer-grained control. See
+[engine-internals.md](https://github.com/mohossam-ae/plotsim/blob/main/docs/engine-internals.md)
+for the override resolution order.
+
+---
+
+## Limits and performance gates
+
+Every config is checked against per-field caps and a global
+cell-count budget at load time. The bounds are intentionally
+conservative — well above any realistic dashboard dataset, well
+below the point where a single laptop run becomes painful.
+
+| Limit | Cap | Behavior on breach |
+|---|---|---|
+| `metrics` count | 50 | Pydantic rejects at load |
+| Per-segment `count` | 5000 | Pydantic rejects at load |
+| Total entities (`Σ segments.count`) | 100,000 | Custom validator rejects at load |
+| `quality` issues | 50 | Pydantic rejects at load |
+| `bridges` count | 20 | Pydantic rejects at load |
+| Per-bridge `columns` | 20 | Pydantic rejects at load |
+| `seasonality` effects | 12 | Pydantic rejects at load |
+| Causal lag `delay` | `1`–`10000` periods | Pydantic rejects at load |
+| **Cell count** (`entities × periods`) > 500,000 | warning | One-line stderr warning on load |
+| **Cell count** > 2,000,000 | error | `ValueError` at load — generation blocked |
+
+The cell-count gate is the most likely one to surprise a user — it
+fires on `100 entities × 24 periods × N metrics` configs only when
+`N` is huge, but on `1000 entities × 365 daily periods` it fires
+immediately. Reduce entity count, time-window span, or switch to a
+coarser granularity to clear the error.
+
+A summary line is *always* printed to stderr at load time so the
+projected cell count and peak memory estimate are visible even on
+runs well below the threshold:
+
+```
+Config summary: 80 entities × 24 periods = 1,920 cells, 4 metrics, 6 tables. Estimated peak memory: ~100 MB.
+```

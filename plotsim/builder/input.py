@@ -213,34 +213,55 @@ class ConnectionInput(BaseModel):
     """A correlation-pair connection between two metrics.
 
     Accepted shapes:
-        - "engagement driven_by mrr"               (3-token string)
-        - ("engagement", "driven_by", "mrr")        (3-tuple)
-        - {"a": ..., "relationship": ..., "b": ...} (dict)
+        - "engagement driven_by mrr"                (3-token string, word)
+        - "engagement 0.42 mrr"                     (3-token string, number)
+        - ("engagement", "driven_by", "mrr")         (3-tuple, word)
+        - ("engagement", 0.42, "mrr")                (3-tuple, number)
+        - {"a": ..., "relationship": ..., "b": ...} (dict, word)
+        - {"a": ..., "coefficient": 0.42, "b": ...} (dict, number)
 
-    All three normalise to (metric_a, relationship, metric_b).
+    The relationship word maps to a fixed coefficient via
+    ``RELATIONSHIP_RECIPES``; numeric form lets the user pin any
+    coefficient in ``[-1.0, 1.0]``. Exactly one of ``relationship`` /
+    ``coefficient`` must be set on the canonical model.
     """
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     metric_a: str
-    relationship: str
     metric_b: str
+    relationship: Optional[str] = None
+    coefficient: Optional[float] = Field(default=None, ge=-1.0, le=1.0)
 
-    @field_validator("relationship")
-    @classmethod
-    def _relationship_in_vocabulary(cls, v: str) -> str:
-        if v not in VALID_RELATIONSHIP_WORDS:
+    @model_validator(mode="after")
+    def _exactly_one_of_relationship_or_coefficient(self) -> "ConnectionInput":
+        if self.relationship is None and self.coefficient is None:
             raise ValueError(
-                f"unknown relationship word {v!r}. Valid: "
+                f"connection {self.metric_a!r} ↔ {self.metric_b!r}: "
+                f"set either `relationship` (vocabulary word) or "
+                f"`coefficient` (numeric in [-1, 1])"
+            )
+        if self.relationship is not None and self.coefficient is not None:
+            raise ValueError(
+                f"connection {self.metric_a!r} ↔ {self.metric_b!r}: "
+                f"set `relationship` OR `coefficient`, not both. The word "
+                f"already implies a coefficient — see "
+                f"RELATIONSHIP_RECIPES for the table"
+            )
+        if (self.relationship is not None
+                and self.relationship not in VALID_RELATIONSHIP_WORDS):
+            raise ValueError(
+                f"unknown relationship word {self.relationship!r}. Valid: "
                 f"{sorted(VALID_RELATIONSHIP_WORDS)}"
             )
-        return v
+        return self
 
     @model_validator(mode="after")
     def _endpoints_distinct(self) -> "ConnectionInput":
         if self.metric_a == self.metric_b:
+            label = self.relationship if self.relationship is not None else self.coefficient
             raise ValueError(
                 f"connection endpoints must be distinct, got "
-                f"{self.metric_a!r} {self.relationship} {self.metric_b!r}"
+                f"{self.metric_a!r} {label} {self.metric_b!r}"
             )
         return self
 
@@ -263,6 +284,20 @@ class LifecycleInput(BaseModel):
 
     track: str = Field(min_length=1)
     stages: list[LifecycleStageInput] = Field(min_length=2)
+    # Default ``False`` is the engine-side legacy mode and the historical
+    # builder behaviour: stage assignment is stateless free-mode (each
+    # period independently picks the highest threshold the realised value
+    # satisfies). Set ``True`` for a monotonic stage walk where the
+    # cursor advances only and an entity can't jump back to an earlier
+    # stage on a transient dip — this maps onto the engine's
+    # ``StageSequence.enforce_order`` flag verbatim.
+    enforce_order: bool = False
+    # Hysteresis — under ``enforce_order=True``, allow the cursor to
+    # step backward once the entity has sat below the demote threshold
+    # for ``downgrade_delay`` consecutive periods. ``None`` (default)
+    # preserves strict monotonicity. Ignored when
+    # ``enforce_order=False``.
+    downgrade_delay: Optional[int] = Field(default=None, ge=1, le=120)
 
     @model_validator(mode="before")
     @classmethod
@@ -601,6 +636,97 @@ class BridgeInput(BaseModel):
         return self
 
 
+# ── Noise / Output (top-level shorthand-bearing models) ────────────────────
+
+
+class NoiseInput(BaseModel):
+    """Distributional noise applied during generation.
+
+    1:1 mirror of the engine's ``NoiseConfig``. The interpreter passes
+    these values through unchanged. The ``noise:`` field on
+    ``UserInput`` also accepts a string preset name
+    (``"clean"`` / ``"slightly_messy"`` / ``"realistic"`` / ``"dirty"``)
+    which is resolved to one of these ``NoiseInput`` values by the
+    ``_coerce_noise`` helper before validation.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
+    outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class OutputInput(BaseModel):
+    """Output-format selector and target directory.
+
+    1:1 mirror of the engine's ``OutputConfig``. The string shorthand
+    ``output: parquet`` / ``output: csv`` resolves to the
+    ``OutputInput(format=<word>, directory="output")`` default by
+    ``_coerce_output``; pass the dict form to override the directory.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    format: Literal["csv", "parquet"] = "csv"
+    directory: str = "output"
+
+
+# Mapping from short, lower-cased preset names to the engine's
+# canonical ``NoiseConfig`` parameter triples. Friendly aliases (``clean``,
+# ``messy``, ``very_messy``) map onto the same four engine presets so
+# users can pick whichever vocabulary reads naturally. The engine's own
+# ``NOISE_PRESETS`` dict in ``plotsim.config`` keys on title-case names
+# (``"Perfectly clean"``, ``"Slightly messy"``, ...); the builder layer
+# uses lower-snake-case so YAML scalars without quotes round-trip cleanly.
+NOISE_PRESET_PARAMS: dict[str, dict[str, float]] = {
+    "perfectly_clean": {"gaussian_sigma": 0.00, "outlier_rate": 0.00, "mcar_rate": 0.000},
+    "slightly_messy":  {"gaussian_sigma": 0.03, "outlier_rate": 0.01, "mcar_rate": 0.005},
+    "realistic":       {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
+    "dirty":           {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
+    # Friendly aliases (user prompt vocabulary)
+    "clean":           {"gaussian_sigma": 0.00, "outlier_rate": 0.00, "mcar_rate": 0.000},
+    "messy":           {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
+    "very_messy":      {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
+}
+
+
+def _coerce_noise(value: Any) -> Any:
+    """Accept preset string shorthand on ``UserInput.noise``.
+
+    Strings resolve via ``NOISE_PRESET_PARAMS`` to the corresponding
+    ``NoiseInput`` parameter dict. Dicts pass through unchanged
+    (Pydantic constructs ``NoiseInput`` from them). ``None`` and
+    ``NoiseInput`` instances also pass through untouched.
+    """
+    if isinstance(value, str):
+        key = value.strip().lower().replace(" ", "_")
+        if key not in NOISE_PRESET_PARAMS:
+            raise ValueError(
+                f"unknown noise preset {value!r}. Valid presets: "
+                f"{sorted(NOISE_PRESET_PARAMS)} (or pass a dict with "
+                f"`gaussian_sigma`, `outlier_rate`, `mcar_rate`)"
+            )
+        return dict(NOISE_PRESET_PARAMS[key])
+    return value
+
+
+def _coerce_output(value: Any) -> Any:
+    """Accept format-string shorthand on ``UserInput.output``.
+
+    ``"csv"`` / ``"parquet"`` resolve to the corresponding
+    ``OutputInput(format=<word>, directory="output")`` default. Dicts
+    pass through unchanged.
+    """
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word not in ("csv", "parquet"):
+            raise ValueError(
+                f"unknown output format {value!r}. Valid: 'csv' or "
+                f"'parquet' (or pass a dict `{{format: ..., directory: ...}}`)"
+            )
+        return {"format": word, "directory": "output"}
+    return value
+
+
 # ── Coercion helpers for shorthand forms ────────────────────────────────────
 
 
@@ -634,26 +760,43 @@ def _coerce_window_tuple(value: Any) -> Any:
     return value
 
 
-# Connection may arrive as a 3-token string, a 3-tuple, or a dict.
+# Connection may arrive as a 3-token string, a 3-tuple, or a dict. The
+# middle slot may be a relationship word (``"driven_by"``, ``"opposes"``,
+# ...) or a numeric coefficient in ``[-1.0, 1.0]``; we route to the
+# matching ``ConnectionInput`` field so downstream validation can flag
+# missing/duplicate slots without re-parsing the same string.
 def _coerce_connection(value: Any) -> Any:
     if isinstance(value, str):
         tokens = value.split()
         if len(tokens) != 3:
             raise ValueError(
                 f"connection string {value!r} must have exactly three "
-                f"whitespace-separated tokens: '<metric_a> <relationship> "
-                f"<metric_b>'"
+                f"whitespace-separated tokens: '<metric_a> <relationship "
+                f"or coefficient> <metric_b>'"
             )
-        a, rel, b = tokens
-        return {"metric_a": a, "relationship": rel, "metric_b": b}
+        a, mid, b = tokens
+        try:
+            coef = float(mid)
+        except ValueError:
+            return {"metric_a": a, "relationship": mid, "metric_b": b}
+        return {"metric_a": a, "coefficient": coef, "metric_b": b}
     if isinstance(value, (list, tuple)):
         if len(value) != 3:
             raise ValueError(
                 f"connection tuple {value!r} must have three elements: "
-                f"(metric_a, relationship, metric_b)"
+                f"(metric_a, relationship_or_coefficient, metric_b)"
             )
-        a, rel, b = value
-        return {"metric_a": a, "relationship": rel, "metric_b": b}
+        a, mid, b = value
+        if isinstance(mid, bool):
+            # bool is a subclass of int in Python — be explicit and reject
+            # so the caller doesn't silently get coefficient=1.0 from `True`.
+            raise ValueError(
+                f"connection middle slot must be a string (relationship "
+                f"word) or a number (coefficient), not bool: {value!r}"
+            )
+        if isinstance(mid, (int, float)):
+            return {"metric_a": a, "coefficient": float(mid), "metric_b": b}
+        return {"metric_a": a, "relationship": mid, "metric_b": b}
     return value
 
 
@@ -710,6 +853,12 @@ class UserInput(BaseModel):
     # value onto ``PlotsimConfig.seed`` verbatim — same seed in, same
     # output out, every run.
     seed: Optional[int] = Field(default=None, ge=0, le=2**32 - 1)
+    # Noise / output / locale — three engine knobs surfaced at the
+    # builder layer. ``None`` defaults preserve historical behaviour
+    # byte-for-byte (no noise, csv to ``output/``, en_US faker locale).
+    noise: Optional[NoiseInput] = None
+    output: Optional[OutputInput] = None
+    locale: Union[str, list[str]] = "en_US"
 
     # ── Pre-normalisation: accept tuple/string shorthand on inputs ─────────
 
@@ -729,6 +878,10 @@ class UserInput(BaseModel):
             normalised["entity_features"] = _coerce_entity_features(
                 normalised["entity_features"]
             )
+        if "noise" in normalised and normalised["noise"] is not None:
+            normalised["noise"] = _coerce_noise(normalised["noise"])
+        if "output" in normalised and normalised["output"] is not None:
+            normalised["output"] = _coerce_output(normalised["output"])
         return normalised
 
     # ── Structural cross-reference validators ──────────────────────────────
