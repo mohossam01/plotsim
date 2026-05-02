@@ -255,11 +255,15 @@ def test_render_markdown_table_handles_empty_and_nan() -> None:
 @pytest.mark.parametrize(
     "dist_a,dist_b,documented_tol",
     [
-        # Tight pair (documented 95th-pct |err| = 0.021 at full sweep).
+        # Tight pair (documented 95th-pct |err| = 0.021 at full sweep;
+        # M128 re-measure 2026-05-02 seed=7000–7004 max|err|=0.018 at
+        # +0.7 — tolerance held).
         ("beta", "normal", 0.20),
-        # Edge of headline ±0.10 (documented 95th-pct |err| = 0.088).
+        # Edge of headline ±0.12 post-M128 (documented 95th-pct |err|=0.113
+        # at -0.7; M128 re-measure max|err|=0.043 at +0.7 — tolerance held).
         ("beta", "lognorm", 0.25),
-        # Poisson-involving (documented 95th-pct |err| = 0.069).
+        # Poisson-involving (documented 95th-pct |err| = 0.069;
+        # M128 re-measure max|err|=0.027 at +0.7 — tolerance held).
         ("beta", "poisson", 0.25),
     ],
 )
@@ -272,6 +276,13 @@ def test_claim1_correlation_subset_within_documented_tolerance(
     documented full-sweep p95 plus a sampling-noise margin, doubled for
     safety. A regression that shifts the engine's correlation envelope by
     more than ~0.10 still trips this — which is what we want.
+
+    M128 (2026-05-02): re-measured against post-M127b engine commit `b1df0c6`
+    (copula flip + distribution registry). beta×normal/poisson tightened;
+    beta×lognorm widened at high negative magnitude (max|err| 0.091 → 0.118
+    at -0.7) — documented in `docs/internal/statistical-fidelity.md`. The
+    smoke tolerances above already absorb this drift; no smoke value needed
+    to change.
     """
     from analysis.fidelity_sweeps.claim1_correlation import (
         _simulate_pair_pearson,

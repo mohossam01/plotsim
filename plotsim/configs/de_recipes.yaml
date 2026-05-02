@@ -57,33 +57,49 @@
 # Replace per the per-domain table to test the same machinery
 # against any other domain.
 #
+# Size-dependence — IMPORTANT for small bundled tables.
+# The injection helpers compute affected cells as
+# ``floor(rate * n_rows)`` (see plotsim/quality.py::_select_row_indices).
+# On the bundled templates the smallest fact tables run 66–144 rows:
+#   * education (66 rows): rates ≤ 0.01 silently produce 0 injections
+#   * saas      (72 rows): rates ≤ 0.01 silently produce 0 injections
+#   * retail    (96 rows): rates ≤ 0.01 silently produce 0 injections
+#   * marketing (120 rows): rates ≤ 0.008 silently produce 0 injections
+#   * hr        (144 rows): rates ≤ 0.006 silently produce 0 injections
+# The defaults below (0.01–0.05) cover the headline-realistic dirt
+# rates a downstream pipeline test should expect; raise toward ~0.10
+# when targeting bundled-template-sized tables to guarantee every
+# issue type produces ≥ 1 injection. Production-scale tables
+# (10k+ rows) can use the default rates as-is — the floor() behavior
+# only bites at small ``n_rows``.
+#
 # >>> RECIPE START: pipeline_testing
 # quality:
 #   quality_issues:
 #     - type: "null_injection"
 #       target_table: "fct_revenue"
 #       target_columns: ["mrr"]
-#       rate: 0.05
+#       rate: 0.05  # 0.05 * 72 = 3 cells on saas; safe for bundled templates
 #       seed_offset: 0
 #     - type: "duplicate_rows"
 #       target_table: "fct_revenue"
 #       target_columns: ["*"]
-#       rate: 0.01
+#       rate: 0.01  # 0.01 * 72 = 0 cells on saas (SKIPPED) — raise to ~0.10 for thin tables (≤120 rows)
 #       seed_offset: 1
 #     - type: "type_mismatch"
 #       target_table: "fct_revenue"
 #       target_columns: ["mrr"]
-#       rate: 0.02
+#       rate: 0.02  # 0.02 * 72 = 1 cell on saas; raise to ~0.05–0.10 if a single injection isn't enough signal
 #       seed_offset: 2
 #     - type: "late_arrival"
 #       target_table: "fct_revenue"
 #       target_columns: ["mrr"]
-#       rate: 0.03
+#       rate: 0.03  # 0.03 * 72 = 2 cells on saas; raise to ~0.10 for thin tables
 #       seed_offset: 3
 #     - type: "schema_drift"
 #       target_table: "fct_revenue"
 #       target_columns: ["mrr"]
-#       rate: 0.02
+#       rate: 0.02  # 0.02 * 72 = 1 cell on saas; raise to ~0.10 for thin tables
 #       seed_offset: 4
 # >>> RECIPE END: pipeline_testing
 #

@@ -527,3 +527,149 @@ The four sweep drivers expose their per-cell helper functions
 (`_simulate_pair_pearson`, `_per_entity_xcorr`, `_verify_template_seed`,
 `_same_process_pair`) so re-running any single cell from a CSV row is
 a one-call exercise.
+
+---
+
+## M128 — Fidelity rebaseline (2026-05-02)
+
+This section documents the post-M127b re-measurement of the three
+`[116]` open items flagged in `project/state.md`:
+
+1. Higham 3-of-3 saas pairs |Δ| = 0.117 — over notebook
+   `CORRELATION_HIGHAM_DELTA_PASS = 0.05`.
+2. globex_cohort/mrr Pearson 0.237 — under notebook
+   `MONOTONIC_ARCHETYPE_PEARSON_PASS = 0.45`.
+3. `de_recipes.yaml` default rates (0.01–0.05) miss issue types on
+   72-row bundled-template tables.
+
+Engine version: post-M127b, commit `b1df0c6` (copula flip + distribution
+registry; full-suite wall-clock 22:51 → 9:01 over post-M102 baseline).
+Hardware / toolchain unchanged from §1 of this report.
+
+### Higham re-measurement (saas template, seed=42)
+
+Source: `plotsim/configs/sample_saas.yaml` loaded via
+`plotsim.config.load_config`, `cfg._correlation_adjustments` inspected.
+
+| Pair                            | Configured | Achieved | \|Δ\|   | vs M111 baseline (0.05) |
+|---------------------------------|-----------:|---------:|-------:|:-----------------------:|
+| engagement ↔ churn_risk         | −0.75      | −0.6334  | 0.1166 | breach                  |
+| engagement ↔ mrr                | +0.82      | +0.7332  | 0.0868 | breach                  |
+| support_tickets ↔ churn_risk    | +0.68      | +0.6265  | 0.0535 | breach (marginal)       |
+
+All three pairs reproduce the legacy 0.117 / 0.087 / 0.054 deltas
+within float-noise. M127b's vectorized copula flip preserved the
+Higham projection numerics — these deltas are structurally
+determined by the configured non-PSD correlation set, not by the
+copula algorithm.
+
+**Action.** `docs/internal/statistical-fidelity.md` adds a Higham
+section recording these per-pair deltas. The notebook constant
+`CORRELATION_HIGHAM_DELTA_PASS = 0.05` is intentionally kept tight
+in `notebooks/_helpers.py` so the audit surfaces the saas breach as
+a known structural issue (per the constant's own provenance comment:
+"saas observes |Δ| = 0.117 ... which BREACHES this constant
+intentionally"). The doc-side widened tolerance is **0.12** —
+above any structurally-realizable delta on the bundled templates,
+below any value that would mask an engine regression.
+
+### globex_cohort/mrr Pearson re-measurement
+
+Source: `plotsim/configs/sample_saas.yaml` re-generated under 5 seeds
+(`{42, 1, 2, 3, 7}`); per-cohort archetype Pearson computed via
+`notebooks/_helpers.archetype_curve_eval` against `fct_revenue.mrr`,
+`fct_engagement.engagement_score`, `fct_support_tickets.churn_risk`,
+`fct_support_tickets.ticket_count` (negative-polarity metrics get
+`-r` to align with the archetype's positive direction).
+
+| Seed | engagement | mrr    | churn_risk | tickets |
+|-----:|-----------:|-------:|-----------:|--------:|
+| 42   | 0.9332     | 0.7015 | 0.9086     | 0.7387  |
+| 1    | 0.8802     | 0.6114 | 0.9498     | 0.8074  |
+| 2    | 0.9388     | 0.3652 | 0.9593     | 0.8137  |
+| 3    | 0.9509     | 0.6174 | 0.9355     | 0.7252  |
+| 7    | 0.9352     | 0.4988 | 0.9231     | 0.4230  |
+| **mean** | **0.9277** | **0.5589** | **0.9353** | **0.7016** |
+| **min**  | 0.8802     | **0.3652** | 0.9086     | 0.4230  |
+| **max**  | 0.9509     | 0.7015     | 0.9593     | 0.8137  |
+
+The legacy [116] complaint (Pearson = 0.237) does **not** reproduce
+post-M127b — minimum observed is 0.365 (seed=2), >50% higher than
+the legacy figure. The improvement is consistent with M127b's copula
+flip producing tighter trajectory-to-realization coupling on
+heavy-tailed lognormal mrr.
+
+That said, the 0.45 floor still bites on a single seed: globex's
+mrr Pearson at seed=2 (0.365) lands below 0.45. engagement /
+churn_risk / tickets all stay well above 0.45 on every seed, so
+the trajectory-first invariant is sound — the issue is the
+single-cohort lognormal-mrr noise envelope on a 24-period series
+with `gaussian_sigma=0.05` and `outlier_rate=0.02`.
+
+**Action.** `docs/internal/statistical-fidelity.md` adds a
+"Trajectory shape recovery" section documenting the per-seed mrr
+range and a widened tolerance of **0.30** for the
+saas/globex_cohort/mrr cell specifically. The notebook constant
+`MONOTONIC_ARCHETYPE_PEARSON_PASS = 0.45` is kept as-is in
+`notebooks/_helpers.py` (out of mission scope per Mission 128
+Outputs); the audit notebook will continue to surface seed=2 as a
+known soft breach.
+
+### de_recipes.yaml default-rate floor behavior
+
+Verified: `plotsim/quality.py::_select_row_indices` computes
+`floor(rate * n_rows)`. On 72-row tables (saas fact tables) the
+default rates produce:
+
+| Issue type        | Default rate | Cells injected (n_rows = 72) |
+|-------------------|-------------:|-----------------------------:|
+| null_injection    | 0.05         | 3                            |
+| duplicate_rows    | 0.01         | **0 (SKIPPED)**              |
+| type_mismatch     | 0.02         | 1                            |
+| late_arrival      | 0.03         | 2                            |
+| schema_drift      | 0.02         | 1                            |
+
+`duplicate_rows` at the documented default rate of 0.01 produces
+zero injections on every bundled fact table at 100 rows or fewer
+(saas, education, retail). At 0.10 every issue type produces ≥ 7
+injections on a 72-row table — well into the regime where
+downstream loaders observe the corruption.
+
+**Action.** Per Policy B (operator-bound 2026-05-02): default
+rates remain unchanged; inline YAML comments now document the
+size-dependent floor for each issue type and recommend ~0.10
+when targeting bundled-template-sized tables. The recipe file
+is reference-only (not runnable by `plotsim run`), so existing
+user pipelines built against the published defaults are not
+disturbed.
+
+### Correlation tolerance re-measurement (spot check)
+
+3-pair × 5-seed re-run via
+`analysis.fidelity_sweeps.claim1_correlation._simulate_pair_pearson`
+at 100 entities × 24 periods, seeds 7000–7004:
+
+| Pair                | Coef  | Re-measured max\|err\| | Doc max\|err\| (M103) | Verdict |
+|---------------------|------:|-----------------------:|----------------------:|---------|
+| beta × normal       | +0.7  | 0.018                  | 0.021                 | tighter |
+| beta × poisson      | +0.7  | 0.027                  | 0.034                 | tighter |
+| beta × lognorm      | +0.7  | 0.043                  | 0.091                 | tighter |
+| beta × lognorm      | −0.7  | 0.118                  | 0.091                 | wider — doc updated to 0.118 / "within ±0.12" |
+| lognorm × lognorm   | +0.7  | 0.048                  | 0.030 (median)        | unchanged |
+| lognorm × lognorm   | −0.7  | 0.164                  | 0.164                 | unchanged |
+
+M127b's copula flip generally tightened tolerances on bounded /
+discrete pairs. `beta × lognorm` widened at high negative
+magnitude; the doc table now records "within ±0.12" for that pair.
+`lognorm × lognorm` is unchanged — its widening is structural to
+the heavy-right-tail asymmetry described in M103 §2.
+
+### Summary
+
+Test baseline before/after this rebaseline: **`1658p / 1xf / 2xp` →
+`1658p / 1xf / 2xp`** (no change; the 1xf/2xp lives in
+`tests/test_output_fidelity.py::TestLagRegression::test_lag_peak`,
+out of Mission 128 scope and tracked by `[127b→test-baseline-shift]`).
+`tests/test_fidelity_smoke.py` runs 9 passes / 0 xfails. AC #1
+("no xfailed assertions in the smoke file") is met by the existing
+test layout — no test edits required.
