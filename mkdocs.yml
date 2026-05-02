@@ -1,0 +1,101 @@
+site_name: plotsim
+site_description: Generate multi-table synthetic datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required.
+site_url: https://mohossam-ae.github.io/plotsim/
+site_author: Mohamed Hossam
+
+repo_name: mohossam-ae/plotsim
+repo_url: https://github.com/mohossam-ae/plotsim
+edit_uri: edit/main/docs/
+
+copyright: Apache-2.0 licensed.
+
+docs_dir: docs/site
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - User guide:
+      - How it works: user-guide/how-it-works.md
+      - Archetypes: user-guide/archetypes.md
+      - Metrics & connections: user-guide/metrics-and-connections.md
+      - Seasonality: user-guide/seasonality.md
+      - Schema guide: user-guide/schema-guide.md
+      - Output formats: user-guide/output-formats.md
+  - Tutorials: tutorials.md
+  - Cookbook:
+      - For data engineers: cookbook/data-engineers.md
+      - For data scientists: cookbook/data-scientists.md
+  - Reference:
+      - API: api-reference.md
+      - Config fields: config-reference.md
+      - Column types: column-types.md
+      - Manifest: manifest-reference.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mohossam-ae/plotsim
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/plotsim/
