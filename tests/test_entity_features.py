@@ -48,10 +48,10 @@ from plotsim.validation import validate_entity_features_config
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = ROOT / "plotsim" / "configs"
 SAAS_YAML = CONFIGS_DIR / "sample_saas.yaml"
-HEALTHCARE_YAML = CONFIGS_DIR / "sample_healthcare.yaml"
 HR_YAML = CONFIGS_DIR / "sample_hr.yaml"
-ECOMMERCE_YAML = CONFIGS_DIR / "sample_ecommerce.yaml"
 EDUCATION_YAML = CONFIGS_DIR / "sample_education.yaml"
+RETAIL_YAML = CONFIGS_DIR / "sample_retail.yaml"
+MARKETING_YAML = CONFIGS_DIR / "sample_marketing.yaml"
 
 
 # --- Helpers ----------------------------------------------------------------

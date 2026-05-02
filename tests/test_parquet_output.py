@@ -36,7 +36,7 @@ from plotsim.tables import generate_tables
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = ROOT / "plotsim" / "configs"
-ALL_TEMPLATES = ("saas", "hr", "ecommerce", "education", "healthcare")
+ALL_TEMPLATES = ("saas", "hr", "education", "retail", "marketing")
 
 
 # --- helpers ----------------------------------------------------------------

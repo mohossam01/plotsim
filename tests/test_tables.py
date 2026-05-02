@@ -1251,7 +1251,7 @@ LAYER4_FIXTURES = ROOT / "tests" / "fixtures" / "layer4_reference"
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "ecommerce", "education", "healthcare"],
+    "stem", ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_layer4_reference_fixtures_match(stem, tmp_path):
     """Byte-identical regression: the five templates must produce CSVs

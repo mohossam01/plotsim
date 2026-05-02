@@ -514,15 +514,39 @@ def test_non_psd_matrix_no_longer_raises_at_generation_time():
     assert validate_correlation_psd(cfg) == []
 
 
+def _delivered_coefficient(cfg, metric_a: str, metric_b: str) -> float:
+    """Return the coefficient the engine actually delivers for a pair.
+
+    Post-M111, non-PD correlation matrices are projected at load time and
+    the per-pair achieved value is recorded on ``cfg._correlation_adjustments``
+    (a list of dicts: ``metric_a``, ``metric_b``, ``requested``, ``achieved``,
+    ``adjustment``). For pairs that survived projection unchanged (or PD
+    configs), fall back to the raw YAML coefficient on ``cfg.correlations``.
+    """
+    pair = {metric_a, metric_b}
+    if cfg._correlation_adjustments is not None:
+        for adj in cfg._correlation_adjustments:
+            if {adj["metric_a"], adj["metric_b"]} == pair:
+                return float(adj["achieved"])
+    return float(next(
+        c.coefficient for c in cfg.correlations
+        if {c.metric_a, c.metric_b} == pair
+    ))
+
+
 def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
     """FIX-01 negative case: a valid PSD matrix produces correlated output.
 
-    Uses the shipped SaaS template (PD post-007a) and verifies that the
-    engagement/mrr correlation in fct_engagement+fct_revenue lands within
-    a generous ±0.30 band of the configured 0.72. The bound is generous
-    because per-entity sample size is small and we're computing across
-    pooled rows — this test asserts "correlation is applied", not "the
-    coefficient lands exactly".
+    Uses the shipped SaaS template and verifies that the engagement/mrr
+    correlation in fct_engagement+fct_revenue lands within a generous ±0.30
+    band of the *delivered* coefficient. Post-M112 the saas YAML's
+    correlations are non-PD (intentionally — restoring the original
+    intended values) and Higham projection adjusts them at load time, so
+    "delivered" means the projected coefficient (when projection fired)
+    rather than the raw YAML value. The bound stays generous: per-entity
+    sample size is small and we're computing across pooled rows — this
+    test asserts "correlation is applied", not "the coefficient lands
+    exactly".
     """
     # SaaS schema: metric "engagement" lives in fct_engagement.engagement_score;
     # metric "mrr" lives in fct_revenue.mrr. MCAR may introduce None values,
@@ -534,13 +558,10 @@ def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
     m = pd.to_numeric(joined["mrr"], errors="coerce")
     mask = e.notna() & m.notna()
     obs_corr = float(np.corrcoef(e[mask].values, m[mask].values)[0, 1])
-    configured = next(
-        c.coefficient for c in saas_cfg.correlations
-        if {c.metric_a, c.metric_b} == {"engagement", "mrr"}
-    )
-    assert abs(obs_corr - configured) < 0.30, (
+    delivered = _delivered_coefficient(saas_cfg, "engagement", "mrr")
+    assert abs(obs_corr - delivered) < 0.30, (
         f"observed engagement/mrr correlation {obs_corr:.3f} too far from "
-        f"configured {configured}"
+        f"delivered {delivered:.3f}"
     )
 
 

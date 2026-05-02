@@ -538,7 +538,11 @@ def test_manifest_scd_events_match_dim_row_id_jumps(saas_run):
 
 
 def test_manifest_no_scd_events_for_non_scd_templates():
-    for name in ("hr", "ecommerce", "education", "healthcare"):
+    # Post-M112 the only bundled template without an SCD-typed dim is hr.
+    # saas/dim_company.plan_tier, education/dim_student.academic_standing,
+    # retail/dim_customer.customer_tier, and marketing/dim_customer.customer_tier
+    # all declare scd_type2.
+    for name in ("hr",):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", SurrogateKeyWarning)
             cfg = load_config(CONFIGS_DIR / f"sample_{name}.yaml")

@@ -60,10 +60,10 @@ from plotsim.validation import (
 
 SAAS_YAML = "plotsim/configs/sample_saas.yaml"
 HR_YAML = "plotsim/configs/sample_hr.yaml"
-ECOM_YAML = "plotsim/configs/sample_ecommerce.yaml"
 EDU_YAML = "plotsim/configs/sample_education.yaml"
-HEALTH_YAML = "plotsim/configs/sample_healthcare.yaml"
-ALL_TEMPLATES = [SAAS_YAML, HR_YAML, ECOM_YAML, EDU_YAML, HEALTH_YAML]
+RETAIL_YAML = "plotsim/configs/sample_retail.yaml"
+MARKETING_YAML = "plotsim/configs/sample_marketing.yaml"
+ALL_TEMPLATES = [SAAS_YAML, HR_YAML, EDU_YAML, RETAIL_YAML, MARKETING_YAML]
 
 
 def _three_cycle_pairs() -> list[CorrelationPair]:
@@ -507,11 +507,12 @@ class TestWarningFormat:
 class TestLoadTimeValidator:
 
     def test_pd_config_loads_without_warning(self):
+        # Education has a PD correlation matrix post-M112 (the saas YAML's
+        # correlations got reverted to non-PD originals so Higham now fires
+        # on saas — pick a known-PD template for this test).
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            cfg = load_config(SAAS_YAML)
-        # No UserWarning from M111 should fire — saas YAML's correlations
-        # are PD post-007a.
+            cfg = load_config(EDU_YAML)
         m111_warnings = [
             w for w in caught
             if issubclass(w.category, UserWarning)
@@ -568,7 +569,8 @@ class TestLoadTimeValidator:
 class TestProjectOrIssue:
 
     def test_pd_returns_no_issues_no_records(self):
-        cfg = load_config(SAAS_YAML)
+        # Education has a PD matrix post-M112 (saas reverted to non-PD).
+        cfg = load_config(EDU_YAML)
         issues, adjustments, projected = project_correlation_or_issue(cfg)
         assert issues == []
         assert adjustments is None
@@ -593,7 +595,8 @@ class TestProjectOrIssue:
 class TestManifestIntegration:
 
     def test_manifest_correlation_adjustments_none_for_pd_template(self):
-        cfg = load_config(SAAS_YAML)
+        # Education is the canonical PD bundled template post-M112.
+        cfg = load_config(EDU_YAML)
         # Manifest doesn't need real trajectories for this assertion;
         # zeros suffice.
         n_periods = cfg.time_window.period_count()
@@ -653,9 +656,27 @@ class TestEndToEndDeterminism:
                 f"seed"
             )
 
-    @pytest.mark.parametrize("path", ALL_TEMPLATES)
-    def test_bundled_template_correlation_adjustments_is_none(self, path):
-        # Every shipped template has a PD matrix post-007a. M111 must not
-        # change that — no projection should fire on any template.
-        cfg = load_config(path)
+    @pytest.mark.parametrize("path", [EDU_YAML, RETAIL_YAML])
+    def test_pd_bundled_templates_have_no_correlation_adjustments(self, path):
+        # Education and retail are PD by construction post-M112. Higham must
+        # not fire on them — projection passthrough is byte-identical.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            cfg = load_config(path)
         assert cfg._correlation_adjustments is None
+
+    @pytest.mark.parametrize("path", [SAAS_YAML, HR_YAML, MARKETING_YAML])
+    def test_non_pd_bundled_templates_record_correlation_adjustments(self, path):
+        # M112 reverted saas/hr correlations to original intended values
+        # (now slightly non-PD) and introduced marketing with five
+        # intentionally non-PD pairs. Higham projects all three at load
+        # time and stashes the per-pair record on ``_correlation_adjustments``
+        # (a list of dicts, mirroring what surfaces in manifest.json).
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            cfg = load_config(path)
+        assert cfg._correlation_adjustments is not None
+        assert len(cfg._correlation_adjustments) >= 1
+        for adj in cfg._correlation_adjustments:
+            assert adj["adjustment"] > 0
+            assert -1.0 <= adj["achieved"] <= 1.0

@@ -7,7 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Copula reformulation (M127b).** The Gaussian copula is now applied in
+  the textbook order: `rng.standard_normal(M) → L @ → family-grouped
+  transform → clip`. The previous `dist.rvs → dist.cdf → Φ⁻¹ → L @ → Φ →
+  dist.ppf` round-trip is gone. Normal and lognorm marginals use a
+  closed-form unit-Gaussian transform; beta, poisson, gamma, and weibull
+  go through `Φ` plus a per-family `ppf_batch` call (one scipy call per
+  family per cell rather than per metric). **Cell values change** for
+  every config that declares correlations — the change is intentional
+  and bounded to one version. Same `(config, seed)` still produces
+  byte-identical CSVs within this release; old fixtures regenerated
+  under `tests/fixtures/layer4_reference/`.
+- **Bypass machinery deleted (M127b).** The `_bypass_mask_batch` helper,
+  the bypass-aware submatrix Cholesky path in `apply_correlations`, the
+  per-row scalar fallback in `_apply_correlations_batch`, and the
+  bypass-counter plumbing through `generate_archetype_batch` /
+  `_compute_entity_metrics` / the orchestrator are all removed (~170
+  lines). Cells whose pre-M127b center triggered the bypass (`lognorm`
+  ≤ ε, `poisson` λ ≤ ε, etc.) now produce **copula-correlated values**
+  instead of independent draws — the new pipeline's family transforms
+  handle degenerate centers natively (e.g. λ=0 → deterministic 0 for
+  poisson). Correlations on (active, degenerate) pairs no longer attenuate.
+- **Manifest field `bypass_fallback_counts` is now always `{}`** (M127b).
+  The bypass-counter plumbing has been removed, so nothing populates the
+  field. The key is preserved on the manifest schema for backward-compat
+  with older manifest readers; old manifests still load. Future
+  consumers can treat the field as deprecated.
+- **`apply_correlations` signature gains `rng=` (M127b).** The new copula
+  draws standard Gaussians from the caller-supplied `rng`. Empty-
+  correlations short-circuit still returns `dict(independent)` without
+  consuming RNG. Callers that already passed `cholesky_L` only need to
+  add `rng=` to keep working; the `independent` argument is preserved
+  but no longer consumed on the correlated path.
+
 ### Added
+
+- **Distribution registry (M127b).** New module `plotsim._distribution_registry`
+  collects per-family math (`sample_scalar`, `sample_batch`, `ppf_batch`,
+  `direct_transform`) into a single `DISTRIBUTION_REGISTRY` dict. Adding a
+  new distribution family touches one registration. Replaces 5–6
+  near-identical `if/elif` ladders in `plotsim.metrics`.
+- **Column dispatcher (M127b).** New module `plotsim._column_dispatch`
+  exposes a shared `COLUMN_DISPATCH` registry consumed by every column
+  builder in `plotsim.tables` and `plotsim.dimensions` (per-entity-per-
+  period fact scalar + vectorized, per-period fact, proportional event,
+  threshold-event row, per-entity dim, sub-entity dim, reference dim).
+  Adding a new source type touches one registration per builder kind.
+  FakerSource columns continue to route through the scalar path
+  unconditionally — the dispatcher's `forces_scalar` predicate names
+  the contract explicitly.
 
 - **Builder API (M115).** `plotsim.create()` and
   `plotsim.create_from_yaml()` — a one-call public surface that takes a

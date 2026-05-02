@@ -26,7 +26,7 @@ from plotsim import cli
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = ROOT / "plotsim" / "configs"
-ALL_TEMPLATES = ("saas", "hr", "ecommerce", "education", "healthcare")
+ALL_TEMPLATES = ("saas", "hr", "education", "retail", "marketing")
 
 
 def run_cli(*argv: str) -> tuple[int, str, str]:

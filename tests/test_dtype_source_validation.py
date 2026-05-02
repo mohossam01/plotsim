@@ -223,7 +223,7 @@ def test_threshold_source_with_boolean_dtype_loads():
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "ecommerce", "education", "healthcare"],
+    "stem", ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_bundled_templates_load_under_validator(stem):
     """Every bundled template loads. None of them combine dtype: boolean

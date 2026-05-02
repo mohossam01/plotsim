@@ -233,7 +233,7 @@ def test_inflection_override_still_shifts_trajectory():
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "ecommerce", "education", "healthcare"],
+    "stem", ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_bundled_templates_load_under_new_schema(stem):
     """Every bundled template loads cleanly under the new

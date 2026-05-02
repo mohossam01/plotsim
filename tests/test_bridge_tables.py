@@ -167,12 +167,21 @@ def test_bridge_extra_forbid_rejects_unknown_quality_field():
 # ---------------------------------------------------------------------------
 
 
+# M112 note: education's ``dim_student`` is now SCD-versioned on
+# ``academic_standing``. The M107 bridge builder's SCD-aware FK resolution
+# (``plotsim/tables.py::build_bridge_tables``) renames the first FK column
+# from the natural key (``student_id``) to ``<dim>_dim_row_id`` so the
+# bridge points at a specific SCD version. These tests therefore key on
+# ``student_dim_row_id`` and join through ``dim_student`` when they need
+# to read back the natural student_id (e.g., to look up fct_grades).
 def test_education_bridge_runs_and_validates():
     cfg = load_config(EDUCATION_TEMPLATE)
     tables, state = generate_tables_with_state(cfg)
     assert "bridge_enrollment" in tables
     df = tables["bridge_enrollment"]
-    assert list(df.columns) == ["student_id", "course_id", "grade", "enrollment_status"]
+    assert list(df.columns) == [
+        "student_dim_row_id", "course_id", "grade", "enrollment_status",
+    ]
     assert len(df) > 0
     assert state.bridges.bridges["bridge_enrollment"]
     report = validate_tables(cfg, tables)
@@ -184,7 +193,7 @@ def test_bridge_cardinality_within_min_max():
     tables, _ = generate_tables_with_state(cfg)
     bridge_cfg = cfg.bridges[0]
     df = tables["bridge_enrollment"]
-    counts = df.groupby("student_id", sort=False).size()
+    counts = df.groupby("student_dim_row_id", sort=False).size()
     assert counts.min() >= bridge_cfg.cardinality.min
     assert counts.max() <= bridge_cfg.cardinality.max
 
@@ -194,7 +203,9 @@ def test_bridge_associations_unique_per_entity():
     cfg = load_config(EDUCATION_TEMPLATE)
     tables, _ = generate_tables_with_state(cfg)
     df = tables["bridge_enrollment"]
-    dup_mask = df.duplicated(subset=["student_id", "course_id"], keep=False)
+    dup_mask = df.duplicated(
+        subset=["student_dim_row_id", "course_id"], keep=False,
+    )
     assert not dup_mask.any()
 
 
@@ -202,9 +213,12 @@ def test_bridge_fks_resolve():
     cfg = load_config(EDUCATION_TEMPLATE)
     tables, _ = generate_tables_with_state(cfg)
     df = tables["bridge_enrollment"]
-    student_pks = set(tables["dim_student"]["student_id"].tolist())
+    # Bridge FK is SCD-aware: it points at dim_student.dim_row_id (the
+    # surrogate), not the natural student_id, so a bridge association is
+    # tied to a specific SCD version of the student.
+    student_dim_row_ids = set(tables["dim_student"]["dim_row_id"].tolist())
     course_pks = set(tables["dim_course"]["course_id"].tolist())
-    assert set(df["student_id"]) <= student_pks
+    assert set(df["student_dim_row_id"]) <= student_dim_row_ids
     assert set(df["course_id"]) <= course_pks
 
 
@@ -213,9 +227,16 @@ def test_bridge_metric_value_uses_mean_of_metric_series():
     tables, _ = generate_tables_with_state(cfg)
     df = tables["bridge_enrollment"]
     fct_grades = tables["fct_grades"]
+    dim_student = tables["dim_student"]
     # Grade is sourced from metric:assignment_score; the bridge collapses
     # the per-period series to its mean. Check at least one entity.
-    for student_id, group in df.groupby("student_id", sort=False):
+    # SCD: bridge keys on student_dim_row_id, so map back to the natural
+    # student_id via dim_student before looking up fct_grades.
+    dim_row_id_to_student_id = dict(zip(
+        dim_student["dim_row_id"], dim_student["student_id"],
+    ))
+    for student_dim_row_id, group in df.groupby("student_dim_row_id", sort=False):
+        student_id = dim_row_id_to_student_id[student_dim_row_id]
         expected_mean = fct_grades.loc[
             fct_grades["student_id"] == student_id, "assignment_score",
         ].mean()
@@ -394,9 +415,9 @@ def test_validate_bridge_integrity_flags_duplicate_associations():
     tables, _ = generate_tables_with_state(cfg)
     corrupted = dict(tables)
     df = tables["bridge_enrollment"].copy()
-    # Force a duplicate (student, course) pair.
+    # Force a duplicate (student, course) pair. SCD-aware FK column.
     df.loc[1, "course_id"] = df.loc[0, "course_id"]
-    df.loc[1, "student_id"] = df.loc[0, "student_id"]
+    df.loc[1, "student_dim_row_id"] = df.loc[0, "student_dim_row_id"]
     corrupted["bridge_enrollment"] = df
     report = validate_tables(cfg, corrupted)
     bridge_errs = [e for e in report.errors if e.check == "bridge_integrity"]

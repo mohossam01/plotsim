@@ -44,6 +44,11 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from plotsim._column_dispatch import (
+    COLUMN_DISPATCH,
+    BuilderKind,
+)
+from plotsim._faker import _make_faker
 from plotsim.config import (
     Column,
     DerivedSource,
@@ -63,23 +68,6 @@ from plotsim.config import (
 
 
 # --- Helpers ----------------------------------------------------------------
-
-# Providers the dim layer resolves without going through Faker.
-_NON_FAKER_GENERATED = {"entity_name"}
-
-
-def _faker_seed_from_rng(rng: np.random.Generator) -> int:
-    """Derive a stable 32-bit seed from ``rng`` and consume one draw to do it."""
-    return int(rng.integers(0, 2**31 - 1))
-
-
-def _make_faker(
-    rng: np.random.Generator,
-    locale: str | list[str] = "en_US",
-) -> Faker:
-    fake = Faker(locale)
-    fake.seed_instance(_faker_seed_from_rng(rng))
-    return fake
 
 
 def _id_prefix(table_name: str, explicit: Optional[str] = None) -> str:
@@ -106,13 +94,12 @@ def _make_ids(table_name: str, n_rows: int) -> list[str]:
 def _coerce_static(value: str, dtype: str) -> Any:
     """Cast a raw static-source string to the column's declared dtype.
 
-    F11 (M102): on ``dtype: date`` columns, malformed ISO dates now
-    raise instead of silently returning the raw string. The primary
-    load-time check at ``PlotsimConfig._cross_reference_integrity``
-    rejects malformed static dates before generation runs; this
-    defensive raise catches the same bug class on programmatic
-    ``PlotsimConfig`` construction that bypasses YAML-loading
-    validators.
+    On ``dtype: date`` columns, malformed ISO dates raise instead of
+    silently returning the raw string. The primary load-time check at
+    ``PlotsimConfig._cross_reference_integrity`` rejects malformed static
+    dates before generation runs; this defensive raise catches the same
+    bug class on programmatic ``PlotsimConfig`` construction that
+    bypasses YAML-loading validators.
     """
     v = value.strip()
     if dtype == "int":
@@ -249,7 +236,7 @@ def _check_faker_kwarg_caps(method: str, kwargs: dict[str, Any]) -> None:
 def _coerce_faker_kwarg(value: str) -> Any:
     """Best-effort string → int/date coercion for parameterized faker kwargs.
 
-    FIX-05 / MF-2. Applied to every kwarg value parsed out of a
+    Applied to every kwarg value parsed out of a
     ``generated:faker.<method>:<key>:<value>:...`` source. Heuristic:
 
       * ``YYYY-MM-DD`` → ``datetime.date`` (covers ``date_between`` bounds).
@@ -406,68 +393,122 @@ def _column_value_for_entity(
     fake: Faker,
     rng: Optional[np.random.Generator] = None,
 ) -> Any:
+    """Resolve one cell on a per_entity dim row.
+
+    M127b: dispatch handlers live in the shared ``COLUMN_DISPATCH``
+    registry so adding a new source type for per_entity dims is a
+    single ``register(...)`` call below.
+    """
     parsed = parse_source(col.source)
-    if isinstance(parsed, PKSource):
-        return entity_pk
-    if isinstance(parsed, StaticSource):
-        values = _split_static(parsed.value)
-        # Entity rows are 1:1; broadcast the first value regardless of count.
-        return _coerce_static(values[0], col.dtype)
-    if isinstance(parsed, DerivedSource):
-        return _resolve_derived(parsed.field, entity)
-    if isinstance(parsed, GeneratedSource):
-        if parsed.provider == "entity_name":
-            return entity.name
+    ctx = {
+        "col": col,
+        "entity": entity,
+        "entity_pk": entity_pk,
+        "fake": fake,
+        "rng": rng,
+    }
+    return COLUMN_DISPATCH.dispatch(BuilderKind.PER_ENTITY_DIM, parsed, ctx)
+
+
+def _per_entity_pk(parsed: PKSource, ctx: dict):
+    return ctx["entity_pk"]
+
+
+def _per_entity_static(parsed: StaticSource, ctx: dict):
+    col = ctx["col"]
+    values = _split_static(parsed.value)
+    # Entity rows are 1:1; broadcast the first value regardless of count.
+    return _coerce_static(values[0], col.dtype)
+
+
+def _per_entity_derived(parsed: DerivedSource, ctx: dict):
+    return _resolve_derived(parsed.field, ctx["entity"])
+
+
+def _per_entity_generated(parsed: GeneratedSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.provider == "entity_name":
+        return ctx["entity"].name
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is not supported on "
+        f"per_entity dimension tables: non-faker 'generated:' providers "
+        f"other than 'entity_name' (e.g. 'timestamp', 'date_key') only "
+        f"make sense on fact/event tables"
+    )
+
+
+def _per_entity_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _per_entity_fk(parsed: FKSource, ctx: dict):
+    # dim_entity rows are 1:1 with entities, so FKs can't be populated
+    # meaningfully here — the parent row this entity would point to is
+    # itself. Reference tables with many-to-one FKs are built via
+    # dim_reference; cross-dim FKs on per_entity tables (e.g. dim_employee
+    # → dim_department) are resolved by broadcasting the first reference
+    # row's PK, since reference tables are tiny and row-0 is deterministic.
+    return None  # filled in by _backfill_fks
+
+
+def _per_entity_scd2(parsed: SCDType2Source, ctx: dict):
+    # M106: SCD label cells are populated by ``tables.expand_scd_dims``,
+    # which has the per-entity trajectory and the SCDType2Config's
+    # thresholds/labels. Emit a None placeholder here so the per-entity
+    # initial dim row carries the column slot; the expansion step
+    # rewrites both the label and the row count.
+    return None
+
+
+def _per_entity_pool(parsed: PoolSource, ctx: dict):
+    # M114: per-entity value pool. ``Column._pool_pairing`` and
+    # ``validate_value_pool_coverage`` already guarantee value_pool is
+    # set and contains an entry for this entity. Sample one value via
+    # the caller-supplied RNG so determinism is preserved under the
+    # engine's single-seed contract; rng is required when any column
+    # on the table has a PoolSource.
+    col = ctx["col"]
+    entity = ctx["entity"]
+    rng = ctx["rng"]
+    if rng is None:
         raise ValueError(
-            f"column {col.name!r} source {col.source!r} is not supported on "
-            f"per_entity dimension tables: non-faker 'generated:' providers "
-            f"other than 'entity_name' (e.g. 'timestamp', 'date_key') only "
-            f"make sense on fact/event tables"
+            f"column {col.name!r} has source {col.source!r} but no "
+            f"RNG was supplied to _column_value_for_entity; pool "
+            f"sampling requires the per-table RNG"
         )
-    if isinstance(parsed, FakerSource):
-        return _call_faker(fake, parsed.method, parsed.kwargs)
-    if isinstance(parsed, FKSource):
-        # dim_entity rows are 1:1 with entities, so FKs can't be populated
-        # meaningfully here — the parent row this entity would point to is
-        # itself. Reference tables with many-to-one FKs are built via
-        # dim_reference; cross-dim FKs on per_entity tables (e.g. dim_employee
-        # → dim_department) are resolved by broadcasting the first reference
-        # row's PK, since reference tables are tiny and row-0 is deterministic.
-        return None  # filled in by _backfill_fks
-    if isinstance(parsed, SCDType2Source):
-        # M106: SCD label cells are populated by `tables.expand_scd_dims`,
-        # which has the per-entity trajectory and the SCDType2Config's
-        # thresholds/labels. Emit a None placeholder here so the per-entity
-        # initial dim row carries the column slot; the expansion step
-        # rewrites both the label and the row count.
-        return None
-    if isinstance(parsed, PoolSource):
-        # M114: per-entity value pool. ``Column._pool_pairing`` and
-        # ``validate_value_pool_coverage`` already guarantee value_pool
-        # is set and contains an entry for this entity. Sample one value
-        # via the caller-supplied RNG so determinism is preserved under
-        # the engine's single-seed contract; rng is required when any
-        # column on the table has a PoolSource.
-        if rng is None:
-            raise ValueError(
-                f"column {col.name!r} has source {col.source!r} but no "
-                f"RNG was supplied to _column_value_for_entity; pool "
-                f"sampling requires the per-table RNG"
-            )
-        assert col.value_pool is not None  # _pool_pairing
-        choices = col.value_pool.get(entity.name)
-        if not choices:
-            raise ValueError(
-                f"column {col.name!r} value_pool has no entry for entity "
-                f"{entity.name!r}; coverage is enforced at config load — "
-                f"reaching this branch means the validator was bypassed"
-            )
-        idx = int(rng.integers(0, len(choices)))
-        return _coerce_static(choices[idx], col.dtype)
+    assert col.value_pool is not None  # _pool_pairing
+    choices = col.value_pool.get(entity.name)
+    if not choices:
+        raise ValueError(
+            f"column {col.name!r} value_pool has no entry for entity "
+            f"{entity.name!r}; coverage is enforced at config load — "
+            f"reaching this branch means the validator was bypassed"
+        )
+    idx = int(rng.integers(0, len(choices)))
+    return _coerce_static(choices[idx], col.dtype)
+
+
+def _per_entity_unsupported(parsed: Any, ctx: dict):
+    col = ctx["col"]
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity dimension tables"
     )
+
+
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PKSource, _per_entity_pk)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, StaticSource, _per_entity_static)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, DerivedSource, _per_entity_derived)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_DIM, GeneratedSource, _per_entity_generated,
+)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FakerSource, _per_entity_faker)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FKSource, _per_entity_fk)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, SCDType2Source, _per_entity_scd2)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PoolSource, _per_entity_pool)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.PER_ENTITY_DIM, _per_entity_unsupported,
+)
 
 
 def sample_fk_values(
@@ -479,13 +520,13 @@ def sample_fk_values(
 ) -> list[Any]:
     """Draw ``n`` FK values for ``column`` against the parent's PK list.
 
-    FIX-04 sampler. Resolution order:
+    Resolution order:
 
       1. ``anchored_value`` not None → broadcast it for every row. Caller
          supplies this when an Entity's ``cross_dim_fks`` pinned the value.
          No randomness consumed.
-      2. ``len(parent_pks) == 1`` → broadcast that single PK. Preserves the
-         pre-FIX-04 single-row behavior. No randomness consumed.
+      2. ``len(parent_pks) == 1`` → broadcast that single PK.
+         No randomness consumed.
       3. ``column.distribution.weights`` is set → weighted sample over the
          keys named in ``weights``; keys must exist in ``parent_pks``.
       4. Otherwise (uniform default) → uniform random over ``parent_pks``.
@@ -524,7 +565,7 @@ def _backfill_fks(
 ) -> pd.DataFrame:
     """Populate FK columns left None at build time.
 
-    Single-row parent dim → broadcast the lone PK (pre-FIX-04 behavior).
+    Single-row parent dim → broadcast the lone PK.
     Multi-row parent dim → distribute via ``sample_fk_values``: uniform by
     default, or weighted when the column declares ``distribution.weights``.
 
@@ -680,42 +721,84 @@ def build_dim_subentity(
         for _ in range(entity.size * table_config.count):
             row: dict[str, Any] = {}
             local_pk = ids[cursor]
+            base_ctx = {
+                "entity": entity,
+                "parent_pk_value": parent_pk_value,
+                "local_fk_column": local_fk_column,
+                "local_pk": local_pk,
+                "fake": fake,
+            }
             for col in table_config.columns:
                 parsed = parse_source(col.source)
-                if isinstance(parsed, PKSource):
-                    row[col.name] = local_pk
-                elif isinstance(parsed, FKSource) and col.name == local_fk_column:
-                    row[col.name] = parent_pk_value
-                elif isinstance(parsed, FKSource):
-                    # Unrelated FK (e.g. to a dim_reference); fill with row-0
-                    # of that parent to keep the row valid. M006 may rewrite.
-                    row[col.name] = None
-                elif isinstance(parsed, GeneratedSource):
-                    if parsed.provider == "entity_name":
-                        row[col.name] = entity.name
-                    else:
-                        raise ValueError(
-                            f"column {col.name!r} source {col.source!r} is "
-                            f"not supported on sub-entity dimension tables: "
-                            f"only 'entity_name' is resolved here"
-                        )
-                elif isinstance(parsed, FakerSource):
-                    row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
-                elif isinstance(parsed, StaticSource):
-                    values = _split_static(parsed.value)
-                    row[col.name] = _coerce_static(values[0], col.dtype)
-                elif isinstance(parsed, DerivedSource):
-                    row[col.name] = _resolve_derived(parsed.field, entity)
-                else:
-                    raise ValueError(
-                        f"column {col.name!r} source {col.source!r} is not "
-                        f"supported on sub-entity dimension tables"
-                    )
+                ctx = dict(base_ctx)
+                ctx["col"] = col
+                row[col.name] = COLUMN_DISPATCH.dispatch(
+                    BuilderKind.SUB_ENTITY_DIM, parsed, ctx,
+                )
             rows.append(row)
             cursor += 1
 
     df = pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
     return df
+
+
+# --- Sub-entity dim dispatchers ----------------------------------------------
+
+def _sub_pk(parsed: PKSource, ctx: dict):
+    return ctx["local_pk"]
+
+
+def _sub_fk(parsed: FKSource, ctx: dict):
+    col = ctx["col"]
+    if col.name == ctx["local_fk_column"]:
+        return ctx["parent_pk_value"]
+    # Unrelated FK (e.g. to a dim_reference); fill with None — _backfill_fks
+    # rewrites it after dims are materialised.
+    return None
+
+
+def _sub_generated(parsed: GeneratedSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.provider == "entity_name":
+        return ctx["entity"].name
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is "
+        f"not supported on sub-entity dimension tables: "
+        f"only 'entity_name' is resolved here"
+    )
+
+
+def _sub_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _sub_static(parsed: StaticSource, ctx: dict):
+    col = ctx["col"]
+    values = _split_static(parsed.value)
+    return _coerce_static(values[0], col.dtype)
+
+
+def _sub_derived(parsed: DerivedSource, ctx: dict):
+    return _resolve_derived(parsed.field, ctx["entity"])
+
+
+def _sub_unsupported(parsed: Any, ctx: dict):
+    col = ctx["col"]
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is not "
+        f"supported on sub-entity dimension tables"
+    )
+
+
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, PKSource, _sub_pk)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, FKSource, _sub_fk)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, GeneratedSource, _sub_generated)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, FakerSource, _sub_faker)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, StaticSource, _sub_static)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, DerivedSource, _sub_derived)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.SUB_ENTITY_DIM, _sub_unsupported,
+)
 
 
 # --- dim_reference -----------------------------------------------------------
@@ -740,33 +823,70 @@ def build_dim_reference(
     rows: list[dict[str, Any]] = []
     for i in range(n_rows):
         row: dict[str, Any] = {}
+        base_ctx = {
+            "i": i,
+            "ids": ids,
+            "fake": fake,
+        }
         for col in table_config.columns:
             parsed = parse_source(col.source)
-            if isinstance(parsed, PKSource):
-                row[col.name] = ids[i]
-            elif isinstance(parsed, StaticSource):
-                values = _split_static(parsed.value)
-                # Broadcast single-value columns; index into multi-value columns.
-                pick = values[i] if len(values) > 1 else values[0]
-                row[col.name] = _coerce_static(pick, col.dtype)
-            elif isinstance(parsed, FakerSource):
-                row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
-            elif isinstance(parsed, GeneratedSource):
-                raise ValueError(
-                    f"column {col.name!r} source {col.source!r} is not "
-                    f"supported on reference dimension tables: use "
-                    f"'generated:faker.<method>' or 'static:...' instead"
-                )
-            elif isinstance(parsed, FKSource):
-                row[col.name] = None  # backfilled after dims are materialised
-            else:
-                raise ValueError(
-                    f"column {col.name!r} source {col.source!r} is not "
-                    f"supported on reference dimension tables"
-                )
+            ctx = dict(base_ctx)
+            ctx["col"] = col
+            row[col.name] = COLUMN_DISPATCH.dispatch(
+                BuilderKind.REFERENCE_DIM, parsed, ctx,
+            )
         rows.append(row)
 
     return pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
+
+
+# --- Reference dim dispatchers -----------------------------------------------
+
+def _ref_pk(parsed: PKSource, ctx: dict):
+    return ctx["ids"][ctx["i"]]
+
+
+def _ref_static(parsed: StaticSource, ctx: dict):
+    col = ctx["col"]
+    values = _split_static(parsed.value)
+    # Broadcast single-value columns; index into multi-value columns.
+    pick = values[ctx["i"]] if len(values) > 1 else values[0]
+    return _coerce_static(pick, col.dtype)
+
+
+def _ref_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _ref_generated(parsed: GeneratedSource, ctx: dict):
+    col = ctx["col"]
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is not "
+        f"supported on reference dimension tables: use "
+        f"'generated:faker.<method>' or 'static:...' instead"
+    )
+
+
+def _ref_fk(parsed: FKSource, ctx: dict):
+    return None  # backfilled after dims are materialised
+
+
+def _ref_unsupported(parsed: Any, ctx: dict):
+    col = ctx["col"]
+    raise ValueError(
+        f"column {col.name!r} source {col.source!r} is not "
+        f"supported on reference dimension tables"
+    )
+
+
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, PKSource, _ref_pk)
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, StaticSource, _ref_static)
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FakerSource, _ref_faker)
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, GeneratedSource, _ref_generated)
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FKSource, _ref_fk)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.REFERENCE_DIM, _ref_unsupported,
+)
 
 
 # --- Orchestrator ------------------------------------------------------------

@@ -22,21 +22,20 @@ Output:
     - generate_metrics_for_period → dict[metric_name → float | int | None].
     - generate_entity_metrics     → dict[metric_name → np.ndarray].
 
-Mission-spec deviations (flagged in M004 completion report):
-    1. ``generate_metrics_for_period`` takes an explicit ``noise`` param; the
-       spec signature omitted it, but step 5 (apply noise) needs access.
+Notes on the public surface:
+    1. ``generate_metrics_for_period`` takes an explicit ``noise`` param so
+       step 5 (apply noise) has access.
     2. ``lag_buffer`` holds effective positions (trajectory position
        optionally blended with the driver's past effective position via
        ``CausalLag.blend_weight``). Effective positions stay in [0,1] so
        the blend formula remains dimensionally coherent. Populated inside
        ``generate_metrics_for_period`` in topological order (drivers
        before targets), which makes multi-hop chains A→B→C compose
-       truthfully. 0.4.0 behavior; pre-0.4.0 stored raw trajectory
-       positions.
-    3. For beta, the spec's ``rng.beta(α,β)*scale`` ignores center, which
-       breaks the "higher position → higher mean" acceptance criterion. We
-       shift-to-center instead: the beta shape's variance is preserved but
-       its expected value lands on ``center``.
+       truthfully.
+    3. For beta, ``rng.beta(α,β)*scale`` would ignore center, which breaks
+       the "higher position → higher mean" acceptance criterion. We
+       shift-to-center instead: the beta shape's variance is preserved
+       but its expected value lands on ``center``.
 """
 
 from __future__ import annotations
@@ -46,9 +45,12 @@ from graphlib import CycleError, TopologicalSorter
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-from scipy import stats as sp_stats
 from scipy.stats import norm as sp_norm
 
+from plotsim._distribution_registry import (
+    DISTRIBUTION_REGISTRY as DISTRIBUTION_REGISTRY,
+    get_family,
+)
 from plotsim.config import (
     Archetype,
     CorrelationPair,
@@ -60,17 +62,21 @@ if TYPE_CHECKING:
     from plotsim.config import PlotsimConfig
 
 
-# Below this absolute value, a center is treated as zero for correlation
-# purposes. A degenerate distribution (poisson λ≈0, lognorm scale≈0) has no
-# meaningful CDF transform; the independent draw is preserved unchanged.
+# Below this absolute value, a center is treated as zero for the
+# distribution-family policies that care (lognorm clamps the underlying mu,
+# poisson treats lambda as 0). The registry's per-family math reads this
+# constant via ``plotsim._distribution_registry``; this module re-exports
+# it for backwards-compat with callers that imported the old name.
 _CENTER_EPS = 1e-9
 
-# F-01 / 0.4.0: clamp uniform values before norm.ppf. The exact 0.0 / 1.0
-# endpoints of a CDF map to ±inf under the inverse normal, which propagates
-# NaN through the Cholesky and back. 1e-10 is tight enough that the clipped
-# Gaussian value stays above |z| ≈ 6.36 — well beyond any configured
-# correlation's effective range — without introducing visible bias.
+# Clamp Gaussian residuals before pushing them through Φ in the copula's
+# ppf path. ``Φ(corr_z)`` near 0 or 1 propagates ±∞ into ``dist.ppf`` for
+# bounded-support families (beta/poisson). 1e-10 in *uniform* space is the
+# previous M127a value; the same tightness is preserved in Gaussian space
+# by clipping ``corr_z`` to ``[Φ⁻¹(_CDF_CLAMP), Φ⁻¹(1 - _CDF_CLAMP)]``.
 _CDF_CLAMP = 1e-10
+_GAUSSIAN_CLAMP_LO = float(sp_norm.ppf(_CDF_CLAMP))
+_GAUSSIAN_CLAMP_HI = float(sp_norm.ppf(1.0 - _CDF_CLAMP))
 
 
 # --- Polarity and position → center ------------------------------------------
@@ -128,65 +134,32 @@ def sample_single_metric(
 ) -> float:
     """Draw one sample from the metric's distribution, centered on ``center``.
 
-    Value-range clamping and poisson integer-rounding happen in the caller
+    Dispatches to ``DISTRIBUTION_REGISTRY[<family>].sample_scalar``. Value-
+    range clamping and poisson integer-rounding happen in the caller
     (``_clamp_and_round``), AFTER noise injection, so this function returns
     the raw distributional draw.
     """
-    dist = metric.distribution
-    params = metric.params
-
-    if dist == "lognorm":
-        s = params["s"]
-        safe_center = max(center, _CENTER_EPS)
-        return float(rng.lognormal(mean=float(np.log(safe_center)), sigma=s))
-
-    if dist == "gamma":
-        shape = params["shape"]
-        if shape <= 0.0 or center <= 0.0:
-            return 0.0
-        return float(rng.gamma(shape=shape, scale=center / shape))
-
-    if dist == "poisson":
-        lam = max(center, 0.0)
-        return float(rng.poisson(lam=lam))
-
-    if dist == "beta":
-        alpha = params["alpha"]
-        beta = params["beta"]
-        raw = float(rng.beta(a=alpha, b=beta))
-        base_mean = alpha / (alpha + beta)
-        vr = metric.value_range
-        if vr is not None and vr.min is not None and vr.max is not None:
-            span = vr.max - vr.min
-            return center + (raw - base_mean) * span
-        scale = params.get("scale", 1.0)
-        return (raw - base_mean + center) * scale
-
-    if dist == "normal":
-        sigma = params["sigma"]
-        return float(rng.normal(loc=center, scale=sigma))
-
-    if dist == "weibull":
-        shape = params["shape"]
-        return float(rng.weibull(a=shape)) * center
-
-    raise ValueError(f"unsupported distribution {dist!r}")
+    family = get_family(metric.distribution)
+    return family.sample_scalar(center, metric.params, metric.value_range, rng)
 
 
 def _get_scipy_dist(metric: Metric, center: float):
     """Return a scipy.stats frozen distribution matching ``sample_single_metric``.
 
-    F-01 / 0.4.0. The copula transform in ``apply_correlations`` needs the
-    CDF/PPF of whatever distribution ``sample_single_metric`` drew from, with
-    the same parameters centered on the trajectory-derived ``center``. Each
-    branch below mirrors one in ``sample_single_metric`` — if that function
-    grows a new distribution family, this dispatch has to grow too.
+    M127b: kept as a backward-compatibility shim so verification tests
+    (``tests/test_internal_verification.py``) can run KS / round-trip
+    checks against the marginal CDF/PPF without coupling to the new
+    distribution registry. Production code paths no longer depend on
+    this helper — the new copula draws Gaussians and pushes them through
+    the registry's ``direct_transform`` or ``ppf_batch`` directly.
 
-    Returns ``None`` when the distribution is degenerate (e.g. gamma with
-    ``shape <= 0`` or ``center <= 0``, lognorm with ``center`` below the
-    sample floor). Callers treat ``None`` as a bypass: the independent draw
-    passes through unchanged, same as the pre-0.4.0 near-zero-center branch.
+    Returns ``None`` for degenerate centers, mirroring the pre-M127b
+    contract (``lognorm`` ``center <= _CENTER_EPS``, ``gamma`` shape ≤ 0
+    or center ≤ 0, ``poisson`` λ ≤ ``_CENTER_EPS``, ``normal`` σ ≤ 0,
+    ``weibull`` shape ≤ 0 or center ≤ 0).
     """
+    from scipy import stats as sp_stats
+
     dist = metric.distribution
     params = metric.params
 
@@ -213,10 +186,6 @@ def _get_scipy_dist(metric: Metric, center: float):
         beta = float(params["beta"])
         base_mean = alpha / (alpha + beta)
         vr = metric.value_range
-        # ``sample_single_metric`` produces ``c + (raw - base_mean) * span``
-        # when value_range is set, else ``(raw - base_mean + c) * scale``.
-        # Both are affine re-parameterizations of Beta(a, b); expressing
-        # them via scipy's (loc, scale) gives an exact CDF/PPF match.
         if vr is not None and vr.min is not None and vr.max is not None:
             span = float(vr.max - vr.min)
             return sp_stats.beta(
@@ -241,8 +210,6 @@ def _get_scipy_dist(metric: Metric, center: float):
         shape = float(params["shape"])
         if shape <= 0.0 or center <= 0.0:
             return None
-        # ``rng.weibull(a=shape)`` is standard-Weibull; the sampler then
-        # multiplies by ``center``. In scipy, that's scale=center.
         return sp_stats.weibull_min(c=shape, scale=float(center))
 
     raise ValueError(f"unsupported distribution {dist!r}")
@@ -408,8 +375,8 @@ def project_correlation_matrix(
     Returns ``(projected, projection_used, used_fallback)``.
 
       * ``mat`` already PD (Cholesky succeeds) → ``(mat.copy(), False, False)``.
-        Byte-identical pass-through preserves pre-M111 behavior on every
-        config whose user-specified matrix is already PD.
+        Byte-identical pass-through for every config whose user-specified
+        matrix is already PD.
       * Higham iterate stabilizes → margin nudge if needed → returns
         ``(projected, True, False)``. The margin nudge is silent — it's
         part of the projection, not a separate fallback.
@@ -419,9 +386,8 @@ def project_correlation_matrix(
 
     Raises ``RuntimeError`` if both Higham and eigenvalue-clipping fail
     to produce a Cholesky-able matrix — should be impossible for any
-    symmetric input. Replaces the pre-M111 silent identity fallback;
-    the architectural constraint is "raise explicitly rather than
-    silently return identity."
+    symmetric input. The architectural constraint is "raise explicitly
+    rather than silently return identity."
     """
     try:
         np.linalg.cholesky(mat)
@@ -507,9 +473,9 @@ def _correlation_adjustment_records(
 def _format_correlation_adjustment_warning(records: list[dict]) -> str:
     """Render the per-pair adjustment warning text.
 
-    Format pinned by the M111 mission spec so downstream tooling that
-    parses the warning string stays stable. ``stacklevel=2`` is the
-    caller's responsibility, not this function's.
+    Format is part of the public contract — downstream tooling parses
+    this string. ``stacklevel=2`` is the caller's responsibility, not
+    this function's.
     """
     parts = [
         f"{r['metric_a']} ↔ {r['metric_b']}: "
@@ -525,139 +491,137 @@ def _format_correlation_adjustment_warning(records: list[dict]) -> str:
 
 
 def apply_correlations(
-    independent: dict[str, float],
+    independent: dict[str, Optional[float]],
     centers: dict[str, float],
     correlations: list[CorrelationPair],
     metrics: list[Metric],
     cholesky_L: Optional[np.ndarray] = None,
-) -> dict[str, float]:
-    """Adjust independent samples so pairwise correlations match config.
+    rng: Optional[np.random.Generator] = None,
+) -> dict[str, Optional[float]]:
+    """Generate copula-correlated marginal draws for every metric at one cell.
 
-    F-01 / 0.4.0 — Gaussian copula. Each independent draw is pushed through
-    its own distribution's CDF to produce a uniform [0,1] value, then through
-    the standard normal inverse CDF to get a standard Gaussian. The Cholesky
-    factor ``L`` is applied in Gaussian space (where every residual has unit
-    variance by construction), then the transformed Gaussian is pushed back
-    through the standard normal CDF and the metric's inverse CDF to recover
-    a value in the original distribution's support.
+    M127b copula reformulation. The pipeline is now:
 
-    Why this replaces the pre-0.4.0 center-normalized-residual transform:
-    center-normalization made metrics scale-comparable but not variance-
-    comparable, so configured coefficients were attenuated by distribution-
-    pair-dependent factors (~0.29× to ~0.91× of configured on the shipped
-    templates). In Gaussian space the attenuation vanishes — the Cholesky
-    delivers exactly the configured correlation, and the inverse CDF round
-    trip preserves each metric's marginal distribution exactly. No sign
-    flips either: a lognormal cannot return negative after ``ppf``.
+        1. ``z = rng.standard_normal(M)`` — one fresh Gaussian per metric.
+        2. ``corr_z = L @ z`` — push through the Cholesky factor of the
+           (already trajectory-compensated and Higham-projected)
+           correlation matrix to apply pairwise correlations.
+        3. ``corr_z = clip(corr_z, ...)`` — clamp away from the tails so
+           the bounded-support family ppfs never see ``Φ⁻¹(0)`` / ``Φ⁻¹(1)``.
+        4. Per family: if the family registers a ``direct_transform``
+           (lognorm, normal), map ``corr_z → value`` in closed form.
+           Otherwise (beta, poisson, gamma, weibull) push through
+           ``Φ`` and call ``family.ppf_batch`` for the marginal value.
 
-    Bypass: if a metric's center is near zero (degenerate distribution —
-    gamma shape≤0, lognorm scale≈0, poisson λ≈0), ``_get_scipy_dist``
-    returns ``None`` and the independent draw passes through unchanged.
-    This preserves the pre-0.4.0 near-zero-center behaviour so identities
-    like ``position=0 → value≈0`` still hold.
+    The previous ``draw → CDF → Φ⁻¹ → L @ → Φ → ppf`` round-trip is gone;
+    so are the bypass mechanism (independent-draw passthrough at degenerate
+    centers), the per-row scalar fallback in the batch path, and the
+    submatrix-Cholesky path that handled bypass slots. Degenerate centers
+    now simply produce whatever the family-specific marginal yields at
+    that center (lognorm with center ≈ 0 returns values near 0; poisson
+    with λ ≈ 0 returns 0). The independent ``rng.standard_normal`` draw
+    feeds the same correlation transform regardless of center.
 
-    Poisson note: scipy's ``poisson.cdf`` is a step function; ``ppf`` maps
-    a continuous uniform onto integer values. The copula still drives the
-    Gaussian-space correlation to the configured value, but the observed
-    Pearson on the resulting integers will be slightly below configured —
-    inherent to correlating discrete distributions, and still dramatically
-    closer than the pre-0.4.0 attenuation.
+    The ``independent`` argument is preserved for backward-compat with
+    callers (notably ``plotsim.inspect``) that already drew per-metric
+    samples and want to see the copula-correlated companion. **It is no
+    longer consumed inside the correlated path** — the new copula draws
+    its own Gaussian residuals from ``rng``. Callers passing ``None``
+    cells (MCAR doesn't surface here, but defensive) get those slots
+    propagated unchanged so ``apply_noise`` downstream sees consistent
+    output keys. The empty-correlations short-circuit still returns
+    ``dict(independent)`` byte-identically.
 
-    M111: a non-PD correlation matrix is auto-corrected via Higham
-    nearest-PD projection rather than raising. The pre-M111 raise
-    documented "config defect, not runtime condition"; under M111 the
-    load-time validator on ``PlotsimConfig`` already projected and
-    warned the user, so by the time this cold-path is reached the
-    projection is redundant in the production flow but kept as a safety
-    net for callers that bypass the validator (programmatic config
-    construction, ad-hoc tests). The cold path projects silently — the
-    load-time validator owns the user-facing warning.
-
-    Category B Layer 3 (SEC-08): when the caller has already computed the
-    Cholesky factor at the top of ``generate_tables``, they pass it as
-    ``cholesky_L`` and this function skips the redundant matrix assembly +
-    ``np.linalg.cholesky`` call. The matrix is config-invariant across the
-    per-(cohort, period) loop. Direct external callers that omit
-    ``cholesky_L`` still work; the in-function path builds the matrix on
-    demand.
+    ``cholesky_L`` is optional only for direct callers; the orchestrator
+    always pre-computes it once at the top of ``generate_tables`` (the
+    matrix is config-invariant across the per-(cohort, period) loop).
+    When omitted, the function rebuilds the matrix and projects to the
+    nearest PD via ``project_correlation_matrix`` (silent — the load-
+    time validator on ``PlotsimConfig`` owns the user-facing warning).
     """
     if not correlations:
         return dict(independent)
 
+    if rng is None:
+        raise ValueError(
+            "apply_correlations requires `rng` after the M127b copula flip; "
+            "the new pipeline draws standard Gaussians from `rng` rather than "
+            "round-tripping the caller-supplied `independent` values"
+        )
+
     names = [m.name for m in metrics]
-    metric_by_name = {m.name: m for m in metrics}
     n = len(names)
-
-    # Build the Gaussian-space residual vector. Bypass metrics contribute 0
-    # (the identity element under L @ · — they don't pull the other metrics'
-    # correlated draws off target), and their independent value is preserved
-    # unchanged at the end.
-    z = np.zeros(n, dtype=float)
-    bypass = [False] * n
-    frozen_dists: list = [None] * n
-    for i, name in enumerate(names):
-        c = centers[name]
-        v = independent[name]
-        if v is None:
-            bypass[i] = True
-            continue
-        dist_obj = _get_scipy_dist(metric_by_name[name], c)
-        if dist_obj is None:
-            bypass[i] = True
-            continue
-        u = float(dist_obj.cdf(v))
-        if not np.isfinite(u):
-            bypass[i] = True
-            continue
-        u = min(max(u, _CDF_CLAMP), 1.0 - _CDF_CLAMP)
-        z[i] = float(sp_norm.ppf(u))
-        frozen_dists[i] = dist_obj
-
-    # F2 (M102): every metric bypassed → no correlation transform applies
-    # and the independent draws are already the answer. Short-circuits the
-    # Cholesky (or the matrix build for the cold path) on dead periods.
-    if all(bypass):
+    if n == 0:
         return dict(independent)
 
     if cholesky_L is not None:
         L = cholesky_L
     else:
         mat = _build_correlation_matrix(metrics, correlations)
-        # M111: project to nearest PD if the matrix isn't already. PD
-        # inputs pass through unchanged; non-PD inputs (only reachable
-        # when the load-time PlotsimConfig validator was bypassed) get
-        # auto-corrected. A RuntimeError from projection — both Higham
-        # and the eigenvalue-clipping fallback failing — is genuinely
-        # unrecoverable and propagates.
+        # M111: project to nearest PD if the matrix isn't already. PD inputs
+        # pass through unchanged; non-PD inputs (only reachable when the
+        # load-time PlotsimConfig validator was bypassed) get auto-corrected.
         projected, _used, _fallback = project_correlation_matrix(mat)
         L = np.linalg.cholesky(projected)
 
-    if any(bypass):
-        # F2 (M102): bypass-aware correlation. The pre-fix `L @ z` mixed the
-        # forced z[i]=0 from bypass slots into every active metric's correlated
-        # Gaussian, attenuating non-bypass-pair correlations during bypass
-        # periods. Slice the original correlation matrix down to the active
-        # rows/cols (recovered as L @ L.T — exact for the full-rank Cholesky
-        # the load-time PSD gate guarantees), Cholesky-factor the principal
-        # submatrix (PSD inherits to principal submatrices), and apply L_sub
-        # only to the active z-values.
-        active_idx = np.where(np.logical_not(bypass))[0]
-        mat_full = L @ L.T
-        L_sub = np.linalg.cholesky(mat_full[np.ix_(active_idx, active_idx)])
-        corr_z = np.zeros(n, dtype=float)
-        # Bypass slots stay at 0 here; the output loop below skips them via
-        # `if bypass[i]: continue`, so the zeros never leak into `out`.
-        corr_z[active_idx] = L_sub @ z[active_idx]
-    else:
-        corr_z = L @ z
+    z = rng.standard_normal(n)
+    corr_z = L @ z
+    # Clip in Gaussian space so the bounded-ppf families never see ``Φ⁻¹(0)``
+    # or ``Φ⁻¹(1)`` after the round-trip. ``_GAUSSIAN_CLAMP_LO/HI`` mirror
+    # the previous uniform-space clamp at ``_CDF_CLAMP`` 1e-10.
+    corr_z = np.clip(corr_z, _GAUSSIAN_CLAMP_LO, _GAUSSIAN_CLAMP_HI)
 
-    out = dict(independent)
-    for i, name in enumerate(names):
-        if bypass[i]:
-            continue
-        u_corr = float(sp_norm.cdf(corr_z[i]))
-        u_corr = min(max(u_corr, _CDF_CLAMP), 1.0 - _CDF_CLAMP)
-        out[name] = float(frozen_dists[i].ppf(u_corr))
+    out: dict[str, Optional[float]] = dict(independent)
+    # Group metrics by family so each family's transform runs once on a
+    # contiguous index slice. ``direct_transform`` families (lognorm,
+    # normal) skip the Φ + ppf round trip entirely; the others push the
+    # correlated Gaussian through Φ and then ``family.ppf_batch``.
+    families = [get_family(m.distribution) for m in metrics]
+    centers_arr = np.asarray([centers[name] for name in names], dtype=np.float64)
+
+    # Direct-transform families: closed-form Z → value.
+    direct_idx = [i for i, fam in enumerate(families) if fam.direct_transform is not None]
+    for i in direct_idx:
+        m = metrics[i]
+        fam = families[i]
+        val = fam.direct_transform(  # type: ignore[misc]
+            np.asarray([corr_z[i]], dtype=np.float64),
+            np.asarray([centers_arr[i]], dtype=np.float64),
+            m.params,
+            m.value_range,
+        )
+        out[names[i]] = float(val[0])
+
+    # PPF families: Φ(corr_z) → ppf. Group by family name so each scipy
+    # frozen-dist call covers all metrics in that family at once.
+    ppf_groups: dict[str, list[int]] = {}
+    for i, fam in enumerate(families):
+        if fam.direct_transform is None:
+            ppf_groups.setdefault(fam.name, []).append(i)
+    for fam_name, idx_list in ppf_groups.items():
+        idx_arr = np.asarray(idx_list, dtype=np.int64)
+        u = sp_norm.cdf(corr_z[idx_arr])
+        # Defense in depth — Φ on a clamped Gaussian stays away from the
+        # exact endpoints, but the bounded-ppf families (beta) still read
+        # their tails better with a uniform-space clamp.
+        u = np.clip(u, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
+        # ppf_batch dispatches by family; one scipy call per family per cell.
+        # All metrics in this group share the same family but may have
+        # distinct params/value_range, so call ppf_batch one metric at a
+        # time. This still collapses N scalar scipy calls into one batched
+        # one when the same family appears multiple times across the cell.
+        for i in idx_list:
+            m = metrics[i]
+            fam = families[i]
+            local_u = np.asarray(
+                [u[idx_list.index(i)]], dtype=np.float64,
+            )
+            local_centers = np.asarray(
+                [centers_arr[i]], dtype=np.float64,
+            )
+            val = fam.ppf_batch(local_u, local_centers, m.params, m.value_range)
+            out[names[i]] = float(val[0])
+
     return out
 
 
@@ -677,7 +641,7 @@ def _archetype_seasonal_sensitivity(
 ) -> float:
     """Size-weighted mean of ``entity.seasonal_sensitivity`` for this archetype.
 
-    M119 entity sensitivities scale the global seasonal modulation per entity.
+    Entity sensitivities scale the global seasonal modulation per entity.
     The trajectory-covariance estimator runs once per archetype, so it needs a
     representative scalar — size-weighted mean keeps a 10-entity-cohort with
     sensitivity 2.0 from being equally weighted with a single-entity cohort
@@ -707,7 +671,7 @@ def _archetype_centers(
     """Compute the ``(n_periods, n_metrics)`` center matrix for this archetype.
 
     Per-cell value is ``position_to_center(traj[t], effective_metric)`` with
-    archetype overrides applied to the metric, then multiplied by the M119
+    archetype overrides applied to the metric, then multiplied by the
     seasonal modulation factor when ``seasonal_factors`` is non-None.
     Causal-lag blending is intentionally NOT applied here — the trajectory
     covariance estimate is a population-level model of "what the engine
@@ -785,10 +749,10 @@ def estimate_trajectory_covariance(
       2. Apply ``_apply_archetype_overrides`` to every metric so distribution-
          family swaps and ``value_range`` overrides feed into the centers.
       3. For each period, compute ``position_to_center`` per metric and
-         multiply by the M119 seasonal modulation factor (per-entity
-         sensitivity is the size-weighted mean across entities of this
-         archetype). Causal-lag blending is **not** applied — see
-         ``_archetype_centers`` for the rationale.
+         multiply by the seasonal modulation factor (per-entity sensitivity
+         is the size-weighted mean across entities of this archetype).
+         Causal-lag blending is **not** applied — see ``_archetype_centers``
+         for the rationale.
       4. Pearson-correlate metric columns across the period axis to get
          ``r_traj_a``, with NaN-safe handling for constant centers.
 
@@ -868,9 +832,9 @@ def compensate_correlation_matrix(
     pushes the matrix into a near-rank-1 / near-degenerate region that
     Higham heavily distorts; the Higham distortion then leaks back into
     the declared pairs and undoes the compensation we wanted there.
-    Leaving undeclared pairs at zero matches the pre-M120 contract
-    ("pairs the user didn't mention follow whatever the trajectory does")
-    and keeps Higham's downstream projection close to identity.
+    Leaving undeclared pairs at zero — "pairs the user didn't mention
+    follow whatever the trajectory does" — keeps Higham's downstream
+    projection close to identity.
 
     Records are emitted only for the declared ``correlations`` pairs
     (the user wrote them; they're the contract the manifest reports
@@ -1083,10 +1047,10 @@ def _apply_archetype_overrides(
 ) -> Metric:
     """Return `metric` with overridable fields substituted from the archetype.
 
-    Distribution, distribution params, and (M114) ``value_range`` may be
-    overridden per-archetype. Polarity and causal_lag are never overridable —
-    polarity flips would silently invert the archetype's directional intent,
-    and lag chains are global structural objects.
+    Distribution, distribution params, and ``value_range`` may be overridden
+    per-archetype. Polarity and causal_lag are never overridable — polarity
+    flips would silently invert the archetype's directional intent, and lag
+    chains are global structural objects.
 
     The ``value_range`` substitution propagates through the entire downstream
     pipeline because every center/sampler/clamper helper reads
@@ -1102,9 +1066,8 @@ def _apply_archetype_overrides(
         bounds AFTER noise.
 
     Subset semantics (``override.value_range`` ⊆ ``metric.value_range``) are
-    enforced at config load in
-    ``PlotsimConfig._cross_reference_integrity``; this helper trusts the
-    pre-validated config.
+    enforced at config load by ``PlotsimConfig`` cross-reference validators;
+    this helper trusts the pre-validated config.
     """
     if archetype is None:
         return metric
@@ -1140,10 +1103,10 @@ def generate_metrics_for_period(
         1. resolve archetype override (distribution/params) if any
         2. current position → optional lag blend with driver's past position
         3. (polarity + distribution-specific) position → center
-        4. M119: seasonal modulation — multiply center by
+        4. seasonal modulation — multiply center by
            ``(1 + seasonal_global × metric.seasonal_sensitivity ×
               entity_seasonal_sensitivity)``, then clamp to ``value_range``
-           BEFORE the distributional draw. Skipped (byte-identical) when
+           BEFORE the distributional draw. Skipped when
            ``seasonal_global == 0.0``.
         5. sample independent value from the distribution
     Then once across all metrics:
@@ -1154,6 +1117,7 @@ def generate_metrics_for_period(
     effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
     centers: dict[str, float] = {}
     independent: dict[str, Optional[float]] = {}
+    correlations_active = bool(correlations)
 
     for em in effective:
         eff_pos = _compute_effective_position(
@@ -1183,12 +1147,21 @@ def generate_metrics_for_period(
                     if vr.max is not None and center > vr.max:
                         center = vr.max
         centers[em.name] = center
-        independent[em.name] = sample_single_metric(center, em, rng)
+        # M127b: per-metric ``sample_single_metric`` only runs on the
+        # no-correlations path. With correlations, the new copula draws
+        # one batched ``rng.standard_normal(M)`` inside ``apply_correlations``
+        # and pushes it through the family transforms — calling the per-
+        # metric sampler too would double-count RNG draws and the indep
+        # values get discarded.
+        if not correlations_active:
+            independent[em.name] = sample_single_metric(center, em, rng)
+        else:
+            independent[em.name] = None  # placeholder; populated below
 
-    if correlations:
+    if correlations_active:
         correlated = apply_correlations(
             independent, centers, correlations, effective,
-            cholesky_L=cholesky_L,
+            cholesky_L=cholesky_L, rng=rng,
         )
     else:
         correlated = dict(independent)
@@ -1343,208 +1316,32 @@ def sample_single_metric_batch(
 ) -> np.ndarray:
     """Batched draw of one metric across ``n`` entities at one period.
 
-    Mirrors ``sample_single_metric``'s per-distribution math but consumes
-    one vectorized RNG call per metric instead of ``n`` scalar calls.
+    Dispatches to ``DISTRIBUTION_REGISTRY[<family>].sample_batch``.
     ``centers`` is shape ``(n,)``; the return is shape ``(n,)``. Value-
     range clamping and poisson rounding still happen later in the caller
-    (``_clamp_and_round_batch``), AFTER noise. Degenerate cells (eg gamma
-    ``shape <= 0`` or center ``<= 0``) are zeroed in-place so the per-row
-    bypass mask in ``_apply_correlations_batch`` can preserve their
-    independent draws unchanged.
+    (``_clamp_and_round_batch``), AFTER noise.
     """
-    dist = metric.distribution
-    params = metric.params
-    n = centers.shape[0]
     centers = centers.astype(np.float64, copy=False)
-
-    if dist == "lognorm":
-        s = float(params["s"])
-        safe = np.maximum(centers, _CENTER_EPS)
-        return rng.lognormal(mean=np.log(safe), sigma=s, size=n).astype(np.float64)
-
-    if dist == "gamma":
-        shape = float(params["shape"])
-        if shape <= 0.0:
-            # Degenerate metric — every cell is bypass. Returning zeros
-            # preserves scalar behavior; ``apply_correlations_batch``
-            # marks the column as bypass via ``_get_scipy_dist_batch``.
-            return np.zeros(n, dtype=np.float64)
-        # rng.gamma needs scale > 0 in every slot. Substitute 1.0 in
-        # masked-out cells; we'll zero them after the call.
-        active = centers > 0.0
-        scales = np.where(active, centers / shape, 1.0)
-        draws = rng.gamma(shape=shape, scale=scales, size=n)
-        return np.where(active, draws, 0.0)
-
-    if dist == "poisson":
-        lam = np.maximum(centers, 0.0)
-        return rng.poisson(lam=lam, size=n).astype(np.float64)
-
-    if dist == "beta":
-        alpha = float(params["alpha"])
-        beta = float(params["beta"])
-        raw = rng.beta(a=alpha, b=beta, size=n)
-        base_mean = alpha / (alpha + beta)
-        vr = metric.value_range
-        if vr is not None and vr.min is not None and vr.max is not None:
-            span = float(vr.max - vr.min)
-            return centers + (raw - base_mean) * span
-        scale = float(params.get("scale", 1.0))
-        return (raw - base_mean + centers) * scale
-
-    if dist == "normal":
-        sigma = float(params["sigma"])
-        return rng.normal(loc=centers, scale=sigma, size=n).astype(np.float64)
-
-    if dist == "weibull":
-        shape = float(params["shape"])
-        if shape <= 0.0:
-            return np.zeros(n, dtype=np.float64)
-        return rng.weibull(a=shape, size=n).astype(np.float64) * centers
-
-    raise ValueError(f"unsupported distribution {dist!r}")
+    family = get_family(metric.distribution)
+    return family.sample_batch(centers, metric.params, metric.value_range, rng)
 
 
-def _bypass_mask_batch(
-    centers: np.ndarray,
-    metrics: list[Metric],
+def _draw_correlated_gaussians_batch(
+    cholesky_L: np.ndarray,
+    n: int,
+    M: int,
+    rng: np.random.Generator,
 ) -> np.ndarray:
-    """Per-cell bypass mask shaped ``(n, M)`` for a batch at one period.
+    """Draw ``(n, M)`` correlated standard Gaussians via ``Z @ L^T``.
 
-    Mirrors the scalar branch in ``_get_scipy_dist`` — a cell is bypass
-    when its center makes the underlying distribution degenerate (no
-    meaningful CDF, so the copula has nothing to apply). The independent
-    draw passes through unchanged for those cells; the surrounding
-    metrics' correlation is still resolved over the active subset.
+    M127b's batched copula entry: one ``rng.standard_normal((n, M))`` call
+    fills a unit-Gaussian matrix; right-multiplying by ``L^T`` yields rows
+    whose pairwise correlations equal ``L @ L^T`` — the configured
+    correlation matrix (post-compensation, post-Higham). Subsequent
+    family-grouped transforms use these correlated Gaussians as input.
     """
-    n, M = centers.shape
-    mask = np.zeros((n, M), dtype=bool)
-    for j, m in enumerate(metrics):
-        dist = m.distribution
-        col = centers[:, j]
-        if dist == "lognorm":
-            mask[:, j] = col <= _CENTER_EPS
-        elif dist == "gamma":
-            shape = float(m.params.get("shape", 0.0))
-            if shape <= 0.0:
-                mask[:, j] = True
-            else:
-                mask[:, j] = col <= 0.0
-        elif dist == "poisson":
-            mask[:, j] = col <= _CENTER_EPS
-        elif dist == "beta":
-            mask[:, j] = False
-        elif dist == "normal":
-            sigma = float(m.params.get("sigma", 0.0))
-            if sigma <= 0.0:
-                mask[:, j] = True
-        elif dist == "weibull":
-            shape = float(m.params.get("shape", 0.0))
-            if shape <= 0.0:
-                mask[:, j] = True
-            else:
-                mask[:, j] = col <= 0.0
-        else:
-            raise ValueError(f"unsupported distribution {dist!r}")
-    return mask
-
-
-def _column_cdf_batch(
-    values: np.ndarray,
-    centers: np.ndarray,
-    metric: Metric,
-) -> np.ndarray:
-    """Column-batched CDF of one metric's distribution at per-row centers.
-
-    Used by the batched copula to push independent draws into uniform
-    [0, 1] space before the inverse-normal step. Mirrors
-    ``_get_scipy_dist(...).cdf(value)`` from the scalar path but operates
-    on shape ``(n,)`` arrays. Caller guarantees no bypass cells in the
-    column (full-column bypass triggers the scalar fallback path).
-    """
-    dist = metric.distribution
-    params = metric.params
-    if dist == "lognorm":
-        s = float(params["s"])
-        return sp_stats.lognorm(s=s, scale=centers).cdf(values)
-    if dist == "gamma":
-        shape = float(params["shape"])
-        return sp_stats.gamma(a=shape, scale=centers / shape).cdf(values)
-    if dist == "poisson":
-        return sp_stats.poisson(mu=np.maximum(centers, 0.0)).cdf(values)
-    if dist == "beta":
-        alpha = float(params["alpha"])
-        beta = float(params["beta"])
-        base_mean = alpha / (alpha + beta)
-        vr = metric.value_range
-        if vr is not None and vr.min is not None and vr.max is not None:
-            span = float(vr.max - vr.min)
-            return sp_stats.beta(
-                a=alpha, b=beta,
-                loc=centers - base_mean * span,
-                scale=span,
-            ).cdf(values)
-        scale = float(params.get("scale", 1.0))
-        return sp_stats.beta(
-            a=alpha, b=beta,
-            loc=scale * (centers - base_mean),
-            scale=scale,
-        ).cdf(values)
-    if dist == "normal":
-        sigma = float(params["sigma"])
-        return sp_stats.norm(loc=centers, scale=sigma).cdf(values)
-    if dist == "weibull":
-        shape = float(params["shape"])
-        return sp_stats.weibull_min(c=shape, scale=centers).cdf(values)
-    raise ValueError(f"unsupported distribution {dist!r}")
-
-
-def _column_ppf_batch(
-    uniform: np.ndarray,
-    centers: np.ndarray,
-    metric: Metric,
-) -> np.ndarray:
-    """Column-batched PPF, paired with ``_column_cdf_batch``.
-
-    Pulls the correlated uniform back into the marginal distribution to
-    close the copula round-trip. Same parameterizations as the CDF helper
-    so the round-trip ``ppf(cdf(x)) == x`` (up to float precision).
-    """
-    dist = metric.distribution
-    params = metric.params
-    if dist == "lognorm":
-        s = float(params["s"])
-        return sp_stats.lognorm(s=s, scale=centers).ppf(uniform)
-    if dist == "gamma":
-        shape = float(params["shape"])
-        return sp_stats.gamma(a=shape, scale=centers / shape).ppf(uniform)
-    if dist == "poisson":
-        return sp_stats.poisson(mu=np.maximum(centers, 0.0)).ppf(uniform)
-    if dist == "beta":
-        alpha = float(params["alpha"])
-        beta = float(params["beta"])
-        base_mean = alpha / (alpha + beta)
-        vr = metric.value_range
-        if vr is not None and vr.min is not None and vr.max is not None:
-            span = float(vr.max - vr.min)
-            return sp_stats.beta(
-                a=alpha, b=beta,
-                loc=centers - base_mean * span,
-                scale=span,
-            ).ppf(uniform)
-        scale = float(params.get("scale", 1.0))
-        return sp_stats.beta(
-            a=alpha, b=beta,
-            loc=scale * (centers - base_mean),
-            scale=scale,
-        ).ppf(uniform)
-    if dist == "normal":
-        sigma = float(params["sigma"])
-        return sp_stats.norm(loc=centers, scale=sigma).ppf(uniform)
-    if dist == "weibull":
-        shape = float(params["shape"])
-        return sp_stats.weibull_min(c=shape, scale=centers).ppf(uniform)
-    raise ValueError(f"unsupported distribution {dist!r}")
+    z = rng.standard_normal((n, M))
+    return z @ cholesky_L.T
 
 
 def _apply_correlations_batch(
@@ -1553,74 +1350,63 @@ def _apply_correlations_batch(
     metrics: list[Metric],
     correlations: list[CorrelationPair],
     cholesky_L: Optional[np.ndarray],
+    rng: Optional[np.random.Generator] = None,
 ) -> tuple[np.ndarray, int]:
-    """Vectorized Gaussian copula across the batch axis at one period.
+    """Vectorized M127b copula across the batch axis at one period.
 
-    ``independent`` and ``centers`` are shape ``(n, M)``. ``cholesky_L``
-    is the Cholesky factor of the (already M120-compensated, M111
-    Higham-projected) correlation matrix. The math is identical to
-    scalar ``apply_correlations`` — push each marginal through CDF →
-    standard-normal PPF → multiply by L^T → standard-normal CDF →
-    marginal PPF — but the per-cell scalar Python calls become
-    column-vectorized ``scipy.stats`` calls with broadcasting over the
-    ``n``-row axis.
+    ``centers`` is shape ``(n, M)``. ``cholesky_L`` is the Cholesky factor
+    of the (already trajectory-compensated and Higham-projected)
+    correlation matrix. Pipeline:
 
-    Bypass handling: per-cell degenerate cells (``_bypass_mask_batch``)
-    have no meaningful CDF, so their independent draw passes through
-    unchanged. When every column is fully active (no bypass), the
-    correlation transform applies to all rows uniformly. When *any*
-    cell is bypassed, fall back to per-row scalar
-    ``apply_correlations`` — the per-row bypass-aware submatrix
-    Cholesky path is non-trivial to vectorize cleanly and the fall-
-    back is rare in production configs (positive centers throughout).
+        1. ``Z = rng.standard_normal((n, M))``.
+        2. ``corr_Z = Z @ L^T`` — columns now correlated according to L L^T.
+        3. ``corr_Z = clip(corr_Z, ...)`` — keep bounded-ppf families away
+           from the Gaussian tails.
+        4. Per family, in declaration order: if ``direct_transform`` exists
+           (lognorm, normal), map ``corr_Z[:, j]`` to the marginal in closed
+           form. Otherwise, push through ``Φ`` and call
+           ``family.ppf_batch(u, centers[:, j], params, value_range)``.
 
-    M121b: returns ``(correlated, bypass_cell_count)``. The count is the
-    number of ``(row, metric)`` cells that triggered the per-row scalar
-    fallback at this period — surfaced to the manifest as
-    ``bypass_fallback_counts`` so users investigating "vectorization
-    isn't faster on my config" can see whether bypass is the cause.
-    Zero on the all-active fast path; equal to ``bypass.sum()`` on the
-    fallback branch.
+    The legacy ``draw → CDF → ndtri → L @ → ndtr → ppf`` round trip and
+    its per-row scalar bypass fallback are deleted. ``independent`` is
+    accepted but ignored on the correlated path — kept in the signature
+    so existing callers don't have to be rewritten in lockstep.
+
+    Returns ``(correlated, bypass_cell_count)``. The bypass count is now
+    structurally zero (no fallback exists); the second tuple element is
+    retained so the orchestrator's wiring stays compatible with the
+    pre-M127b manifest field ``bypass_fallback_counts`` (which is now
+    always an empty dict — see release notes).
     """
-    n, M = independent.shape
+    del independent  # unused in M127b — see docstring
+    n, M = centers.shape
     if not correlations or M == 0 or cholesky_L is None:
-        return independent.copy(), 0
+        # No copula step — caller already has the per-metric independent
+        # draws. Return zeros-shape and let the caller fold them in.
+        return np.zeros((n, M), dtype=np.float64), 0
 
-    bypass = _bypass_mask_batch(centers, metrics)
-    if bypass.any():
-        bypass_count = int(bypass.sum())
-        # Per-row scalar fallback — preserves exact bypass-aware
-        # submatrix Cholesky behavior. Hot path stays vectorized via
-        # the no-bypass branch below.
-        out = np.empty_like(independent, dtype=np.float64)
-        names = [m.name for m in metrics]
-        for i in range(n):
-            ind_dict = {names[j]: float(independent[i, j]) for j in range(M)}
-            ctr_dict = {names[j]: float(centers[i, j]) for j in range(M)}
-            corr = apply_correlations(
-                ind_dict, ctr_dict, correlations, metrics,
-                cholesky_L=cholesky_L,
-            )
-            for j in range(M):
-                out[i, j] = corr[names[j]]
-        return out, bypass_count
+    if rng is None:
+        raise ValueError(
+            "_apply_correlations_batch requires `rng` after the M127b "
+            "copula flip; the new pipeline draws standard Gaussians "
+            "from `rng` rather than round-tripping prior independent draws"
+        )
 
-    # All-active fast path. Push each marginal through its CDF, clamp
-    # away from 0/1 to avoid ±inf under the inverse normal, transform
-    # via L^T, push back through.
-    z = np.empty((n, M), dtype=np.float64)
-    for j, m in enumerate(metrics):
-        u_col = _column_cdf_batch(independent[:, j], centers[:, j], m)
-        u_col = np.clip(u_col, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
-        z[:, j] = sp_norm.ppf(u_col)
-
-    corr_z = z @ cholesky_L.T
+    corr_z = _draw_correlated_gaussians_batch(cholesky_L, n, M, rng)
+    corr_z = np.clip(corr_z, _GAUSSIAN_CLAMP_LO, _GAUSSIAN_CLAMP_HI)
 
     out = np.empty((n, M), dtype=np.float64)
-    for j, m in enumerate(metrics):
-        u_corr = sp_norm.cdf(corr_z[:, j])
-        u_corr = np.clip(u_corr, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
-        out[:, j] = _column_ppf_batch(u_corr, centers[:, j], m)
+    families = [get_family(m.distribution) for m in metrics]
+    for j, (m, fam) in enumerate(zip(metrics, families)):
+        col_centers = centers[:, j].astype(np.float64, copy=False)
+        if fam.direct_transform is not None:
+            out[:, j] = fam.direct_transform(
+                corr_z[:, j], col_centers, m.params, m.value_range,
+            )
+        else:
+            u = sp_norm.cdf(corr_z[:, j])
+            u = np.clip(u, _CDF_CLAMP, 1.0 - _CDF_CLAMP)
+            out[:, j] = fam.ppf_batch(u, col_centers, m.params, m.value_range)
     return out, 0
 
 
@@ -1706,7 +1492,7 @@ def generate_archetype_batch(
 
     All entities in the batch share one archetype (so one trajectory)
     and have NO per-entity ``overrides``. They may differ in
-    ``seasonal_sensitivity``, which scales the M119 modulation per row.
+    ``seasonal_sensitivity``, which scales the seasonal modulation per row.
 
     Pipeline at each period (vectorized along the batch axis):
 
@@ -1734,23 +1520,19 @@ def generate_archetype_batch(
     cross-mode cell values are not byte-identical even at the same seed.
     Documented as part of the dual-path determinism contract.
 
-    M121b: ``bypass_counter`` is an optional mutable dict the caller
-    supplies to record the total number of ``(row, metric)`` cells that
-    triggered ``_apply_correlations_batch``'s per-row scalar fallback
-    across all periods of this archetype. When non-``None``, the function
-    increments ``bypass_counter[archetype.name]`` (defaulting to 0)
-    by the across-period sum. The orchestrator threads a fresh dict
-    through the dispatcher per generation run; ``build_manifest`` then
-    surfaces it as the ``bypass_fallback_counts`` field. ``None`` (the
-    default) is a no-op so direct callers — including the M121a unit
-    tests — keep working unchanged.
+    ``bypass_counter`` is accepted for backward compat with M121b's
+    pre-M127b orchestrator; it is no longer populated. The bypass
+    machinery (``_bypass_mask_batch``, per-row scalar fallback, submatrix
+    Cholesky) was removed in M127b — every cell of the new copula
+    pipeline produces a finite value, so there is nothing to count.
+    Callers passing a counter dict get it back unchanged.
     """
     from plotsim.trajectory import compute_trajectory
 
     n_batch = len(batch_entities)
     if n_batch == 0:
         return {}
-    bypass_total = 0  # accumulates across periods; surfaced via bypass_counter
+    del bypass_counter  # unused in M127b — see docstring
 
     sorted_metrics = _toposort_metrics(list(metrics))
     effective = [_apply_archetype_overrides(m, archetype) for m in sorted_metrics]
@@ -1864,23 +1646,23 @@ def generate_archetype_batch(
             for j, em in enumerate(effective):
                 centers[:, j] = _position_to_center_batch(eff_pos[:, j], em)
 
-        # 3. Independent draws (one batched RNG call per metric).
-        independent = np.empty((n_batch, M), dtype=np.float64)
-        for j, em in enumerate(effective):
-            independent[:, j] = sample_single_metric_batch(centers[:, j], em, rng)
-
-        # 4. Batched copula. ``_apply_correlations_batch`` returns
-        #    ``(values, bypass_cell_count)``; the count goes to the
-        #    optional manifest counter and the values feed the next stage.
-        #    With no correlations or no Cholesky factor, the copula
-        #    short-circuits and bypass is structurally zero.
-        if correlations:
-            correlated, period_bypass = _apply_correlations_batch(
-                independent, centers, effective, correlations, cholesky_L,
+        # 3+4. M127b copula flip. With correlations, the new pipeline draws
+        #    one ``rng.standard_normal((n, M))`` inside
+        #    ``_apply_correlations_batch`` and pushes it through L^T plus
+        #    family-grouped transforms — no per-metric independent draw is
+        #    needed (it would just get discarded). Without correlations,
+        #    fall back to the per-metric ``sample_single_metric_batch`` so
+        #    each marginal is drawn from its own distribution as before.
+        if correlations and cholesky_L is not None:
+            correlated, _period_bypass = _apply_correlations_batch(
+                None, centers, effective, correlations, cholesky_L, rng=rng,
             )
-            bypass_total += period_bypass
         else:
-            correlated = independent
+            correlated = np.empty((n_batch, M), dtype=np.float64)
+            for j, em in enumerate(effective):
+                correlated[:, j] = sample_single_metric_batch(
+                    centers[:, j], em, rng,
+                )
 
         # 5+6+7. Noise + clamp/round per metric column.
         for j, em in enumerate(effective):
@@ -1916,14 +1698,9 @@ def generate_archetype_batch(
                 per_metric[em.name] = arr.astype(float)
         result[ent.name] = per_metric
 
-    # M121b: surface the per-archetype bypass total to the optional
-    # mutable counter the orchestrator threads through. Adding to the
-    # existing value handles the (unlikely) case where the same
-    # archetype name reaches this function twice in one run.
-    if bypass_counter is not None:
-        bypass_counter[archetype.name] = (
-            bypass_counter.get(archetype.name, 0) + bypass_total
-        )
+    # M127b: bypass machinery deleted; nothing to surface to the counter.
+    # The ``bypass_counter`` parameter remains in the signature for
+    # backward compat — see docstring.
 
     return result
 

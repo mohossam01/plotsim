@@ -110,37 +110,33 @@ def test_clamped_equals_realized_across_random_cells(saas_cfg):
 
 
 @pytest.mark.parametrize("metric", ["mrr", "churn_risk", "support_tickets"])
-def test_independent_neq_correlated_for_in_matrix_metrics(saas_cfg, metric):
-    """Metrics in the saas correlation matrix should be moved by the copula.
+def test_in_matrix_metrics_produce_finite_cells(saas_cfg, metric):
+    """Metrics in the saas correlation matrix produce finite, non-bypass
+    cells under the M127b copula.
 
-    Saas declares 3 pairs covering engagement / mrr / churn_risk /
-    support_tickets. Period 4 / acme_corp_cohort sits mid-rise on the
-    rocket_then_cliff sigmoid (trajectory ≈ 0.56), keeping every metric's
-    distribution center non-degenerate so none land on a bypass branch.
-
-    **engagement is excluded by design.** The engine toposorts metrics with
-    causal_lag drivers ahead of dependents; engagement is the driver for
-    support_tickets, so it sits at toposort position 0. Cholesky's lower
-    triangular structure means ``corr_z[0] = L[0,0] * z[0] = z[0]``, so the
-    first non-bypassed metric in toposort order always round-trips through
-    the copula as the identity (modulo float drift). engagement therefore
-    has ``correlated_draw == independent_draw`` regardless of pair
-    configuration — checked separately in
-    ``test_engagement_passes_through_copula_as_first_in_toposort``.
+    M127b version-boundary update: the pre-M127b assertion that
+    ``independent_draw != correlated_draw`` no longer holds — the new
+    copula draws Gaussians directly and there is no separate per-metric
+    "independent" sample. ``independent_draw`` and ``correlated_draw``
+    on the dataclass are now the same value on the correlation-active
+    path (both the marginal value the new pipeline produced). This test
+    keeps the bypass/finiteness regression guard the original test
+    carried.
     """
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 4, metric, seed=42)
     assert r.bypass_in_copula is False
-    assert r.independent_draw != r.correlated_draw, (
-        f"{metric}: copula was a no-op (ind={r.independent_draw} "
-        f"corr={r.correlated_draw}); should differ for in-matrix metrics"
+    assert r.correlated_draw is not None
+    assert math.isfinite(r.correlated_draw), (
+        f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
     )
 
 
 def test_engagement_passes_through_copula_as_first_in_toposort(saas_cfg):
     """engagement is the causal_lag driver for support_tickets, so it sits at
-    toposort position 0. Cholesky lower-triangular + position 0 ⇒ the copula
-    transform is the identity for engagement at every period. Float drift
-    through CDF→PPF round-trip is bounded by ~1e-9.
+    toposort position 0. Under M127b's flip, the dataclass surfaces
+    ``independent_draw == correlated_draw`` for every metric on the
+    correlation-active path (single source draw); the test is kept as a
+    regression guard against the dataclass shape changing.
     """
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 4, "engagement", seed=42)
     assert math.isclose(
@@ -149,28 +145,33 @@ def test_engagement_passes_through_copula_as_first_in_toposort(saas_cfg):
 
 
 @pytest.mark.parametrize("metric", ["feature_adoption", "nps"])
-def test_independent_isclose_correlated_for_non_pair_metrics(saas_cfg, metric):
-    """Metrics not in any correlation pair should pass through the copula
-    transform with at most ~1e-12 float drift from CDF→PPF round-trip — the
-    Cholesky row for an out-of-matrix metric is identity, so the residual
-    transformation is the float-precision identity.
+def test_non_pair_metrics_produce_finite_cells(saas_cfg, metric):
+    """Metrics not in any correlation pair still produce finite cells.
+
+    M127b version-boundary update: the pre-M127b assertion that out-of-
+    matrix metrics pass through the copula as the float-precision
+    identity (``independent_draw ≈ correlated_draw``) no longer applies —
+    the new pipeline draws Gaussians for every metric and runs the same
+    family transform on each. The realized value is still a valid sample
+    from the metric's marginal; that's the surviving contract.
     """
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 12, metric, seed=42)
-    assert math.isclose(
-        r.independent_draw, r.correlated_draw, abs_tol=1e-9,
-    ), (
-        f"{metric}: copula moved an out-of-matrix metric beyond float drift "
-        f"(ind={r.independent_draw} corr={r.correlated_draw} "
-        f"diff={abs(r.independent_draw - r.correlated_draw):.2e})"
+    assert r.correlated_draw is not None
+    assert math.isfinite(r.correlated_draw), (
+        f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
     )
 
 
 def test_mcar_fired_nullifies_downstream(saas_cfg):
     """When MCAR fires, noised_value and clamped_value must be None and the
-    fact-table cell must be NaN. Cell discovered via grid scan: acme_corp_cohort
-    period 17 metric engagement under seed 42 is an MCAR-fired cell.
+    fact-table cell must be NaN.
+
+    M127b version-boundary update: the cell discovered via grid scan
+    moved with the copula reformulation. Pre-M127b: acme_corp_cohort
+    period 17 metric engagement. Post-M127b: globex_cohort period 2
+    metric engagement under seed 42 is an MCAR-fired cell.
     """
-    r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 17, "engagement", seed=42)
+    r = trace_metric_cell(saas_cfg, "globex_cohort", 2, "engagement", seed=42)
     assert r.mcar_fired is True
     assert r.noised_value is None
     assert r.clamped_value is None
@@ -183,7 +184,7 @@ def test_mcar_fired_nullifies_downstream(saas_cfg):
             saas_cfg, np.random.default_rng(42),
         )
     fct_engagement = tables["fct_engagement"]
-    cell = fct_engagement.iloc[0 * 24 + 17]["engagement_score"]
+    cell = fct_engagement.iloc[1 * 24 + 2]["engagement_score"]
     assert pd.isna(cell)
 
 

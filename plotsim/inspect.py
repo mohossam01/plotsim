@@ -60,7 +60,6 @@ from plotsim.metrics import (
     _build_correlation_matrix,
     _clamp_and_round,
     _compute_effective_position,
-    _get_scipy_dist,
     _toposort_metrics,
     apply_correlations,
     apply_noise,
@@ -330,6 +329,7 @@ def trace_metric_cell(
     independent: dict[str, Optional[float]] = {}
     target_effective_position: Optional[float] = None
     target_seasonal_factor = 0.0
+    correlations_active = bool(config.correlations)
     for em in effective_metrics:
         eff_pos = _compute_effective_position(
             pos_target, em, lag_buffer, period_index,
@@ -366,39 +366,53 @@ def trace_metric_cell(
                 * entity_seasonal_sens
             )
         centers[em.name] = center
-        independent[em.name] = sample_single_metric(center, em, replay_rng)
+        # M127b: only the no-correlations path draws independent marginals
+        # per metric. With correlations the new copula draws one batched
+        # ``standard_normal(M)`` inside ``apply_correlations``; calling
+        # ``sample_single_metric`` here would consume RNG twice and the
+        # values would get discarded.
+        if not correlations_active:
+            independent[em.name] = sample_single_metric(center, em, replay_rng)
+        else:
+            independent[em.name] = None
         if em.name == metric_name:
             target_effective_position = eff_pos
 
     assert target_effective_position is not None  # toposort includes target
     target_distribution_center = pre_modulation_centers[metric_name]
     target_modulated_center = centers[metric_name]
-    target_independent_draw = independent[metric_name]
 
-    # Apply correlations (deterministic — no RNG draws).
-    if config.correlations:
+    # Apply correlations. With correlations active the copula consumes RNG
+    # (one ``standard_normal(M)`` draw); without correlations the per-metric
+    # ``sample_single_metric`` draws above are the answer.
+    if correlations_active:
         correlated = apply_correlations(
             independent,
             centers,
             list(config.correlations),
             effective_metrics,
             cholesky_L=cholesky_L,
+            rng=replay_rng,
         )
+        # M127b: the new copula draws its own Gaussians; there is no
+        # separate per-metric "independent" sample distinct from the
+        # correlated value. For dataclass-shape stability we surface the
+        # same value as both ``independent_draw`` and ``correlated_draw``
+        # — the value IS what the new pipeline produced for this cell's
+        # marginal. Tests that previously distinguished the two on the
+        # correlation-active path were updated for the version boundary.
+        target_independent_draw = correlated[metric_name]
     else:
         correlated = dict(independent)
+        target_independent_draw = independent[metric_name]
     target_correlated_draw = correlated[metric_name]
 
-    # Bypass-in-copula: degenerate distribution at this center, OR no
-    # correlation matrix configured at all (no copula step applies, so the
-    # bypass concept doesn't either). The copula transform reads the centers
-    # the sampler actually used — i.e. post-modulation — so the bypass check
-    # uses the modulated center too.
-    target_dist_obj = _get_scipy_dist(
-        target_eff_metric, target_modulated_center,
-    )
-    bypass_in_copula = bool(config.correlations) and (
-        target_dist_obj is None or target_independent_draw is None
-    )
+    # M127b: bypass machinery deleted. The copula now produces a finite
+    # value for every (metric, center) pair, so the bypass-in-copula
+    # concept no longer applies. The ``bypass_in_copula`` field is kept
+    # on the dataclass for backward compat with code that reads it but
+    # is now structurally False.
+    bypass_in_copula = False
 
     # Noise + clamp: walk all effective metrics in toposort order, mirroring
     # generate_metrics_for_period. Capture intermediates for the target

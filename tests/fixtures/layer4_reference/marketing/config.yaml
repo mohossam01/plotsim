@@ -1,65 +1,26 @@
 domain:
-  name: B2B SaaS customer success
-  description: Customer account behavior across the subscription lifecycle
-  entity_type: customer_account
-  entity_label: Customer accounts
+  name: Marketing analytics warehouse
+  description: Acquisition, engagement, conversion, and revenue across customer segments
+    and channels
+  entity_type: customer_segment
+  entity_label: Customer segments
 time_window:
   start: 2023-01
   end: 2024-12
   granularity: monthly
-seed: 42
+seed: 31
 metrics:
-- name: engagement
-  label: Product engagement
-  distribution: beta
-  params:
-    alpha: 2.0
-    beta: 5.0
-  polarity: positive
-  value_range:
-    min: 0.0
-    max: 1.0
-  causal_lag: null
-  seasonal_sensitivity: 1.0
-- name: mrr
-  label: Monthly recurring revenue
-  distribution: lognorm
-  params:
-    s: 0.85
-    loc: 0.0
-    scale: 1200.0
-  polarity: positive
-  value_range:
-    min: 0.0
-    max: 100000.0
-  causal_lag: null
-  seasonal_sensitivity: 1.0
-- name: support_tickets
-  label: Support ticket volume
+- name: sessions
+  label: Monthly site sessions
   distribution: poisson
   params:
-    lambda: 5.0
-  polarity: negative
-  value_range: null
-  causal_lag:
-    driver: engagement
-    lag_periods: 2
-    blend_weight: 1.0
-  seasonal_sensitivity: 1.0
-- name: feature_adoption
-  label: Feature adoption rate
-  distribution: beta
-  params:
-    alpha: 3.0
-    beta: 4.0
+    lambda: 12.0
   polarity: positive
-  value_range:
-    min: 0.0
-    max: 1.0
+  value_range: null
   causal_lag: null
   seasonal_sensitivity: 1.0
-- name: churn_risk
-  label: Churn risk score
+- name: bounce_rate
+  label: Session bounce rate
   distribution: beta
   params:
     alpha: 2.0
@@ -70,66 +31,116 @@ metrics:
     max: 1.0
   causal_lag: null
   seasonal_sensitivity: 1.0
-- name: nps
-  label: Net promoter score
-  distribution: normal
+- name: conversion_rate
+  label: Visit-to-purchase conversion
+  distribution: beta
   params:
-    mu: 30.0
-    sigma: 15.0
+    alpha: 2.0
+    beta: 8.0
   polarity: positive
   value_range:
-    min: -100.0
-    max: 100.0
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: ad_spend
+  label: Monthly paid-media spend
+  distribution: lognorm
+  params:
+    s: 0.7
+    loc: 0.0
+    scale: 2000.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 50000.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: impressions
+  label: Ad impressions delivered
+  distribution: poisson
+  params:
+    lambda: 500.0
+  polarity: positive
+  value_range: null
+  causal_lag:
+    driver: ad_spend
+    lag_periods: 1
+    blend_weight: 1.0
+  seasonal_sensitivity: 1.0
+- name: click_through_rate
+  label: Ad click-through rate
+  distribution: beta
+  params:
+    alpha: 2.5
+    beta: 12.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: revenue
+  label: Monthly revenue per segment
+  distribution: lognorm
+  params:
+    s: 0.8
+    loc: 0.0
+    scale: 5000.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 200000.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: average_order_value
+  label: Average order value
+  distribution: lognorm
+  params:
+    s: 0.5
+    loc: 0.0
+    scale: 85.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 5000.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: customer_lifetime_value
+  label: Customer lifetime value
+  distribution: lognorm
+  params:
+    s: 0.9
+    loc: 0.0
+    scale: 800.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 50000.0
   causal_lag: null
   seasonal_sensitivity: 1.0
 archetypes:
-- name: rocket_then_cliff
-  label: Grows fast then crashes
-  description: Rapid adoption then an abrupt drop and low plateau
+- name: high_value_loyal
+  label: Compounding high-value loyalists
+  description: Compound revenue growth, premium basket
   curve_segments:
-  - curve: sigmoid
+  - curve: compound
     params:
-      midpoint: 0.3
-      steepness: 10.0
-    start_pct: 0.0
-    end_pct: 0.55
-  - curve: step
-    params:
-      threshold: 0.5
-      before: 1.0
-      after: 0.2
-    start_pct: 0.55
-    end_pct: 0.65
-  - curve: plateau
-    params:
-      level: 0.2
-    start_pct: 0.65
-    end_pct: 1.0
-  metric_overrides: {}
-- name: steady_grower
-  label: Climbs steadily
-  description: S-curve growth across the full window
-  curve_segments:
-  - curve: sigmoid
-    params:
-      midpoint: 0.5
-      steepness: 6.0
+      base_rate: 0.06
+      acceleration: 0.02
     start_pct: 0.0
     end_pct: 1.0
-  metric_overrides: {}
-- name: slow_death
-  label: Slowly fades
-  description: Exponential decline across the full window
-  curve_segments:
-  - curve: exp_decay
-    params:
-      rate: 2.0
-    start_pct: 0.0
-    end_pct: 1.0
-  metric_overrides: {}
-- name: seasonal_spiker
-  label: Pulses with the seasons
-  description: Cyclical periodic peaks across the window
+  metric_overrides:
+    revenue:
+      distribution: lognorm
+      params:
+        s: 0.5
+        loc: 0.0
+        scale: 8000.0
+      value_range: null
+- name: deal_seeker
+  label: Promo-driven shoppers
+  description: Cyclical engagement tied to discount cycles
   curve_segments:
   - curve: oscillating
     params:
@@ -138,48 +149,89 @@ archetypes:
     start_pct: 0.0
     end_pct: 1.0
   metric_overrides: {}
-- name: zombie_account
-  label: Present but inactive
-  description: "Flat low level throughout \u2014 dormant account"
+- name: organic_convert
+  label: Organic discovery converters
+  description: S-curve adoption from organic traffic
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.6
+      steepness: 5.0
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides: {}
+- name: paid_acquisition_churn
+  label: Paid spike then churn
+  description: Sharp paid-acquisition rise, abrupt drop, dormant tail
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.2
+      steepness: 10.0
+    start_pct: 0.0
+    end_pct: 0.4
+  - curve: step
+    params:
+      threshold: 0.5
+      before: 1.0
+      after: 0.15
+    start_pct: 0.4
+    end_pct: 0.5
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.5
+    end_pct: 1.0
+  metric_overrides: {}
+- name: dormant_reactivation
+  label: Win-back reactivators
+  description: Long dormant plateau, late re-engagement bump
   curve_segments:
   - curve: plateau
     params:
       level: 0.15
     start_pct: 0.0
+    end_pct: 0.55
+  - curve: step
+    params:
+      threshold: 0.5
+      before: 0.15
+      after: 0.65
+    start_pct: 0.55
+    end_pct: 0.65
+  - curve: plateau
+    params:
+      level: 0.65
+    start_pct: 0.65
     end_pct: 1.0
   metric_overrides: {}
-- name: expansion_champion
-  label: Keeps accelerating
-  description: Compound growth with increasing velocity
-  curve_segments:
-  - curve: compound
-    params:
-      base_rate: 0.05
-      acceleration: 0.02
-    start_pct: 0.0
-    end_pct: 1.0
-  metric_overrides:
-    mrr:
-      distribution: lognorm
-      params:
-        s: 0.6
-        scale: 2500.0
-      value_range: null
 entities:
-- name: acme_corp_cohort
-  archetype: rocket_then_cliff
-  size: 50
+- name: power_buyers
+  archetype: high_value_loyal
+  size: 20
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
-- name: globex_cohort
-  archetype: steady_grower
+- name: promo_shoppers
+  archetype: deal_seeker
   size: 30
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
-- name: hooli_cohort
-  archetype: zombie_account
+- name: organic_discoverers
+  archetype: organic_convert
+  size: 25
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: ad_acquired
+  archetype: paid_acquisition_churn
+  size: 15
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: win_backs
+  archetype: dormant_reactivation
   size: 10
   overrides: null
   cross_dim_fks: {}
@@ -233,11 +285,11 @@ tables:
   foreign_keys: []
   row_count_source: null
   count: 1
-- name: dim_company
+- name: dim_customer
   type: dim
   grain: per_entity
   columns:
-  - name: company_id
+  - name: customer_id
     dtype: id
     source: pk
     pii_note: null
@@ -245,25 +297,9 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: company_name
+  - name: segment_name
     dtype: string
     source: generated:faker.company
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: industry
-    dtype: string
-    source: generated:faker.industry
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: founded_year
-    dtype: int
-    source: generated:faker.year
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -277,72 +313,31 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: plan_tier
+  - name: customer_tier
     dtype: string
     source: scd_type2
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2:
-      trigger_metric: fct_revenue.mrr
+      trigger_metric: fct_revenue.revenue
       thresholds:
-      - 0.4
+      - 0.3
       - 0.7
       labels:
-      - starter
-      - growth
-      - enterprise
+      - prospect
+      - active
+      - vip
     value_pool: null
-  primary_key: company_id
+  primary_key: customer_id
   foreign_keys: []
   row_count_source: null
   count: 1
-- name: dim_user
-  type: dim
-  grain: variable
-  columns:
-  - name: user_id
-    dtype: id
-    source: pk
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: company_id
-    dtype: id
-    source: fk:dim_company.company_id
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: user_name
-    dtype: string
-    source: generated:faker.name
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: role
-    dtype: string
-    source: static:member
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  primary_key: user_id
-  foreign_keys:
-  - dim_company.company_id
-  row_count_source: null
-  count: 1
-- name: dim_plan
+- name: dim_channel
   type: dim
   grain: per_reference
   columns:
-  - name: plan_id
+  - name: channel_id
     dtype: id
     source: pk
     pii_note: null
@@ -350,27 +345,91 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: plan_name
+  - name: channel_name
     dtype: string
-    source: static:starter
+    source: static:organic_search,paid_search,paid_social,email,direct,referral
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: monthly_price
-    dtype: float
-    source: static:99.00
+  - name: channel_type
+    dtype: string
+    source: static:organic,paid,paid,owned,organic,organic
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  primary_key: plan_id
+  primary_key: channel_id
   foreign_keys: []
   row_count_source: null
   count: 1
-- name: fct_engagement
+- name: dim_campaign
+  type: dim
+  grain: per_reference
+  columns:
+  - name: campaign_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: campaign_name
+    dtype: string
+    source: static:spring_promo,summer_sale,holiday_push,always_on_brand,retargeting
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: campaign_objective
+    dtype: string
+    source: static:conversion,conversion,conversion,awareness,reactivation
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: campaign_id
+  foreign_keys: []
+  row_count_source: null
+  count: 1
+- name: dim_product_category
+  type: dim
+  grain: per_reference
+  columns:
+  - name: category_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: category_name
+    dtype: string
+    source: static:electronics,apparel,home,beauty
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: margin_tier
+    dtype: string
+    source: static:high,standard,standard,high
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: category_id
+  foreign_keys: []
+  row_count_source: null
+  count: 1
+- name: fct_traffic
   type: fact
   grain: per_entity_per_period
   columns:
@@ -382,25 +441,33 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: company_id
+  - name: customer_id
     dtype: id
-    source: fk:dim_company.company_id
+    source: fk:dim_customer.customer_id
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: engagement_score
-    dtype: float
-    source: metric:engagement
+  - name: session_count
+    dtype: int
+    source: metric:sessions
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: feature_adoption
+  - name: bounce_rate
     dtype: float
-    source: metric:feature_adoption
+    source: metric:bounce_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: conversion_rate
+    dtype: float
+    source: metric:conversion_rate
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -408,7 +475,7 @@ tables:
     value_pool: null
   - name: customer_sentiment
     dtype: string
-    source: text:bucket:[at_risk, lukewarm, satisfied, delighted]
+    source: text:bucket:[cold, warming, engaged, advocate]
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -416,10 +483,71 @@ tables:
     value_pool: null
   primary_key:
   - date_key
-  - company_id
+  - customer_id
   foreign_keys:
   - dim_date.date_key
-  - dim_company.company_id
+  - dim_customer.customer_id
+  row_count_source: null
+  count: 1
+- name: fct_campaigns
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: customer_id
+    dtype: id
+    source: fk:dim_customer.customer_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: campaign_id
+    dtype: id
+    source: fk:dim_campaign.campaign_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: ad_spend
+    dtype: float
+    source: metric:ad_spend
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: impressions
+    dtype: int
+    source: metric:impressions
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: click_through_rate
+    dtype: float
+    source: metric:click_through_rate
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key:
+  - date_key
+  - customer_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_customer.customer_id
+  - dim_campaign.campaign_id
   row_count_source: null
   count: 1
 - name: fct_revenue
@@ -434,25 +562,41 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: company_id
+  - name: customer_id
     dtype: id
-    source: fk:dim_company.company_id
+    source: fk:dim_customer.customer_id
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: plan_id
+  - name: category_id
     dtype: id
-    source: fk:dim_plan.plan_id
+    source: fk:dim_product_category.category_id
     pii_note: null
     distribution: null
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: mrr
+  - name: revenue
     dtype: float
-    source: metric:mrr
+    source: metric:revenue
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: average_order_value
+    dtype: float
+    source: metric:average_order_value
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: customer_lifetime_value
+    dtype: float
+    source: metric:customer_lifetime_value
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -460,115 +604,12 @@ tables:
     value_pool: null
   primary_key:
   - date_key
-  - company_id
+  - customer_id
   foreign_keys:
   - dim_date.date_key
-  - dim_company.company_id
-  - dim_plan.plan_id
+  - dim_customer.customer_id
+  - dim_product_category.category_id
   row_count_source: null
-  count: 1
-- name: fct_support_tickets
-  type: fact
-  grain: per_entity_per_period
-  columns:
-  - name: date_key
-    dtype: id
-    source: fk:dim_date.date_key
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: company_id
-    dtype: id
-    source: fk:dim_company.company_id
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: ticket_count
-    dtype: int
-    source: metric:support_tickets
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: churn_risk
-    dtype: float
-    source: metric:churn_risk
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: nps
-    dtype: float
-    source: metric:nps
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  primary_key:
-  - date_key
-  - company_id
-  foreign_keys:
-  - dim_date.date_key
-  - dim_company.company_id
-  row_count_source: null
-  count: 1
-- name: evt_login
-  type: event
-  grain: variable
-  columns:
-  - name: event_id
-    dtype: id
-    source: pk
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: date_key
-    dtype: id
-    source: fk:dim_date.date_key
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: user_id
-    dtype: id
-    source: fk:dim_user.user_id
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: company_id
-    dtype: id
-    source: fk:dim_company.company_id
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  - name: event_ts
-    dtype: date
-    source: generated:timestamp
-    pii_note: null
-    distribution: null
-    allow_outside_window: false
-    scd_type2: null
-    value_pool: null
-  primary_key: event_id
-  foreign_keys:
-  - dim_date.date_key
-  - dim_user.user_id
-  - dim_company.company_id
-  row_count_source: proportional:engagement:scale:5
   count: 1
 - name: evt_churn
   type: event
@@ -590,9 +631,9 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
-  - name: company_id
+  - name: customer_id
     dtype: id
-    source: fk:dim_company.company_id
+    source: fk:dim_customer.customer_id
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -608,7 +649,7 @@ tables:
     value_pool: null
   - name: churn_flag
     dtype: boolean
-    source: threshold:churn_risk:above:0.7:for:3
+    source: threshold:conversion_rate:below:0.1:for:3
     pii_note: null
     distribution: null
     allow_outside_window: false
@@ -617,47 +658,82 @@ tables:
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
-  - dim_company.company_id
+  - dim_customer.customer_id
   row_count_source: null
   count: 1
 correlations:
-- metric_a: engagement
-  metric_b: mrr
-  coefficient: 0.82
-- metric_a: engagement
-  metric_b: churn_risk
-  coefficient: -0.75
-- metric_a: support_tickets
-  metric_b: churn_risk
-  coefficient: 0.68
+- metric_a: sessions
+  metric_b: conversion_rate
+  coefficient: 0.45
+- metric_a: click_through_rate
+  metric_b: conversion_rate
+  coefficient: 0.5
+- metric_a: bounce_rate
+  metric_b: conversion_rate
+  coefficient: -0.4
+- metric_a: revenue
+  metric_b: customer_lifetime_value
+  coefficient: 0.65
+- metric_a: conversion_rate
+  metric_b: revenue
+  coefficient: 0.55
 noise:
-  gaussian_sigma: 0.05
-  outlier_rate: 0.02
+  gaussian_sigma: 0.04
+  outlier_rate: 0.015
   mcar_rate: 0.01
 output:
   format: csv
-  directory: out/saas
+  directory: out/marketing
 manifest:
   include: true
   trajectory_sample_rate: 1.0
 stages:
-  field: churn_risk
+  field: customer_lifetime_value
   sequence:
-  - name: onboarding
+  - name: prospect
     threshold_enter: 0.0
     threshold_exit: 0.2
-  - name: active
+  - name: first_purchase
     threshold_enter: 0.2
-    threshold_exit: 0.5
-  - name: at_risk
-    threshold_enter: 0.5
-    threshold_exit: 0.8
-  - name: churned
-    threshold_enter: 0.8
+    threshold_exit: 0.4
+  - name: repeat_buyer
+    threshold_enter: 0.4
+    threshold_exit: 0.7
+  - name: loyal
+    threshold_enter: 0.7
+    threshold_exit: 0.9
+  - name: champion
+    threshold_enter: 0.9
     threshold_exit: null
   enforce_order: true
   downgrade_delay: null
-bridges: []
+bridges:
+- name: bridge_customer_channel
+  type: bridge
+  connects:
+  - dim_customer
+  - dim_channel
+  cardinality:
+    min: 1
+    max: 4
+  trajectory_driven: true
+  metrics:
+  - name: channel_attribution_share
+    dtype: float
+    source: metric:conversion_rate
+- name: bridge_customer_campaign
+  type: bridge
+  connects:
+  - dim_customer
+  - dim_campaign
+  cardinality:
+    min: 1
+    max: 3
+  trajectory_driven: true
+  metrics:
+  - name: touchpoint_count
+    dtype: int
+    source: metric:sessions
 quality:
   quality_issues: []
 entity_features:

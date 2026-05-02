@@ -1,0 +1,18 @@
+Plotsim Validation Report
+==========================
+Generated: deterministic (config-sha256[:16]=ef7d9cc4748fcbca)
+Errors: 0 | Warnings: 2 | Total: 2
+Status: VALID
+
+[WARN ] cross_dim_fk_cardinality (evt_churn) — FK column 'date_key' carries 1 unique value(s) despite parent 'dim_date' having 24 rows. Add 'distribution: uniform' or '{weights: {...}}' on the column, or pin per cohort via Entity.cross_dim_fks.
+        column: date_key
+        parent: dim_date.date_key
+        parent_row_count: 24
+        child_unique_count: 1
+        child_unique_sample: [20230401]
+[WARN ] cross_dim_fk_cardinality (evt_churn) — FK column 'customer_id' carries 1 unique value(s) despite parent 'dim_customer' having 13 rows. Add 'distribution: uniform' or '{weights: {...}}' on the column, or pin per cohort via Entity.cross_dim_fks.
+        column: customer_id
+        parent: dim_customer.customer_id
+        parent_row_count: 13
+        child_unique_count: 1
+        child_unique_sample: ['c-003']

@@ -1,0 +1,7 @@
+Plotsim Validation Report
+==========================
+Generated: deterministic (config-sha256[:16]=5bfb9c22d05c38d3)
+Errors: 0 | Warnings: 0 | Total: 0
+Status: VALID
+
+All checks passed cleanly.

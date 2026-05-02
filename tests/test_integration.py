@@ -45,16 +45,16 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = ROOT / "plotsim" / "configs"
 SAAS_YAML = CONFIGS_DIR / "sample_saas.yaml"
 HR_YAML = CONFIGS_DIR / "sample_hr.yaml"
-ECOMMERCE_YAML = CONFIGS_DIR / "sample_ecommerce.yaml"
 EDUCATION_YAML = CONFIGS_DIR / "sample_education.yaml"
-HEALTHCARE_YAML = CONFIGS_DIR / "sample_healthcare.yaml"
+RETAIL_YAML = CONFIGS_DIR / "sample_retail.yaml"
+MARKETING_YAML = CONFIGS_DIR / "sample_marketing.yaml"
 
 ALL_TEMPLATES: dict[str, Path] = {
     "saas": SAAS_YAML,
     "hr": HR_YAML,
-    "ecommerce": ECOMMERCE_YAML,
     "education": EDUCATION_YAML,
-    "healthcare": HEALTHCARE_YAML,
+    "retail": RETAIL_YAML,
+    "marketing": MARKETING_YAML,
 }
 
 
@@ -659,17 +659,17 @@ needs_sklearn = pytest.mark.skipif(
 # template → (yaml path, primary fact table, per_entity FK column, metric column)
 #
 # Metric choice: first continuous (beta/normal/gamma/lognorm) metric in the
-# primary fact table. Integer poisson counts (session_count, visit_count)
-# are the first-listed metric for ecommerce/healthcare but carry too much
-# sampling noise at their configured λ values (sqrt(λ) ≈ 2.5–3 ticks on a
-# 0–15 value range) to discriminate trajectory shape with only 24 periods.
-# The continuous siblings on the same fact table preserve archetype signal.
+# primary fact table. Integer poisson counts (session_count, sessions) are
+# the first-listed metric for retail/marketing but carry too much sampling
+# noise at their configured λ values (sqrt(λ) ≈ 2.5–3 ticks on a 0–15 value
+# range) to discriminate trajectory shape with only 24 periods. The
+# continuous siblings on the same fact table preserve archetype signal.
 DISTINGUISHABILITY_SPEC: dict[str, tuple[Path, str, str, str]] = {
-    "saas":       (SAAS_YAML,       "fct_engagement",  "company_id",  "engagement_score"),
-    "hr":         (HR_YAML,         "fct_performance", "employee_id", "performance_score"),
-    "ecommerce":  (ECOMMERCE_YAML,  "fct_sessions",    "segment_id",  "conversion_rate"),
-    "education":  (EDUCATION_YAML,  "fct_grades",      "student_id",  "assignment_score"),
-    "healthcare": (HEALTHCARE_YAML, "fct_visits",      "group_id",    "treatment_adherence"),
+    "saas":      (SAAS_YAML,      "fct_engagement",  "company_id",  "engagement_score"),
+    "hr":        (HR_YAML,        "fct_performance", "employee_id", "performance_score"),
+    "education": (EDUCATION_YAML, "fct_grades",      "student_id",  "assignment_score"),
+    "retail":    (RETAIL_YAML,    "fct_sessions",    "segment_id",  "conversion_rate"),
+    "marketing": (MARKETING_YAML, "fct_traffic",     "customer_id", "bounce_rate"),
 }
 
 
@@ -782,18 +782,18 @@ def test_archetypes_distinguishable_hr(tmp_path: Path):
 
 
 @needs_sklearn
-def test_archetypes_distinguishable_ecommerce(tmp_path: Path):
-    _assert_distinguishable("ecommerce", tmp_path)
-
-
-@needs_sklearn
 def test_archetypes_distinguishable_education(tmp_path: Path):
     _assert_distinguishable("education", tmp_path)
 
 
 @needs_sklearn
-def test_archetypes_distinguishable_healthcare(tmp_path: Path):
-    _assert_distinguishable("healthcare", tmp_path)
+def test_archetypes_distinguishable_retail(tmp_path: Path):
+    _assert_distinguishable("retail", tmp_path)
+
+
+@needs_sklearn
+def test_archetypes_distinguishable_marketing(tmp_path: Path):
+    _assert_distinguishable("marketing", tmp_path)
 
 
 @needs_sklearn
@@ -801,10 +801,12 @@ def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
     """Cranking noise must reduce ARI (the test is noise-sensitive, not vacuous)
     without breaking the pipeline or destroying the signal entirely.
 
-    Uses the healthcare template because its archetypes (``recovering`` /
-    ``chronic_stable`` / ``relapsing``) share a mean near 0.5 and differ
-    mostly in slope and variability — the signal is structurally more
-    fragile under noise than SaaS's rocket-vs-grower-vs-zombie set.
+    Uses the marketing template because its five archetypes mix oscillating
+    (``deal_seeker``), sigmoid (``organic_convert``), step-down
+    (``paid_acquisition_churn``) and step-up (``dormant_reactivation``)
+    shapes — several pairs share overlapping bounce_rate trajectories
+    near the 0.3–0.5 band, making the signal structurally more fragile
+    under noise than SaaS's rocket-vs-grower-vs-zombie set.
 
     Three assertions:
       1. Low-noise control clears the 0.5 bar (matches per-template tests).
@@ -814,7 +816,7 @@ def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
          assertion is noise-sensitive and not a vacuous pass.
     """
     fact_name, entity_col, metric_col = (
-        "fct_visits", "group_id", "treatment_adherence",
+        "fct_traffic", "customer_id", "bounce_rate",
     )
 
     def low_noise(data):
@@ -833,8 +835,8 @@ def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
             "mcar_rate": 0.15,
         }
 
-    low_cfg = _mutate_template(tmp_path, HEALTHCARE_YAML, low_noise, "low.yaml")
-    high_cfg = _mutate_template(tmp_path, HEALTHCARE_YAML, high_noise, "high.yaml")
+    low_cfg = _mutate_template(tmp_path, MARKETING_YAML, low_noise, "low.yaml")
+    high_cfg = _mutate_template(tmp_path, MARKETING_YAML, high_noise, "high.yaml")
     low_ari = _distinguishability_ari(
         low_cfg, generate(low_cfg), fact_name, entity_col, metric_col,
     )

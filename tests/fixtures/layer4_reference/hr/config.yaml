@@ -20,6 +20,7 @@ metrics:
     min: 1.0
     max: 5.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: engagement_index
   label: Engagement index
   distribution: beta
@@ -31,6 +32,7 @@ metrics:
     min: 0.0
     max: 1.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: training_hours
   label: Monthly training hours
   distribution: gamma
@@ -40,6 +42,7 @@ metrics:
   polarity: positive
   value_range: null
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: absence_rate
   label: Monthly absence rate
   distribution: beta
@@ -54,6 +57,7 @@ metrics:
     driver: engagement_index
     lag_periods: 1
     blend_weight: 1.0
+  seasonal_sensitivity: 1.0
 - name: attrition_risk
   label: Attrition risk score
   distribution: beta
@@ -65,6 +69,7 @@ metrics:
     min: 0.0
     max: 1.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 archetypes:
 - name: fast_riser
   label: Rapid growth
@@ -137,21 +142,25 @@ entities:
   size: 20
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 - name: core_team
   archetype: steady_performer
   size: 50
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 - name: disengaged_pool
   archetype: quiet_quitter
   size: 10
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 - name: burnout_cohort
   archetype: burnout_risk
   size: 5
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 tables:
 - name: dim_date
   type: dim
@@ -164,6 +173,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -171,6 +181,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -178,6 +189,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -185,9 +197,11 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
+  count: 1
 - name: dim_department
   type: dim
   grain: per_reference
@@ -199,6 +213,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: dept_name
     dtype: string
     source: static:engineering
@@ -206,6 +221,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: cost_center
     dtype: string
     source: static:R&D
@@ -213,9 +229,11 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: dept_id
   foreign_keys: []
   row_count_source: null
+  count: 1
 - name: dim_employee
   type: dim
   grain: per_entity
@@ -227,6 +245,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: dept_id
     dtype: id
     source: fk:dim_department.dept_id
@@ -234,6 +253,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: full_name
     dtype: string
     source: generated:faker.name
@@ -241,6 +261,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: hire_date
     dtype: date
     source: generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31
@@ -248,6 +269,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: level
     dtype: string
     source: static:IC
@@ -255,10 +277,12 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: employee_id
   foreign_keys:
   - dim_department.dept_id
   row_count_source: null
+  count: 1
 - name: fct_performance
   type: fact
   grain: per_entity_per_period
@@ -270,6 +294,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -277,6 +302,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: performance_score
     dtype: float
     source: metric:performance_score
@@ -284,6 +310,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: engagement_index
     dtype: float
     source: metric:engagement_index
@@ -291,6 +318,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key:
   - date_key
   - employee_id
@@ -298,6 +326,7 @@ tables:
   - dim_date.date_key
   - dim_employee.employee_id
   row_count_source: null
+  count: 1
 - name: fct_training
   type: fact
   grain: per_entity_per_period
@@ -309,6 +338,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -316,6 +346,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: training_hours
     dtype: float
     source: metric:training_hours
@@ -323,6 +354,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key:
   - date_key
   - employee_id
@@ -330,6 +362,7 @@ tables:
   - dim_date.date_key
   - dim_employee.employee_id
   row_count_source: null
+  count: 1
 - name: fct_attendance
   type: fact
   grain: per_entity_per_period
@@ -341,6 +374,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -348,6 +382,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: absence_rate
     dtype: float
     source: metric:absence_rate
@@ -355,6 +390,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: attrition_risk
     dtype: float
     source: metric:attrition_risk
@@ -362,6 +398,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key:
   - date_key
   - employee_id
@@ -369,6 +406,7 @@ tables:
   - dim_date.date_key
   - dim_employee.employee_id
   row_count_source: null
+  count: 1
 - name: evt_attrition
   type: event
   grain: variable
@@ -380,6 +418,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -387,6 +426,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -394,6 +434,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
@@ -401,21 +442,23 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_employee.employee_id
   row_count_source: null
+  count: 1
 correlations:
 - metric_a: engagement_index
   metric_b: attrition_risk
-  coefficient: -0.65
+  coefficient: -0.72
 - metric_a: performance_score
   metric_b: attrition_risk
-  coefficient: -0.5
+  coefficient: -0.55
 - metric_a: absence_rate
   metric_b: attrition_risk
-  coefficient: 0.55
+  coefficient: 0.61
 noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
@@ -443,4 +486,19 @@ stages:
     threshold_exit: null
   enforce_order: true
   downgrade_delay: null
+bridges: []
+quality:
+  quality_issues: []
+entity_features:
+  enabled: false
+  metrics: []
+  include_labels: true
+holdout:
+  enabled: false
+  target_metric: null
+  holdout_periods: 0
+  min_training_periods: 3
 locale: en_US
+seasonal_effects: []
+compensate_correlations: false
+generation_mode: serial

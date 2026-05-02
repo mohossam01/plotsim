@@ -1,20 +1,18 @@
-"""Tests for M121b bypass-counter manifest surfacing.
+"""Tests for the (post-M127b) ``bypass_fallback_counts`` manifest field.
 
-The vectorized path's per-cell degenerate-distribution fallback was
-silent in M121a — users couldn't tell whether vectorization wasn't
-helping because of bypass. M121b threads a per-archetype counter
-through ``_apply_correlations_batch`` →
-``generate_archetype_batch`` → ``_compute_entity_metrics`` →
-``GenerationState`` → ``manifest.bypass_fallback_counts``.
+M127b's copula reformulation deleted the bypass machinery — there is no
+longer a per-row scalar fallback in ``_apply_correlations_batch`` to
+count. The manifest field is preserved as a stable empty dict so old
+manifest readers don't break, and the field's loading path still
+accepts ``None`` for backward-compat with pre-M127b manifests on disk.
 
-Three states the manifest field encodes:
+Two states the manifest field encodes after M127b:
 
-  * ``None`` — serial mode; bypass never measured (no batched copula
-    to fall back from).
-  * ``{}`` — vectorized run with zero bypass cells (fast path covered
-    every period).
-  * ``{archetype: count, ...}`` — vectorized run where one or more
-    archetypes had degenerate centers.
+  * ``{}`` — every fresh manifest emitted at generation time. The new
+    copula's family-grouped transforms produce a finite value for every
+    cell; no bypass to count.
+  * ``None`` — only on legacy on-disk manifests written by older
+    versions; preserved by the schema for backward-compat loading.
 
 A complementary field ``vectorized_threshold_used`` records the
 constant ``_VECTORIZED_AUTO_THRESHOLD`` at generation time so old
@@ -53,40 +51,43 @@ def _build_manifest_for(cfg) -> object:
 
 
 class TestManifestFieldShape:
-    """``bypass_fallback_counts`` distinguishes serial from vectorized
-    runs via the ``None`` vs ``{}`` boundary."""
+    """``bypass_fallback_counts`` is always an empty dict on freshly
+    emitted manifests after M127b removed the bypass machinery."""
 
-    def test_serial_run_emits_none(self):
+    def test_serial_run_emits_empty_dict(self):
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
         assert cfg.generation_mode == "serial"
         m = _build_manifest_for(cfg)
-        assert m.bypass_fallback_counts is None, (
-            "serial mode should emit None — there's no batched copula "
-            "to measure bypass against"
+        assert m.bypass_fallback_counts == {}, (
+            "M127b: bypass machinery removed; the manifest field is now "
+            f"always an empty dict on fresh runs (got {m.bypass_fallback_counts})"
         )
 
-    def test_vectorized_run_emits_dict(self):
+    def test_vectorized_run_emits_empty_dict(self):
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
-        assert isinstance(m.bypass_fallback_counts, dict), (
-            "vectorized mode should always emit a dict — empty when no "
-            "bypass occurred, populated otherwise"
+        assert m.bypass_fallback_counts == {}, (
+            "M127b: bypass machinery removed; vectorized runs no longer "
+            f"populate the field (got {m.bypass_fallback_counts})"
         )
 
     def test_keys_are_archetype_names(self):
+        # M127b: with bypass machinery deleted the dict is always empty,
+        # so the keys-are-archetype-names invariant is vacuously true.
+        # Kept as a regression guard against the field gaining un-
+        # validated keys in a future change.
         cfg = create_from_yaml(
             ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         archetype_names = {e.archetype for e in cfg.entities}
-        # Counter keys must be a subset of archetype names — the
-        # dispatcher inserts entries on bypass; archetypes with no
-        # bypass don't pre-populate.
         assert set(m.bypass_fallback_counts.keys()).issubset(archetype_names)
 
     def test_counts_are_nonnegative_ints(self):
+        # M127b: vacuously true on an empty dict; kept as a stable shape
+        # invariant for any future repopulation.
         cfg = create_from_yaml(
             ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
         )
@@ -106,10 +107,11 @@ class TestCounterIncrement:
     degenerate cells appear."""
 
     def test_zero_in_serial_zero_lognorm_metric_yields_bypass(self):
-        """A lognorm metric with very low ``loc`` and ``scale`` keeps
-        the center near 0, which trips the lognorm bypass branch
-        (``center <= _CENTER_EPS``). Force vectorized mode so the
-        counter has somewhere to land."""
+        """M127b: bypass machinery is gone, so even a degenerate-center
+        config produces an empty ``bypass_fallback_counts`` dict — the
+        counter has nothing to land in. Kept as a regression guard
+        against a future re-introduction of the bypass plumbing.
+        """
         from plotsim.config import (
             Archetype,
             Column,
@@ -178,11 +180,11 @@ class TestCounterIncrement:
             generation_mode="vectorized",
         )
         m = _build_manifest_for(cfg)
-        # Every cell across every period should trip bypass — the
-        # archetype's plateau-at-zero trajectory keeps lognorm centers
-        # below the epsilon threshold for the whole window.
-        assert m.bypass_fallback_counts.get("dead", 0) > 0, (
-            f"expected non-zero bypass for the all-degenerate config; "
+        # M127b: bypass plumbing is gone, so even an all-degenerate
+        # config produces an empty counter. The cells themselves still
+        # produce finite output via the new family-grouped transforms.
+        assert m.bypass_fallback_counts == {}, (
+            f"M127b: bypass machinery removed; expected empty dict, "
             f"got {m.bypass_fallback_counts}"
         )
 

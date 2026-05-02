@@ -821,7 +821,9 @@ def test_build_correlation_matrix_structure():
 
 def test_apply_correlations_cholesky_L_matches_unhoisted():
     """apply_correlations must return identical output whether it computes
-    Cholesky internally or receives a pre-computed L."""
+    Cholesky internally or receives a pre-computed L. M127b: both paths
+    consume RNG via the new copula draw, so feeding identical seeds is
+    the equivalence test."""
     from plotsim.metrics import _build_correlation_matrix, apply_correlations
     metrics = [
         Metric(name="a", label="A", distribution="normal",
@@ -838,9 +840,13 @@ def test_apply_correlations_cholesky_L_matches_unhoisted():
     mat = _build_correlation_matrix(metrics, correlations)
     L = np.linalg.cholesky(mat)
 
-    out_internal = apply_correlations(independent, centers, correlations, metrics)
+    out_internal = apply_correlations(
+        independent, centers, correlations, metrics,
+        rng=np.random.default_rng(0),
+    )
     out_hoisted = apply_correlations(
         independent, centers, correlations, metrics, cholesky_L=L,
+        rng=np.random.default_rng(0),
     )
     assert set(out_internal.keys()) == set(out_hoisted.keys())
     for k in out_internal:
@@ -1079,4 +1085,75 @@ def test_r10_determinism_under_copula():
         pd.testing.assert_frame_equal(
             a[name].reset_index(drop=True),
             b[name].reset_index(drop=True),
+        )
+
+
+def test_m127b_poisson_lambda_zero_finite_output():
+    """M127b acceptance: a poisson metric whose center collapses to 0
+    inside a correlation pair must produce finite, deterministic output
+    (no NaN, no inf) under the new copula flip.
+
+    Pre-M127b this case triggered the bypass machinery: the poisson cell's
+    independent draw passed through unchanged. Post-M127b the copula's
+    family-grouped transform handles λ=0 directly — ``rng.poisson(lam=0)``
+    is a deterministic 0 for the marginal, and the copula's correlated
+    Gaussian feeds through the registry's ``ppf_batch`` path. The cell is
+    finite; the rest of the cell row is finite; the output is reproducible
+    across runs at the same seed.
+    """
+    from plotsim.metrics import (
+        _toposort_metrics,
+        apply_correlations,
+        _build_correlation_matrix,
+    )
+
+    m_normal = Metric(
+        name="x", label="X", distribution="normal",
+        params={"sigma": 1.0}, polarity="positive",
+    )
+    m_poisson = Metric(
+        name="p", label="P", distribution="poisson",
+        params={"lambda": 5.0}, polarity="positive",
+    )
+    metrics = _toposort_metrics([m_poisson, m_normal])
+    correlations = [
+        CorrelationPair(metric_a="p", metric_b="x", coefficient=0.7),
+    ]
+    mat = _build_correlation_matrix(metrics, correlations)
+    L = np.linalg.cholesky(mat)
+
+    # Center the poisson at λ=0 (the degenerate case M127b's flip must
+    # handle without a bypass fallback).
+    centers_pn = {m.name: 0.0 for m in metrics}  # both centers 0, but only
+    centers_pn["x"] = 5.0  # normal's center is non-zero
+
+    rng = np.random.default_rng(123)
+    for _ in range(64):
+        independent = {m.name: 0.0 for m in metrics}  # placeholder
+        out = apply_correlations(
+            independent, centers_pn, correlations, metrics,
+            cholesky_L=L, rng=rng,
+        )
+        for name, val in out.items():
+            assert val is not None, f"{name} returned None"
+            assert np.isfinite(val), (
+                f"M127b regression: poisson λ=0 + correlation produced "
+                f"non-finite cell {name}={val!r}"
+            )
+
+    # Determinism under the same seed.
+    rng_a = np.random.default_rng(7)
+    rng_b = np.random.default_rng(7)
+    out_a = apply_correlations(
+        {"p": 0.0, "x": 5.0}, centers_pn, correlations, metrics,
+        cholesky_L=L, rng=rng_a,
+    )
+    out_b = apply_correlations(
+        {"p": 0.0, "x": 5.0}, centers_pn, correlations, metrics,
+        cholesky_L=L, rng=rng_b,
+    )
+    for name in out_a:
+        assert out_a[name] == out_b[name], (
+            f"determinism broken under poisson λ=0: "
+            f"{name} a={out_a[name]} b={out_b[name]}"
         )

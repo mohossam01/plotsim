@@ -52,9 +52,9 @@ CONFIGS_DIR = ROOT / "plotsim" / "configs"
 # column on a per-entity-per-period fact table — these are the surface F3
 # operates on.
 TEMPLATES_WITH_INT_METRICS: dict[str, Path] = {
-    "saas":       CONFIGS_DIR / "sample_saas.yaml",        # ticket_count
-    "ecommerce":  CONFIGS_DIR / "sample_ecommerce.yaml",   # session_count
-    "healthcare": CONFIGS_DIR / "sample_healthcare.yaml",  # visit_count
+    "saas":      CONFIGS_DIR / "sample_saas.yaml",       # ticket_count
+    "retail":    CONFIGS_DIR / "sample_retail.yaml",     # session_count
+    "marketing": CONFIGS_DIR / "sample_marketing.yaml",  # session_count, impressions
 }
 
 
@@ -91,7 +91,7 @@ def test_vectorized_int_metric_column_is_integer_dtype_in_memory(template_config
     float64 because the vectorized path skipped the dtype coercion that
     ``_coerce_metric_value`` applied in the scalar fallback. The test
     fails with ``dtype('float64')`` for ticket_count / session_count /
-    visit_count.
+    impressions.
     """
     template, cfg = template_config
     rng = np.random.default_rng(cfg.seed)

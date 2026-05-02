@@ -335,9 +335,9 @@ def test_config_sha256_changes_when_seed_changes(tmp_path):
 
 @pytest.mark.parametrize("template", [
     "sample_saas.yaml",
-    "sample_ecommerce.yaml",
+    "sample_retail.yaml",
     "sample_education.yaml",
-    "sample_healthcare.yaml",
+    "sample_marketing.yaml",
     "sample_hr.yaml",
 ])
 def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):

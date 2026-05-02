@@ -29,17 +29,16 @@ Output:
     dict mapping table_name → pandas.DataFrame for every table declared in
     the config (dims + facts + events).
 
-Mission-spec deviations (also flagged in the completion report):
+Notes on the public surface:
     1. Event tables that declare neither a ``row_count_source`` nor a
        threshold-typed column emit an empty DataFrame with the configured
-       schema. The mission spec only describes proportional and threshold
-       events; HR's ``evt_attrition`` falls outside both, and emitting an
-       empty table preserves the contract that every configured table is
-       present in the output dict.
+       schema. The contract is "every configured table appears in the
+       output dict" — emitting an empty table for an HR-style
+       ``evt_attrition`` (no driver) preserves that contract.
     2. ``generated:timestamp`` on event columns resolves to the period's
        anchor date (no faker), since the provider name is non-faker.
     3. Stage column name is hardcoded to ``stage``. Adding a configurable
-       column name would be a schema change; M007 can introduce it if needed.
+       column name would be a schema change.
 """
 
 from __future__ import annotations
@@ -53,6 +52,11 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from plotsim._column_dispatch import (
+    COLUMN_DISPATCH,
+    BuilderKind,
+)
+from plotsim._faker import _make_faker
 from plotsim.config import (
     BridgeMetric,
     BridgeTableConfig,
@@ -91,15 +95,6 @@ from plotsim.trajectory import compute_all_trajectories
 # --- Helpers -----------------------------------------------------------------
 
 
-def _make_faker(
-    rng: np.random.Generator,
-    locale: str | list[str] = "en_US",
-) -> Faker:
-    fake = Faker(locale)
-    fake.seed_instance(int(rng.integers(0, 2**31 - 1)))
-    return fake
-
-
 def _per_entity_dim_names(config: PlotsimConfig) -> set[str]:
     return {
         t.name for t in config.tables
@@ -127,6 +122,15 @@ def _find_date_fk_column(table: Table) -> Optional[tuple[str, str, str]]:
     return None
 
 
+# Event PK widths are pre-sized for up to 10,000 rows so the same zero-pad
+# convention applies regardless of the actual emitted row count for a given
+# (entity, period). At most this overpads narrow tables by a few characters;
+# the alternative is two PK passes (count rows, then re-format), which costs
+# more than the spare digit. Used by ``_build_proportional_event`` and
+# ``_resolve_event_row``.
+_EVENT_PK_WIDTH_HINT: int = 10_000
+
+
 def _id_pad(n: int) -> int:
     return max(3, len(str(max(n, 1))))
 
@@ -150,17 +154,10 @@ def _coerce_metric_value(value, dtype: str):
 def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
     """Vectorized counterpart of ``_coerce_metric_value`` for whole-column arrays.
 
-    F3 (M102): the vectorized fact-builder used to assign the raw float
-    slice from ``metrics_3d`` straight into ``col_arrays`` for MetricSource
-    and LagSource columns, ignoring the declared ``Column.dtype``. Library
-    callers consuming ``generate_tables`` then saw float64 where they had
-    declared int / boolean. The CSV path was rescued downstream by
-    ``output._coerce_integer_columns``, but the in-memory dataframe was wrong.
-
     Returns a ``pd.api.extensions.ExtensionArray`` (Int64 / BooleanDtype) for
     int / boolean dtypes — preserves NaN as ``pd.NA`` and matches what
-    ``output._coerce_integer_columns`` produces at write-time, so in-memory
-    dtype now matches on-disk dtype after a CSV round-trip with
+    ``output._coerce_integer_columns`` produces at write-time, so the
+    in-memory dtype matches the on-disk dtype after a CSV round-trip with
     ``dtype_backend='numpy_nullable'``. Other dtypes pass through unchanged
     (``np.ndarray``); the metric generator already delivered the right shape.
     """
@@ -187,13 +184,13 @@ def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
 def _build_seasonal_factors(
     config: PlotsimConfig, n_periods: int,
 ) -> Optional[np.ndarray]:
-    """M119: pre-compute the per-period summed seasonal strength.
+    """Pre-compute the per-period summed seasonal strength.
 
     Returns a length-``n_periods`` ``float64`` array where entry ``t`` is the
     sum of every ``SeasonalEffect.strength`` whose ``months`` set contains
     period ``t``'s calendar month. Returns ``None`` when no effects are
-    configured — keeps the metrics pipeline byte-identical to pre-M119
-    baselines (the metric loop short-circuits when ``seasonal_global == 0.0``).
+    configured — the metrics pipeline short-circuits when
+    ``seasonal_global == 0.0``.
 
     The returned array is a global (entity-independent) lookup; per-entity
     and per-metric sensitivities apply downstream in
@@ -238,24 +235,23 @@ def _compute_entity_metrics(
     n_periods: int,
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
-    bypass_counter: Optional[dict[str, int]] = None,
+    bypass_counter: Optional[dict[str, int]] = None,  # noqa: ARG001 — M127b backward compat
 ) -> dict[str, dict[str, np.ndarray]]:
     """Generate the per-entity metric series dict the engine reads from.
 
-    Hoisted out of ``build_fact_tables`` so M107's bridge generator can
-    read the same series without re-running ``generate_entity_metrics``
-    (which would consume RNG twice and break determinism). Each entity's
-    RNG draws share the top-level rng so output is identical to the prior
-    pre-M107 inline path when only fact-building consumes the result.
+    Hoisted out of ``build_fact_tables`` so the bridge generator can read
+    the same series without re-running ``generate_entity_metrics`` (which
+    would consume RNG twice and break determinism). Each entity's RNG draws
+    share the top-level rng.
 
-    M119: when ``config.seasonal_effects`` is non-empty, computes a global
+    When ``config.seasonal_effects`` is non-empty, computes a global
     per-period strength array once and threads it (along with each
     entity's ``seasonal_sensitivity``) into ``generate_entity_metrics``.
-    Empty effects → ``seasonal_factors=None`` → byte-identical to pre-M119.
+    Empty effects → ``seasonal_factors=None`` and the seasonal step is a
+    no-op.
 
-    M121: dispatches on ``config.generation_mode``. ``serial`` retains the
-    pre-M121 per-entity loop (default, byte-identical to the prior baseline).
-    ``vectorized`` groups entities by archetype and calls
+    Dispatches on ``config.generation_mode``. ``serial`` runs the per-entity
+    loop. ``vectorized`` groups entities by archetype and calls
     ``generate_archetype_batch`` for each archetype's no-override subset;
     overridden entities still run the per-entity serial path inside the
     same dispatch so their exact behavior is preserved. ``auto`` resolves
@@ -507,11 +503,10 @@ def build_fact_tables(
     trajectory across entities. (None of the sample configs exercise this
     today; included for completeness.)
 
-    M107: ``entity_metrics`` may be passed in by callers that have already
+    ``entity_metrics`` may be passed in by callers that have already
     computed it (the orchestrator does this so bridge tables can share
     the same series without re-running ``generate_entity_metrics`` and
-    burning RNG draws). When ``None``, the helper recomputes it inline —
-    preserves the pre-M107 single-call signature for direct test callers.
+    burning RNG draws). When ``None``, the helper recomputes it inline.
     """
     dim_date = dim_tables.get("dim_date")
     if dim_date is None:
@@ -766,15 +761,15 @@ def _scalar_per_entity_per_period_fact(
     parsed_cols: list[tuple[Column, Any]],
     trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
-    """Pre-Layer-4 row-by-row builder, kept as a fallback for fact tables that
-    use ``FakerSource`` or ``boolean``-typed metric columns (paths where
+    """Row-by-row builder, kept as a fallback for fact tables that use
+    ``FakerSource`` or ``boolean``-typed metric columns (paths where
     vectorization would reorder RNG draws or drop a Python coercion).
 
-    M105: ``trajectories_2d`` (E, P) is forwarded to ``_resolve_fact_cell``
+    ``trajectories_2d`` (E, P) is forwarded to ``_resolve_fact_cell``
     one entity-row at a time so ``TextBucketSource`` columns can read the
-    position. Pre-M105 callers that didn't supply trajectories pass ``None``
-    here; ``_resolve_fact_cell`` only consults the array when it dispatches
-    on a ``TextBucketSource``, so non-bucket fact tables continue to work.
+    position. ``_resolve_fact_cell`` only consults the array when it
+    dispatches on a ``TextBucketSource``, so non-bucket fact tables can
+    pass ``None``.
     """
     del parsed_cols  # not used here; scalar path walks tbl.columns directly
     rows: list[dict] = []
@@ -838,120 +833,212 @@ def _vectorized_per_entity_per_period_fact(
     period_idx_col = np.tile(np.arange(n_periods, dtype=np.int64), n_entities)
 
     col_arrays: dict[str, np.ndarray] = {}
+    base_ctx = {
+        "config": config,
+        "dim_date": dim_date,
+        "n_periods": n_periods,
+        "n_entities": n_entities,
+        "total_rows": total_rows,
+        "parent_entity_dim": parent_entity_dim,
+        "parent_entity_pk": parent_entity_pk,
+        "local_entity_col": local_entity_col,
+        "local_date_col": local_date_col,
+        "parent_date_pk": parent_date_pk,
+        "entity_cross_fks": entity_cross_fks,
+        "metric_name_to_idx": metric_name_to_idx,
+        "metrics_3d": metrics_3d,
+        "trajectories_2d": trajectories_2d,
+        "entity_pks": entity_pks,
+        "entity_pk_repeated": entity_pk_repeated,
+        "date_key_tiled": date_key_tiled,
+        "period_idx_col": period_idx_col,
+    }
     for col, parsed in parsed_cols:
-        if isinstance(parsed, FKSource):
-            if col.name == local_entity_col:
-                col_arrays[col.name] = entity_pk_repeated
-            elif col.name == local_date_col:
-                col_arrays[col.name] = date_key_tiled
-            else:
-                # Cross-dim FK precomputed once per entity.
-                cross_vals = np.asarray(
-                    [entity_cross_fks[e.name].get(col.name) for e in config.entities],
-                    dtype=object,
-                )
-                col_arrays[col.name] = np.repeat(cross_vals, n_periods)
-        elif isinstance(parsed, MetricSource):
-            if parsed.metric not in metric_name_to_idx:
-                raise ValueError(
-                    f"fact column {col.name!r} references metric "
-                    f"{parsed.metric!r}, which was not generated; check config.metrics"
-                )
-            m_idx = metric_name_to_idx[parsed.metric]
-            arr = metrics_3d[:, :, m_idx].ravel(order="C").copy()
-            col_arrays[col.name] = _coerce_array_for_dtype(arr, col.dtype)
-        elif isinstance(parsed, LagSource):
-            if parsed.metric not in metric_name_to_idx:
-                col_arrays[col.name] = _coerce_array_for_dtype(
-                    np.full(total_rows, np.nan, dtype=np.float64), col.dtype,
-                )
-            else:
-                m_idx = metric_name_to_idx[parsed.metric]
-                n = parsed.periods
-                base = np.arange(n_periods, dtype=np.int64)
-                target_idx = base - n
-                # "If history too short, fall back to current period" — scalar
-                # semantics preserved by mapping out-of-range to the current
-                # period index.
-                target_idx = np.where(target_idx < 0, base, target_idx)
-                sliced = metrics_3d[:, target_idx, m_idx]  # (E, P)
-                col_arrays[col.name] = _coerce_array_for_dtype(
-                    sliced.ravel(order="C").copy(), col.dtype,
-                )
-        elif isinstance(parsed, PKSource):
-            # f"{col.name}-{period_idx:04d}-{entity_pk_value}" — build once.
-            pk_rows = [
-                f"{col.name}-{p:04d}-{entity_pks[i]}"
-                for i in range(n_entities)
-                for p in range(n_periods)
-            ]
-            col_arrays[col.name] = np.asarray(pk_rows, dtype=object)
-        elif isinstance(parsed, GeneratedSource):
-            provider = parsed.provider
-            if provider == "timestamp":
-                dates = dim_date["date"].tolist()
-                promoted: list[Any] = []
-                for d in dates:
-                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
-                        promoted.append(_dt.datetime(d.year, d.month, d.day))
-                    else:
-                        promoted.append(d)
-                promoted_arr = np.asarray(promoted, dtype=object)
-                col_arrays[col.name] = np.tile(promoted_arr, n_entities)
-            elif provider == "date_key":
-                col_arrays[col.name] = np.tile(
-                    dim_date["date_key"].to_numpy(), n_entities,
-                )
-            elif provider == "period_label":
-                col_arrays[col.name] = np.tile(
-                    dim_date["period_label"].to_numpy(), n_entities,
-                )
-            else:
-                raise ValueError(
-                    f"unsupported generated provider {provider!r} on fact/event tables"
-                )
-        elif isinstance(parsed, StaticSource):
-            col_arrays[col.name] = np.full(total_rows, parsed.value, dtype=object)
-        elif isinstance(parsed, DerivedSource):
-            if parsed.field == "period_index":
-                col_arrays[col.name] = period_idx_col.copy()
-            elif parsed.field == "entity_id":
-                col_arrays[col.name] = entity_pk_repeated
-            else:
-                raise ValueError(
-                    f"fact column {col.name!r} derived field "
-                    f"{parsed.field!r} not supported"
-                )
-        elif isinstance(parsed, TextBucketSource):
-            # M105: trajectory-position-driven text emission. ``trajectories_2d``
-            # is shape (E, P); flatten in the same row-major (entity, period)
-            # order the entity_pk_repeated / date_key_tiled axes use, then map
-            # each position into a bucket index. ``min(int(p * N), N - 1)``
-            # closes the [0, 1] interval at the top so position == 1.0 lands
-            # in the last bucket rather than overflowing.
-            if trajectories_2d is None:
-                raise ValueError(
-                    f"fact column {col.name!r} declares text-bucket source "
-                    f"{col.source!r} but trajectories_2d was not threaded into "
-                    f"the vectorized fact builder; this is an internal wiring "
-                    f"bug, not a config error"
-                )
-            n_buckets = len(parsed.buckets)
-            flat_positions = trajectories_2d.ravel(order="C")
-            indices = np.minimum(
-                (flat_positions * n_buckets).astype(np.int64),
-                n_buckets - 1,
-            )
-            indices = np.maximum(indices, 0)
-            bucket_arr = np.asarray(parsed.buckets, dtype=object)
-            col_arrays[col.name] = bucket_arr[indices]
-        else:
-            raise ValueError(
-                f"fact column {col.name!r} source {col.source!r} is not "
-                f"supported on per_entity_per_period fact tables"
-            )
+        ctx = dict(base_ctx)
+        ctx["col"] = col
+        col_arrays[col.name] = COLUMN_DISPATCH.dispatch(
+            BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, parsed, ctx,
+        )
 
     return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
+
+
+# --- Vectorized fact-cell dispatch handlers ----------------------------------
+
+def _fact_vec_fk(parsed: FKSource, ctx: dict):
+    col = ctx["col"]
+    if col.name == ctx["local_entity_col"]:
+        return ctx["entity_pk_repeated"]
+    if col.name == ctx["local_date_col"]:
+        return ctx["date_key_tiled"]
+    cross_vals = np.asarray(
+        [ctx["entity_cross_fks"][e.name].get(col.name)
+         for e in ctx["config"].entities],
+        dtype=object,
+    )
+    return np.repeat(cross_vals, ctx["n_periods"])
+
+
+def _fact_vec_metric(parsed: MetricSource, ctx: dict):
+    col = ctx["col"]
+    metric_name_to_idx = ctx["metric_name_to_idx"]
+    if parsed.metric not in metric_name_to_idx:
+        raise ValueError(
+            f"fact column {col.name!r} references metric "
+            f"{parsed.metric!r}, which was not generated; check config.metrics"
+        )
+    m_idx = metric_name_to_idx[parsed.metric]
+    arr = ctx["metrics_3d"][:, :, m_idx].ravel(order="C").copy()
+    return _coerce_array_for_dtype(arr, col.dtype)
+
+
+def _fact_vec_lag(parsed: LagSource, ctx: dict):
+    col = ctx["col"]
+    metric_name_to_idx = ctx["metric_name_to_idx"]
+    if parsed.metric not in metric_name_to_idx:
+        return _coerce_array_for_dtype(
+            np.full(ctx["total_rows"], np.nan, dtype=np.float64), col.dtype,
+        )
+    m_idx = metric_name_to_idx[parsed.metric]
+    n = parsed.periods
+    base = np.arange(ctx["n_periods"], dtype=np.int64)
+    target_idx = base - n
+    # "If history too short, fall back to current period" — scalar
+    # semantics preserved by mapping out-of-range to the current period.
+    target_idx = np.where(target_idx < 0, base, target_idx)
+    sliced = ctx["metrics_3d"][:, target_idx, m_idx]  # (E, P)
+    return _coerce_array_for_dtype(
+        sliced.ravel(order="C").copy(), col.dtype,
+    )
+
+
+def _fact_vec_pk(parsed: PKSource, ctx: dict):
+    col = ctx["col"]
+    entity_pks = ctx["entity_pks"]
+    n_entities = ctx["n_entities"]
+    n_periods = ctx["n_periods"]
+    pk_rows = [
+        f"{col.name}-{p:04d}-{entity_pks[i]}"
+        for i in range(n_entities)
+        for p in range(n_periods)
+    ]
+    return np.asarray(pk_rows, dtype=object)
+
+
+def _fact_vec_generated(parsed: GeneratedSource, ctx: dict):
+    provider = parsed.provider
+    dim_date = ctx["dim_date"]
+    n_entities = ctx["n_entities"]
+    if provider == "timestamp":
+        dates = dim_date["date"].tolist()
+        promoted: list[Any] = []
+        for d in dates:
+            if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
+                promoted.append(_dt.datetime(d.year, d.month, d.day))
+            else:
+                promoted.append(d)
+        promoted_arr = np.asarray(promoted, dtype=object)
+        return np.tile(promoted_arr, n_entities)
+    if provider == "date_key":
+        return np.tile(dim_date["date_key"].to_numpy(), n_entities)
+    if provider == "period_label":
+        return np.tile(dim_date["period_label"].to_numpy(), n_entities)
+    raise ValueError(
+        f"unsupported generated provider {provider!r} on fact/event tables"
+    )
+
+
+def _fact_vec_static(parsed: StaticSource, ctx: dict):
+    return np.full(ctx["total_rows"], parsed.value, dtype=object)
+
+
+def _fact_vec_derived(parsed: DerivedSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.field == "period_index":
+        return ctx["period_idx_col"].copy()
+    if parsed.field == "entity_id":
+        return ctx["entity_pk_repeated"]
+    raise ValueError(
+        f"fact column {col.name!r} derived field "
+        f"{parsed.field!r} not supported"
+    )
+
+
+def _fact_vec_text_bucket(parsed: TextBucketSource, ctx: dict):
+    # M105: trajectory-position-driven text emission. ``trajectories_2d``
+    # is shape (E, P); flatten in the same row-major (entity, period)
+    # order the entity_pk_repeated / date_key_tiled axes use, then map
+    # each position into a bucket index. ``min(int(p * N), N - 1)``
+    # closes the [0, 1] interval at the top so position == 1.0 lands
+    # in the last bucket rather than overflowing.
+    col = ctx["col"]
+    trajectories_2d = ctx["trajectories_2d"]
+    if trajectories_2d is None:
+        raise ValueError(
+            f"fact column {col.name!r} declares text-bucket source "
+            f"{col.source!r} but trajectories_2d was not threaded into "
+            f"the vectorized fact builder; this is an internal wiring "
+            f"bug, not a config error"
+        )
+    n_buckets = len(parsed.buckets)
+    flat_positions = trajectories_2d.ravel(order="C")
+    indices = np.minimum(
+        (flat_positions * n_buckets).astype(np.int64),
+        n_buckets - 1,
+    )
+    indices = np.maximum(indices, 0)
+    bucket_arr = np.asarray(parsed.buckets, dtype=object)
+    return bucket_arr[indices]
+
+
+def _fact_vec_unsupported(parsed: Any, ctx: dict):
+    col = ctx["col"]
+    raise ValueError(
+        f"fact column {col.name!r} source {col.source!r} is not "
+        f"supported on per_entity_per_period fact tables"
+    )
+
+
+# Vectorized per-entity-per-period fact builder dispatchers. Note the
+# critical FakerSource contract — Faker columns route through the scalar
+# path BEFORE this dispatcher ever runs. The caller in
+# ``_build_per_entity_per_period_fact`` checks ``has_faker`` and selects
+# the scalar builder when any column is FakerSource. This module-level
+# registry therefore intentionally has NO FakerSource handler for the
+# vectorized site: reaching the dispatcher with a FakerSource is itself
+# an internal wiring bug.
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, FKSource, _fact_vec_fk,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, MetricSource,
+    _fact_vec_metric,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, LagSource, _fact_vec_lag,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, PKSource, _fact_vec_pk,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, GeneratedSource,
+    _fact_vec_generated,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, StaticSource,
+    _fact_vec_static,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, DerivedSource,
+    _fact_vec_derived,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, TextBucketSource,
+    _fact_vec_text_bucket,
+)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, _fact_vec_unsupported,
+)
 
 
 def _resolve_fact_cell(
@@ -967,78 +1054,174 @@ def _resolve_fact_cell(
     fake: Faker,
     trajectory_for_entity: Optional[np.ndarray] = None,
 ):
+    """Scalar per_entity_per_period fact cell resolver.
+
+    M127b: dispatch table moved into ``COLUMN_DISPATCH`` under the
+    ``PER_ENTITY_PER_PERIOD_FACT_SCALAR`` builder kind. The handler bodies
+    below are unchanged from the pre-M127b inline ladder; the registry
+    just collapses the ``isinstance`` chain into a dict lookup.
+    """
     parsed = parse_source(col.source)
-    if isinstance(parsed, FKSource):
-        if col.name == local_entity_col:
-            return entity_pk_value
-        if col.name == local_date_col:
-            return dim_date.iloc[period_idx][parent_date_pk]
-        # Cross-dim FK (e.g. plan_id) — value precomputed once per entity by
-        # _build_per_entity_per_period_fact (FIX-04). Same value broadcast
-        # across all periods for this entity.
-        return cross_fks_for_entity.get(col.name)
-    if isinstance(parsed, MetricSource):
-        series = metric_series.get(parsed.metric)
-        if series is None:
-            raise ValueError(
-                f"fact column {col.name!r} references metric "
-                f"{parsed.metric!r}, which was not generated; check config.metrics"
-            )
-        value = series[period_idx]
-        if value is None or (isinstance(value, float) and np.isnan(value)):
-            return None
-        return _coerce_metric_value(value, col.dtype)
-    if isinstance(parsed, LagSource):
-        # Lag-typed columns read N periods back from the same entity series.
-        # If history is too short, fall back to the current period.
-        series = metric_series.get(parsed.metric)
-        if series is None:
-            return None
-        target_idx = period_idx - parsed.periods
-        if target_idx < 0:
-            target_idx = period_idx
-        value = series[target_idx]
-        if value is None or (isinstance(value, float) and np.isnan(value)):
-            return None
-        return _coerce_metric_value(value, col.dtype)
-    if isinstance(parsed, PKSource):
-        # Single-column PK on a composite-grain table is a surrogate;
-        # build it deterministically from period and entity.
-        return f"{col.name}-{period_idx:04d}-{entity_pk_value}"
-    if isinstance(parsed, GeneratedSource):
-        return _resolve_generated(parsed.provider, period_idx, dim_date, fake)
-    if isinstance(parsed, FakerSource):
-        return _call_faker(fake, parsed.method, parsed.kwargs)
-    if isinstance(parsed, StaticSource):
-        return parsed.value
-    if isinstance(parsed, DerivedSource):
-        if parsed.field == "period_index":
-            return period_idx
-        if parsed.field == "entity_id":
-            return entity_pk_value
+    ctx = {
+        "col": col,
+        "period_idx": period_idx,
+        "entity_pk_value": entity_pk_value,
+        "local_entity_col": local_entity_col,
+        "local_date_col": local_date_col,
+        "parent_date_pk": parent_date_pk,
+        "metric_series": metric_series,
+        "dim_date": dim_date,
+        "cross_fks_for_entity": cross_fks_for_entity,
+        "fake": fake,
+        "trajectory_for_entity": trajectory_for_entity,
+    }
+    return COLUMN_DISPATCH.dispatch(
+        BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, parsed, ctx,
+    )
+
+
+def _fact_scalar_fk(parsed: FKSource, ctx: dict):
+    col = ctx["col"]
+    if col.name == ctx["local_entity_col"]:
+        return ctx["entity_pk_value"]
+    if col.name == ctx["local_date_col"]:
+        return ctx["dim_date"].iloc[ctx["period_idx"]][ctx["parent_date_pk"]]
+    # Cross-dim FK (e.g. plan_id) — value precomputed once per entity by
+    # _build_per_entity_per_period_fact (FIX-04). Same value broadcast
+    # across all periods for this entity.
+    return ctx["cross_fks_for_entity"].get(col.name)
+
+
+def _fact_scalar_metric(parsed: MetricSource, ctx: dict):
+    col = ctx["col"]
+    series = ctx["metric_series"].get(parsed.metric)
+    if series is None:
         raise ValueError(
-            f"fact column {col.name!r} derived field {parsed.field!r} not supported"
+            f"fact column {col.name!r} references metric "
+            f"{parsed.metric!r}, which was not generated; check config.metrics"
         )
-    if isinstance(parsed, TextBucketSource):
-        # M105: scalar-fallback bucket lookup. Same index arithmetic as the
-        # vectorized branch — ``min(int(p * N), N - 1)`` so p == 1.0 lands
-        # in the last bucket rather than overflowing.
-        if trajectory_for_entity is None:
-            raise ValueError(
-                f"fact column {col.name!r} declares text-bucket source "
-                f"{col.source!r} but trajectory_for_entity was not threaded "
-                f"into the scalar fact builder; this is an internal wiring "
-                f"bug, not a config error"
-            )
-        position = float(trajectory_for_entity[period_idx])
-        n_buckets = len(parsed.buckets)
-        idx = min(int(position * n_buckets), n_buckets - 1)
-        idx = max(idx, 0)
-        return parsed.buckets[idx]
+    value = series[ctx["period_idx"]]
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    return _coerce_metric_value(value, col.dtype)
+
+
+def _fact_scalar_lag(parsed: LagSource, ctx: dict):
+    # Lag-typed columns read N periods back from the same entity series.
+    # If history is too short, fall back to the current period.
+    col = ctx["col"]
+    period_idx = ctx["period_idx"]
+    series = ctx["metric_series"].get(parsed.metric)
+    if series is None:
+        return None
+    target_idx = period_idx - parsed.periods
+    if target_idx < 0:
+        target_idx = period_idx
+    value = series[target_idx]
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return None
+    return _coerce_metric_value(value, col.dtype)
+
+
+def _fact_scalar_pk(parsed: PKSource, ctx: dict):
+    # Single-column PK on a composite-grain table is a surrogate;
+    # build it deterministically from period and entity.
+    col = ctx["col"]
+    return f"{col.name}-{ctx['period_idx']:04d}-{ctx['entity_pk_value']}"
+
+
+def _fact_scalar_generated(parsed: GeneratedSource, ctx: dict):
+    return _resolve_generated(
+        parsed.provider, ctx["period_idx"], ctx["dim_date"], ctx["fake"],
+    )
+
+
+def _fact_scalar_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _fact_scalar_static(parsed: StaticSource, ctx: dict):
+    return parsed.value
+
+
+def _fact_scalar_derived(parsed: DerivedSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.field == "period_index":
+        return ctx["period_idx"]
+    if parsed.field == "entity_id":
+        return ctx["entity_pk_value"]
+    raise ValueError(
+        f"fact column {col.name!r} derived field {parsed.field!r} not supported"
+    )
+
+
+def _fact_scalar_text_bucket(parsed: TextBucketSource, ctx: dict):
+    # M105: scalar-fallback bucket lookup. Same index arithmetic as the
+    # vectorized branch — ``min(int(p * N), N - 1)`` so p == 1.0 lands
+    # in the last bucket rather than overflowing.
+    col = ctx["col"]
+    trajectory_for_entity = ctx["trajectory_for_entity"]
+    if trajectory_for_entity is None:
+        raise ValueError(
+            f"fact column {col.name!r} declares text-bucket source "
+            f"{col.source!r} but trajectory_for_entity was not threaded "
+            f"into the scalar fact builder; this is an internal wiring "
+            f"bug, not a config error"
+        )
+    position = float(trajectory_for_entity[ctx["period_idx"]])
+    n_buckets = len(parsed.buckets)
+    idx = min(int(position * n_buckets), n_buckets - 1)
+    idx = max(idx, 0)
+    return parsed.buckets[idx]
+
+
+def _fact_scalar_unsupported(parsed: Any, ctx: dict):
+    col = ctx["col"]
     raise ValueError(
         f"fact column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity_per_period fact tables"
     )
+
+
+# Register the scalar fact-cell resolvers with the shared dispatcher. Adding
+# a new source type to per_entity_per_period fact scalar columns means
+# adding one ``register(...)`` call here.
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, FKSource, _fact_scalar_fk,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, MetricSource,
+    _fact_scalar_metric,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, LagSource, _fact_scalar_lag,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, PKSource, _fact_scalar_pk,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, GeneratedSource,
+    _fact_scalar_generated,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, FakerSource,
+    _fact_scalar_faker,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, StaticSource,
+    _fact_scalar_static,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, DerivedSource,
+    _fact_scalar_derived,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, TextBucketSource,
+    _fact_scalar_text_bucket,
+)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, _fact_scalar_unsupported,
+)
 
 
 def _build_per_period_fact(
@@ -1073,44 +1256,87 @@ def _build_per_period_fact(
     rows: list[dict] = []
     for period_idx in range(n_periods):
         row: dict = {}
+        ctx = {
+            "col": None,  # filled per column
+            "period_idx": period_idx,
+            "date_fk": date_fk,
+            "dim_date": dim_date,
+            "fake": fake,
+            "period_mean": period_mean,
+            "metric_idx_by_name": metric_idx_by_name,
+        }
         for col in tbl.columns:
             parsed = parse_source(col.source)
-            if isinstance(parsed, FKSource) and date_fk and col.name == date_fk[0]:
-                row[col.name] = dim_date.iloc[period_idx][date_fk[2]]
-            elif isinstance(parsed, MetricSource):
-                if parsed.metric not in metric_idx_by_name:
-                    row[col.name] = None
-                    continue
-                m_idx = metric_idx_by_name[parsed.metric]
-                raw_val = period_mean[period_idx, m_idx]
-                if np.isnan(raw_val):
-                    row[col.name] = None
-                else:
-                    row[col.name] = _coerce_metric_value(float(raw_val), col.dtype)
-            elif isinstance(parsed, PKSource):
-                row[col.name] = f"{col.name}-{period_idx:04d}"
-            elif isinstance(parsed, GeneratedSource):
-                row[col.name] = _resolve_generated(parsed.provider, period_idx, dim_date, fake)
-            elif isinstance(parsed, FakerSource):
-                row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
-            elif isinstance(parsed, StaticSource):
-                row[col.name] = parsed.value
-            else:
-                # F14 (M102): explicit raise instead of silent ``None`` fill.
-                # Mission 100 named this ladder as a silent-dispatch site;
-                # an unhandled source type on a per-period fact column
-                # produced a column of None values with no signal to the
-                # user. The companion ``_resolve_fact_cell`` at
-                # ``tables.py:574`` already raises on this class.
-                raise TypeError(
-                    f"per-period fact column {col.name!r} source "
-                    f"{col.source!r} resolves to {type(parsed).__name__}, "
-                    f"which is not supported on per_period fact tables. "
-                    f"Use metric:, fk:dim_date.*, generated:, faker:, "
-                    f"static:, or pk: sources."
-                )
+            ctx["col"] = col
+            row[col.name] = COLUMN_DISPATCH.dispatch(
+                BuilderKind.PER_PERIOD_FACT, parsed, ctx,
+            )
         rows.append(row)
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
+
+
+# --- Per-period fact dispatch handlers ---------------------------------------
+
+def _per_period_fk(parsed: FKSource, ctx: dict):
+    col = ctx["col"]
+    date_fk = ctx["date_fk"]
+    if date_fk and col.name == date_fk[0]:
+        return ctx["dim_date"].iloc[ctx["period_idx"]][date_fk[2]]
+    return _per_period_unsupported(parsed, ctx)
+
+
+def _per_period_metric(parsed: MetricSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.metric not in ctx["metric_idx_by_name"]:
+        return None
+    m_idx = ctx["metric_idx_by_name"][parsed.metric]
+    raw_val = ctx["period_mean"][ctx["period_idx"], m_idx]
+    if np.isnan(raw_val):
+        return None
+    return _coerce_metric_value(float(raw_val), col.dtype)
+
+
+def _per_period_pk(parsed: PKSource, ctx: dict):
+    col = ctx["col"]
+    return f"{col.name}-{ctx['period_idx']:04d}"
+
+
+def _per_period_generated(parsed: GeneratedSource, ctx: dict):
+    return _resolve_generated(
+        parsed.provider, ctx["period_idx"], ctx["dim_date"], ctx["fake"],
+    )
+
+
+def _per_period_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _per_period_static(parsed: StaticSource, ctx: dict):
+    return parsed.value
+
+
+def _per_period_unsupported(parsed: Any, ctx: dict):
+    # F14 (M102): explicit raise instead of silent ``None`` fill. Mission
+    # 100 named this ladder as a silent-dispatch site; an unhandled source
+    # type on a per-period fact column produced a column of None values
+    # with no signal to the user.
+    col = ctx["col"]
+    raise TypeError(
+        f"per-period fact column {col.name!r} source "
+        f"{col.source!r} resolves to {type(parsed).__name__}, "
+        f"which is not supported on per_period fact tables. "
+        f"Use metric:, fk:dim_date.*, generated:, faker:, "
+        f"static:, or pk: sources."
+    )
+
+
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, FKSource, _per_period_fk)
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, MetricSource, _per_period_metric)
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, PKSource, _per_period_pk)
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, GeneratedSource, _per_period_generated)
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, FakerSource, _per_period_faker)
+COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, StaticSource, _per_period_static)
+COLUMN_DISPATCH.register_unsupported(BuilderKind.PER_PERIOD_FACT, _per_period_unsupported)
 
 
 def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, fake: Faker):
@@ -1222,12 +1448,10 @@ def _entity_groups(
 ) -> tuple[str, list[tuple[object, pd.DataFrame]]]:
     """Group a fact table by its per_entity FK column, preserving entity order.
 
-    FIX-07 / SF-5: vectorized via ``groupby(sort=False)`` which iterates
-    groups in first-appearance order — the same ordering the prior
-    ``iterrows`` implementation produced. Each returned ``group`` is the
-    original DataFrame slice (views, not row-stacked copies), so callers
-    that iterate ``group.iterrows()`` see identical rows in identical
-    order.
+    Vectorized via ``groupby(sort=False)`` which iterates groups in
+    first-appearance order. Each returned ``group`` is the original
+    DataFrame slice (views, not row-stacked copies), so callers that
+    iterate ``group.iterrows()`` see identical rows in identical order.
     """
     fk = _find_entity_fk_column(fact_table, per_entity_dims)
     if fk is None:
@@ -1333,7 +1557,7 @@ def _build_proportional_event(
 
     # PK serial: scalar path writes pk_counter+1 starting from 0 → 1..total_rows.
     pk_prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
-    pk_width = _id_pad(10_000)
+    pk_width = _id_pad(_EVENT_PK_WIDTH_HINT)
     pk_first_char = pk_prefix[0]
 
     # Classify columns. Any FK that points to a non-per_entity, non-dim_date
@@ -1350,88 +1574,26 @@ def _build_proportional_event(
     }
 
     col_arrays: dict[str, np.ndarray] = {}
+    base_ctx = {
+        "tbl": tbl,
+        "total_rows": total_rows,
+        "event_entity_ids": event_entity_ids,
+        "event_date_keys": event_date_keys,
+        "event_date_idx": event_date_idx,
+        "dim_date": dim_date,
+        "per_entity_dims": per_entity_dims,
+        "pk_first_char": pk_first_char,
+        "pk_width": pk_width,
+    }
     for col, parsed in parsed_cols:
         if col.name in stochastic_cols:
             col_arrays[col.name] = np.empty(total_rows, dtype=object)
             continue
-        if isinstance(parsed, PKSource):
-            col_arrays[col.name] = np.asarray([
-                f"{pk_first_char}-{i + 1:0{pk_width}d}"
-                for i in range(total_rows)
-            ], dtype=object)
-        elif isinstance(parsed, FKSource):
-            if parsed.table == "dim_date":
-                col_arrays[col.name] = event_date_keys
-            elif parsed.table in per_entity_dims:
-                col_arrays[col.name] = event_entity_ids
-            else:
-                # Classified as deterministic above only when back-link path
-                # would not execute — but we kept the conservative
-                # classification. This branch is unreachable for shipped
-                # templates; keep the fallback for defensive completeness.
-                col_arrays[col.name] = np.full(total_rows, None, dtype=object)
-        elif isinstance(parsed, ThresholdSource):
-            # Proportional path passes threshold_col_name=None, so every
-            # ThresholdSource cell resolves to None in the scalar path.
-            col_arrays[col.name] = np.full(total_rows, None, dtype=object)
-        elif isinstance(parsed, GeneratedSource):
-            provider = parsed.provider
-            if provider == "timestamp":
-                dates = dim_date["date"].tolist()
-                promoted: list[Any] = []
-                for d in dates:
-                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
-                        promoted.append(_dt.datetime(d.year, d.month, d.day))
-                    else:
-                        promoted.append(d)
-                col_arrays[col.name] = np.asarray(
-                    [promoted[i] for i in event_date_idx], dtype=object,
-                )
-            elif provider == "date_key":
-                dk = dim_date["date_key"].tolist()
-                col_arrays[col.name] = np.asarray(
-                    [dk[i] for i in event_date_idx], dtype=object,
-                )
-            elif provider == "period_label":
-                pl = dim_date["period_label"].tolist()
-                col_arrays[col.name] = np.asarray(
-                    [pl[i] for i in event_date_idx], dtype=object,
-                )
-            else:
-                raise ValueError(
-                    f"unsupported generated provider {provider!r} on fact/event tables"
-                )
-        elif isinstance(parsed, StaticSource):
-            col_arrays[col.name] = np.full(total_rows, parsed.value, dtype=object)
-        elif isinstance(parsed, DerivedSource):
-            if parsed.field == "entity_id":
-                col_arrays[col.name] = event_entity_ids
-            elif parsed.field == "date_key":
-                col_arrays[col.name] = event_date_keys
-            else:
-                # F14 (M102): explicit raise on unrecognised derived
-                # field. The two supported fields on event tables are
-                # ``entity_id`` and ``date_key``; anything else was
-                # silently filled with None pre-F14.
-                raise ValueError(
-                    f"event column {col.name!r} derived field "
-                    f"{parsed.field!r} is not supported on event tables; "
-                    f"use 'entity_id' or 'date_key'"
-                )
-        else:
-            # F14 (M102): explicit raise on unhandled source type.
-            # Pre-F14 the deterministic-event-builder ladder fell through
-            # to a silent None fill for any source type not in the
-            # dispatch above (MetricSource, LagSource, ProportionalSource).
-            # ``_is_stochastic`` only diverts FakerSource and external-FK
-            # FKSource into the stochastic loop; everything else lands
-            # here.
-            raise TypeError(
-                f"event column {col.name!r} source {col.source!r} "
-                f"resolves to {type(parsed).__name__}, which is not "
-                f"supported in the deterministic-event dispatch on "
-                f"{tbl.name!r}."
-            )
+        ctx = dict(base_ctx)
+        ctx["col"] = col
+        col_arrays[col.name] = COLUMN_DISPATCH.dispatch(
+            BuilderKind.PROPORTIONAL_EVENT, parsed, ctx,
+        )
 
     # Stochastic columns: iterate per (cell, row) exactly as the scalar path
     # did, so RNG + faker consumption order is byte-identical. Source parsing
@@ -1478,6 +1640,112 @@ def _build_proportional_event(
                 row_idx += 1
 
     return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
+
+
+# --- Proportional event deterministic-column dispatch ------------------------
+
+def _prop_evt_pk(parsed: PKSource, ctx: dict):
+    return np.asarray([
+        f"{ctx['pk_first_char']}-{i + 1:0{ctx['pk_width']}d}"
+        for i in range(ctx["total_rows"])
+    ], dtype=object)
+
+
+def _prop_evt_fk(parsed: FKSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.table == "dim_date":
+        return ctx["event_date_keys"]
+    if parsed.table in ctx["per_entity_dims"]:
+        return ctx["event_entity_ids"]
+    # Cross-dim FK on a deterministic event column. ``_is_stochastic``
+    # only flags FKs to non-per_entity, non-dim_date dims as stochastic,
+    # so reaching this branch with a deterministic classification means
+    # the column was misclassified upstream — raise rather than emit a
+    # column of None.
+    raise TypeError(
+        f"event column {col.name!r} declared FK to "
+        f"{parsed.table!r} but the deterministic path has no "
+        f"resolution for this source kind"
+    )
+
+
+def _prop_evt_threshold(parsed: ThresholdSource, ctx: dict):
+    # Proportional path passes threshold_col_name=None, so every
+    # ThresholdSource cell resolves to None.
+    return np.full(ctx["total_rows"], None, dtype=object)
+
+
+def _prop_evt_generated(parsed: GeneratedSource, ctx: dict):
+    provider = parsed.provider
+    dim_date = ctx["dim_date"]
+    event_date_idx = ctx["event_date_idx"]
+    if provider == "timestamp":
+        dates = dim_date["date"].tolist()
+        promoted: list[Any] = []
+        for d in dates:
+            if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
+                promoted.append(_dt.datetime(d.year, d.month, d.day))
+            else:
+                promoted.append(d)
+        return np.asarray([promoted[i] for i in event_date_idx], dtype=object)
+    if provider == "date_key":
+        dk = dim_date["date_key"].tolist()
+        return np.asarray([dk[i] for i in event_date_idx], dtype=object)
+    if provider == "period_label":
+        pl = dim_date["period_label"].tolist()
+        return np.asarray([pl[i] for i in event_date_idx], dtype=object)
+    raise ValueError(
+        f"unsupported generated provider {provider!r} on fact/event tables"
+    )
+
+
+def _prop_evt_static(parsed: StaticSource, ctx: dict):
+    return np.full(ctx["total_rows"], parsed.value, dtype=object)
+
+
+def _prop_evt_derived(parsed: DerivedSource, ctx: dict):
+    col = ctx["col"]
+    if parsed.field == "entity_id":
+        return ctx["event_entity_ids"]
+    if parsed.field == "date_key":
+        return ctx["event_date_keys"]
+    # F14 (M102): explicit raise on unrecognised derived field.
+    raise ValueError(
+        f"event column {col.name!r} derived field "
+        f"{parsed.field!r} is not supported on event tables; "
+        f"use 'entity_id' or 'date_key'"
+    )
+
+
+def _prop_evt_unsupported(parsed: Any, ctx: dict):
+    # F14 (M102): explicit raise on unhandled source type.
+    col = ctx["col"]
+    tbl = ctx["tbl"]
+    raise TypeError(
+        f"event column {col.name!r} source {col.source!r} "
+        f"resolves to {type(parsed).__name__}, which is not "
+        f"supported in the deterministic-event dispatch on "
+        f"{tbl.name!r}."
+    )
+
+
+COLUMN_DISPATCH.register(BuilderKind.PROPORTIONAL_EVENT, PKSource, _prop_evt_pk)
+COLUMN_DISPATCH.register(BuilderKind.PROPORTIONAL_EVENT, FKSource, _prop_evt_fk)
+COLUMN_DISPATCH.register(
+    BuilderKind.PROPORTIONAL_EVENT, ThresholdSource, _prop_evt_threshold,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PROPORTIONAL_EVENT, GeneratedSource, _prop_evt_generated,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PROPORTIONAL_EVENT, StaticSource, _prop_evt_static,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PROPORTIONAL_EVENT, DerivedSource, _prop_evt_derived,
+)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.PROPORTIONAL_EVENT, _prop_evt_unsupported,
+)
 
 
 def _build_threshold_event(
@@ -1562,64 +1830,128 @@ def _resolve_event_row(
         date_idx = int(matches[0])
 
     row: dict = {}
-    width = _id_pad(10_000)
+    width = _id_pad(_EVENT_PK_WIDTH_HINT)
+    base_ctx = {
+        "tbl": tbl,
+        "pk_counter": pk_counter,
+        "date_key_value": date_key_value,
+        "entity_pk_value": entity_pk_value,
+        "threshold_col_name": threshold_col_name,
+        "threshold_value": threshold_value,
+        "dim_date": dim_date,
+        "dim_tables": dim_tables,
+        "config": config,
+        "fake": fake,
+        "rng": rng,
+        "per_entity_dims": per_entity_dims,
+        "date_idx": date_idx,
+        "width": width,
+    }
     for col in tbl.columns:
         parsed = parse_source(col.source)
-        if isinstance(parsed, PKSource):
-            prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
-            row[col.name] = f"{prefix[0]}-{pk_counter+1:0{width}d}"
-        elif isinstance(parsed, FKSource):
-            if parsed.table == "dim_date":
-                row[col.name] = date_key_value
-            elif parsed.table in per_entity_dims:
-                row[col.name] = entity_pk_value
-            else:
-                # Sub-entity (e.g. dim_user) or reference: pick a row whose
-                # back-reference matches this entity. Fallback to row 0 if
-                # no link is discoverable. Random pick among matches when we
-                # can, so multiple rows for the same entity-period don't
-                # collapse to a single sub-entity.
-                parent = dim_tables.get(parsed.table)
-                if parent is None or parent.empty:
-                    row[col.name] = None
-                    continue
-                back_link = _find_entity_link_in_subentity(
-                    parsed.table, config, per_entity_dims,
-                )
-                if back_link is not None:
-                    candidates = parent[parent[back_link] == entity_pk_value]
-                    if len(candidates) > 0:
-                        if rng is not None:
-                            i = int(rng.integers(0, len(candidates)))
-                        else:
-                            i = 0
-                        row[col.name] = candidates.iloc[i][parsed.column]
-                        continue
-                row[col.name] = parent.iloc[0][parsed.column]
-        elif isinstance(parsed, ThresholdSource):
-            if col.name == threshold_col_name:
-                row[col.name] = threshold_value
-            else:
-                row[col.name] = None
-        elif isinstance(parsed, GeneratedSource):
-            row[col.name] = _resolve_generated(
-                parsed.provider, date_idx if date_idx is not None else 0,
-                dim_date, fake,
-            )
-        elif isinstance(parsed, FakerSource):
-            row[col.name] = _call_faker(fake, parsed.method, parsed.kwargs)
-        elif isinstance(parsed, StaticSource):
-            row[col.name] = parsed.value
-        elif isinstance(parsed, DerivedSource):
-            if parsed.field == "entity_id":
-                row[col.name] = entity_pk_value
-            elif parsed.field == "date_key":
-                row[col.name] = date_key_value
-            else:
-                row[col.name] = None
-        else:
-            row[col.name] = None
+        ctx = dict(base_ctx)
+        ctx["col"] = col
+        row[col.name] = COLUMN_DISPATCH.dispatch(
+            BuilderKind.THRESHOLD_EVENT_ROW, parsed, ctx,
+        )
     return row
+
+
+# --- Threshold-event row dispatch handlers -----------------------------------
+
+def _evt_row_pk(parsed: PKSource, ctx: dict):
+    col = ctx["col"]
+    tbl = ctx["tbl"]
+    width = ctx["width"]
+    prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
+    return f"{prefix[0]}-{ctx['pk_counter']+1:0{width}d}"
+
+
+def _evt_row_fk(parsed: FKSource, ctx: dict):
+    if parsed.table == "dim_date":
+        return ctx["date_key_value"]
+    if parsed.table in ctx["per_entity_dims"]:
+        return ctx["entity_pk_value"]
+    # Sub-entity (e.g. dim_user) or reference: pick a row whose
+    # back-reference matches this entity. Fallback to row 0 if
+    # no link is discoverable. Random pick among matches when we
+    # can, so multiple rows for the same entity-period don't
+    # collapse to a single sub-entity.
+    parent = ctx["dim_tables"].get(parsed.table)
+    if parent is None or parent.empty:
+        return None
+    back_link = _find_entity_link_in_subentity(
+        parsed.table, ctx["config"], ctx["per_entity_dims"],
+    )
+    if back_link is not None:
+        candidates = parent[parent[back_link] == ctx["entity_pk_value"]]
+        if len(candidates) > 0:
+            rng = ctx["rng"]
+            if rng is not None:
+                i = int(rng.integers(0, len(candidates)))
+            else:
+                i = 0
+            return candidates.iloc[i][parsed.column]
+    return parent.iloc[0][parsed.column]
+
+
+def _evt_row_threshold(parsed: ThresholdSource, ctx: dict):
+    col = ctx["col"]
+    if col.name == ctx["threshold_col_name"]:
+        return ctx["threshold_value"]
+    return None
+
+
+def _evt_row_generated(parsed: GeneratedSource, ctx: dict):
+    date_idx = ctx["date_idx"]
+    return _resolve_generated(
+        parsed.provider, date_idx if date_idx is not None else 0,
+        ctx["dim_date"], ctx["fake"],
+    )
+
+
+def _evt_row_faker(parsed: FakerSource, ctx: dict):
+    return _call_faker(ctx["fake"], parsed.method, parsed.kwargs)
+
+
+def _evt_row_static(parsed: StaticSource, ctx: dict):
+    return parsed.value
+
+
+def _evt_row_derived(parsed: DerivedSource, ctx: dict):
+    if parsed.field == "entity_id":
+        return ctx["entity_pk_value"]
+    if parsed.field == "date_key":
+        return ctx["date_key_value"]
+    return None
+
+
+def _evt_row_unsupported(parsed: Any, ctx: dict):
+    # The pre-M127b ladder fell through to ``None`` for any source type
+    # outside the seven explicit branches; this preserves that contract.
+    return None
+
+
+COLUMN_DISPATCH.register(BuilderKind.THRESHOLD_EVENT_ROW, PKSource, _evt_row_pk)
+COLUMN_DISPATCH.register(BuilderKind.THRESHOLD_EVENT_ROW, FKSource, _evt_row_fk)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW, ThresholdSource, _evt_row_threshold,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW, GeneratedSource, _evt_row_generated,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW, FakerSource, _evt_row_faker,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW, StaticSource, _evt_row_static,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW, DerivedSource, _evt_row_derived,
+)
+COLUMN_DISPATCH.register_unsupported(
+    BuilderKind.THRESHOLD_EVENT_ROW, _evt_row_unsupported,
+)
 
 
 def _find_entity_link_in_subentity(
@@ -1649,24 +1981,20 @@ def _monotonic_stage_walk(
 ) -> np.ndarray:
     """Per-entity stage walk — cursor advances monotonically, optional downgrade.
 
-    FIX-07 helper. ``values`` is a 1D float array (NaN marks null).
-    ``thresholds`` is the ascending ``threshold_enter`` list from
-    ``stages.sequence``. Returns a 1D int array of stage indices matching
-    the scalar path byte-for-byte.
+    ``values`` is a 1D float array (NaN marks null). ``thresholds`` is the
+    ascending ``threshold_enter`` list from ``stages.sequence``. Returns a
+    1D int array of stage indices.
 
     * ``downgrade_delay is None and exit_thresholds is None`` — pure
       legacy monotonic. ``actual`` per row is
       ``searchsorted(thresholds, v, side='right') - 1``; NaN rows hold
-      ``actual=0`` and are dominated by the running max. Fully
-      vectorized via :func:`np.maximum.accumulate`. Byte-identical to
-      the pre-F8 / pre-FIX-07 iterrows path.
-    * ``downgrade_delay`` is ``N`` (legacy mode) — sequential cursor
-      with consecutive ``below-cursor`` counter. A short per-entity
-      Python loop; the per-entity size is the period count, so total
-      work is O(n_entities * n_periods) identical to the iterrows path
-      but without pandas row-materialization overhead.
-    * ``exit_thresholds`` is set (F8 / 0.5 hysteresis mode) — sequential
-      cursor with demote check ``value < exit_thresholds[cursor]``.
+      ``actual=0`` and are dominated by the running max. Fully vectorized
+      via :func:`np.maximum.accumulate`.
+    * ``downgrade_delay`` is ``N`` (legacy mode) — sequential cursor with
+      consecutive ``below-cursor`` counter. Per-entity size is the period
+      count, so total work is O(n_entities * n_periods).
+    * ``exit_thresholds`` is set (hysteresis mode) — sequential cursor
+      with demote check ``value < exit_thresholds[cursor]``.
       ``downgrade_delay=None`` collapses to delay=1 (immediate demote
       once value drops below exit). ``downgrade_delay=N`` requires
       ``N`` consecutive periods below exit before demotion fires.
@@ -1763,7 +2091,7 @@ def assign_stages(
 
     With ``enforce_order=True`` the cursor advances whenever the value
     crosses the next stage's ``threshold_enter``. Cursor reversal depends
-    on FIX-06's ``downgrade_delay`` and on the F8 / 0.5 ``mode``:
+    on ``downgrade_delay`` and on the resolved ``mode``:
 
       * ``mode == 'legacy'`` (``threshold_exit > threshold_enter``,
         the bundled-template default): the runtime ignores
@@ -1772,20 +2100,17 @@ def assign_stages(
         never steps back; a brief dip stays in the higher stage.
         ``downgrade_delay == N`` demotes after ``N`` consecutive
         periods below the current stage's enter threshold.
-      * ``mode == 'hysteresis'`` (``threshold_exit <= threshold_enter``,
-        F8 wiring): the runtime uses ``threshold_exit`` of the current
-        stage as the demote threshold. ``downgrade_delay is None``
-        collapses to delay=1 (immediate demote once the value drops
-        below the current stage's exit). ``downgrade_delay == N``
-        requires ``N`` consecutive periods below exit before demotion
-        fires. The hysteresis band ``[threshold_exit, threshold_enter]``
-        keeps the entity in the higher stage on transient dips.
+      * ``mode == 'hysteresis'`` (``threshold_exit <= threshold_enter``):
+        the runtime uses ``threshold_exit`` of the current stage as the
+        demote threshold. ``downgrade_delay is None`` collapses to
+        delay=1 (immediate demote once the value drops below the current
+        stage's exit). ``downgrade_delay == N`` requires ``N`` consecutive
+        periods below exit before demotion fires. The hysteresis band
+        ``[threshold_exit, threshold_enter]`` keeps the entity in the
+        higher stage on transient dips.
 
-    FIX-07 / SF-5: the implementation is vectorized via pandas
-    ``groupby`` + numpy walks (see :func:`_monotonic_stage_walk` and
-    :func:`_free_mode_stages`). Output is byte-identical to the prior
-    ``iterrows`` path under legacy mode; parity is locked in by
-    ``test_vectorized_assign_stages_matches_iterrows_output``.
+    The implementation is vectorized via pandas ``groupby`` + numpy walks
+    (see :func:`_monotonic_stage_walk` and :func:`_free_mode_stages`).
     """
     if config.stages is None:
         return fact_tables
@@ -1918,8 +2243,8 @@ class SCDVersion:
 
     Field is named ``band_label`` rather than the bare display name
     used by ``Archetype`` and ``Metric`` so the dead-schema audit
-    (M102, see tests/test_dead_schema.py) regex doesn't treat reads
-    on this dataclass as reads of those allowlisted display fields.
+    (see tests/test_dead_schema.py) regex doesn't treat reads on this
+    dataclass as reads of those allowlisted display fields.
     """
     band: int
     band_label: str
@@ -1992,7 +2317,7 @@ def _compute_scd_versions(
         topmost band rather than overflowing.
       * ``cum_band = np.maximum.accumulate(raw_band)`` — the monotonic
         cursor. An entity that crosses upward and falls back keeps the
-        higher cursor (hysteresis), mirroring M102's
+        higher cursor (hysteresis), mirroring
         ``StageDefinition.threshold_exit`` semantics so SCD versioning
         and stage assignment have one consistent contract.
       * Transitions are the indices where ``cum_band`` increases. The
@@ -2655,31 +2980,30 @@ def build_bridge_tables(
 
 @dataclass(frozen=True)
 class GenerationState:
-    """M105: structured side-channel for ground-truth manifest emission.
+    """Structured side-channel for ground-truth manifest emission.
 
-    ``generate_tables`` returns just the table dict to preserve its 0.5
+    ``generate_tables`` returns just the table dict to preserve a slim
     public signature. ``generate_tables_with_state`` returns the same
     tables alongside this state object, which carries the per-entity
     trajectory positions used during generation. The manifest builder in
     ``plotsim.manifest`` reads from here rather than re-deriving positions
     from cell values (which would be lossy under noise / MCAR).
 
-    M106: ``scd`` carries per-dim SCD Type 2 versioning state (per-entity
+    ``scd`` carries per-dim SCD Type 2 versioning state (per-entity
     version lists, surrogate IDs, validity windows, crossing positions).
     ``SCDState.dims`` is empty for configs that declare no SCD columns —
     callers can skip SCD-aware code paths cheaply by checking
     ``state.scd.is_empty``.
 
-    M107: ``bridges`` carries the per-bridge association ground truth
-    (which second-dim rows each first-dim entity associated with). The
-    manifest emits ``bridge_associations`` from this without re-grouping
-    the bridge DataFrames. ``BridgeAssociations(bridges={})`` is the
-    empty sentinel for configs without a ``bridges`` block.
+    ``bridges`` carries the per-bridge association ground truth (which
+    second-dim rows each first-dim entity associated with). The manifest
+    emits ``bridge_associations`` from this without re-grouping the
+    bridge DataFrames. ``BridgeAssociations(bridges={})`` is the empty
+    sentinel for configs without a ``bridges`` block.
 
-    Future fields (anomaly injection locations, stage transition periods,
-    etc.) extend this dataclass; existing callers that destructure
-    ``(tables, state)`` keep working because Python dataclass fields are
-    accessed by name.
+    Future fields extend this dataclass; existing callers that
+    destructure ``(tables, state)`` keep working because Python
+    dataclass fields are accessed by name.
     """
     trajectories: dict[str, np.ndarray]
     scd: SCDState = field(default_factory=lambda: SCDState(dims={}))
@@ -2704,11 +3028,11 @@ def generate_tables(
     randomness is consumed: a non-PSD correlation matrix raises ``ValueError``
     here rather than producing partial output that silently drops correlation.
 
-    M105: this function is now a thin shim over
-    ``generate_tables_with_state`` that drops the state side-channel; its
-    return contract is unchanged. Callers that need the trajectories used
-    during generation (manifest emission, debugging, downstream feature
-    pipelines) should call ``generate_tables_with_state`` directly.
+    This function is a thin shim over ``generate_tables_with_state`` that
+    drops the state side-channel; its return contract is the table dict
+    alone. Callers that need the trajectories used during generation
+    (manifest emission, debugging, downstream feature pipelines) should
+    call ``generate_tables_with_state`` directly.
     """
     tables, _state = generate_tables_with_state(config, rng)
     return tables
@@ -2724,7 +3048,7 @@ def generate_tables_with_state(
     the additional ``GenerationState`` return value, which carries the
     per-entity trajectory positions. Useful for callers that need the
     ground-truth signal layer without re-deriving it from noisy cell
-    values: M105's manifest emission is the primary consumer.
+    values; manifest emission is the primary consumer.
 
     Determinism contract is identical: same ``(config, rng)`` inputs
     produce both the same tables and the same trajectories.
@@ -2778,6 +3102,7 @@ def generate_tables_with_state(
     # invariant "``L`` is indexed by the metric list passed downstream".
     cholesky_L: Optional[np.ndarray] = None
     if config.correlations:
+        compensation_records: Optional[list[dict]] = None
         sorted_metrics = _toposort_metrics(list(config.metrics))
         mat = _build_correlation_matrix(
             sorted_metrics, list(config.correlations),
@@ -2790,7 +3115,6 @@ def generate_tables_with_state(
         # mission spec — above 20 metrics the additive decomposition is too
         # noisy to satisfy the sign-match floor, so emit a warning and fall
         # through to the legacy direct-copula path.
-        compensation_records: Optional[list[dict]] = None
         if config.compensate_correlations:
             from plotsim.metrics import (
                 _MAX_METRICS_FOR_COMPENSATION,
@@ -2838,40 +3162,32 @@ def generate_tables_with_state(
         projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
         cholesky_L = np.linalg.cholesky(projected_mat)
 
-        # M120: stash compensation records on the (private) config attr so
-        # ``plotsim.manifest.build_manifest`` can surface them alongside the
-        # M111 Higham records. ``None`` (no compensation, no records) ≠
-        # empty list (compensation ran but every pair was already feasible
-        # AND in scope) — keep the distinction in the manifest's wire shape.
+        # Stash compensation records on the (private) config attr so
+        # ``plotsim.manifest.build_manifest`` can surface them alongside
+        # the Higham records. ``None`` (no compensation, no records) ≠
+        # empty list (compensation ran but every pair was already
+        # feasible AND in scope) — keep the distinction in the
+        # manifest's wire shape.
         if compensation_records is not None:
             config._correlation_compensations = compensation_records
 
-    # M107: compute the per-entity metric series ONCE and pass to both
+    # Compute the per-entity metric series ONCE and pass to both
     # ``build_fact_tables`` and ``build_bridge_tables``. Without this hoist
     # bridges would re-call ``generate_entity_metrics`` and consume RNG draws
     # downstream of fact construction, producing different fact values than
-    # the pre-M107 baseline. Configs with empty ``bridges`` skip the bridge
-    # call entirely; they still benefit from the single computation.
+    # before. Configs with empty ``bridges`` skip the bridge call entirely;
+    # they still benefit from the single computation.
     #
-    # M121b: thread a fresh ``bypass_counter`` dict through the dispatcher
-    # so the vectorized path can accumulate per-archetype bypass-cell
-    # counts. Stashed on the config's ``_bypass_fallback_counts`` private
-    # attr (mirrors the M111 ``_correlation_adjustments`` /
-    # M120 ``_correlation_compensations`` pattern); ``build_manifest``
-    # surfaces it as ``bypass_fallback_counts``. Always created (never
-    # None) so the manifest field can distinguish "vectorized run with
-    # no bypass" (empty dict) from "serial run, never measured" (None).
+    # M127b: the copula flip removed the bypass machinery the manifest's
+    # ``bypass_fallback_counts`` field reported on. The field is kept as
+    # an empty dict for backward-compat with old manifest readers (it is
+    # always populated, never ``None``); nothing populates it.
     n_periods = len(dim_tables["dim_date"])
-    bypass_fallback_counts: dict[str, int] = {}
     entity_metrics = _compute_entity_metrics(
         config, trajectories, n_periods, rng,
         cholesky_L=cholesky_L,
-        bypass_counter=bypass_fallback_counts,
     )
-    if _resolve_generation_mode(config) == "vectorized":
-        config._bypass_fallback_counts = bypass_fallback_counts
-    else:
-        config._bypass_fallback_counts = None
+    config._bypass_fallback_counts = {}
 
     fact_tables = build_fact_tables(
         config, trajectories, dim_tables, rng,

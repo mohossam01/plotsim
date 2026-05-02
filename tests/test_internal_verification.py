@@ -266,29 +266,47 @@ class TestGaussianCopula:
         )
         return ma, mb
 
-    def test_3a_identity_correlation_preserves_values(self):
-        """Cholesky L=I acts as a pass-through up to cdf→ppf float precision."""
+    def test_3a_identity_correlation_preserves_marginal(self):
+        """M127b: ``apply_correlations`` with cholesky_L=I draws independent
+        marginals from its own ``rng.standard_normal`` rather than passing
+        through caller-supplied ``independent`` values. The contract under
+        the new flip is that the OUTPUT marginal still matches each metric's
+        distribution (KS test) — not that the cells equal the caller's
+        independent draws.
+        """
+        from scipy import stats as sp_stats
         ma, mb = self._two_metrics()
         ca, cb = 50.0, 5.0
         # Correlation coefficient=0 ⇒ identity off-diagonal ⇒ Cholesky = I.
         corrs = [CorrelationPair(metric_a="a", metric_b="b", coefficient=0.0)]
         rng = _rng(0)
 
-        n = 300
-        errs_a, errs_b = [], []
+        n = 1000
+        out_a, out_b = [], []
         for _ in range(n):
             ia = sample_single_metric(ca, ma, rng)
             ib = sample_single_metric(cb, mb, rng)
             out = apply_correlations(
                 {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
-                cholesky_L=np.eye(2),
+                cholesky_L=np.eye(2), rng=rng,
             )
-            errs_a.append(abs(out["a"] - ia))
-            errs_b.append(abs(out["b"] - ib))
-        # Pure identity with scipy cdf/ppf is floating-point tight for
-        # continuous distributions; the tiny CDF clamp only bites in tails.
-        assert max(errs_a) < 1e-6
-        assert max(errs_b) < 1e-6
+            out_a.append(out["a"])
+            out_b.append(out["b"])
+
+        # KS test: the output marginals must still match each metric's
+        # distribution. Identity correlation means no cross-coupling, so
+        # the two columns should each look like an independent draw from
+        # their own marginal. M127b's Gaussian-space tail clamp causes
+        # ~0.005 KS statistic on bounded-support beta marginals at
+        # n=1000; threshold 0.001 keeps the test as a regression guard
+        # while accepting the new-copula's documented tail-clip behavior.
+        from plotsim.metrics import _get_scipy_dist
+        dist_a = _get_scipy_dist(ma, ca)
+        dist_b = _get_scipy_dist(mb, cb)
+        ks_a = sp_stats.kstest(out_a, dist_a.cdf)
+        ks_b = sp_stats.kstest(out_b, dist_b.cdf)
+        assert ks_a.pvalue > 0.001, f"identity-copula marginal A drifted: {ks_a}"
+        assert ks_b.pvalue > 0.001, f"identity-copula marginal B drifted: {ks_b}"
 
     def test_3b_cdf_round_trip_per_distribution(self):
         """ppf(cdf(x)) == x within tolerance for every continuous family."""
@@ -332,6 +350,7 @@ class TestGaussianCopula:
             ib = sample_single_metric(cb, mb, rng)
             adj = apply_correlations(
                 {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                rng=rng,
             )
             out_a.append(adj["a"])
             out_b.append(adj["b"])
@@ -358,6 +377,7 @@ class TestGaussianCopula:
             ib = sample_single_metric(cb, mb, rng)
             adj = apply_correlations(
                 {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                rng=rng,
             )
             out_a.append(adj["a"])
             out_b.append(adj["b"])
@@ -390,6 +410,7 @@ class TestGaussianCopula:
             ib = sample_single_metric(cb, mb, rng)
             out = apply_correlations(
                 {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                rng=rng,
             )
             va, vb = out["a"], out["b"]
             # Copula must not propagate NaN / ±inf out of the CDF clamp —

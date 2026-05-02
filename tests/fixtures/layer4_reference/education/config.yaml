@@ -20,6 +20,7 @@ metrics:
     min: 0.0
     max: 100.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: attendance_rate
   label: Class attendance rate
   distribution: beta
@@ -31,6 +32,7 @@ metrics:
     min: 0.0
     max: 1.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: study_hours
   label: Weekly study hours
   distribution: gamma
@@ -40,6 +42,7 @@ metrics:
   polarity: positive
   value_range: null
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: participation_index
   label: Class participation index
   distribution: beta
@@ -51,6 +54,7 @@ metrics:
     min: 0.0
     max: 1.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 - name: dropout_risk
   label: Dropout risk score
   distribution: beta
@@ -62,6 +66,7 @@ metrics:
     min: 0.0
     max: 1.0
   causal_lag: null
+  seasonal_sensitivity: 1.0
 archetypes:
 - name: late_bloomer
   label: Struggles early, excels late
@@ -106,16 +111,19 @@ entities:
   size: 60
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 - name: transfer_students
   archetype: steady_learner
   size: 20
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 - name: at_risk_cohort
   archetype: burnout_trajectory
   size: 15
   overrides: null
   cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
 tables:
 - name: dim_date
   type: dim
@@ -128,6 +136,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -135,6 +144,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -142,6 +152,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -149,9 +160,11 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
+  count: 1
 - name: dim_student
   type: dim
   grain: per_entity
@@ -163,6 +176,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: cohort_name
     dtype: string
     source: generated:faker.company
@@ -170,6 +184,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: cohort_size
     dtype: int
     source: derived:size
@@ -177,9 +192,27 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
+  - name: academic_standing
+    dtype: string
+    source: scd_type2
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2:
+      trigger_metric: fct_grades.assignment_score
+      thresholds:
+      - 0.3
+      - 0.6
+      labels:
+      - probationary
+      - good_standing
+      - honors
+    value_pool: null
   primary_key: student_id
   foreign_keys: []
   row_count_source: null
+  count: 1
 - name: dim_course
   type: dim
   grain: per_reference
@@ -191,6 +224,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: course_name
     dtype: string
     source: static:intro_cs,calculus,history,physics,literature,statistics
@@ -198,6 +232,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: credits
     dtype: int
     source: static:3,4,3,4,3,4
@@ -205,9 +240,11 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: course_id
   foreign_keys: []
   row_count_source: null
+  count: 1
 - name: fct_grades
   type: fact
   grain: per_entity_per_period
@@ -219,6 +256,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -226,6 +264,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: course_id
     dtype: id
     source: fk:dim_course.course_id
@@ -233,6 +272,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: assignment_score
     dtype: float
     source: metric:assignment_score
@@ -240,6 +280,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: participation_index
     dtype: float
     source: metric:participation_index
@@ -247,6 +288,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key:
   - date_key
   - student_id
@@ -255,6 +297,7 @@ tables:
   - dim_student.student_id
   - dim_course.course_id
   row_count_source: null
+  count: 1
 - name: fct_engagement
   type: fact
   grain: per_entity_per_period
@@ -266,6 +309,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -273,6 +317,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: attendance_rate
     dtype: float
     source: metric:attendance_rate
@@ -280,6 +325,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: study_hours
     dtype: float
     source: metric:study_hours
@@ -287,6 +333,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: dropout_risk
     dtype: float
     source: metric:dropout_risk
@@ -294,6 +341,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key:
   - date_key
   - student_id
@@ -301,6 +349,7 @@ tables:
   - dim_date.date_key
   - dim_student.student_id
   row_count_source: null
+  count: 1
 - name: evt_dropout
   type: event
   grain: variable
@@ -312,6 +361,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -319,6 +369,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -326,6 +377,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
@@ -333,6 +385,7 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   - name: dropout_flag
     dtype: boolean
     source: threshold:dropout_risk:above:0.6:for:2
@@ -340,11 +393,13 @@ tables:
     distribution: null
     allow_outside_window: false
     scd_type2: null
+    value_pool: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_student.student_id
   row_count_source: null
+  count: 1
 correlations:
 - metric_a: attendance_rate
   metric_b: assignment_score
@@ -365,7 +420,23 @@ output:
 manifest:
   include: true
   trajectory_sample_rate: 1.0
-stages: null
+stages:
+  field: dropout_risk
+  sequence:
+  - name: thriving
+    threshold_enter: 0.0
+    threshold_exit: 0.15
+  - name: stable
+    threshold_enter: 0.15
+    threshold_exit: 0.35
+  - name: struggling
+    threshold_enter: 0.35
+    threshold_exit: 0.6
+  - name: critical
+    threshold_enter: 0.6
+    threshold_exit: null
+  enforce_order: true
+  downgrade_delay: null
 bridges:
 - name: bridge_enrollment
   type: bridge
@@ -385,4 +456,16 @@ bridges:
     source: static:enrolled
 quality:
   quality_issues: []
+entity_features:
+  enabled: false
+  metrics: []
+  include_labels: true
+holdout:
+  enabled: false
+  target_metric: null
+  holdout_periods: 0
+  min_training_periods: 3
 locale: en_US
+seasonal_effects: []
+compensate_correlations: false
+generation_mode: serial

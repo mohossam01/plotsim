@@ -34,11 +34,11 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIGS_DIR = ROOT / "plotsim" / "configs"
 SAAS_YAML = CONFIGS_DIR / "sample_saas.yaml"
 HR_YAML = CONFIGS_DIR / "sample_hr.yaml"
-ECOMMERCE_YAML = CONFIGS_DIR / "sample_ecommerce.yaml"
 EDUCATION_YAML = CONFIGS_DIR / "sample_education.yaml"
-HEALTHCARE_YAML = CONFIGS_DIR / "sample_healthcare.yaml"
+RETAIL_YAML = CONFIGS_DIR / "sample_retail.yaml"
+MARKETING_YAML = CONFIGS_DIR / "sample_marketing.yaml"
 
-ALL_TEMPLATES = ("saas", "hr", "ecommerce", "education", "healthcare")
+ALL_TEMPLATES = ("saas", "hr", "education", "retail", "marketing")
 
 
 # --- Helpers ------------------------------------------------------------------
@@ -460,3 +460,107 @@ def test_cli_relative_output_dir_unchanged_behavior(tmp_path: Path, monkeypatch)
     assert code == 0, f"stderr={err!r}"
     expected = tmp_path / "out" / "saas"
     assert (expected / "dim_date.csv").exists()
+
+
+# --- M124: builder-YAML dispatch in CLI commands ----------------------------
+
+BUILDER_DIR = ROOT / "plotsim" / "configs" / "new"
+BUILDER_SAAS_YAML = BUILDER_DIR / "saas_template.yaml"
+
+
+def test_list_builder_templates_finds_directory():
+    """M124: ``list_builder_templates`` discovers ``plotsim/configs/new/``."""
+    builder = cli.list_builder_templates()
+    names = {name for name, _ in builder}
+    # Every YAML in plotsim/configs/new/ should appear; saas is the canonical.
+    assert "saas" in names
+    assert "bare_minimum" in names
+    for _name, path in builder:
+        assert path.exists()
+        assert path.suffix == ".yaml"
+
+
+def test_list_templates_cli_surfaces_builder_section():
+    """M124: ``plotsim list-templates`` shows builder templates above the
+    engine-direct ones (with the recommended-default phrasing).
+    """
+    code, out, _err = run_cli("list-templates")
+    assert code == 0
+    assert "Builder templates" in out
+    assert "Engine-direct templates" in out
+    # saas appears in both sections, but each header should appear exactly once.
+    assert out.count("Builder templates") == 1
+    assert out.count("Engine-direct templates") == 1
+
+
+def test_validate_accepts_builder_yaml():
+    """M124: ``plotsim validate`` dispatches to ``create_from_yaml`` when the
+    YAML is builder-shape (top-level ``about`` + ``unit`` + ``segments``).
+    """
+    code, out, _err = run_cli("validate", str(BUILDER_SAAS_YAML))
+    assert code == 0
+    assert "VALID" in out
+
+
+def test_info_accepts_builder_yaml():
+    """M124: ``plotsim info`` works on builder YAML — same summary surface."""
+    code, out, _err = run_cli("info", str(BUILDER_SAAS_YAML))
+    assert code == 0
+    for token in ("Domain:", "Entities:", "Time window:", "Metrics:",
+                  "Tables:", "Seed:"):
+        assert token in out, f"missing summary token {token!r}"
+
+
+def test_run_accepts_builder_yaml(tmp_path: Path):
+    """M124: ``plotsim run`` writes CSVs from a builder YAML (acceptance
+    criterion 5). Engine-direct YAML still works on the same command
+    (criterion 6) — covered by ``test_run_writes_csvs_to_specified_output_dir``.
+    """
+    code, _out, err = run_cli(
+        "run", str(BUILDER_SAAS_YAML), "-o", str(tmp_path),
+        "--validate", "-q", "--allow-absolute-output",
+    )
+    assert code == 0, f"stderr={err!r}"
+    csvs = sorted(p.name for p in tmp_path.glob("*.csv"))
+    assert "dim_date.csv" in csvs
+    assert any(name.startswith("fct_") for name in csvs)
+    # Builder YAML always emits a manifest.
+    assert (tmp_path / "manifest.json").exists()
+
+
+def test_is_builder_yaml_detects_builder_shape(tmp_path: Path):
+    """M124: the dispatcher peek correctly classifies both flavours."""
+    builder_path = tmp_path / "builder.yaml"
+    builder_path.write_text(
+        "about: x\nunit: company\nsegments: []\n", encoding="utf-8",
+    )
+    engine_path = tmp_path / "engine.yaml"
+    engine_path.write_text(
+        "domain: {name: x}\ntime_window: {start: 2024-01, end: 2024-12}\n",
+        encoding="utf-8",
+    )
+    assert cli._is_builder_yaml(builder_path) is True
+    assert cli._is_builder_yaml(engine_path) is False
+
+
+def test_is_builder_yaml_handles_malformed_input(tmp_path: Path):
+    """Malformed YAML or non-dict top-level falls through to the engine
+    loader (so the engine's familiar error surface stays the source of truth).
+    """
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("[ this is a list, not a mapping ]\n", encoding="utf-8")
+    assert cli._is_builder_yaml(bad) is False
+
+
+def test_find_template_resolves_builder_when_no_engine_match():
+    """M124: ``find_template('bare_minimum')`` finds the builder template
+    when no engine-direct match exists. Engine-direct still wins for
+    overlapping names like ``saas``.
+    """
+    bare = cli.find_template("bare_minimum")
+    assert bare is not None
+    assert bare.parent.name == "new"
+    saas = cli.find_template("saas")
+    assert saas is not None
+    # Engine-direct precedence: ``saas`` resolves to ``sample_saas.yaml``.
+    assert saas.name == "sample_saas.yaml"
