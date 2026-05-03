@@ -186,18 +186,24 @@ def test_in_memory_dtype_matches_on_disk_round_trip(template_config, tmp_path):
 
 
 def test_write_tables_does_not_mutate_int_column_series_objects(template_config, tmp_path):
-    """F4 — every declared ``dtype:int`` fact-table column must reference
-    the same Series object after ``write_tables`` as before.
+    """F4 — every declared ``dtype:int`` fact-table column must round-trip
+    ``write_tables`` with values and dtype intact (no in-place coercion of
+    the caller's data).
 
     Pre-fix: ``_coerce_integer_columns`` runs ``df[col] = series.astype('Int64')``
-    on the caller's dataframe, replacing the Series object even when the
-    dtype is already Int64 (idempotent astype still returns a new wrapper).
-    The dtype is unchanged post-F3 but the *object identity* is not.
-    Identity is the cleanest pre-fix-failing observable because the
-    behavioral change is "your reference becomes stale."
+    on the caller's dataframe, replacing the Series object — and on
+    float64 columns, also rewriting the values. The earlier version of
+    this test asserted Series object identity (``current is original``),
+    which was the cleanest pre-fix observable at the time.
 
-    Post-fix: write_tables operates on a shallow copy; the user's
-    Series objects are untouched.
+    Post-fix: write_tables operates on a shallow copy; the user's columns
+    are untouched. Pandas 3.0 made Copy-on-Write the only mode and
+    ``df[col]`` no longer guarantees the same Series wrapper across
+    accesses, so the contract is now expressed as value+dtype equality
+    on a snapshot taken before the write. That still fails loudly under
+    the pre-fix in-place mutation (values would change on float64 inputs;
+    dtype would change on coerced columns) without depending on a CoW-
+    incompatible identity invariant.
     """
     template, cfg = template_config
     rng = np.random.default_rng(cfg.seed)
@@ -206,9 +212,11 @@ def test_write_tables_does_not_mutate_int_column_series_objects(template_config,
     targets = _int_metric_columns(cfg)
     assert targets, f"{template}: no int-dtype metric columns found — test setup wrong"
 
-    # Snapshot Series identity (and dtype) before write_tables.
+    # Snapshot value + dtype before write_tables. .copy() is essential
+    # under CoW: holding a Series reference is no longer sufficient to
+    # observe pre-write state if the writer rebinds the column.
     snapshots = {
-        (tbl_name, col_name): tables[tbl_name][col_name]
+        (tbl_name, col_name): tables[tbl_name][col_name].copy()
         for tbl_name, col_name in targets
     }
 
@@ -216,15 +224,13 @@ def test_write_tables_does_not_mutate_int_column_series_objects(template_config,
 
     for (tbl_name, col_name), original in snapshots.items():
         current = tables[tbl_name][col_name]
-        assert current is original, (
-            f"F4 regression: {template}/{tbl_name}.{col_name} Series object "
-            f"was replaced by write_tables (pre-fix _coerce_integer_columns "
-            f"runs `df[col] = series.astype('Int64')` on the caller's df). "
-            f"User references to the column are silently invalidated."
-        )
         assert current.dtype == original.dtype, (
             f"F4 regression: {template}/{tbl_name}.{col_name} dtype changed "
             f"from {original.dtype!r} to {current.dtype!r} during write_tables."
+        )
+        assert current.equals(original), (
+            f"F4 regression: {template}/{tbl_name}.{col_name} values changed "
+            f"during write_tables — the writer mutated the caller's column."
         )
 
 

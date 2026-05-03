@@ -1257,8 +1257,16 @@ def test_performance_improvement_on_large_config():
 LAYER4_FIXTURES = ROOT / "tests" / "fixtures" / "layer4_reference"
 
 
+# HR is dropped from the byte-equal regression: its hire_date column
+# uses faker.date_between, whose underlying random._randbelow path was
+# optimized between Python 3.10 and 3.11. Same faker version + same
+# seed produces different dates across Python versions, so a
+# byte-identical fixture cannot exist for the matrix as a whole.
+# HR's structural correctness is still covered by
+# test_dimensions.py::test_hr_template_hire_dates_within_window and
+# the rest of test_tables.py's HR-shape assertions.
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "education", "retail", "marketing"],
+    "stem", ["saas", "education", "retail", "marketing"],
 )
 def test_layer4_reference_fixtures_match(stem, tmp_path):
     """Byte-identical regression: the five templates must produce CSVs
