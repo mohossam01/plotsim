@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mohossam01/plotsim/main/docs/site/assets/brand/readme-banner.png" alt="plotsim — behavioral patterns, simulated" width="100%">
+  <img src="https://raw.githubusercontent.com/mohossam01/plotsim/main/docs/site/assets/brand/readme-banner.png" alt="plotsim — datasets that tell a story" width="100%">
 </p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
@@ -49,11 +49,66 @@ for name, df in tables.items():
 
 A complete dataset of CSV (or Parquet) files, ready to load into a warehouse, notebook, or BI tool. Same config plus same seed produces byte-identical output every time — see the [output guide](https://mohossam01.github.io/plotsim/user-guide/output-formats/) for details.
 
-## Under the hood
 
-- **Trajectory-driven** — every entity follows one behavioral curve, and every metric reads from the same position on that curve.
-- **Correlated** — declared relationships between metrics hold to a measured tolerance, regardless of distribution shape.
-- **Deterministic** — every random draw flows through one seeded generator; reproduction is part of the contract.
+
+## Who is this for
+
+**Educators and students** who need realistic datasets for SQL 
+courses, data modeling workshops, analytics training, or portfolio 
+projects — five domain templates ready to go, same seed produces 
+the same data every time.
+
+**Data engineers** who need test fixtures that behave like production 
+data — with FK integrity, realistic distributions, and configurable 
+corruption — without copying production or hand-rolling three-row 
+CSVs.
+
+**Data scientists** who need labeled training data with known ground 
+truth — archetype labels, trajectory positions, and temporal holdout 
+splits — to validate models before touching real data.
+
+**Analytics engineers** who need a star schema to build dbt models, 
+test transformations, or demonstrate a pipeline end-to-end without 
+waiting for upstream data.
+
+**BI and analytics teams** who need a populated star schema to 
+build dashboards, test reports, or demo a new tool to stakeholders 
+— dims, facts, events, and SCD versioning out of the box.
+
+**Demo builders** who need a convincing dataset for a conference 
+talk, a product walkthrough, or a proof of concept — correlated 
+metrics that tell a realistic story, not random noise.
+
+
+
+## How it works
+
+Every entity in the dataset follows a **behavioral trajectory** — a 
+curve shape like growth, decline, seasonal, or spike-then-crash. At 
+each time period, the entity's position on that curve determines 
+every metric value across every table. Revenue, engagement, churn 
+risk, and support tickets all read from the same position, so they 
+move together the way real business metrics do.
+
+Metric relationships are enforced through a **Gaussian copula** — 
+declare `engagement opposes churn_risk` and the engine delivers the 
+configured correlation coefficient regardless of whether one metric 
+is beta-distributed and the other is Poisson. Causal lags compose: 
+if `A → B (lag 2) → C (lag 3)`, then C reflects A from 5 periods ago.
+
+Output is **deterministic**. Every random draw flows through a single 
+seeded `numpy.Generator`. Same config + same seed = byte-identical 
+tables across machines, OS, and Python versions. The manifest records 
+every generation decision — archetype assignments, trajectory 
+positions, correlation adjustments, quality injections — so any 
+cell value can be traced back to its origin.
+
+Config-time **validation** catches problems before generation starts: 
+circular causal chains, non-positive-definite correlation matrices, 
+broken foreign key references, duplicate metric names, and 
+SQL-unsafe identifiers all surface as parse errors with fix 
+suggestions.
+
 
 See the [docs site](https://mohossam01.github.io/plotsim/) for the full pipeline.
 
