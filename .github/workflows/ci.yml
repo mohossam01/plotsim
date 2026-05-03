@@ -18,5 +18,5 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
-      - run: python -c "import pandas; import numpy; import faker; print(f'pandas={pandas.__version__} numpy={numpy.__version__} faker={faker.__version__}')"
+      - run: python -c "from importlib.metadata import version as v; print(f'pandas={v(\"pandas\")} numpy={v(\"numpy\")} faker={v(\"faker\")}')"
       - run: python -m pytest --tb=short -q
