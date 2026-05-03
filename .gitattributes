@@ -1,0 +1,5 @@
+# Reference fixtures must be byte-identical across Windows and Linux.
+# test_tables.py::test_layer4_reference_fixtures_match compares generated
+# output to these CSVs; CRLF on one OS and LF on another would break the
+# byte-identical assertion in CI.
+tests/fixtures/**/*.csv text eol=lf

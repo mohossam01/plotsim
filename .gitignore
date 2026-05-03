@@ -62,7 +62,7 @@ out_*/
 output_*/
 *.csv
 !plotsim/configs/*.csv
-!tests/fixtures/*.csv
+!tests/fixtures/**/*.csv
 !analysis/fidelity_sweeps/*.csv
 
 # Hypothesis test scratch
