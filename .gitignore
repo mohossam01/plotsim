@@ -71,12 +71,11 @@ output_*/
 # MkDocs build output
 /site/
 
-# Quarantine — pre-cleanup holding pen, examined later
-/_attic/
-
 # Internal-only — operator engineering scratch, never published
 /analysis/
 /docs/internal/
+/_attic/
+/notebooks/
 
 # Secrets
 .env
@@ -86,8 +85,8 @@ output_*/
 # Quickstart example artifacts
 examples/quickstart_output/
 
-# Non-code markdown / agent scaffolding — shipping code only.
-# un-ignore the files that ARE shipped with the code.
+# Non-code markdown / agent scaffolding.
+# un-ignore the files that ARE shipped with the code
 .agents/
 .claude/
 project/
@@ -98,6 +97,5 @@ AGENTS.md
 !LICENSE
 !LICENSE.md
 
-# Session / audit artifacts — only Python that ships lives under
-# plotsim/ and tests/, so root-level .py is scratch by definition.
+# Session / audit artifacts
 /*.py
