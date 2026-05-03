@@ -864,5 +864,11 @@ def test_public_api_surface_matches_readme():
     assert callable(plotsim.validate)
     assert callable(plotsim.write_tables)
     assert plotsim.ValidationReport is not None
-    # Version stays where packaging metadata reads from.
-    assert plotsim.__version__ == "0.5.0"
+    # __version__ must mirror [project].version in pyproject.toml — reading
+    # the file directly catches drift that importlib.metadata would miss
+    # on a stale editable install.
+    import re
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r'\[project\][^\[]*?\nversion\s*=\s*"([^"]+)"', pyproject, re.DOTALL)
+    assert m, "could not find [project].version in pyproject.toml"
+    assert plotsim.__version__ == m.group(1)
