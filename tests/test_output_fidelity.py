@@ -894,7 +894,10 @@ def _features(series: np.ndarray) -> dict[str, float]:
     if n < 2:
         return {"slope": 0.0, "auc": 0.0, "mid": 0.0, "std": 0.0}
     slope = float((series[-1] - series[0]) / (n - 1))
-    auc = float(np.trapz(series) / n)
+    # np.trapz was deprecated in NumPy 2.0 in favor of np.trapezoid; fall back
+    # to np.trapz when running on numpy <2.0.
+    _trapz = getattr(np, "trapezoid", None) or np.trapz
+    auc = float(_trapz(series) / n)
     mid = float(series[n // 2])
     std = float(np.std(series))
     return {"slope": slope, "auc": auc, "mid": mid, "std": std}
