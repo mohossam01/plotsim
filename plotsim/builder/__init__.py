@@ -4,10 +4,10 @@ Public entry points:
 
     create(**kwargs) -> PlotsimConfig
         Build a PlotsimConfig from keyword arguments matching the input
-        template at ``plotsim/configs/new/saas_template.py``.
+        template at ``plotsim/configs/templates/saas_template.py``.
 
     create_from_yaml(path) -> PlotsimConfig
-        Load a YAML file conforming to ``plotsim/configs/new/saas_template.yaml``
+        Load a YAML file conforming to ``plotsim/configs/templates/saas_template.yaml``
         and build a PlotsimConfig from it.
 
 Both surfaces share the same input model (``UserInput``) and the same
@@ -40,7 +40,7 @@ def create(**kwargs: Any) -> PlotsimConfig:
     """Build a PlotsimConfig from keyword arguments.
 
     The arguments mirror the YAML template shape — see
-    ``plotsim/configs/new/saas_template.py`` for the canonical example.
+    ``plotsim/configs/templates/saas_template.py`` for the canonical example.
     Construction validates the user-facing input model first; structural
     problems raise ``pydantic.ValidationError`` with the specific field
     named, before the interpreter runs.

@@ -19,8 +19,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from analysis.fidelity_sweeps.sweep_runner import run_sweep
-from analysis.fidelity_sweeps.sweep_analyzer import (
+from tests.fidelity_sweeps.sweep_runner import run_sweep
+from tests.fidelity_sweeps.sweep_analyzer import (
     analyze_correlation_csv,
     render_markdown_table,
     summarize_grouped,
@@ -284,7 +284,7 @@ def test_claim1_correlation_subset_within_documented_tolerance(
     smoke tolerances above already absorb this drift; no smoke value needed
     to change.
     """
-    from analysis.fidelity_sweeps.claim1_correlation import (
+    from tests.fidelity_sweeps.claim1_correlation import (
         _simulate_pair_pearson,
     )
 
@@ -312,7 +312,7 @@ def test_claim2_small_lag_recovers_at_output_level() -> None:
     lag within ±1 of configured). Larger lags are documented as not
     recoverable. This test pins the recoverable cell at lag=2.
     """
-    from analysis.fidelity_sweeps.claim2_lag import (
+    from tests.fidelity_sweeps.claim2_lag import (
         _build_cfg, _per_entity_xcorr,
     )
 
@@ -355,7 +355,7 @@ def test_claim3_trajectory_envelope_reproduces_on_saas_subset() -> None:
     """
     import numpy as np
 
-    from analysis.fidelity_sweeps.claim3_trajectory import (
+    from tests.fidelity_sweeps.claim3_trajectory import (
         _verify_template_seed,
     )
     sample_rng = np.random.default_rng(0xC1A1)
@@ -387,7 +387,7 @@ def test_claim4_same_process_determinism_on_saas() -> None:
     calls produce byte-identical CSVs. Cheapest determinism check
     available; runs in <2s on the saas template.
     """
-    from analysis.fidelity_sweeps.claim4_determinism import _same_process_pair
+    from tests.fidelity_sweeps.claim4_determinism import _same_process_pair
     pairs = _same_process_pair()
     differences = [
         (fn, ha, hb) for fn, (ha, hb) in pairs.items() if ha != hb

@@ -92,7 +92,7 @@ class TestIterFactChunks:
 
     def test_chunk_count_matches_archetypes(self):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -110,7 +110,7 @@ class TestIterFactChunks:
 
     def test_chunk_row_counts_match_entity_counts(self):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -136,7 +136,7 @@ class TestIterFactChunks:
         """Concatenating every chunk's fact DataFrame should reconstruct
         the unified DataFrame (row order may differ, but row sets match)."""
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -190,7 +190,7 @@ class TestRoundTripEquality:
 
     def test_streaming_round_trips_to_unified(self, tmp_path):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg_v = cfg.model_copy(update={
             "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -270,7 +270,7 @@ class TestRowGroups:
 
     def test_row_group_count_matches_archetypes(self, tmp_path):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={
             "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -287,7 +287,7 @@ class TestRowGroups:
 
     def test_row_group_sizes_match_entity_counts(self, tmp_path):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={
             "output": cfg.output.model_copy(update={"format": "parquet"}),

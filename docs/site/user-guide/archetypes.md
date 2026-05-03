@@ -205,6 +205,30 @@ If a single curve genuinely doesn't fit, that's usually a sign your
 "one segment" is actually two — split it into two segments with
 different archetypes and let the engine give you the mix.
 
+### Engine-direct curves: `sawtooth`
+
+Beyond the six builder shapes, the engine ships one extra curve
+primitive — `sawtooth` — useful for billing-cycle / quota-reset
+narratives where activity ramps then drops on a fixed cadence. It's
+not exposed in the builder DSL; declare it directly on an engine-direct
+config (or `Archetype.curve_segments` after `create_from_yaml`):
+
+```python
+from plotsim.config import Archetype, CurveSegment
+cfg.archetypes.append(Archetype(
+    name="billing_cycle",
+    curve_segments=[CurveSegment(
+        curve="sawtooth",
+        params={"period": 4.0, "amplitude": 0.8, "base": 0.1},
+        start_pct=0.0, end_pct=1.0,
+    )],
+))
+```
+
+`period` controls how many cycles fit in the window; `amplitude`
+controls peak height above `base`. Each cycle ramps from `base` to
+`base + amplitude`, then snaps back.
+
 ---
 
 ## What to read next

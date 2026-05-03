@@ -17,6 +17,8 @@
 |---|---|---|
 | [`create`](#create) | `plotsim` | Build a config from Python kwargs |
 | [`create_from_yaml`](#create_from_yaml) | `plotsim` | Build a config from a YAML file |
+| [`list_templates`](#list_templates) | `plotsim` | Names of bundled builder templates |
+| [`load_template`](#load_template) | `plotsim` | Load a bundled template by name |
 | [`generate_tables`](#generate_tables) | `plotsim` | Generate every dim/fact/event/bridge table |
 | [`generate_tables_with_state`](#generate_tables_with_state) | `plotsim` | Same, plus the trajectory tape |
 | [`validate`](#validate) | `plotsim` | Run every post-generation check on tables |
@@ -107,6 +109,58 @@ validators run for both surfaces.
 from plotsim import create_from_yaml, generate_tables, write_tables
 
 cfg = create_from_yaml("my_config.yaml")
+tables = generate_tables(cfg)
+write_tables(tables, cfg)
+```
+
+---
+
+## `list_templates`
+
+Return the names of bundled builder templates.
+
+```python
+def list_templates() -> list[str]
+```
+
+Names round-trip through [`load_template`](#load_template). `bare_minimum`
+keeps its full stem; the five domain templates strip the `_template`
+suffix. Sorted alphabetically.
+
+**Returns** — e.g. `["bare_minimum", "education", "hr", "marketing", "retail", "saas"]`.
+
+**Example**
+
+```python
+import plotsim
+
+for name in plotsim.list_templates():
+    print(name)
+```
+
+---
+
+## `load_template`
+
+Load a bundled template by name and return a `PlotsimConfig`.
+
+```python
+def load_template(name: str) -> PlotsimConfig
+```
+
+Equivalent to `create_from_yaml` on the template's bundled path. `name`
+is one of [`list_templates`](#list_templates).
+
+**Raises**
+
+- `ValueError` — the name is not a bundled template.
+
+**Example**
+
+```python
+from plotsim import load_template, generate_tables, write_tables
+
+cfg = load_template("saas")
 tables = generate_tables(cfg)
 write_tables(tables, cfg)
 ```

@@ -41,7 +41,7 @@ TEMPLATE_SUFFIX = ".yaml"
 # (``about`` / ``unit`` / ``segments`` at the top level) — the front door
 # the builder docs walk users through. ``list-templates`` surfaces these
 # alongside the engine-direct ``sample_*`` configs.
-BUILDER_DIR_NAME = "new"
+BUILDER_DIR_NAME = "templates"
 
 
 # --- Config dispatcher (M124) ------------------------------------------------
@@ -102,7 +102,7 @@ def list_templates() -> list[tuple[str, Path]]:
 
     Names are the file stem with ``sample_`` stripped (engine-direct) or
     ``_template`` stripped (builder). Sorted alphabetically by name. M124
-    surfaces builder templates from ``plotsim/configs/new/`` alongside the
+    surfaces builder templates from ``plotsim/configs/templates/`` alongside the
     engine-direct ``sample_*`` configs — the CLI's ``run`` / ``validate`` /
     ``info`` commands accept either flavour.
     """
@@ -121,7 +121,7 @@ def list_templates() -> list[tuple[str, Path]]:
 def list_builder_templates() -> list[tuple[str, Path]]:
     """Return ``[(name, path), ...]`` for every builder-template YAML.
 
-    Builder templates live in ``plotsim/configs/new/`` and are
+    Builder templates live in ``plotsim/configs/templates/`` and are
     ``UserInput`` shape — the ``create_from_yaml`` dispatcher route. Names
     are the file stem with the ``_template`` suffix stripped (so
     ``saas_template.yaml`` -> ``saas``); ``bare_minimum.yaml`` is kept

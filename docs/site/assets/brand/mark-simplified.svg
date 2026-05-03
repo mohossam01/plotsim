@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 72" width="200" height="144">
+  <title>plotsim · mark · simplified</title>
+  <path d="M 4 56 C 12 50, 18 44, 26 36 S 40 26, 50 44 C 58 56, 66 60, 74 56 S 88 50, 96 52" fill="none" stroke="#e9b04a" stroke-width="1.6"></path>
+  <path d="M 4 60 C 12 58, 18 50, 24 38 S 38 12, 50 10 C 60 9, 66 22, 72 36 S 84 60, 96 62" fill="none" stroke="#3ecfc1" stroke-width="3.2" stroke-linecap="round"></path>
+  <circle cx="50" cy="10" r="2.4" fill="#e9b04a"></circle>
+</svg>

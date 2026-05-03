@@ -769,7 +769,7 @@ or sandboxed CI runs that don't need the ground-truth payload. See
 The builder applies baselines to `metric_overrides.value_range` only.
 Engine-direct configs may override per-archetype curve segments and
 distributions for finer-grained control. See
-[engine-internals.md](https://github.com/mohossam-ae/plotsim/blob/main/docs/engine-internals.md)
+[engine-internals.md](https://github.com/mohossam01/plotsim/blob/main/docs/engine-internals.md)
 for the override resolution order.
 
 ---

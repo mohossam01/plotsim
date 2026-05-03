@@ -78,7 +78,7 @@ class TestManifestFieldShape:
         # Kept as a regression guard against the field gaining un-
         # validated keys in a future change.
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
@@ -89,7 +89,7 @@ class TestManifestFieldShape:
         # M127b: vacuously true on an empty dict; kept as a stable shape
         # invariant for any future repopulation.
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
@@ -307,7 +307,7 @@ class TestManifestRoundTrip:
 
     def test_round_trip_preserves_bypass_counts(self):
         cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
         )
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)

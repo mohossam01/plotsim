@@ -464,15 +464,15 @@ def test_cli_relative_output_dir_unchanged_behavior(tmp_path: Path, monkeypatch)
 
 # --- M124: builder-YAML dispatch in CLI commands ----------------------------
 
-BUILDER_DIR = ROOT / "plotsim" / "configs" / "new"
+BUILDER_DIR = ROOT / "plotsim" / "configs" / "templates"
 BUILDER_SAAS_YAML = BUILDER_DIR / "saas_template.yaml"
 
 
 def test_list_builder_templates_finds_directory():
-    """M124: ``list_builder_templates`` discovers ``plotsim/configs/new/``."""
+    """M124: ``list_builder_templates`` discovers ``plotsim/configs/templates/``."""
     builder = cli.list_builder_templates()
     names = {name for name, _ in builder}
-    # Every YAML in plotsim/configs/new/ should appear; saas is the canonical.
+    # Every YAML in plotsim/configs/templates/ should appear; saas is the canonical.
     assert "saas" in names
     assert "bare_minimum" in names
     for _name, path in builder:
@@ -559,7 +559,7 @@ def test_find_template_resolves_builder_when_no_engine_match():
     """
     bare = cli.find_template("bare_minimum")
     assert bare is not None
-    assert bare.parent.name == "new"
+    assert bare.parent.name == "templates"
     saas = cli.find_template("saas")
     assert saas is not None
     # Engine-direct precedence: ``saas`` resolves to ``sample_saas.yaml``.

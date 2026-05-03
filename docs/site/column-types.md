@@ -323,3 +323,84 @@ Each column is derived from the date-key spine — `year`, `month`,
 bare dtype word (e.g. `type: int`) raise — non-`dim_date` columns must
 declare a source-bearing type (`metric.X`, `faker.X`, `static.X`,
 `ref.X`, etc.).
+
+---
+
+## Engine-direct sources
+
+The builder DSL covers the column types most configs need. The engine
+also accepts four lower-level `source:` strings that the builder doesn't
+surface — useful when authoring or editing an engine-direct YAML
+(`PlotsimConfig` shape) directly. All four parse through
+`plotsim.config.parse_source` and live on `Column.source`.
+
+### `derived:<field>`
+
+Computed-column source. Copies an already-realized column on the same
+row into the new column, applying the declared `dtype` for coercion.
+Useful for surfacing a metric value under a second column name without
+a redundant fact entry, or for narrowing a wide dtype to a small one.
+
+```yaml
+- name: engagement_int
+  dtype: int
+  source: derived:engagement_score
+```
+
+The referenced field must already be present on the row at compute time.
+
+### `lag:<metric>:periods:<N>`
+
+Embed a metric's value from `N` periods ago as a column in its own right
+(distinct from the metric's own `causal_lag` declaration, which only
+shifts the trajectory used to draw the *current* metric value). Useful
+for "previous month MRR" / "last quarter NPS" columns expected by
+downstream dashboards.
+
+```yaml
+- name: mrr_3mo_ago
+  dtype: float
+  source: lag:mrr:periods:3
+```
+
+`<N>` must be `≥ 1`. Periods before window start return null.
+
+### `threshold:<metric>:<above|below>:<value>:for:<consecutive>`
+
+Event-row driver. Expressed on `Table.row_count_source` rather than a
+column — the table emits one event row per `(entity, period)` where the
+named metric stays above/below `value` for at least `consecutive`
+consecutive periods. Equivalent to the builder's
+`events: { trigger: threshold, ... }` block but exposed as a parsed
+source string in the engine YAML:
+
+```yaml
+- name: evt_churn
+  type: event
+  row_count_source: threshold:churn_risk:above:0.7:for:3
+  columns:
+    - { name: company_id, source: fk:dim_company.company_id }
+```
+
+Mirrors `flag` columns: pair this `row_count_source` with a `flag` column
+inside the table to surface the boolean fired/not-fired marker per row.
+
+### `proportional:<metric>:scale:<multiplier>`
+
+The other event-row driver. Row count per `(entity, period)` =
+`metric_value × multiplier`. Scale is capped at `100.0` (engine guards
+event-table memory growth at very large multipliers).
+
+```yaml
+- name: evt_login
+  type: event
+  row_count_source: proportional:engagement:scale:5
+  columns:
+    - { name: company_id, source: fk:dim_company.company_id }
+    - { name: event_ts,   source: generated:timestamp }
+```
+
+The cell-count gate documented under
+[Limits](./config-reference.md#limits-and-performance-gates) does *not*
+account for event-row volume — high-scale proportional events on
+high-cell configs can still produce surprisingly large event tables.

@@ -1,9 +1,12 @@
-# plotsim
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mohossam01/plotsim/main/docs/site/assets/brand/readme-banner.png" alt="plotsim — behavioral patterns, simulated" width="100%">
+</p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Tests: 1657 passed](https://img.shields.io/badge/tests-1657%20passed-brightgreen)]()
+[![Tests: 1673 passed](https://img.shields.io/badge/tests-1673%20passed-brightgreen)]()
 [![PyPI](https://img.shields.io/pypi/v/plotsim)](https://pypi.org/project/plotsim/)
+[![Docs](https://img.shields.io/badge/docs-mohossam01.github.io-blue)](https://mohossam01.github.io/plotsim/)
 
 **Generate multi-table relational datasets where every metric tells the same story. Config-driven. No real data required.**
 
@@ -11,9 +14,10 @@
 pip install plotsim
 ```
 
----
-
-Most synthetic data tools generate columns independently — a customer's revenue is random, their engagement is random, their churn is random. The numbers fill a schema, but they don't behave like real data. plotsim generates relational test data with **shape**: every entity follows a behavioral trajectory, and every metric across every table reads from the same trajectory position. When engagement rises, revenue follows. When it declines, churn fires.
+plotsim generates multi-table relational datasets from a behavioral
+description. You define metrics, segments, and how entities behave over
+time — the engine produces a star schema where every value traces back to
+one trajectory. **shape**: every entity follows a behavioral trajectory, and every metric across every table reads from the same trajectory position. When engagement rises, revenue follows. When it declines, churn fires.
 
 ## Quick start
 
@@ -41,35 +45,21 @@ for name, df in tables.items():
 # fct_customer: 960 rows
 ```
 
-`create()` accepts the same shape as the bundled YAML templates (`plotsim template <name>`). For a CLI-only flow, `plotsim run config.yaml -o ./output` does the same end-to-end.
-
 ## What you get
 
-A complete star schema written as CSV (or Parquet, with the `[parquet]` extra): a date dimension, one entity dimension per `unit`, fact tables joining entity × period, and event tables for proportional or threshold-driven occurrences. Every foreign key resolves; the date spine has no gaps; same config + same seed = byte-identical output.
+A complete dataset of CSV (or Parquet) files, ready to load into a warehouse, notebook, or BI tool. Same config plus same seed produces byte-identical output every time — see the [output guide](https://mohossam01.github.io/plotsim/user-guide/output-formats/) for details.
 
 ## Under the hood
 
-- **Trajectory-first generation** — each entity is assigned a behavioral curve (`growth`, `decline`, `seasonal`, `spike_then_crash`, …). Every metric value at every period reads from that curve, so positive-polarity metrics rise as the trajectory rises and negative-polarity metrics fall.
-- **Gaussian copula correlations** — declare `engagement opposes churn_risk` and the engine delivers the configured Pearson coefficient regardless of the underlying distribution pair, within a measured tolerance ([statistical fidelity](docs/statistical-fidelity.md)).
-- **Causal lag with composable chains** — one metric can trail another by N periods; lags compose, so `A → B(lag=2) → C(lag=3)` produces a `C` that reads `A` from 5 periods ago.
-- **Deterministic** — every random draw flows through a single seeded `numpy.Generator`. Cross-process reproduction is part of the contract.
-- **Config-time validation** — Pydantic V2 cross-validates the entire input before generation: circular causal chains, non-PSD correlation matrices, broken FK references, and SQL-unsafe identifiers all surface as parse errors.
+- **Trajectory-driven** — every entity follows one behavioral curve, and every metric reads from the same position on that curve.
+- **Correlated** — declared relationships between metrics hold to a measured tolerance, regardless of distribution shape.
+- **Deterministic** — every random draw flows through one seeded generator; reproduction is part of the contract.
 
-## Where plotsim sits
-
-Unlike [Faker](https://github.com/joke2k/faker) (independent random columns, no relationships across tables) and unlike [SDV](https://github.com/sdv-dev/SDV) (machine learning trained on real data), plotsim takes a YAML or kwargs spec and emits a multi-table dataset with the configured statistical properties. No training, no privacy concerns, no seed data.
-
-## Generated data and PII
-
-plotsim uses [Faker](https://github.com/joke2k/faker) for string-valued columns (names, companies, emails). Faker output is realistic-looking but not globally unique — a generated name can coincidentally match a real person. Treat Faker output as synthetic, not anonymized. Mark a column with `pii_note: "<description>"` in your config to flag it for downstream catalogs and governance tools.
+See the [docs site](https://mohossam01.github.io/plotsim/) for the full pipeline.
 
 ## Docs
 
-- **[Getting started](docs/getting-started.md)** — install, run a template, build your first config
-- **[Builder quickstart](docs/builder-quickstart.md)** — the `create()` / `create_from_yaml()` walkthrough
-- **[Builder reference](docs/builder-reference.md)** — every keyword, every recipe
-- **[Templates](docs/templates.md)** — six bundled domain configs you can copy and edit
-- **[Statistical fidelity](docs/statistical-fidelity.md)** — measured correlation tolerances and the determinism contract
+[mohossam01.github.io/plotsim](https://mohossam01.github.io/plotsim/) — quickstart, user guide, tutorials, API reference, cookbooks.
 
 ## Contributing
 

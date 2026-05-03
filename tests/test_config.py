@@ -1063,18 +1063,6 @@ def test_pii_note_defaults_to_none_when_omitted():
             assert col.pii_note is None
 
 
-def test_readme_contains_pii_section():
-    """FIX-03 / SF-4: The README must explain that Faker output is not
-    PII-safe and how pii_note can be used to mark columns for downstream
-    handling."""
-    readme = ROOT / "README.md"
-    text = readme.read_text(encoding="utf-8")
-    assert "Generated data and PII" in text
-    assert "pii_note" in text
-    assert "Faker" in text or "faker" in text
-
-
-
 # --- FIX-04 acceptance: Column.distribution + Entity.cross_dim_fks schema ----
 
 

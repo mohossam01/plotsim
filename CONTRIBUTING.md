@@ -3,7 +3,7 @@
 ## Dev setup
 
 ```
-git clone https://github.com/mohossam/plotsim
+git clone https://github.com/mohossam01/plotsim
 cd plotsim
 pip install -e .[dev]
 pytest

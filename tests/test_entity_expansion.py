@@ -36,7 +36,7 @@ from plotsim.validation import validate_value_pool_coverage
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE_YAML = REPO_ROOT / "plotsim" / "configs" / "new" / "saas_template.yaml"
+TEMPLATE_YAML = REPO_ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
 BUNDLED_TEMPLATES = (
     "sample_education.yaml",
     "sample_hr.yaml",

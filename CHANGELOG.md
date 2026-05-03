@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Templates folder renamed (M129).** `plotsim/configs/new/` →
+  `plotsim/configs/templates/`. The old `new/` name was a placeholder
+  from M122. The folder now ships as a real Python subpackage
+  (`plotsim.configs.templates`) with `__init__.py` files at both levels,
+  so the `.py` companion templates are importable as modules
+  (`from plotsim.configs.templates.bare_minimum import config`) and the
+  `.yaml` files are addressable via `importlib.resources`. The 0.5.0
+  wheel did not actually include any builder templates due to a
+  package-data glob that only covered top-level `configs/*.yaml`; the
+  M129 rename surfaced and fixed that — the next wheel ships all 12
+  template files (6 `.py` + 6 `.yaml`).
+- **Cookbook pages renamed (M129).** `docs/site/cookbook/data-engineers.md`
+  → `data-engineering.md`, `data-scientists.md` → `data-science.md`. nav
+  and inbound links updated.
+- **GitHub URLs migrated to `mohossam01/plotsim` (M129).** Project
+  metadata (`pyproject.toml` URLs), `mkdocs.yml` site_url + repo_url,
+  `CONTRIBUTING.md`, and 12 docs files updated from the prior
+  `mohossam-ae/` namespace.
 - **Copula reformulation (M127b).** The Gaussian copula is now applied in
   the textbook order: `rng.standard_normal(M) → L @ → family-grouped
   transform → clip`. The previous `dist.rvs → dist.cdf → Φ⁻¹ → L @ → Φ →
@@ -44,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Public template-discovery API (M129).** `plotsim.list_templates()`
+  returns the names of bundled builder templates (`bare_minimum`,
+  `education`, `hr`, `marketing`, `retail`, `saas`).
+  `plotsim.load_template(name)` loads the named template and returns a
+  `PlotsimConfig`. Both are exported in `__all__`. Equivalent to a
+  hand-rolled `create_from_yaml(importlib.resources.files(...))` but
+  shorter and discoverable via tab-complete.
 - **Distribution registry (M127b).** New module `plotsim._distribution_registry`
   collects per-family math (`sample_scalar`, `sample_batch`, `ppf_batch`,
   `direct_transform`) into a single `DISTRIBUTION_REGISTRY` dict. Adding a
@@ -178,14 +203,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lag fidelity at output level, and determinism contract — across the
   parameter space the engine accepts. The addendum produces:
 
-  - [`docs/statistical-fidelity.md`](docs/statistical-fidelity.md) —
-    user-facing limits page with measured tolerances per distribution
-    pairing, the recoverable-lag boundary, the trajectory-first envelope,
-    and the determinism contract.
-  - [`analysis/fidelity-report.md`](analysis/fidelity-report.md) — full
-    synthesis with hardware/toolchain header and per-claim methodology.
+  - `docs/statistical-fidelity.md` — user-facing limits page with measured
+    tolerances per distribution pairing, the recoverable-lag boundary, the
+    trajectory-first envelope, and the determinism contract. *(Internal
+    engineering doc; not shipped on the public docs site.)*
+  - `analysis/fidelity-report.md` — full synthesis with hardware/toolchain
+    header and per-claim methodology. *(Internal artifact.)*
   - `analysis/fidelity_sweeps/*.csv` — raw measurements; every cell is
-    re-runnable from the CSV alone.
+    re-runnable from the CSV alone. *(Internal artifact.)*
   - [`tests/test_fidelity_smoke.py`](tests/test_fidelity_smoke.py) — six
     smoke-subset tests (~6 s total) that pin the headline findings against
     silent drift.

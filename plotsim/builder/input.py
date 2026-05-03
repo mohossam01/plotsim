@@ -3,7 +3,7 @@
 The builder accepts the same shape from two surfaces:
 
 - ``create_from_yaml(path)`` — YAML file conforming to the template at
-  ``plotsim/configs/new/saas_template.yaml``.
+  ``plotsim/configs/templates/saas_template.yaml``.
 - ``create(**kwargs)`` — Python keyword arguments mirroring that template.
 
 Both surfaces normalise into a ``UserInput`` instance, which the interpreter

@@ -91,6 +91,26 @@ Use when the *average* matters more than the tail.
 - { name: nps, type: index, polarity: positive, range: [-100, 100] }
 ```
 
+### `amount` with weibull (engine-direct)
+
+For lifetime / time-to-event style metrics — session duration,
+days-to-renewal, contract length — set the engine-direct
+`distribution: weibull` on a `Metric`. The shape parameter controls
+the tail: `shape < 1` produces an aging-out distribution
+(many short, few long), `shape = 1` is exponential, `shape > 1` skews
+toward the mean. The trajectory position scales the realized value, so
+trajectory and shape compose in the usual way. Not exposed in the
+builder DSL — set it on `cfg.metrics[i]` after `create_from_yaml(...)`:
+
+```python
+cfg = create_from_yaml("config.yaml")
+cfg.metrics[0] = cfg.metrics[0].model_copy(update={
+    "distribution": "weibull",
+    "params": {"shape": 1.5},
+    "value_range": {"min": 1.0, "max": 365.0},
+})
+```
+
 ---
 
 ## Polarity

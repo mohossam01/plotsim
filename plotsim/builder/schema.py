@@ -3,7 +3,7 @@
 Mirrors ``plotsim.schema`` (which exports ``PlotsimConfig``). Editor
 integrations and UI tooling point at the produced schema for autocomplete
 and inline validation on plain-language YAML configs (see
-``plotsim/configs/new/saas_template.yaml`` for the canonical shape).
+``plotsim/configs/templates/saas_template.yaml`` for the canonical shape).
 
 Also exports the five vocabulary lookup dicts so downstream consumers
 (UI dropdowns, lint rules, prompt scaffolding) can introspect the

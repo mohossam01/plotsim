@@ -37,8 +37,8 @@ from plotsim.builder.schema import (
 )
 
 
-SAAS_TEMPLATE = Path("plotsim/configs/new/saas_template.yaml")
-BARE_TEMPLATE = Path("plotsim/configs/new/bare_minimum.yaml")
+SAAS_TEMPLATE = Path("plotsim/configs/templates/saas_template.yaml")
+BARE_TEMPLATE = Path("plotsim/configs/templates/bare_minimum.yaml")
 
 
 # ── Schema export shape ────────────────────────────────────────────────────

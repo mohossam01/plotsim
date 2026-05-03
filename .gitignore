@@ -58,10 +58,25 @@ Thumbs.db
 # Plotsim generated output
 out/
 output/
+out_*/
+output_*/
 *.csv
 !plotsim/configs/*.csv
 !tests/fixtures/*.csv
 !analysis/fidelity_sweeps/*.csv
+
+# Hypothesis test scratch
+.hypothesis/
+
+# MkDocs build output
+/site/
+
+# Quarantine — pre-cleanup holding pen, examined later
+/_attic/
+
+# Internal-only — operator engineering scratch, never published
+/analysis/
+/docs/internal/
 
 # Secrets
 .env

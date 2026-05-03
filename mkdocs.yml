@@ -1,19 +1,31 @@
 site_name: plotsim
 site_description: Generate multi-table synthetic datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required.
-site_url: https://mohossam-ae.github.io/plotsim/
+site_url: https://mohossam01.github.io/plotsim/
 site_author: Mohamed Hossam
 
-repo_name: mohossam-ae/plotsim
-repo_url: https://github.com/mohossam-ae/plotsim
+repo_name: mohossam01/plotsim
+repo_url: https://github.com/mohossam01/plotsim
 edit_uri: edit/main/docs/
 
 copyright: Apache-2.0 licensed.
 
 docs_dir: docs/site
 
+exclude_docs: |
+  assets/brand/README.md
+  assets/brand/head.html
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
 theme:
   name: material
   language: en
+  logo: assets/brand/favicon.svg
+  favicon: assets/brand/favicon-32.png
   features:
     - navigation.instant
     - navigation.tracking
@@ -49,6 +61,9 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+extra_css:
+  - assets/brand/tokens.css
+
 nav:
   - Home: index.md
   - User guide:
@@ -60,10 +75,11 @@ nav:
       - Output formats: user-guide/output-formats.md
   - Tutorials: tutorials.md
   - Cookbook:
-      - For data engineers: cookbook/data-engineers.md
-      - For data scientists: cookbook/data-scientists.md
+      - For data engineers: cookbook/data-engineering.md
+      - For data scientists: cookbook/data-science.md
   - Reference:
       - API: api-reference.md
+      - CLI: cli-reference.md
       - Config fields: config-reference.md
       - Column types: column-types.md
       - Manifest: manifest-reference.md
@@ -96,6 +112,6 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/mohossam-ae/plotsim
+      link: https://github.com/mohossam01/plotsim
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/plotsim/

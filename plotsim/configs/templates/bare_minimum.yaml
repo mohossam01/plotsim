@@ -1,0 +1,72 @@
+# ═══════════════════════════════════════════════════════
+#  plotsim — bare-minimum builder input
+# ═══════════════════════════════════════════════════════
+#
+#  Smallest config that loads via plotsim.create_from_yaml().
+#  Only required fields. Everything else (schema, lifecycle,
+#  connections, distributions) is filled in by the interpreter.
+#
+#  Required:
+#    about, unit, window, metrics (>=1), segments (>=1).
+#
+#  Run:
+#    >>> from plotsim import create_from_yaml, generate_tables
+#    >>> import numpy as np
+#    >>> cfg = create_from_yaml("plotsim/configs/templates/bare_minimum.yaml")
+#    >>> tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
+#
+#  Auto-generated outputs (because the schema section is omitted):
+#    dim_date            — date spine over the window.
+#    dim_customer        — one row per simulated customer.
+#                          (`unit: customer` triggers faker.name; unknown
+#                           units fall back to faker.company.)
+#    fct_customer        — per-entity-per-period grain, one column per
+#                          declared metric.
+# ═══════════════════════════════════════════════════════
+
+about: "Subscription customers"
+unit: customer
+
+# Pinning a seed is optional but recommended — same seed in,
+# byte-identical CSVs out, every run.
+seed: 42
+
+window:
+  start: 2024-01
+  end: 2024-12
+  every: monthly
+
+
+# ── what we measure ─────────────────────────────────────
+#
+#  Per metric the interpreter picks a distribution from
+#  plotsim/builder/recipes.py:
+#    score → beta(2, 5),  count → poisson(λ=5).
+#  `score` defaults its value range to [0, 1]; `count` has none.
+
+metrics:
+
+  - name: engagement
+    type: score
+    polarity: positive
+
+  - name: payments
+    type: count
+    polarity: positive
+
+
+# ── who we're simulating ────────────────────────────────
+#
+#  Each segment becomes one Archetype + one Entity. The
+#  archetype DSL strings are parsed against the window length
+#  (here 12 monthly periods).
+
+segments:
+
+  - name: active
+    count: 50
+    archetype: growth
+
+  - name: inactive
+    count: 30
+    archetype: decline

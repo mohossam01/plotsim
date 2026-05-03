@@ -1,0 +1,46 @@
+/* plotsim · Observatory tokens
+ * Drop into any docs site, Streamlit theme, or web app.
+ * Mirror these in mkdocs.yml / tailwind.config.js if needed.
+ */
+:root {
+  /* surfaces — dark */
+  --ps-ink:        #0e1620;
+  --ps-ink-deep:   #0a0e14;
+  --ps-ink-raised: #1a2330;
+  --ps-rule:       #23303f;
+
+  /* surfaces — light */
+  --ps-paper:      #ffffff;
+  --ps-paper-alt:  #f4f6f8;
+  --ps-rule-light: #dde3ea;
+
+  /* text */
+  --ps-text:        #e6eef5;
+  --ps-text-muted:  #9aa8b8;
+  --ps-text-light:  #0e1620;
+  --ps-text-light-muted: #5a6b7a;
+
+  /* signals — dark theme */
+  --ps-teal:   #3ecfc1;  /* hero */
+  --ps-amber:  #e9b04a;  /* counter */
+  --ps-rose:   #e26d8a;  /* anomaly */
+  --ps-muted:  #5a6b7a;  /* trailing */
+
+  /* signals — light theme (deepened for AA contrast) */
+  --ps-teal-light:  #1a9a8c;
+  --ps-amber-light: #c98a1f;
+
+  /* type */
+  --ps-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --ps-font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+
+/* Dark-default convenience */
+[data-theme="dark"], .ps-dark {
+  background: var(--ps-ink);
+  color: var(--ps-text);
+}
+[data-theme="light"], .ps-light {
+  background: var(--ps-paper);
+  color: var(--ps-text-light);
+}
