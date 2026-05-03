@@ -776,29 +776,24 @@ class TestLagRegression:
         self, template: str, target: str, driver: str, lag: int,
         request: pytest.FixtureRequest,
     ) -> None:
-        # lag=1 is at the threshold of what output-level Pearson can
-        # resolve: driver autocorrelation at lag 1 for a smooth
-        # archetype trajectory approaches 1.0, so r(k=0) and r(k=1)
-        # differ by <0.01 on the true-center signal. Once you add beta
-        # sampling noise + value_range clamping + the engine's lag<t
-        # fallback (which makes ``absence_rate[0]`` read the SAME
-        # position as ``engagement_index[0]``), the argmax flips
-        # unreliably between 0 and 1. The engine's lag behavior IS
-        # exercised via plotsim.metrics R-11/R-12/R-13 at the direct
-        # API level — those tests are the authoritative verification.
-        # Higher-lag configs (saas's lag=2) produce a distinguishable
-        # peak and run normally.
-        if lag <= 1:
+        # hr's engagement_index→absence_rate at lag=1 is the one configured
+        # pair that output-level Pearson cannot resolve: driver
+        # autocorrelation at lag 1 is near 1 and absence_rate is beta with
+        # value_range clamping, so r(k=0) and r(k=1) differ by <0.02.
+        # Engine lag correctness IS asserted by R-11/R-12/R-13 in
+        # test_metrics.py via the direct API. retail and marketing lag=1
+        # cases pass cleanly post-M127b.
+        if (template, driver, target, lag) == (
+            "hr", "engagement_index", "absence_rate", 1
+        ):
             request.applymarker(pytest.mark.xfail(
                 reason=(
                     "Output-level Pearson cannot distinguish lag=1 from "
-                    "lag=0 when driver autocorrelation at lag 1 is near 1 "
-                    "and both metrics are beta with value_range clamping. "
-                    "Engine lag correctness is asserted by R-11/R-12/R-13 "
-                    "in test_metrics.py via the direct API, which is the "
-                    "authoritative path."
+                    "lag=0 for hr:engagement_index→absence_rate (driver "
+                    "autocorr near 1, beta target with value_range clamp). "
+                    "Engine lag verified via R-11/R-12/R-13 in test_metrics.py."
                 ),
-                strict=False,
+                strict=True,
                 run=True,
             ))
         raw = _load_template_dict(template)

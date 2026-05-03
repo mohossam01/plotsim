@@ -26,7 +26,10 @@ import pytest
 _NOTEBOOKS_DIR = Path(__file__).resolve().parent.parent / "notebooks"
 sys.path.insert(0, str(_NOTEBOOKS_DIR))
 
-import _helpers  # noqa: E402
+# notebooks/ is gitignored — skip the whole module in CI where it doesn't ship.
+_helpers = pytest.importorskip(
+    "_helpers", reason="notebooks/_helpers.py not available in CI"
+)
 
 
 def test_load_fixed_point_returns_saas_and_seed_42():
