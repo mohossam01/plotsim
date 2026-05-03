@@ -1144,16 +1144,23 @@ def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables)
 
     assert col_a == col_b
     assert [eid for eid, _ in ref] == [eid for eid, _ in vec]
+    # F3 (M102): the iterrows reference helper builds groups via
+    # `pd.DataFrame(list_of_Series)`, which row-stacks and demotes Int64 →
+    # object — and (varies by pandas version) materializes nullable cells as
+    # np.nan instead of pd.NA. The production `groupby` path preserves the
+    # original Int64 with pd.NA. assert_frame_equal(check_dtype=False) skips
+    # the dtype check but still does cell-by-cell value comparison, where
+    # np.nan ≠ pd.NA in newer pandas. Normalize both sides to object dtype
+    # with Python None for any null so the parity check remains about
+    # row-order/value identity, not null-singleton identity.
+    def _normalize_nulls(df: pd.DataFrame) -> pd.DataFrame:
+        return df.astype(object).where(df.notna(), other=None)
+
     for (eid_a, df_a), (eid_b, df_b) in zip(ref, vec):
         assert eid_a == eid_b
-        # F3 (M102): the iterrows reference helper builds groups via
-        # `pd.DataFrame(list_of_Series)`, which row-stacks columns and
-        # demotes Int64 → object. The production `groupby` path preserves
-        # the original dtype. The test's claim is row-order/value parity
-        # (per the docstring), not dtype parity, so check_dtype=False here.
         pd.testing.assert_frame_equal(
-            df_a.reset_index(drop=True),
-            df_b.reset_index(drop=True),
+            _normalize_nulls(df_a.reset_index(drop=True)),
+            _normalize_nulls(df_b.reset_index(drop=True)),
             check_dtype=False,
         )
 
