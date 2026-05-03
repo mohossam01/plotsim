@@ -1,9 +1,11 @@
-numpy>=1.26
+# Runtime dependencies, mirrored from pyproject.toml [project].dependencies.
+# pyproject.toml is the source of truth — keep this file in sync on every
+# dependency change. Optional extras live in pyproject under
+# [project.optional-dependencies] (ui, parquet, docs, dev, test).
+
+numpy>=1.24
 scipy>=1.11
-pandas>=2.1
+pandas>=2.0
 pyyaml>=6.0
-pydantic>=2.5
-groq>=0.4
-streamlit>=1.30
-faker>=22.0
-pytest>=8.0
+pydantic>=2.0
+faker>=18.0

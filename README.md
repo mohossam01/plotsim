@@ -98,7 +98,7 @@ if `A → B (lag 2) → C (lag 3)`, then C reflects A from 5 periods ago.
 
 Output is **deterministic**. Every random draw flows through a single 
 seeded `numpy.Generator`. Same config + same seed = byte-identical 
-tables across machines, OS, and Python versions. The manifest records 
+tables within the same Python and dependency versions. The manifest records 
 every generation decision — archetype assignments, trajectory 
 positions, correlation adjustments, quality injections — so any 
 cell value can be traced back to its origin.

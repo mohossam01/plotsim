@@ -1,1141 +1,373 @@
 # Changelog
 
-All notable changes to plotsim are documented in this file.
+All notable changes to plotsim are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- **Templates folder renamed (M129).** `plotsim/configs/new/` →
-  `plotsim/configs/templates/`. The old `new/` name was a placeholder
-  from M122. The folder now ships as a real Python subpackage
-  (`plotsim.configs.templates`) with `__init__.py` files at both levels,
-  so the `.py` companion templates are importable as modules
-  (`from plotsim.configs.templates.bare_minimum import config`) and the
-  `.yaml` files are addressable via `importlib.resources`. The 0.5.0
-  wheel did not actually include any builder templates due to a
-  package-data glob that only covered top-level `configs/*.yaml`; the
-  M129 rename surfaced and fixed that — the next wheel ships all 12
-  template files (6 `.py` + 6 `.yaml`).
-- **Cookbook pages renamed (M129).** `docs/site/cookbook/data-engineers.md`
-  → `data-engineering.md`, `data-scientists.md` → `data-science.md`. nav
-  and inbound links updated.
-- **GitHub URLs migrated to `mohossam01/plotsim` (M129).** Project
-  metadata (`pyproject.toml` URLs), `mkdocs.yml` site_url + repo_url,
-  `CONTRIBUTING.md`, and 12 docs files updated from the prior
-  `mohossam01/` namespace.
-- **Copula reformulation (M127b).** The Gaussian copula is now applied in
-  the textbook order: `rng.standard_normal(M) → L @ → family-grouped
-  transform → clip`. The previous `dist.rvs → dist.cdf → Φ⁻¹ → L @ → Φ →
-  dist.ppf` round-trip is gone. Normal and lognorm marginals use a
-  closed-form unit-Gaussian transform; beta, poisson, gamma, and weibull
-  go through `Φ` plus a per-family `ppf_batch` call (one scipy call per
-  family per cell rather than per metric). **Cell values change** for
-  every config that declares correlations — the change is intentional
-  and bounded to one version. Same `(config, seed)` still produces
-  byte-identical CSVs within this release; old fixtures regenerated
-  under `tests/fixtures/layer4_reference/`.
-- **Bypass machinery deleted (M127b).** The `_bypass_mask_batch` helper,
-  the bypass-aware submatrix Cholesky path in `apply_correlations`, the
-  per-row scalar fallback in `_apply_correlations_batch`, and the
-  bypass-counter plumbing through `generate_archetype_batch` /
-  `_compute_entity_metrics` / the orchestrator are all removed (~170
-  lines). Cells whose pre-M127b center triggered the bypass (`lognorm`
-  ≤ ε, `poisson` λ ≤ ε, etc.) now produce **copula-correlated values**
-  instead of independent draws — the new pipeline's family transforms
-  handle degenerate centers natively (e.g. λ=0 → deterministic 0 for
-  poisson). Correlations on (active, degenerate) pairs no longer attenuate.
-- **Manifest field `bypass_fallback_counts` is now always `{}`** (M127b).
-  The bypass-counter plumbing has been removed, so nothing populates the
-  field. The key is preserved on the manifest schema for backward-compat
-  with older manifest readers; old manifests still load. Future
-  consumers can treat the field as deprecated.
-- **`apply_correlations` signature gains `rng=` (M127b).** The new copula
-  draws standard Gaussians from the caller-supplied `rng`. Empty-
-  correlations short-circuit still returns `dict(independent)` without
-  consuming RNG. Callers that already passed `cholesky_L` only need to
-  add `rng=` to keep working; the `independent` argument is preserved
-  but no longer consumed on the correlated path.
-
 ### Added
 
-- **Public template-discovery API (M129).** `plotsim.list_templates()`
-  returns the names of bundled builder templates (`bare_minimum`,
-  `education`, `hr`, `marketing`, `retail`, `saas`).
-  `plotsim.load_template(name)` loads the named template and returns a
-  `PlotsimConfig`. Both are exported in `__all__`. Equivalent to a
-  hand-rolled `create_from_yaml(importlib.resources.files(...))` but
-  shorter and discoverable via tab-complete.
-- **Distribution registry (M127b).** New module `plotsim._distribution_registry`
-  collects per-family math (`sample_scalar`, `sample_batch`, `ppf_batch`,
-  `direct_transform`) into a single `DISTRIBUTION_REGISTRY` dict. Adding a
-  new distribution family touches one registration. Replaces 5–6
-  near-identical `if/elif` ladders in `plotsim.metrics`.
-- **Column dispatcher (M127b).** New module `plotsim._column_dispatch`
-  exposes a shared `COLUMN_DISPATCH` registry consumed by every column
-  builder in `plotsim.tables` and `plotsim.dimensions` (per-entity-per-
-  period fact scalar + vectorized, per-period fact, proportional event,
-  threshold-event row, per-entity dim, sub-entity dim, reference dim).
-  Adding a new source type touches one registration per builder kind.
-  FakerSource columns continue to route through the scalar path
-  unconditionally — the dispatcher's `forces_scalar` predicate names
-  the contract explicitly.
-
-- **Builder API (M115).** `plotsim.create()` and
-  `plotsim.create_from_yaml()` — a one-call public surface that takes a
-  high-level user shape (`about`, `unit`, `window`, `metrics`,
-  `segments`, optional `connections` / `lifecycle` / `dimensions` /
-  `facts` / `events`) and returns a fully-validated `PlotsimConfig`.
-  Construction goes through a `UserInput` Pydantic model first, so
-  structural problems raise `ValidationError` with the offending field
-  named before the interpreter runs. The engine-direct
-  `load_config()` / `dump_config()` path is preserved as the advanced
-  surface; the builder is now the documented front door.
-- **Builder feature parity (M122).** The `create()` shape can now
-  drive every engine feature available via YAML: `pool.{attr}` columns
-  for per-entity attribute pools, M:N `bridges`, `quality` injection
-  knobs, `holdout` train/test splits, and per-entity flat aggregate
-  `entity_features` tables. The builder reaches feature-parity with
-  `load_config()`.
-- **Builder DX (M124).** `UserInput.seed` is now a first-class field
-  (was only reachable via raw kwargs). The interpreter auto-prepends
-  `dim_date` and auto-appends bridge-referenced `dim_{unit}` tables
-  when the user omits them. The CLI dispatches `plotsim run | validate
-  | info` between builder YAML and engine YAML by peeking the top-level
-  keys; `plotsim list-templates` surfaces a "Builder templates" section
-  alongside the bundled engine templates.
-- **Builder templates (M112).** Four new bundled YAMLs targeting the
-  builder shape: `hr_template.yaml`, `education_template.yaml`,
-  `retail_template.yaml`, `marketing_template.yaml`, plus the existing
-  `bare_minimum.yaml` and `saas_template.yaml`. Each is a complete
-  reference config you can copy out with `plotsim template <name>` and
-  edit. The legacy engine-shape `sample_ecommerce.yaml` and
-  `sample_healthcare.yaml` are removed (replaced by retail and the
-  healthcare slot in the post-0.6.0 catalog).
-- **`plotsim.inspect` (M114).** Public introspection surface for
-  notebook / dashboard consumers — exposes per-entity trajectory
-  positions, archetype assignments, and tolerance constants without
-  re-deriving them from generated tables.
-- **`PoolSource` + `MetricOverride.value_range` (M114).** Per-entity
-  pools (`pool:<dim_table>.<column>`) for cross-dimension attribute
-  draws, and a per-archetype `value_range` override that re-scales a
-  metric's bounded distribution at the archetype level.
-- **Higham correlation projection (M111).** Non-positive-definite
-  correlation matrices are now projected to the nearest PSD matrix via
-  Higham's algorithm rather than rejected at load. The pre-projection
-  matrix is preserved on the manifest under
-  `_correlation_adjustments` so analysts can audit how far the
-  configured triangle moved.
-- **Global seasonal modulation (M119).** `seasonality` block on the
-  metric pipeline lets a single periodic signal modulate all metric
-  draws (e.g. holiday lift, fiscal-quarter cycles) without per-metric
-  oscillation segments.
-- **Correlation pre-compensation (M120).** When a configured pairwise
-  correlation conflicts with the trajectory-driven covariance the
-  archetype already imposes, the engine subtracts the trajectory
-  contribution from the target before sampling. Configured negative
-  correlations on growth-and-decline mixes recover their target sign
-  instead of clamping to zero.
-- **Vectorized generation path (M121).** Per-(entity, period) metric
-  sampling is now an `(E, P, M)` tensor op for the pure-MetricSource
-  fast path; scalar fallback preserved for `FakerSource` and boolean
-  metric columns. End-to-end wall-clock improves by 20–35 % on the
-  bundled templates.
-- **Streaming Parquet writer (M121b).** `output.format: parquet` with
-  `streaming: true` writes fact and event tables row-group-by-row-group
-  via PyArrow, capping peak memory at the largest single chunk rather
-  than the full table. Requires the `[parquet]` extra.
-- **`segment.count` expansion (M117).** When the builder sees
-  `segments[*].count > 1`, each segment is expanded into per-row
-  `Entity` instances on the engine config rather than collapsed to a
-  single Entity with `size = count`. Sub-entity dim cardinality and
-  fact-row counts now match the user's intuition.
-- **Tutorial notebooks (M123).** Eight Jupyter walkthroughs at
-  `docs/tutorial-notebooks/` covering the builder API surface:
-  `getting_started`, `schema_and_dimensions`, `designing_archetypes`,
-  `seasonality_and_correlations`, `data_quality`, `pipeline_testing`,
-  `bridges_and_advanced`, `ds_use_cases`, `de_use_cases`,
-  `ml_readiness`. Each picks a single feature surface and ends with a
-  pointer to the relevant `docs/builder-reference.md` section.
-- **Builder docs (M116).**
-  `docs/builder-{quickstart,reference,errors}.md` — annotated
-  walkthroughs (bare-minimum + saas), the full vocabulary reference,
-  and an enumerated validation-error catalog. Crosslinked from the
-  tutorial notebooks and from the README.
+- **Builder API** — `plotsim.create()` and `plotsim.create_from_yaml()`
+  are now the documented public front door. High-level shape (`about`,
+  `unit`, `window`, `metrics`, `segments`, plus optional `connections`,
+  `lifecycle`, `dimensions`, `facts`, `events`) returns a fully validated
+  config. Engine-direct `load_config()` / `dump_config()` is preserved
+  as the advanced surface.
+- **Builder feature parity** — `create()` now exposes everything
+  available in YAML: per-entity attribute pools, M:N bridges, quality
+  injection, train/test holdouts, per-entity aggregate tables.
+- **Template discovery** — `plotsim.list_templates()` returns the
+  bundled builder template names; `plotsim.load_template(name)` loads
+  one and returns a `PlotsimConfig`. Tab-completable.
+- **Builder templates** — `bare_minimum`, `saas`, `hr`, `education`,
+  `retail`, `marketing`. Copy any out with `plotsim template <name>`.
+- **`plotsim.inspect`** — public introspection surface for trajectory
+  positions, archetype assignments, and tolerance constants.
+- **PoolSource + per-archetype `value_range`** — cross-dimension
+  attribute draws via `pool:<dim_table>.<column>`, and per-archetype
+  re-scaling of bounded distributions.
+- **Higham PSD projection** — non-positive-definite correlation
+  matrices are projected to the nearest PSD matrix instead of being
+  rejected at load. The pre-projection matrix is preserved on the
+  manifest for audit.
+- **Global seasonal modulation** — a `seasonality` block lets a single
+  periodic signal modulate all metric draws (holiday lift, fiscal
+  cycles) without per-metric oscillation segments.
+- **Correlation pre-compensation** — when configured pairwise
+  correlations conflict with the trajectory-driven covariance the
+  archetype imposes, the engine subtracts the trajectory contribution
+  from the target before sampling. Configured negative correlations on
+  growth-and-decline mixes recover their target sign.
+- **Vectorized generation path** — per-(entity, period) sampling is now
+  an `(E, P, M)` tensor op for the pure-MetricSource fast path.
+  End-to-end wall-clock improves 20–35% on the bundled templates.
+- **Streaming Parquet writer** — `output.format: parquet` with
+  `streaming: true` writes row-group-by-row-group via PyArrow, capping
+  peak memory at the largest single chunk. Requires the `[parquet]`
+  extra.
+- **`segment.count` expansion** — `segments[*].count > 1` now expands
+  into per-row `Entity` instances, so sub-entity dim cardinality and
+  fact-row counts match user intuition.
+- **Tutorial notebooks** — eight Jupyter walkthroughs at
+  `docs/tutorial-notebooks/` covering the builder API surface.
+- **Builder docs** —
+  `docs/builder-{quickstart,reference,errors}.md`: annotated
+  walkthroughs, full vocabulary reference, validation-error catalog.
+- **Property-based test layer** — `hypothesis>=6.0` in `[test]` /
+  `[dev]` extras. Four randomized properties: determinism,
+  trajectory-first, FK integrity, correlation accuracy under
+  randomized declaration order.
+- **Brand pack and docs site** — `mohossam01.github.io/plotsim`,
+  README banner, brand assets bundled with the wheel.
 
 ### Changed
 
-- **`StageSequence.enforce_order` defaults to `False`** (M114, free-mode
-  stages). The strict-monotonic stage walk is opt-in rather than the
-  default; bundled templates that relied on the prior default carry an
-  explicit `enforce_order: true` post-0.6.0. Behavior break for any
-  config with `stages` and no explicit `enforce_order` field — the
-  on-disk stage column is now stateless instead of latched.
-- **Builder is the documented entry point.** README, `__init__`
-  docstring, and `docs/getting-started.md` lead with `create()` /
-  `create_from_yaml()`. `load_config()` is retained as the advanced
-  engine-direct surface but is no longer the recommended quickstart.
+- **Templates folder is now `plotsim/configs/templates/`** (was
+  `plotsim/configs/new/`). The folder is a real Python subpackage —
+  templates are importable via `from plotsim.configs.templates.bare_minimum
+  import config` and addressable via `importlib.resources`. The 0.5.0
+  wheel did not actually include any builder templates due to a
+  package-data glob that only covered top-level YAML; this release
+  ships all 12 template files (6 `.py` + 6 `.yaml`).
+- **Gaussian copula reformulated.** Now applied in textbook order:
+  `rng.standard_normal(M) → L @ → family-grouped transform → clip`.
+  Cell values change for any config that declares correlations. Same
+  `(config, seed)` still produces byte-identical CSVs within this
+  release.
+- **Correlations no longer attenuate on degenerate metric pairs.**
+  Cells whose pre-release center triggered an independent-sample
+  bypass (lognorm scale ≈ 0, poisson λ ≈ 0, etc.) now produce
+  copula-correlated values. The new family transforms handle
+  degenerate centers natively.
+- **Builder is the documented entry point** — README, package
+  docstring, and `docs/getting-started.md` lead with `create()`.
+- **`StageSequence.enforce_order` defaults to `False`** (free-mode
+  stages). Strict-monotonic stage walk is opt-in. Bundled templates
+  that relied on the prior default carry an explicit `enforce_order:
+  true`.
+- **Cookbook pages renamed** — `docs/site/cookbook/data-engineers.md`
+  → `data-engineering.md`, `data-scientists.md` → `data-science.md`.
+- **GitHub URLs migrated to `mohossam01/plotsim`** — project metadata,
+  mkdocs config, contributing guide, and 12 docs files updated.
 
 ### Fixed
 
-- **Bridge cardinality validator (M118).** `validate_bridge_cardinality`
-  used `sum(e.size for e in entities)` instead of `len(entities)` for
-  per-entity dim row counts. Builder configs (where every `Entity.size`
-  is 1 post-M117) were correct-by-accident; engine-direct configs with
-  `size > 1` saw spurious warnings on bridges into per-entity dims.
-- **Bridge auto-resolution + proportional-event float cast (M124).**
-  The interpreter now auto-resolves bridge-referenced `dim_{unit}` and
-  `dim_date` tables when the user omits them. `_build_proportional_event`
-  casts driver values to `float64` before `np.isnan`, fixing a
-  count-driver bug that surfaced when a count metric drove a
-  proportional event table.
-
-
-
-### Documentation
-
-- **Statistical fidelity addendum (Mission 103).** Empirical
-  characterization of plotsim's four headline statistical guarantees —
-  trajectory-first generation, configured correlation tolerance, causal
-  lag fidelity at output level, and determinism contract — across the
-  parameter space the engine accepts. The addendum produces:
-
-  - `docs/statistical-fidelity.md` — user-facing limits page with measured
-    tolerances per distribution pairing, the recoverable-lag boundary, the
-    trajectory-first envelope, and the determinism contract. *(Internal
-    engineering doc; not shipped on the public docs site.)*
-  - `analysis/fidelity-report.md` — full synthesis with hardware/toolchain
-    header and per-claim methodology. *(Internal artifact.)*
-  - `analysis/fidelity_sweeps/*.csv` — raw measurements; every cell is
-    re-runnable from the CSV alone. *(Internal artifact.)*
-  - [`tests/test_fidelity_smoke.py`](tests/test_fidelity_smoke.py) — six
-    smoke-subset tests (~6 s total) that pin the headline findings against
-    silent drift.
-
-  **Headline measured tolerances:**
-
-  - **Correlation fidelity**: 9 of 10 measured distribution pairings land
-    within **±0.10** of configured Pearson; `lognorm × lognorm` widens to
-    **±0.15** at high magnitudes (\|coefficient\| ≥ 0.7) due to the heavy-
-    tail asymmetry of the Gaussian copula on twin lognormals. The
-    ``test_metrics`` R-01 ±0.15 budget for poisson-involving pairs is
-    *conservative*; measured envelope is ±0.08. README / docs now cite the
-    measured numbers.
-  - **Trajectory-first cell-level invariant**: median deviation
-    −0.04 σ, 99th-percentile 3.60 σ across 11 865 cells; cells beyond
-    4 σ (0.84 %) fully accounted for by configured ``outlier_rate``.
-    Heavy-tail (lognorm / poisson) deep tail to ~19 σ is distribution
-    skew, not invariant violation.
-  - **Causal-lag fidelity (output-level cross-correlation)**: configured
-    lags 1 and 2 are recoverable; lag ≥ 5 with smooth (sigmoid) drivers
-    fails detection because high driver autocorrelation flattens the
-    cross-correlation peak. Engine-layer correctness (R-11/R-12)
-    unchanged; this characterizes a downstream *detection* limit, not a
-    generation defect.
-  - **Determinism contract**: same-process, cross-process same-cwd, and
-    cross-process different-cwd all GUARANTEED byte-identical CSV
-    output. Multi-Python-version, multi-numpy-version, and cross-OS axes
-    are documented as NOT TESTED in this addendum (operator decision
-    D2(a)) — pin those dimensions in CI rather than relying on
-    cross-environment determinism.
-
-  **Scope cuts (operator-approved Option C, 2026-04-25).** Per-cell
-  generation cost on Python 3.10 / scipy 1.13 is ~7 s at 100×24 vs the
-  mission spec's 0.3 s assumption — the spot-checks report's 43 %
-  scipy/total finding has not yet been addressed (perf-pass mission item
-  11). The mission's full grids (Claim 1: 36 × 5 × 3 × 3 × 5 = 8 100
-  cells; Claim 2: 6 × 5 × 3 × 3 × 5 = 1 350 cells at 100×360) would have
-  required 60+ wall-clock hours. Lean grid landed: Claim 1 at 250 cells
-  (10 pairs × 5 magnitudes × n_metrics=2 × 100×24 × 5 seeds), Claim 2 at
-  75 cells (1 dist × 5 lags × 3 weights × 1 archetype × 5 seeds at
-  100×120). The cut axes (n_metrics, sample-size, lagged-metric
-  distribution, archetype) are explicitly listed in the report's
-  "deferred to post-perf-pass M104+" section.
-
-  Optional appendix sweep (full 6×6 = 36 distribution pairings) is built
-  into ``claim1_correlation.run_full_matrix()`` and remains available for
-  overnight runs (D1(c) decision); not run inline in M103.
-
-### Tests
-
-- **F17 (hypothesis property-based test layer).** Mission 102 / Phase 3.
-  Two of M102's correctness bugs (F1 sub-entity FK collapse, F-06
-  correlation toposort×Cholesky-indexing) escaped every example-based
-  test because no fixture happened to exercise the parameter
-  combination that triggered them. F17 adds a property-test layer that
-  randomizes inputs across the parameter space — for any valid config
-  drawn from a strategy, the invariant must hold.
-
-  Adds ``hypothesis>=6.0`` to the ``[test]`` (and ``[dev]``) extras and
-  ``tests/test_property_invariants.py`` with four properties:
-
-  1. **Determinism** — two runs at the same seed produce byte-identical
-     CSVs and validation report across all tables.
-  2. **Trajectory-first** — for a monotone-rising archetype,
-     positive-polarity metrics' Spearman rank correlation with the
-     period index is positive; negative-polarity is negative. Sign
-     check is the noise-robust loose form of the strict cell-level
-     trace; rigorous "every value traces back to a position" would
-     re-implement the engine inside the test.
-  3. **FK integrity** — every non-null FK in every fact / event table
-     resolves to a parent PK. Same property the example tests verify
-     on bundled templates; the property test randomizes declaration
-     order, entity counts, sizes, periods, and archetype.
-  4. **Correlation accuracy under randomized declaration** — the
-     property F6 pins, but with the configured coefficient and the
-     metric declaration permutation drawn from hypothesis strategies.
-     Uses a flat plateau archetype to decouple the trajectory-first
-     invariant from the correlation signal (matches F6's example
-     tests). ``target_corr`` drawn from ``[-0.6, -0.1] ∪ [0.1, 0.6]``
-     to avoid structurally redundant ``coefficient=0.0`` configurations.
-
-  Settings: ``max_examples=25`` (down from hypothesis's 100 default,
-  per the operator's Phase 3 entry decision); ``deadline=None`` since
-  ``generate_tables`` legitimately exceeds hypothesis's 200ms default;
-  ``too_slow`` health check suppressed for the same reason.
-
-  No counterexamples on the post-Phase-2 codebase across 100 examples
-  (25 × 4 properties). Two test-design issues were caught and fixed
-  during initial run-up before the final clean pass: (1) ``period_idx``
-  was sized by ``sum(e.size)`` instead of ``len(cfg.entities)`` —
-  per-entity dim is 1:1 with config.entities (``Entity.size`` is
-  metadata, not a row multiplier); (2) the correlation property used a
-  rising archetype, which produces natural same-direction correlation
-  via the trajectory-first invariant — flat plateau archetype
-  decouples the two. Both noted as Discovered findings in the Phase 3
-  completion report.
-
-  Suite: 804 → 808 passed / 1 xfailed (+4 property tests).
-
-- **F15-extension (test-tooling).** While running F16's coverage
-  measurement (``pytest --cov=plotsim.tables --cov-branch``), three
-  pre-existing F3/F4 round-trip tests
-  (``test_in_memory_dtype_matches_on_disk_round_trip[saas|ecommerce|healthcare]``)
-  surfaced a new instance of the F15 numpy-reload class:
-  ``pd.read_csv(..., dtype_backend='numpy_nullable')`` builds an
-  ``IntegerArray``, and pandas' ``DataFrame`` constructor's C
-  extension fails its ``isinstance`` check on the post-reload
-  ``IntegerArray`` type identity, raising ``TypeError: Argument
-  'values' has incorrect type (expected numpy.ndarray, got
-  IntegerArray)``. The F3/F4 tests were never re-run under
-  ``--cov`` when they landed in Phase 1, which is why the latency
-  was only surfaced now.
-
-  Following F15's pattern (replace the broken-under-cov call site
-  with an equivalent that doesn't go through the C ufunc + extension-
-  array dispatch), the test now reads CSVs with the default numpy
-  backend, casts the recovered column to ``Int64`` explicitly, and
-  asserts the cast values match the in-memory ``Int64`` snapshot
-  via NA-aware ``Series.equals``. Same property (CSV round-trip
-  losslessly preserves the integer values), no extension-array
-  block-form path, runs clean under ``--cov``.
-
-  Flagged per the "modifying existing test" rule (Phase 1's
-  three flagged tests + F10's existing-test bump + this).
-
-- **F16 (source-type coverage fixture).** Mission 102 / Phase 3.
-  The bundled templates exercise ``MetricSource`` heavily on
-  per-entity-per-period facts but leave ``PKSource``,
-  ``GeneratedSource(date_key|period_label|timestamp)``,
-  ``StaticSource``, ``DerivedSource(period_index|entity_id)``,
-  and the cross-dim ``FKSource`` branch sparsely covered or
-  uncovered on that grain. Adding a new source type into that
-  dispatch (P1: ``TextBucketSource``) without coverage on the
-  existing branches risks shipping two bugs for one.
-
-  F16 adds a synthetic, non-bundled YAML
-  (``tests/fixtures/source_type_coverage_config.yaml``) that
-  places every parse_source branch reachable on a
-  per-entity-per-period fact onto two fact tables in the same
-  config: ``fct_vectorized`` (no FakerSource → vectorized path,
-  ``_vectorized_per_entity_per_period_fact``) and ``fct_scalar``
-  (carries ``generated:faker.sentence`` → scalar path,
-  ``_scalar_per_entity_per_period_fact`` → ``_resolve_fact_cell``).
-  Together they cover both halves of the dispatch in a single
-  fixture.
-
-  The companion ``tests/test_source_type_coverage.py`` (38 tests)
-  asserts (a) every declared table appears in the output, (b)
-  fact tables have the expected 3 entities × 12 periods row
-  count, (c) every column lands with the expected dtype kind on
-  both paths (parametrized over each column × path), (d) every
-  reachable parse_source branch appears at least once in each
-  fact table's column list (so a future edit that drops a
-  branch fails the test), (e) two runs at the same seed produce
-  byte-identical CSVs across all tables and ``validation_report.txt``,
-  and (f) source-type semantics — PKSource value encodes the
-  period and matches DerivedSource(period_index), DerivedSource(entity_id)
-  matches the local-entity FK, GeneratedSource(date_key) matches
-  the local-date FK, StaticSource broadcasts a constant, LagSource
-  falls back to the current period when history is too short,
-  and FakerSource produces non-empty strings (proves the scalar
-  fallback is invoking Faker, not silently filling None).
-
-  ``plotsim.tables`` coverage delta vs M101 baseline:
-  combined 67% / 61% (line / branch) → 83% combined post-F16
-  (376 branches, 74 partial; 89 missing statements out of 667).
-  The remaining gap concentrates on event-builder error paths
-  (``_resolve_event_row`` sub-entity rejection branches) and a
-  handful of proportional-event size-variation paths — both out
-  of F16's scope.
-
-  Suite: 766 → 804 passed / 1 xfailed (+38 tests).
-
-### Fixed
-
-- **F14 (silent-dispatch audit + sweep).** Mission 100 flagged
-  ``_build_per_period_fact`` (``tables.py:644``) as a silent-
-  dispatch site: an isinstance ladder over the parsed-source
-  Union with an ``else: row[col.name] = None`` fall-through. An
-  unhandled source type produced a column of ``None`` values with
-  no signal to the user — same bug class as F1's ``_resolve_event_row``
-  ``rng=None`` fall-through to ``candidates.iloc[0]``.
-
-  F14 audited every isinstance ladder over the parse_source
-  Union in ``plotsim/`` and confirmed the existing raises in
-  ``_resolve_fact_cell`` (``tables.py:574``) and the per-entity /
-  sub-entity / reference dim builders in
-  ``plotsim/dimensions.py``. Two silent-fallback sites in
-  ``tables.py`` were converted to explicit raises:
-
-  * ``_build_per_period_fact`` outer ``else`` → raises
-    ``TypeError`` naming the column, source, and source-class.
-  * ``_build_proportional_event`` deterministic-dispatch outer
-    ``else`` → raises ``TypeError``. The inner
-    ``DerivedSource.field`` unhandled branch was also converted;
-    it now raises ``ValueError`` naming the bad field
-    (``entity_id`` / ``date_key`` are the only supported fields
-    on event tables).
-
-  None of the bundled templates exercise the converted branches —
-  they're reachable only via configs that deliberately route an
-  unsupported source type to those tables. On-disk output for
-  shipped configs is byte-identical. Verified by
-  ``tests/test_silent_dispatch.py`` (4 cases:
-  ``_build_per_period_fact`` raise, event-builder outer-else
-  raise, event-builder DerivedSource-field raise, pre-existing
-  ``_resolve_fact_cell`` raise unaffected).
-
-- **F13 (dead-schema audit + ongoing prevention).** Mission 100
-  flagged two dead-schema instances (`Entity.overrides` permissive
-  dict — closed by F9; `StageDefinition.threshold_exit` decorative
-  field — closed by F8) and the 0.2.0 cleanup closed four more
-  (`Metric.default_curve`, `MetricOverride.curve`,
-  `noise.temporal_jitter_days`, `noise.duplicate_rate`). F13
-  performs a mechanical audit of every Pydantic field declared in
-  `plotsim/config.py` and adds `tests/test_dead_schema.py` as a
-  regression guard so the bug class can't silently re-emerge.
-
-  Audit result (run during F13): 93 fields scanned, 8 lack a
-  `.field_name` attribute read in `plotsim/*.py`. All 8 are
-  explicable — display fields surfaced via `model_dump()` /
-  YAML round-trip (`Archetype.{label, description}`,
-  `Domain.{description, entity_type}`, `Metric.label`),
-  schema-introspection fields (`Column.pii_note` via
-  `model_json_schema()`), Literal-type constraints
-  (`OutputConfig.format`), or fields read via dict-key
-  indirection (`EntityOverrides.inflection_month` via
-  `overrides.model_dump()` then `.get("inflection_month")` in
-  `compute_all_trajectories`, F9-introduced).
-
-  No regression-class dead fields surfaced; no removals applied.
-  The 8 explicable fields land on a documented `ALLOWLIST`
-  with per-entry reasons. New schema fields must either be
-  read or added to the allowlist with a reason — the test
-  fails on the first field that escapes both gates.
-
-  Verified by `tests/test_dead_schema.py` (11 cases: main audit,
-  allowlist entry validity vs current schema, allowlist
-  tautology check, parametrized non-empty-reason check across
-  the 8 entries).
-
-- **F12 (dtype × source cross-check: `dtype: boolean` on
-  `metric:` / `lag:` source produces structurally degenerate
-  output).** Mission 101 spot-checks Q3 found that the schema
-  accepted `dtype: boolean` on a `MetricSource` or `LagSource`
-  column even though the resulting cell is
-  `bool(continuous_metric_value)` — near-constant `True` for any
-  positive-skewed distribution (poisson with λ > 0, lognorm,
-  gamma, weibull). The cell value carries no information; the
-  combination is a misconfiguration the loader silently accepted.
-
-  `PlotsimConfig._cross_reference_integrity` now rejects
-  `dtype: boolean` paired with `MetricSource` or `LagSource` at
-  load with a message naming the column, the source string, and
-  a hint pointing at the natural alternatives (`dtype: float`
-  for continuous, `dtype: int` for poisson, switch to a
-  `threshold:` source if a boolean indicator is what was
-  intended). `ThresholdSource` is unaffected — its boolean output
-  is by design (the bundled saas template's `churn_flag` is the
-  canonical example).
-
-  F12 originally bundled the validator with removing the dead
-  `has_bool_metric` scalar-fallback predicate at
-  `tables.py:353-356`. The predicate-removal step landed in
-  F3 (`2ccfdbe`) when the vectorized fact-builder was extended to
-  coerce booleans correctly via `_coerce_array_for_dtype`. F12
-  is now narrowed to the validator only — the input-side hole
-  the dead gate used to mask.
-
-  Verified by `tests/test_dtype_source_validation.py` (10 cases:
-  metric × boolean rejection, lag × boolean rejection, metric ×
-  int loads, metric × float loads, threshold × boolean still
-  loads, all five bundled templates load).
-
-- **F11 (`_coerce_static` returned raw string on malformed ISO date).**
-  A column declared with `dtype: date` and `source: "static:not-a-date"`
-  loaded silently. At generation time,
-  `dimensions._coerce_static` caught the `ValueError` from
-  `datetime.fromisoformat` and returned the raw string, leaving a
-  date-typed column with `str` values in the resulting dim table.
-  Downstream type-coerced consumers (CSV readers using
-  `parse_dates`, dashboard joins on ISO date keys, anything
-  branching on `dtype.kind == "M"`) saw silent type corruption.
-
-  Two-layer fix:
-
-  * `PlotsimConfig._cross_reference_integrity` now rejects
-    malformed static dates at config load with a message naming
-    the column, the bad value, and the expected ISO format.
-    Multi-value statics
-    (`"static:2024-01-01,2024-02-01,2024-03-01"`) are split on
-    commas and each candidate validated.
-  * `dimensions._coerce_static` now raises `ValueError` rather
-    than returning the raw string — defense-in-depth for
-    programmatic `PlotsimConfig` construction that bypasses the
-    YAML-load validators.
-
-  Verified by `tests/test_static_source_validation.py` (8 cases:
-  invalid format rejected, valid ISO loads, multi-value with one
-  bad member rejected, multi-value all-valid loads, dtype gate
-  preserves non-date string columns, direct `_coerce_static`
-  unit on malformed and valid inputs, dtype cross-coverage on
-  int/float/boolean/string).
-
-- **F10 (`causal_lag.lag_periods` cap was granularity-blind).** The
-  pre-fix field-level constraint `Field(ge=1, le=120)` enforced a
-  flat upper bound across every granularity. 120 reads as ~10 years
-  at monthly, ~2.3 years at weekly, and ~4 months at daily — too
-  generous on the long end and too tight on the short end. A daily
-  config that wanted a quarterly lag (≈90 daily periods is fine but
-  many users reach for 180–365) hit the cap.
-
-  The field-level cap is relaxed to 10_000 (a sanity bound for
-  programmatic CausalLag construction); the authoritative
-  per-granularity bound is enforced at
-  `PlotsimConfig._cross_reference_integrity` against
-  `_LAG_PERIOD_LIMITS = {"monthly": 120, "weekly": 520,
-  "daily": 3_650}` — each ≈10 years at the respective granularity,
-  matching the time-window span ceiling philosophy. Errors name
-  both the granularity and the cap.
-
-  Bundled saas (monthly, lag_periods=2) and hr (monthly,
-  lag_periods=1) load unchanged. Verified by
-  `tests/test_lag_period_cap.py` (11 cases: at-cap and above-cap
-  per granularity, field-level extreme bound, pre-F10 blocked
-  daily lag=200 now loads, monthly cap=120 boundary preserved,
-  bundled saas + hr parity).
-
-- **F9 (`Entity.overrides` accepted arbitrary keys).** The field was
-  typed as `dict[str, Any]` with `Field(default_factory=dict)`, so
-  any unknown key — `inflection_period`, `garbage`, a typo of
-  `inflection_month` — loaded silently and was then ignored by
-  `_resolve_shift` in `trajectory.py` (which only consumes
-  `inflection_month`). Same silent-acceptance class as the
-  pre-0.2.0 dead fields, but on the entity surface instead of the
-  metric/noise surfaces that 0.2.0 closed.
-
-  `Entity.overrides` is now `Optional[EntityOverrides]` where
-  `EntityOverrides` is a frozen Pydantic model with `extra="forbid"`
-  and a single field `inflection_month: int | None = None`. Unknown
-  keys raise `ValidationError` at load. Adding new override keys
-  going forward requires extending the `EntityOverrides` schema —
-  the same gate that motivated typed sources in 0.2.0 / 0.3.0.
-
-  `compute_all_trajectories` converts the typed model to a plain
-  dict before passing to `compute_trajectory`, preserving the
-  `compute_trajectory(overrides=dict)` interface for direct callers
-  and existing tests in `tests/test_trajectory.py`. None of the
-  five bundled templates use `Entity.overrides`, so on-disk output
-  is byte-identical. Verified by `tests/test_entity_overrides.py`
-  (13 cases: known-key load, unknown-key rejection, mixed-key
-  rejection, default-None, empty-dict coercion, end-to-end shift
-  preservation, all five templates load).
-
-- **F8 (`StageDefinition.threshold_exit` was decorative).** Mission 100
-  found `threshold_exit` accepted at config load but never read by the
-  runtime — both `_monotonic_stage_walk` and `_free_mode_stages` build
-  their threshold array from `threshold_enter` only. The bundled saas
-  and hr templates set `threshold_exit` on three of four stages each;
-  those values were producing identical stage-column output to a
-  config that omitted them entirely.
-
-  After grep confirmed the field is decorative in every runtime path
-  (mission 102 / Phase 2 audit, option 2 of three considered),
-  `StageSequence` now accepts two semantics for `threshold_exit` and
-  the runtime acts on hysteresis configs:
-
-  * **Legacy mode** (`threshold_exit > threshold_enter`, the bundled-
-    template default): non-overlap upper-bound semantic. Each stage
-    spans `[threshold_enter, threshold_exit)`; stages must not
-    overlap (`prev.threshold_exit <= curr.threshold_enter`). The
-    runtime ignores `threshold_exit` and walks on `threshold_enter`
-    only — output is byte-identical to pre-F8 for every config in
-    this mode. The five bundled templates all use this mode; their
-    on-disk output is unchanged.
-  * **Hysteresis mode** (`threshold_exit <= threshold_enter`): the
-    F8 wiring. `threshold_enter` is the upward entry threshold;
-    `threshold_exit` is the downward demote threshold. Constraint:
-    `prev.threshold_enter <= this.threshold_exit <= this.threshold_enter`.
-    `_monotonic_stage_walk` (under `enforce_order=True`) demotes when
-    the value drops below `current_stage.threshold_exit`. With
-    `downgrade_delay=None` this collapses to delay=1 (immediate
-    demote); with `downgrade_delay=N` the demote fires after `N`
-    consecutive periods below exit. The hysteresis band
-    `[threshold_exit, threshold_enter]` keeps the entity in the
-    higher stage on transient dips.
-
-  Mixed sequences (some stages legacy, others hysteresis) are
-  rejected at load with both per-stage modes named in the message.
-  Free mode (`enforce_order=False`) is stateless and ignores the
-  hysteresis distinction in either mode. `StageSequence.mode` is
-  exposed as a derived property so callers can introspect without
-  re-deriving the relationship.
-
-  Bundled templates verified byte-identical. Hysteresis runtime
-  effect verified by `tests/test_stage_threshold_exit.py` (10 cases:
-  legacy strict-monotonic, legacy + delay, hysteresis demote on
-  immediate, hysteresis + delay, mixed-mode rejection, legacy-
-  overlap rejection, hysteresis-prev-enter rejection, end-to-end
-  legacy + hysteresis loads, mode-property unit).
-
-- **F7 (duplicate correlation entries silently last-write-wins).**
-  `PlotsimConfig` previously accepted any list of `CorrelationPair`
-  entries without checking for duplicate `(metric_a, metric_b)`
-  keys. Downstream, `_build_correlation_matrix` reduced the list
-  via `mat[i, j] = pair.coefficient`, which is last-write-wins for
-  any duplicate pair: a config that declared `corr(a, b) = 0.7`
-  in one place and `corr(a, b) = 0.3` (or `corr(b, a) = 0.3` —
-  the pair is unordered) in another silently picked whichever
-  entry happened to land last in iteration order, with no warning
-  to the user.
-
-  `PlotsimConfig._cross_reference_integrity` now raises
-  `ValidationError` on the first duplicate it sees, with both
-  conflicting coefficients and the pair name in the message. The
-  check runs before the PSD gate, so the duplicate report has
-  priority over any matrix-degeneracy error contradictory entries
-  might otherwise produce.
-
-  The pair is treated as unordered (`(a, b) == (b, a)` via
-  `frozenset`), and identical coefficients on the same pair are
-  also rejected — a redundant entry is almost always a typo where
-  the second was intended to reference a different pair. None of
-  the five bundled templates declare duplicates, so on-disk output
-  is byte-identical. Verified by
-  `tests/test_duplicate_correlations.py` (same-order, opposite-
-  order, identical-coefficient, distinct-pair, single-entry — five
-  cases).
-
-- **F6 (F-06 regression class — adversarial declaration vs toposort
-  ordering).** Test-only addition; closes the regression class that
-  the 0.4.0 Cholesky-toposort-indexing fix
-  (`tables.py:1431-1437`) targeted, locking it under a programmatic
-  config that does not exist in any bundled template.
-
-  The 0.4.0 fix builds the hoisted Cholesky factor on the toposorted
-  metric list so its row/column axes match the `z` vector
-  `apply_correlations` indexes by. Until now there was no test that
-  forced declaration order ≠ toposort order *and* asserted
-  configured pairwise correlations on the result — the bundled saas
-  and hr templates were the only end-to-end witnesses, and either
-  could have its `causal_lag` removed without the test surface
-  noticing.
-
-  `tests/test_correlation_ordering.py` programmatically constructs a
-  4-metric config with chain `a←b←c←d` so `_toposort_metrics` emits
-  `[d, c, b, a]` (full reversal of declaration), assigns
-  rank-1 factor-model correlations (PSD by construction), and asserts
-  every configured pair lands within ±0.10 of target across 8 seeds.
-  A parametrized variant randomizes declaration order against the
-  same fixed toposort target across five seeds. Pre-fix simulation
-  (declaration-order Cholesky) reproduces the documented bug
-  signature: median observed Pearson on `(a, b)` lands at 0.385 vs
-  configured 0.638 (|diff|=0.25 > 0.10).
-
-- **F5 (validation_report.txt determinism).** `output._format_report`
-  injected `datetime.now()` into the `Generated:` header line, so two
-  invocations of `write_tables` with the same `(config, seed)` produced
-  byte-different `validation_report.txt` files. CSV output was already
-  deterministic; the validation report alone broke the project's
-  "same config + same seed → byte-identical output" invariant.
-
-  `write_tables` and `write_validation_report` now accept an optional
-  `generated_at: datetime` parameter. When omitted (the library default),
-  the `Generated:` line renders a deterministic identifier — a 16-character
-  SHA-256 prefix of the JSON-serialized config dump (`config-sha256[:16]`).
-  CLI's `cmd_run` passes `generated_at=datetime.now()` so operators still
-  see the wall-clock stamp; library callers get determinism by default.
-
-  Same config + same seed now produces byte-identical `validation_report.txt`
-  across runs, completing determinism for every file `write_tables` emits.
-  Layer4 reference fixtures were regenerated to the new deterministic
-  format (one-time fixture commit). Verified by
-  `tests/test_validation_report_determinism.py` (byte-identical across
-  runs, fingerprint present by default, explicit `generated_at` honored).
-
-- **F4 (`write_tables` mutated the caller's DataFrame).** `write_tables`
-  → `write_single_table` used to call `output._coerce_integer_columns`
-  directly on the user's DataFrame, reassigning each `dtype:int` column
-  in place via `df[col] = series.astype("Int64")`. Even when the dtype
-  was already correct after F3, the astype call replaced the Series
-  *object*, silently invalidating the user's references to the column.
-  `write_single_table` now takes a shallow copy of the DataFrame
-  (column-selected `.loc[:, ordered].copy(deep=False)`) before any
-  promotion runs. Memory overhead is one Series wrapper per column —
-  the underlying float arrays stay shared.
-
-  User-facing impact: `tables[name]` is now untouched by `write_tables`.
-  Series objects, dtypes, and any user-added columns survive the call.
-  The most natural CSV round-trip (`pd.read_csv(written_path)` with
-  default backend) recovers dtypes that match the in-memory ones under
-  documented equivalences (`Int64` with no nulls ≡ `int64`; `Int64`
-  with nulls ≡ `float64`; `BooleanDtype` with no nulls ≡ `bool`;
-  `BooleanDtype` with nulls ≡ `object`). Verified by
-  `tests/test_dataframe_mutation.py` (mutation-identity assertion,
-  custom-column preservation, default-backend round-trip with
-  normalization helper).
-
-- **F3 (vectorized fact-builder dtype on `dtype:int` / `dtype:boolean`
-  metric columns).** The vectorized fact-builder used to assign the raw
-  float64 slice from `metrics_3d` straight into MetricSource and
-  LagSource columns, ignoring the declared `Column.dtype`. Library
-  callers consuming the dict from `generate_tables` got float64 where
-  they had declared int (and would have got float64 where they
-  declared boolean). The CSV path was rescued downstream by
-  `output._coerce_integer_columns` at write-time, so on-disk was
-  correct but in-memory and on-disk diverged.
-
-  A new helper `_coerce_array_for_dtype(arr, dtype)` now applies the
-  scalar `_coerce_metric_value` semantics to whole-column arrays —
-  NaN-safe round to nullable `Int64` for `dtype:int`, mask-aware
-  cast to `BooleanDtype` for `dtype:boolean`, pass-through otherwise.
-  Applied in the MetricSource and LagSource branches of
-  `_vectorized_per_entity_per_period_fact`. The `has_bool_metric`
-  forced-scalar-fallback gate is removed (boolean metric columns now
-  flow through the vectorized path correctly).
-
-  CSV bytes on disk are byte-identical pre/post-fix (the
-  write-time rescue was already producing the same shape) — all five
-  bundled-template `test_e2e_template[*]` and
-  `test_layer4_reference_fixtures_match[*]` tests pass without
-  fixture regeneration. In-memory dtype now matches on-disk dtype
-  recovered via `pd.read_csv(..., dtype_backend='numpy_nullable')` —
-  the contract `tests/test_dataframe_mutation.py` locks down from
-  both ends.
-
-  Companion change in `plotsim/validation.py`: `_is_nullish` now uses
-  `pd.isna()` so it recognizes `pd.NA` (newly present in-memory via
-  F3's nullable extension dtypes) alongside Python `None` and
-  `float('nan')`.
-
-- **F2 (correlation attenuation under bypass).** When one metric's
-  distribution degenerated mid-period (poisson λ ≈ 0, lognorm
-  scale ≈ 0, gamma shape → 0, etc.), `apply_correlations` zeroed
-  the bypassed slot in the Gaussian residual vector but kept the
-  full Cholesky factor. The matmul `corr_z = L @ z` then mixed the
-  forced 0 into every active metric whose Cholesky row had a
-  non-zero bypass-column entry, structurally attenuating cross-pair
-  correlations during bypass periods.
-
-  Now, when `any(bypass)` is True, the function slices the
-  correlation matrix to the active rows/columns (recovered as
-  `L @ L.T` — exact for the full-rank Cholesky the load-time PSD
-  gate guarantees), Cholesky-factors the principal submatrix, and
-  applies that to the active z-values only. Bypass slots stay at 0
-  in `corr_z` but are skipped by the per-metric output loop, so the
-  zeros never leak into output. An `all(bypass)` short-circuit
-  returns the independent draw unchanged.
-
-  **Output values change** for any config whose bypass-prone metric
-  is configured-correlated with other metrics, *including* the
-  bundled `saas` and `ecommerce` templates (whose negative-polarity
-  poisson metrics drive center to ≈ 0 during the second-half of
-  several archetype trajectories). Same config + same seed remains
-  byte-identical within 0.4.x post-fix, but cross-version
-  byte-matching against pre-F2 0.4.x is not preserved. `hr`,
-  `education`, and `healthcare` produce byte-identical output
-  (none triggers bypass). Verified by
-  `tests/test_correlation_bypass.py` (regression + no-bypass
-  control across 8 seeds with median-pair-Pearson assertion) and
-  the regenerated `test_layer4_reference_fixtures_match` baseline.
-
-- **F1 (sub-entity FK collapse on threshold events).** Threshold-event
+- **Configured correlations match observed values.** Within ±0.10 for
+  9 of 10 measured distribution pairings; `lognorm × lognorm` widens
+  to ±0.15 at high magnitudes (|coef| ≥ 0.7) due to heavy-tail
+  asymmetry of the Gaussian copula on twin lognormals.
+- **Causal lags compose across chains.** `A → B(lag=2) → C(lag=3)`
+  produces a `C` series that reads `A`'s trajectory from 5 periods
+  ago.
+- **Cholesky indexing realigned with topological metric order.**
+  Configured correlations are no longer applied to a different pair
+  of metrics when declaration order differs from toposort order.
+- **`validation_report.txt` is byte-identical across runs** — wall-
+  clock stamp removed from the library default; CLI still passes one.
+  Same `(config, seed)` → byte-identical for every file `write_tables`
+  emits.
+- **`write_tables` no longer mutates the caller's DataFrame.** A
+  shallow copy is taken before in-place dtype promotion.
+- **Vectorized fact-builder respects `dtype: int` / `dtype: boolean`.**
+  In-memory dtypes from `generate_tables` now match on-disk dtypes.
+- **Sub-entity FK collapse on threshold events.** Threshold-event
   tables that FK into a sub-entity dim now distribute their FKs across
   the parent's candidate sub-entities instead of always picking the
-  first row. Pre-fix, `_build_threshold_event` called `_resolve_event_row`
-  with `rng=None`, which made the sub-entity FK branch fall back to
-  `candidates.iloc[0]` — silently attributing every threshold event for
-  a given parent to the same sub-entity record. None of the five
-  bundled templates triggered the bug (saas's `evt_churn` only FKs into
-  `dim_company`, not `dim_user`), so on-disk output for shipped configs
-  is byte-identical. User configs that declare a sub-entity FK on a
-  threshold-event table got cardinality-1 joins; those will now see
-  proper distribution. Verified by
-  `tests/test_threshold_event_subentity.py`.
+  first row.
+- **Bridge cardinality validator** — used `sum(Entity.size)` instead
+  of `len(entities)` for per-entity dim row counts; engine-direct
+  configs with `size > 1` saw spurious warnings.
+- **Bridge auto-resolution** — interpreter auto-resolves bridge-
+  referenced `dim_{unit}` and `dim_date` tables when the user omits
+  them.
+- **Proportional-event float cast** — driver values cast to `float64`
+  before `np.isnan`, fixing a count-driver bug on proportional events.
+- **Duplicate correlation entries raise** instead of silently last-
+  write-wins. The pair is treated as unordered (`(a,b) == (b,a)`).
+- **`StageSequence.threshold_exit` is wired in.** Hysteresis mode
+  (`threshold_exit ≤ threshold_enter`) demotes when value drops below
+  exit; legacy mode (`threshold_exit > threshold_enter`) keeps non-
+  overlap upper-bound semantics. Was previously decorative.
+- **Static-source date validation** — `dtype: date` paired with a
+  malformed ISO date (`static:not-a-date`) now rejects at config load
+  instead of silently leaving a string in a date-typed column.
+- **`Entity.overrides` accepts only known keys.** Now a typed
+  `EntityOverrides` model with `extra="forbid"`; unknown keys raise
+  at load.
+- **`dtype: boolean` paired with `metric:` / `lag:` source rejected
+  at load** — the cell value `bool(continuous)` was structurally
+  near-constant for any positive-skewed distribution.
+- **`causal_lag.lag_periods` cap is now granularity-aware** —
+  120 (monthly) / 520 (weekly) / 3650 (daily), each ≈10 years.
+- **Silent dispatch sites in `tables.py` raise** when handed an
+  unsupported source type, instead of producing a column of `None`.
+- **Test-tooling fixes** — coverage instrumentation no longer
+  triggers numpy ufunc dispatch corruption in two test sites.
 
-- **F15 (test tooling).** Replaced `np.polyfit` in `tests/test_integration.py`
-  with a manual ordinary-least-squares slope formula in two call sites
-  (`test_revenue_follows_trajectory_for_steady_grower` and the
-  `_distinguishability_ari` helper used by 6 archetype-distinguishability
-  tests). Under coverage.py instrumentation, numpy gets reloaded mid-suite
-  (a pandas import warning makes this visible), which corrupts numpy's
-  ufunc dispatch table. After that, `np.polyfit`'s internal call to
-  `np.linalg.lstsq` crashed with
-  `_UFuncNoLoopError(Float64DType, StrDType)` on lstsq's deprecated-default
-  check (`if rcond == "warn":`). Result: 7 integration tests that pass
-  under `pytest -q` failed under `pytest --cov`. The OLS replacement uses
-  pure numpy reductions (no `lstsq` path) and produces the same slope to
-  numerical precision. No `plotsim/` source change. Verified against the
-  full M101 invocation: 667 passed / 1 xfailed under `--cov=plotsim.tables`,
-  matching the `--no-cov` baseline.
+### Removed
+
+- **`requirements.txt`** — `pyproject.toml` is the single source of
+  dependency truth for a library.
+- **Optional `groq` dependency** — was unused.
+- **`_bypass_mask_batch` and bypass-counter plumbing** (~170 lines).
+  The new copula handles degenerate centers natively. Manifest field
+  `bypass_fallback_counts` is preserved as `{}` for backward-compat.
+
+### Migration
+
+- **Output values shift for any config with correlations.** The
+  copula reformulation is intentional and bounded to one version.
+  Same `(config, seed)` is byte-identical within this release.
+- **`apply_correlations` callers must pass `rng=`.** Internal API;
+  most users go through `generate_tables` and are unaffected.
+- **Configs with `stages` and no explicit `enforce_order`** now run
+  in free mode. Add `enforce_order: true` to keep strict-monotonic
+  behavior.
+- **`dtype: boolean` on a `metric:` or `lag:` source** is now
+  rejected. Switch to `dtype: float` (continuous) / `dtype: int`
+  (poisson), or use a `threshold:` source if a boolean indicator was
+  intended.
 
 ## [0.4.0] — 2026-04-23
 
-Correctness and hardening release. Configured correlations and causal
-lags now match their observed values in the generated output; a
-round of validation and resource-bound work catches malformed configs
-at load time rather than mid-generation.
+Correctness and hardening. Configured correlations and causal lags
+match their observed values; malformed configs raise at load instead
+of mid-generation.
 
-**Output values change** for any config that uses correlations or
-`causal_lag`. Same config + same seed remains byte-identical within
-0.4.0. Cross-version byte-matching against 0.3.x is not preserved.
-See Migration at the bottom.
+**Output values change** for any config using correlations or
+`causal_lag`. Same `(config, seed)` is byte-identical within 0.4.0.
 
 ### Added
 
 - **`CausalLag.blend_weight`** — per-lag float in `[0.0, 1.0]`,
-  default `1.0`. Controls the blend between the metric's current
-  trajectory position and the driver's past position. At the default
-  the lag is a pure period shift, so a metric configured with
-  `lag_periods: N` reads the driver's value from exactly N periods
-  ago and cross-correlation peaks at that offset. Setting
-  `blend_weight: 0.6` recovers the pre-0.4.0 blend.
-- **`RedundantCorrelationWarning`** — emitted at `load_config` for
-  any `correlations` entry with `coefficient: 0.0`, which is
-  structurally valid but operationally a no-op.
-- **CLI `--allow-absolute-output` flag** — escape hatch for the new
-  `plotsim run` sandbox. Without the flag, `plotsim run` resolves
-  the output directory relative to the current working directory
-  and rejects `..` traversal.
-- **SQL-safe identifier validation** on `Table.name` and `Column.name`
-  (pattern `[A-Za-z_][A-Za-z0-9_]{0,127}`, enforced at `load_config`).
+  default `1.0`. At default, lag is a pure period shift, so a metric
+  with `lag_periods: N` reads the driver's value from exactly N
+  periods ago. Set `blend_weight: 0.6` for the pre-0.4.0 blend.
+- **`RedundantCorrelationWarning`** — emitted at load for
+  `correlations` entries with `coefficient: 0.0`.
+- **CLI `--allow-absolute-output`** — escape hatch for the new sandbox
+  on `plotsim run`.
+- **SQL-safe identifier validation** on `Table.name` and
+  `Column.name`.
 - **Faker method allowlist** — 53 methods permitted, 11 denied
-  (seeding, provider mutation, `binary`, `format`, `parse`,
-  `pystr_format`). 4096-character cap on length-like kwargs.
-- **Numeric and list-length caps** on the config model:
-  `Entity.size <= 5000`, `ProportionalSource.scale <= 100`,
-  `NoiseConfig.gaussian_sigma <= 5.0`,
-  `CausalLag.lag_periods <= 120`,
-  `StageSequence.downgrade_delay <= 120`;
-  `PlotsimConfig.metrics <= 50 / archetypes <= 20 / entities <= 100 /
-  tables <= 50 / correlations <= 1225`,
-  `Table.columns <= 100`, `Archetype.curve_segments <= 10`,
-  `StageSequence.sequence <= 10`.
-- **Time-span caps** — 360 monthly / 1560 weekly / 3650 daily
-  periods, enforced on `TimeWindow.period_count()`.
-- **Total-entity cap** — `sum(Entity.size) > 100_000` rejected at
-  load.
-- **Config-time cell-count estimator** — prints a one-line stderr
-  summary at load (entities × periods, metrics, tables, estimated
-  peak memory). Warns above 500k cells; raises above 2M.
+  (seeding, provider mutation, `binary`, etc.). 4096-character cap on
+  length-like kwargs.
+- **Numeric and list-length caps** — entity, metric, table, period,
+  and correlation-count limits enforced at load.
+- **Config-time cell-count estimator** — one-line stderr summary;
+  warns above 500k cells, raises above 2M.
 - **Reference fixtures for all 5 shipped templates** at
-  `tests/fixtures/layer4_reference/<template>/` — the YAML and
-  validation report are tracked; regenerated CSVs remain gitignored.
-  A metadata canary catches generation-output regressions.
+  `tests/fixtures/layer4_reference/<template>/`.
 
 ### Changed
 
-- **Configured correlations are now delivered exactly.** A Gaussian
-  copula replaces the pre-0.4.0 residual-transform. Each metric's
-  marginal distribution is preserved by a CDF round-trip; the
-  Cholesky factor delivers the configured correlation in Gaussian
-  space, so the observed coefficient matches the configured one
-  within ±0.10 for continuous pairings and ±0.15 for pairings that
-  include `poisson` (inherent discretization noise).
-- **Causal lags compose across chains.** The lag buffer now stores
-  effective (post-blend) positions, and metrics are processed in
-  topological driver → target order. A three-metric chain
-  `A → B(lag=2) → C(lag=3)` produces a `C` series that reads `A`'s
-  trajectory from 5 periods ago, matching the declared DAG. Before
-  0.4.0 the `driver` field was effectively vestigial and lags did
-  not compose.
-- **`causal_coherence` validator threshold** relaxed from strict
-  `|lagged| > |unlagged|` to a 50% ratio. Under the new pure-shift
-  blend, the Iman-Conover same-period correlation can inflate
-  `|unlagged|` above `|lagged|` on slow-varying trajectories even
-  when the lag is implemented correctly. The ratio still catches
-  flagrantly broken lags.
+- **Configured correlations are delivered exactly.** Gaussian copula
+  replaces the pre-0.4.0 residual-transform. Observed coefficient
+  matches configured within ±0.10 (±0.15 for poisson pairings).
+- **Causal lags compose across chains.** A 3-metric chain
+  `A → B(lag=2) → C(lag=3)` produces `C` reading `A` from 5 periods
+  ago. Pre-0.4.0 the `driver` field was vestigial.
 - **`assign_stages` vectorized** — `np.searchsorted` +
-  `np.maximum.accumulate` for the strict-monotonic common case;
-  per-entity numpy walk preserves state for the `downgrade_delay`
-  branch. Measured 35–46× speedup across 85×365 / 500×365 /
-  2000×365 shapes. Byte-identical output is locked by parity tests.
+  `np.maximum.accumulate`. 35–46× speedup across representative
+  shapes.
 - **Cholesky factor computed once per generation** and threaded
-  through `build_fact_tables → generate_entity_metrics →
-  generate_metrics_for_period` so the per-(entity, period) inner
-  loop no longer rebuilds the correlation matrix.
-- **Fact-path vectorization.** Per-entity-per-period fact
-  construction materializes an `(E, P, M)` float ndarray and
-  dispatches between a vectorized path (shipped templates) and a
-  preserved scalar path (for `FakerSource` / `boolean` metric
-  columns, which need byte-identical RNG consumption).
-- **Event-path hybrid vectorization.** Deterministic event columns
-  go through `np.repeat` over per-row counts; stochastic columns
-  keep the per-row loop.
+  through the inner loop.
+- **Fact-path vectorization.** Per-(entity, period) construction
+  materializes an `(E, P, M)` ndarray; scalar fallback preserved for
+  `FakerSource` and boolean metric columns.
 - **Full-suite wall clock 48s → 31s** post-vectorization.
 
 ### Fixed
 
-- **Non-positive-definite correlation matrices are rejected at
-  `load_config`** rather than at `generate_tables`. The
-  `generate_tables` gate is retained as defense-in-depth for
-  callers that construct `PlotsimConfig` programmatically.
-- **Empty `entities: []` configs raise at load.** Previously they
-  silently produced zero-row dim and fact tables.
-- **Cholesky indexing realigned with topological metric order.**
-  The Cholesky factor is now built from the topologically sorted
-  metric list, so its rows and columns match the z-vector the
-  correlation step produces. Before this fix, any pair whose
-  declaration index differed from its toposort index got its
-  configured coefficient applied to a different pair of metrics.
-  Among shipped templates, `saas` and `hr` were affected because
-  they use both `correlations` and `causal_lag`; ecommerce,
-  education, and healthcare were unaffected (no lag chains, so
-  toposort is a no-op). Reference fixtures for `saas` and `hr`
-  regenerated.
+- **Non-PSD correlation matrices raise at `load_config`** rather than
+  at `generate_tables`.
+- **Empty `entities: []` configs raise at load** instead of silently
+  producing zero-row tables.
+- **Cholesky indexing realigned with topological metric order.** Pairs
+  whose declaration index differed from their toposort index were
+  applied to a different pair of metrics. `saas` and `hr` reference
+  fixtures regenerated.
 
 ### Removed
 
-- **`plotsim.metrics.LAG_BLEND_WEIGHT`** module constant. Per-lag
-  `CausalLag.blend_weight` replaces it. External imports of the
-  constant will raise `ImportError`.
+- **`plotsim.metrics.LAG_BLEND_WEIGHT` module constant.** Per-lag
+  `CausalLag.blend_weight` replaces it.
 
 ### Dependencies
 
-- **`scipy>=1.11`** pinned in `pyproject.toml` (was implicit before).
-  All six shipped distributions (`lognorm`, `gamma`, `poisson`,
-  `beta`, `normal`, `weibull`) ship in scipy 1.11.
+- **`scipy>=1.11`** pinned in `pyproject.toml`.
 
 ### Migration
 
-- **Output values shift for configs with correlations.** The
-  Gaussian copula reconstructs configured correlations faithfully;
-  previously-attenuated coefficients now land where you configured
-  them. Reference fixtures for all 5 bundled templates regenerated.
-- **Output values shift for configs with `causal_lag`.** The new
-  `blend_weight=1.0` default is a pure period shift rather than a
-  60/40 blend. Two bundled templates are affected (`sample_saas.yaml`
-  `support_tickets` lag=2; `sample_hr.yaml` `absence_rate` lag=1).
-  Set `blend_weight: 0.6` explicitly to recover the pre-0.4.0 blend.
-- **Output values shift for configs with both correlations AND
-  `causal_lag`.** The Cholesky-indexing fix corrects which pair each
-  configured correlation applies to. Only `saas` and `hr` among
-  shipped templates have both features. There is no way to recover
-  pre-fix values from config — the pre-fix values were wrong.
-- **Non-PSD correlation matrices now raise at `load_config`**
-  instead of at `generate_tables`. Tighten the correlation triangle
-  so all eigenvalues are strictly positive.
-- **Configs with `entities: []` now raise at load.** Populate the
-  list with at least one entity.
-- **CLI default writes to cwd.** Pre-0.4.0 callers that relied on
-  absolute `output.directory` paths must add
-  `--allow-absolute-output` or switch to a relative path.
-- **Table and column names must be SQL-safe identifiers.**
-  Whitespace, punctuation, and path separators are rejected.
-- **Faker methods outside the allowlist raise at load.** The
-  denylist covers seeding, provider mutation, and `binary`.
-- **Configs above the new numeric / list / span / total-entity
-  limits raise at load.** Most hand-authored configs sit well
-  under these caps.
-- **Cell counts above 2M raise at load; 500k–2M warn.** A one-line
-  summary always prints to stderr.
-- **`CausalLag.blend_weight` is a new field on a frozen model.**
-  0.3.x configs without the field inherit the new default `1.0` on
-  load. Round-tripped configs (`dump_config` → YAML) now carry the
-  explicit `blend_weight: 1.0` under every `causal_lag`.
-- **Metric processing order inside `generate_entity_metrics` is
-  now topological** (driver → target). For configs without
-  `causal_lag` chains this is a stable permutation and RNG
-  consumption is unchanged; configs with chains will see different
-  per-period RNG consumption.
+- **Configs with correlations** see shifted output values; the new
+  values match what was configured. Reference fixtures regenerated
+  for all 5 templates.
+- **Configs with `causal_lag`** see shifted output. Set
+  `blend_weight: 0.6` to recover pre-0.4.0 blend.
+- **Non-PSD correlation matrices** must be tightened so all
+  eigenvalues are strictly positive.
+- **Table and column names** must match `[A-Za-z_][A-Za-z0-9_]{0,127}`.
+- **CLI default writes to cwd.** Absolute output paths require
+  `--allow-absolute-output`.
 
 ## [0.3.0] — 2026-04-22
 
-Post-launch hardening pass. Two correctness fixes and seven quality
-improvements sourced from a read-only package audit.
+Post-launch hardening. Two correctness fixes and seven quality
+improvements.
 
 ### Added
-- **Parameterized Faker source grammar.** `generated:faker.<provider>[:k:v]*`
-  with a dedicated `FakerSource` typed parse split out of `GeneratedSource`.
-  Enables e.g. `generated:faker.date_between:start:2022-01-01:end:2024-12-31`
-  for temporally-bounded date generation instead of `faker.date`'s
-  unbounded range.
-- **`PlotsimConfig.locale`** (default `"en_US"`) — threaded through the
-  dim and fact/event Faker instantiations so providers like `faker.name`
-  and `faker.company` honor the configured locale.
+
+- **Parameterized Faker grammar** — `generated:faker.<provider>[:k:v]*`
+  enables e.g. `faker.date_between:start:2022-01-01:end:2024-12-31`.
+- **`PlotsimConfig.locale`** — threaded through Faker so `faker.name`,
+  `faker.company`, etc. honor the configured locale.
 - **`Entity.cross_dim_fks`** + **`Column.distribution`** +
-  **`FKDistribution`** schema — cross-dimension FKs can now be drawn
-  per-entity from a parent dim with explicit uniform / weighted / fixed
-  distributions instead of collapsing to parent row 0.
-- **`StageSequence.downgrade_delay: int | None`** — relaxes
-  strict-monotonic stage progression under `enforce_order=True` after
-  N consecutive lower-stage periods. `None` keeps the prior monotonic
-  behavior.
-- **`Column.allow_outside_window: bool`** — opt-out for the new temporal
+  **`FKDistribution`** — cross-dim FKs draw per-entity with explicit
+  uniform / weighted / fixed distributions.
+- **`StageSequence.downgrade_delay`** — relaxes strict-monotonic
+  progression after N consecutive lower-stage periods.
+- **`Column.allow_outside_window`** — opt-out for the new temporal
   coherence validator.
-- **`Column.pii_note: str | None`** — field-level PII documentation carried
-  through schema introspection and the README.
-- **Path sandbox on `write_tables(base_dir=...)`** — absolute paths and
-  `..` traversal are rejected with a clear error.
-- **`validate_empty_event_tables`** — warns when an event table produces
-  zero rows (likely a threshold misconfiguration or mismatched polarity).
-- **`validate_temporal_coherence`** — warns when `faker.date` and other
-  date generators produce values outside the config's `time_window`
-  (suppressed by `Column.allow_outside_window=True`).
-- **`validate_cross_dim_fk_cardinality`** — warns when a cross-dim FK
-  distribution references a dim with fewer rows than the assigned weights.
-- **Six archetype distinguishability tests.** One per shipped
-  template plus a graceful-degradation test. Projects each entity's
-  primary continuous metric into (mean, slope, last-first, std),
-  clusters with KMeans, asserts `adjusted_rand_score > 0.5` vs.
-  ground truth. Catches regressions where curves, noise, or
-  correlations silently destroy archetype separability.
+- **`Column.pii_note`** — field-level PII documentation surfaced via
+  schema introspection.
+- **Path sandbox on `write_tables(base_dir=...)`** — absolute paths
+  and `..` traversal rejected.
+- **New validators** — `validate_empty_event_tables`,
+  `validate_temporal_coherence`,
+  `validate_cross_dim_fk_cardinality`.
+- **Six archetype distinguishability tests** — KMeans on
+  (mean, slope, last-first, std) of each entity's primary continuous
+  metric; asserts `adjusted_rand_score > 0.5` vs ground truth.
 
 ### Changed
-- **`apply_correlations` non-PSD is now a hard raise.** The previous
-  silent fallback to independent samples is gone; a non-PD
-  correlation matrix raises at generation time, and
-  `generate_tables` gates on `validate_correlation_psd` before
-  sampling so the error surfaces at the config boundary rather than
-  mid-generation. **Behavior break** for any 0.1.0 / 0.2.0 config
-  whose correlations quietly degenerated.
-- **`assign_stages` and `_entity_groups` vectorized.**
-  `np.searchsorted` + `np.maximum.accumulate` handle the
-  strict-monotonic case fully vectorized; a per-entity numpy walk
-  preserves state for the `downgrade_delay` branch. **35–46×
-  speedup** benchmarked across 85×365 / 500×365 / 2000×365 shapes.
-- **CLI `info` daily-granularity period estimate.** Uses
-  `calendar.monthrange(end.year, end.month)[1]` to include the
-  last-day-of-end-month; previously undercounted daily granularity
-  by (days-in-end-month − 1).
-- **`apply_correlations` near-zero-center bypass** kept but no longer
-  load-bearing (the pre-generation PSD gate means the Cholesky path
-  never sees a non-PD matrix).
+
+- **`apply_correlations` non-PSD is a hard raise.** Silent fallback
+  to independent samples is gone.
+- **`assign_stages` and `_entity_groups` vectorized** — 35–46×
+  speedup.
+- **CLI `info` daily-granularity period estimate** — uses
+  `calendar.monthrange` to include the last day of the end month.
 - **`sample_hr.yaml hire_date`** switched from unbounded `faker.date`
-  to `faker.date_between:start:...:end:...` within the config's
-  time window.
-- **README** gains the `PlotsimConfig.locale` bullet and the cross-dim
-  FK distribution documentation.
+  to bounded `faker.date_between`.
 
 ### Fixed
-- **Cross-dim FK collapse to parent row 0** — structural fix. Fact
-  tables now sample from the parent dim per-entity using the
-  configured `FKDistribution` instead of always returning row 0.
-  Invisible on shipped 1-row reference dims; realism-breaking the
-  moment a user expands `dim_plan` or `dim_department`.
-- **`hire_date` temporal incoherence** — HR sample's `hire_date`
-  could land outside `time_window`. The parameterized Faker grammar
-  with bounded `faker.date_between` produces in-window dates; the
-  new `validate_temporal_coherence` check catches the class of bug
-  for future configs.
+
+- **Cross-dim FK collapse to parent row 0** — fact tables now sample
+  from the parent dim per-entity using the configured distribution.
+- **`hire_date` temporal incoherence** — was landing outside
+  `time_window`.
 - **`validate_null_policy` isinstance tuple** widened to include
   `FakerSource`.
-- **Stale `Metric.default_curve`-era constructor sites** swept across
-  tests (no runtime path; call-site cleanup only).
 
 ### Performance
-- `assign_stages` 35–46× speedup across representative shapes.
+
+- `assign_stages` 35–46× speedup.
 
 ### Dependencies
-- **`scikit-learn>=1.3`** added to `[dev]` and a new `[test]`
-  optional-dependencies group for the archetype distinguishability
-  tests. Core runtime `dependencies` block unchanged — the shipped
-  library keeps its numpy / scipy / pandas / pyyaml / pydantic /
-  faker footprint.
+
+- **`scikit-learn>=1.3`** added to `[dev]` and a new `[test]` extra.
+  Core runtime dependencies unchanged.
 
 ### Migration
-- Configs relying on `apply_correlations`' silent independent-sample
-  fallback (non-PD matrices that previously generated anyway) will now
-  raise. Fix is one-shot: tighten the correlation triangle so all
-  eigenvalues are strictly positive. The five shipped samples are
-  already PD.
-- Configs using `generated:faker.date` with implicit open-ended date
-  ranges still work but will warn via `validate_temporal_coherence` if
-  generated values land outside `time_window`. Opt into the warning-free
-  path by switching to `faker.date_between:start:Y-M-D:end:Y-M-D` or
-  setting `Column.allow_outside_window: true`.
-- `write_tables(base_dir=...)` now rejects absolute paths and `..`
-  traversal. Callers passing absolute output directories should switch
-  to relative or use `output_dir=Path(...)` with `write_tables` directly.
+
+- Configs whose non-PSD matrices previously generated anyway now
+  raise. Tighten the correlation triangle.
+- `generated:faker.date` configs that produce out-of-window values
+  now warn via `validate_temporal_coherence`. Either switch to
+  `faker.date_between`, or set `Column.allow_outside_window: true`.
+- `write_tables(base_dir=...)` rejects absolute paths and `..`.
 
 ## [0.2.0] — 2026-04-22
 
 ### Added
-- `archetypes[].metric_overrides` is now wired into generation. Per-archetype
-  overrides of `distribution` and `params` take effect when sampling metric
-  values (previously the schema accepted the field but the generator silently
-  ignored it). Threaded through `generate_metrics_for_period` and
-  `generate_entity_metrics` via `Metric.model_copy(update=...)`.
-- `py.typed` marker shipped with the package so downstream type-checkers
-  (mypy, pyright) recognize plotsim as typed.
+
+- **`archetypes[].metric_overrides` is wired into generation.**
+  Per-archetype overrides of `distribution` and `params` now take
+  effect when sampling. Schema previously accepted the field but the
+  generator ignored it.
+- **`py.typed` marker** ships with the package; mypy / pyright
+  recognize plotsim as typed.
 
 ### Removed (schema-breaking)
-- `Metric.default_curve` — dead field; curves come from archetype segments,
-  never from the metric.
-- `MetricOverride.curve` — dead field; archetype segments own curve shape,
-  not per-metric overrides.
-- `noise.temporal_jitter_days` — schema accepted it, `apply_noise` never
-  read it.
-- `noise.duplicate_rate` — schema accepted it, `apply_noise` never read it.
-- `per_subentity_per_period` grain — present in the enum, used by no table
-  or sample. Sub-entity dims are routed via `grain: variable` + FK instead.
-- `plotsim/scaffold.py` — docstring-only stub with no symbols, referenced
-  by no module.
+
+- `Metric.default_curve` — dead field.
+- `MetricOverride.curve` — dead field.
+- `noise.temporal_jitter_days` — never read by `apply_noise`.
+- `noise.duplicate_rate` — never read by `apply_noise`.
+- `per_subentity_per_period` grain — used by no table or sample.
+- `plotsim/scaffold.py` — empty stub.
 
 ### Changed
-- `NOISE_PRESETS` entries collapsed to the three fields that actually apply
-  (`gaussian_sigma`, `outlier_rate`, `mcar_rate`).
-- All five bundled sample configs (`saas`, `hr`, `ecommerce`, `education`,
-  `healthcare`) swept to drop the removed noise fields.
-- `FEATURE_REPORT.md` refreshed to match the trimmed surface area.
-- README gained a schema-extraction snippet
-  (`json.dumps(PlotsimConfig.model_json_schema(), indent=2)`) so an LLM can
-  author a custom-domain config from the live schema.
+
+- **`NOISE_PRESETS`** entries collapsed to the three fields that
+  actually apply (`gaussian_sigma`, `outlier_rate`, `mcar_rate`).
+- All five bundled samples swept to drop the removed noise fields.
+- README gained a `model_json_schema()` snippet so an LLM can author
+  a custom-domain config from the live schema.
 
 ### Migration
 
-A 0.1.0 config that sets any of `default_curve`, `temporal_jitter_days`,
-`duplicate_rate`, or uses the `per_subentity_per_period` grain will now be
-rejected by `load_config` (Pydantic `extra="forbid"`). Remove those fields;
-behavior of the remaining schema is unchanged. `metric_overrides` authors
-whose configs round-tripped through 0.1.0 without effect should verify the
-overrides produce the intended sampling shift under 0.2.0.
+A 0.1.0 config that sets any of the removed fields, or uses the
+`per_subentity_per_period` grain, is now rejected at load (Pydantic
+`extra="forbid"`). Remove those fields. `metric_overrides` authors
+whose configs round-tripped through 0.1.0 without effect should
+verify the overrides produce the intended sampling shift under
+0.2.0.
 
 ## [0.1.0] — 2026-04
 
 Initial public release on PyPI.
 
-- Trajectory-first multi-table generator driven by behavioral archetypes.
+- Trajectory-first multi-table generator driven by behavioral
+  archetypes.
 - YAML-configured domains; 5 bundled templates (saas, hr, ecommerce,
   education, healthcare).
-- Curve registry: sigmoid, exp_decay, step, logistic, plateau, oscillating,
-  compound, sawtooth.
+- Curve registry: sigmoid, exp_decay, step, logistic, plateau,
+  oscillating, compound, sawtooth.
 - Distributions: lognorm, gamma, poisson, beta, normal, weibull.
-- Six validation checks: correlation PSD, PK uniqueness, FK integrity,
-  date spine, causal coherence, null policy.
+- Six validation checks: correlation PSD, PK uniqueness, FK
+  integrity, date spine, causal coherence, null policy.
 - CLI: `run`, `validate`, `info`, `list-templates`, `template`.
 - 424 tests.
