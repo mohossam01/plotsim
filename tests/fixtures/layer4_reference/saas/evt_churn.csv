@@ -1,0 +1,4 @@
+"event_id","date_key","company_id","churn_reason","churn_flag","dim_row_id"
+"c-00001",20230301,"c-001","Accept floor help along responsibility bank often.",True,1
+"c-00002",20230301,"c-002","Project ok involve threat world attorney same.",True,4
+"c-00003",20230301,"c-003","Buy authority drive fact final.",True,7

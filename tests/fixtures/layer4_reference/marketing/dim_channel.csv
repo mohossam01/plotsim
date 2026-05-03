@@ -1,0 +1,7 @@
+"channel_id","channel_name","channel_type"
+"c-001","organic_search","organic"
+"c-002","paid_search","paid"
+"c-003","paid_social","paid"
+"c-004","email","owned"
+"c-005","direct","organic"
+"c-006","referral","organic"

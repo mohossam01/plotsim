@@ -419,6 +419,9 @@ def write_single_table(
             compression="snappy",
         )
     else:
+        # Pin LF: pandas defaults to os.linesep, which produces CRLF on
+        # Windows and LF on Linux — breaks byte-identical fixture
+        # comparisons across platforms.
         to_write.to_csv(
             path,
             index=False,
@@ -426,6 +429,7 @@ def write_single_table(
             quoting=csv.QUOTE_NONNUMERIC,
             float_format=float_format,
             na_rep=NA_REP,
+            lineterminator="\n",
         )
     return path
 
@@ -737,6 +741,7 @@ def _write_entity_features(
             quoting=csv.QUOTE_NONNUMERIC,
             float_format=float_format,
             na_rep=NA_REP,
+            lineterminator="\n",
         )
     return path
 

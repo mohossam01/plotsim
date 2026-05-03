@@ -1,0 +1,8 @@
+"student_id","cohort_name","cohort_size","academic_standing","dim_row_id","valid_from","valid_to","is_current"
+"s-001","Giles and Sons",60,"probationary",1,20220901,20230801,False
+"s-001","Giles and Sons",60,"good_standing",2,20230801,20231201,False
+"s-001","Giles and Sons",60,"honors",3,20231201,99991231,True
+"s-002","Cross-Horton",20,"honors",4,20220901,99991231,True
+"s-003","Beck and Sons",15,"probationary",5,20220901,20221001,False
+"s-003","Beck and Sons",15,"good_standing",6,20221001,20221101,False
+"s-003","Beck and Sons",15,"honors",7,20221101,99991231,True

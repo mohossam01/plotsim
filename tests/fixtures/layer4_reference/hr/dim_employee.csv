@@ -1,0 +1,5 @@
+"employee_id","dept_id","full_name","hire_date","level"
+"e-001","d-001","Andrew Cochran","2024-03-03","IC"
+"e-002","d-001","James Thomas","2023-01-25","IC"
+"e-003","d-001","Christopher Zhang","2024-05-13","IC"
+"e-004","d-001","Dominic Perry","2023-07-04","IC"

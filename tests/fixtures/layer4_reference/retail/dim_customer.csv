@@ -1,0 +1,10 @@
+"segment_id","segment_name","cohort_size","customer_tier","dim_row_id","valid_from","valid_to","is_current"
+"c-001","Medina-Gill",25,"browser",1,20230101,20231001,False
+"c-001","Medina-Gill",25,"casual",2,20231001,20240401,False
+"c-001","Medina-Gill",25,"loyal",3,20240401,99991231,True
+"c-002","Green Ltd",30,"casual",4,20230101,20230601,False
+"c-002","Green Ltd",30,"loyal",5,20230601,99991231,True
+"c-003","Goodman, Torres and Hernandez",15,"browser",6,20230101,20230301,False
+"c-003","Goodman, Torres and Hernandez",15,"loyal",7,20230301,99991231,True
+"c-004","Pratt-Robertson",20,"casual",8,20230101,20230901,False
+"c-004","Pratt-Robertson",20,"loyal",9,20230901,99991231,True
