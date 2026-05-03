@@ -4,7 +4,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
-[![Tests: 1673 passed](https://img.shields.io/badge/tests-1673%20passed-brightgreen)]()
+[![Tests](https://github.com/mohossam01/plotsim/actions/workflows/ci.yml/badge.svg)](https://github.com/mohossam01/plotsim/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/plotsim)](https://pypi.org/project/plotsim/)
 [![Docs](https://img.shields.io/badge/docs-mohossam01.github.io-blue)](https://mohossam01.github.io/plotsim/)
 

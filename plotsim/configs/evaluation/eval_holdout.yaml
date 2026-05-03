@@ -1,0 +1,1523 @@
+domain:
+  name: B2B SaaS customer success
+  description: B2B SaaS customer success
+  entity_type: company
+  entity_label: Companies
+time_window:
+  start: 2023-01
+  end: 2024-12
+  granularity: monthly
+seed: 42
+metrics:
+- name: engagement
+  label: Product engagement
+  distribution: beta
+  params:
+    alpha: 2.0
+    beta: 5.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: mrr
+  label: Monthly recurring revenue
+  distribution: lognorm
+  params:
+    s: 0.85
+    loc: 0.0
+    scale: 25050.0
+  polarity: positive
+  value_range:
+    min: 100.0
+    max: 50000.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: support_tickets
+  label: Support ticket volume
+  distribution: poisson
+  params:
+    lambda: 5.0
+  polarity: negative
+  value_range: null
+  causal_lag:
+    driver: engagement
+    lag_periods: 2
+    blend_weight: 1.0
+  seasonal_sensitivity: 1.0
+- name: feature_adoption
+  label: Feature adoption rate
+  distribution: beta
+  params:
+    alpha: 2.0
+    beta: 5.0
+  polarity: positive
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: churn_risk
+  label: Churn risk score
+  distribution: beta
+  params:
+    alpha: 2.0
+    beta: 5.0
+  polarity: negative
+  value_range:
+    min: 0.0
+    max: 1.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+- name: nps
+  label: Net promoter score
+  distribution: normal
+  params:
+    mu: 0.0
+    sigma: 33.33333333333333
+  polarity: positive
+  value_range:
+    min: -100.0
+    max: 100.0
+  causal_lag: null
+  seasonal_sensitivity: 1.0
+archetypes:
+- name: promising_client
+  label: Strong start, lost champion at month 8, went dormant by 16
+  description: Strong start, lost champion at month 8, went dormant by 16
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.5
+      steepness: 6.0
+      rising: true
+    start_pct: 0.0
+    end_pct: 0.3333333333333333
+  - curve: sigmoid
+    params:
+      midpoint: 0.3
+      steepness: 10.0
+      rising: true
+    start_pct: 0.3333333333333333
+    end_pct: 0.5166666666666666
+  - curve: step
+    params:
+      threshold: 0.5
+      before: 1.0
+      after: 0.2
+    start_pct: 0.5166666666666666
+    end_pct: 0.55
+  - curve: plateau
+    params:
+      level: 0.2
+    start_pct: 0.55
+    end_pct: 0.6666666666666666
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.6666666666666666
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 33366.666666666664
+        max: 50000.0
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.6666666666666666
+        max: 1.0
+- name: steady_enterprise
+  label: Reliable accounts, steady climb
+  description: Reliable accounts, steady climb
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.5
+      steepness: 6.0
+      rising: true
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 33366.666666666664
+        max: 50000.0
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.6666666666666666
+        max: 1.0
+- name: slow_churn
+  label: Coasted for a year, then quietly faded
+  description: Coasted for a year, then quietly faded
+  curve_segments:
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.0
+    end_pct: 0.5
+  - curve: exp_decay
+    params:
+      rate: 2.0
+    start_pct: 0.5
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 100.0
+        max: 16733.333333333332
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.0
+        max: 0.3333333333333333
+- name: seasonal_accounts
+  label: Ramped up first 6 months, then settled into quarterly cycles
+  description: Ramped up first 6 months, then settled into quarterly cycles
+  curve_segments:
+  - curve: sigmoid
+    params:
+      midpoint: 0.5
+      steepness: 6.0
+      rising: true
+    start_pct: 0.0
+    end_pct: 0.25
+  - curve: oscillating
+    params:
+      period: 2.0
+      amplitude: 0.4
+      center: 0.5
+    start_pct: 0.25
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 16733.333333333332
+        max: 33366.666666666664
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.3333333333333333
+        max: 0.6666666666666666
+- name: dormant
+  label: Signed up, never activated
+  description: Signed up, never activated
+  curve_segments:
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.0
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 100.0
+        max: 16733.333333333332
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.0
+        max: 0.3333333333333333
+- name: turnaround
+  label: Declining, hit bottom at month 6, new leadership turned it around at 14
+  description: Declining, hit bottom at month 6, new leadership turned it around at
+    14
+  curve_segments:
+  - curve: exp_decay
+    params:
+      rate: 2.0
+    start_pct: 0.0
+    end_pct: 0.25
+  - curve: plateau
+    params:
+      level: 0.15
+    start_pct: 0.25
+    end_pct: 0.5833333333333334
+  - curve: sigmoid
+    params:
+      midpoint: 0.5
+      steepness: 6.0
+      rising: true
+    start_pct: 0.5833333333333334
+    end_pct: 1.0
+  metric_overrides:
+    mrr:
+      distribution: null
+      params: null
+      value_range:
+        min: 16733.333333333332
+        max: 33366.666666666664
+    engagement:
+      distribution: null
+      params: null
+      value_range:
+        min: 0.3333333333333333
+        max: 0.6666666666666666
+entities:
+- name: promising_client_0000
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0001
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0002
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0003
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0004
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0005
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0006
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0007
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0008
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0009
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0010
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0011
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0012
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0013
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0014
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0015
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0016
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0017
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0018
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: promising_client_0019
+  archetype: promising_client
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0000
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0001
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0002
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0003
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0004
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0005
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0006
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0007
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0008
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0009
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0010
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0011
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0012
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0013
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0014
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0015
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0016
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0017
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0018
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0019
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0020
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0021
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0022
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0023
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: steady_enterprise_0024
+  archetype: steady_enterprise
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0000
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0001
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0002
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0003
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0004
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0005
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0006
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0007
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0008
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0009
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0010
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0011
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0012
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0013
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: slow_churn_0014
+  archetype: slow_churn
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0000
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0001
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0002
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0003
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0004
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0005
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0006
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0007
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0008
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0009
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0010
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0011
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0012
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0013
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: seasonal_accounts_0014
+  archetype: seasonal_accounts
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0000
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0001
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0002
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0003
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0004
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0005
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0006
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0007
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0008
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: dormant_0009
+  archetype: dormant
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0000
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0001
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0002
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0003
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0004
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0005
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0006
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0007
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0008
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+- name: turnaround_0009
+  archetype: turnaround
+  size: 1
+  overrides: null
+  cross_dim_fks: {}
+  seasonal_sensitivity: 1.0
+tables:
+- name: dim_date
+  type: dim
+  grain: per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: date
+    dtype: date
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: year
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: month
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: quarter
+    dtype: int
+    source: generated:date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: date_key
+  foreign_keys: []
+  row_count_source: null
+  count: 1
+- name: dim_company
+  type: dim
+  grain: per_entity
+  columns:
+  - name: company_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_name
+    dtype: string
+    source: generated:faker.company
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: industry
+    dtype: string
+    source: generated:faker.industry
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: founded_year
+    dtype: int
+    source: generated:faker.year
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: cohort_size
+    dtype: int
+    source: pool:cohort_size
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool:
+      promising_client_0000:
+      - '20'
+      promising_client_0001:
+      - '20'
+      promising_client_0002:
+      - '20'
+      promising_client_0003:
+      - '20'
+      promising_client_0004:
+      - '20'
+      promising_client_0005:
+      - '20'
+      promising_client_0006:
+      - '20'
+      promising_client_0007:
+      - '20'
+      promising_client_0008:
+      - '20'
+      promising_client_0009:
+      - '20'
+      promising_client_0010:
+      - '20'
+      promising_client_0011:
+      - '20'
+      promising_client_0012:
+      - '20'
+      promising_client_0013:
+      - '20'
+      promising_client_0014:
+      - '20'
+      promising_client_0015:
+      - '20'
+      promising_client_0016:
+      - '20'
+      promising_client_0017:
+      - '20'
+      promising_client_0018:
+      - '20'
+      promising_client_0019:
+      - '20'
+      steady_enterprise_0000:
+      - '25'
+      steady_enterprise_0001:
+      - '25'
+      steady_enterprise_0002:
+      - '25'
+      steady_enterprise_0003:
+      - '25'
+      steady_enterprise_0004:
+      - '25'
+      steady_enterprise_0005:
+      - '25'
+      steady_enterprise_0006:
+      - '25'
+      steady_enterprise_0007:
+      - '25'
+      steady_enterprise_0008:
+      - '25'
+      steady_enterprise_0009:
+      - '25'
+      steady_enterprise_0010:
+      - '25'
+      steady_enterprise_0011:
+      - '25'
+      steady_enterprise_0012:
+      - '25'
+      steady_enterprise_0013:
+      - '25'
+      steady_enterprise_0014:
+      - '25'
+      steady_enterprise_0015:
+      - '25'
+      steady_enterprise_0016:
+      - '25'
+      steady_enterprise_0017:
+      - '25'
+      steady_enterprise_0018:
+      - '25'
+      steady_enterprise_0019:
+      - '25'
+      steady_enterprise_0020:
+      - '25'
+      steady_enterprise_0021:
+      - '25'
+      steady_enterprise_0022:
+      - '25'
+      steady_enterprise_0023:
+      - '25'
+      steady_enterprise_0024:
+      - '25'
+      slow_churn_0000:
+      - '15'
+      slow_churn_0001:
+      - '15'
+      slow_churn_0002:
+      - '15'
+      slow_churn_0003:
+      - '15'
+      slow_churn_0004:
+      - '15'
+      slow_churn_0005:
+      - '15'
+      slow_churn_0006:
+      - '15'
+      slow_churn_0007:
+      - '15'
+      slow_churn_0008:
+      - '15'
+      slow_churn_0009:
+      - '15'
+      slow_churn_0010:
+      - '15'
+      slow_churn_0011:
+      - '15'
+      slow_churn_0012:
+      - '15'
+      slow_churn_0013:
+      - '15'
+      slow_churn_0014:
+      - '15'
+      seasonal_accounts_0000:
+      - '15'
+      seasonal_accounts_0001:
+      - '15'
+      seasonal_accounts_0002:
+      - '15'
+      seasonal_accounts_0003:
+      - '15'
+      seasonal_accounts_0004:
+      - '15'
+      seasonal_accounts_0005:
+      - '15'
+      seasonal_accounts_0006:
+      - '15'
+      seasonal_accounts_0007:
+      - '15'
+      seasonal_accounts_0008:
+      - '15'
+      seasonal_accounts_0009:
+      - '15'
+      seasonal_accounts_0010:
+      - '15'
+      seasonal_accounts_0011:
+      - '15'
+      seasonal_accounts_0012:
+      - '15'
+      seasonal_accounts_0013:
+      - '15'
+      seasonal_accounts_0014:
+      - '15'
+      dormant_0000:
+      - '10'
+      dormant_0001:
+      - '10'
+      dormant_0002:
+      - '10'
+      dormant_0003:
+      - '10'
+      dormant_0004:
+      - '10'
+      dormant_0005:
+      - '10'
+      dormant_0006:
+      - '10'
+      dormant_0007:
+      - '10'
+      dormant_0008:
+      - '10'
+      dormant_0009:
+      - '10'
+      turnaround_0000:
+      - '10'
+      turnaround_0001:
+      - '10'
+      turnaround_0002:
+      - '10'
+      turnaround_0003:
+      - '10'
+      turnaround_0004:
+      - '10'
+      turnaround_0005:
+      - '10'
+      turnaround_0006:
+      - '10'
+      turnaround_0007:
+      - '10'
+      turnaround_0008:
+      - '10'
+      turnaround_0009:
+      - '10'
+  - name: plan_tier
+    dtype: string
+    source: scd_type2
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2:
+      trigger_metric: fct_revenue.mrr
+      thresholds:
+      - 0.4
+      - 0.7
+      labels:
+      - starter
+      - growth
+      - enterprise
+    value_pool: null
+  primary_key: company_id
+  foreign_keys: []
+  row_count_source: null
+  count: 1
+- name: dim_user
+  type: dim
+  grain: variable
+  columns:
+  - name: user_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: user_name
+    dtype: string
+    source: generated:faker.name
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: role
+    dtype: string
+    source: static:member
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: user_id
+  foreign_keys:
+  - dim_company.company_id
+  row_count_source: null
+  count: 1
+- name: dim_plan
+  type: dim
+  grain: per_reference
+  columns:
+  - name: plan_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: plan_name
+    dtype: string
+    source: static:starter
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: monthly_price
+    dtype: float
+    source: static:99.00
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: plan_id
+  foreign_keys: []
+  row_count_source: null
+  count: 1
+- name: fct_engagement
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: engagement_score
+    dtype: float
+    source: metric:engagement
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: feature_adoption
+    dtype: float
+    source: metric:feature_adoption
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: customer_sentiment
+    dtype: string
+    source: text:bucket:[at_risk, lukewarm, satisfied, delighted]
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key:
+  - date_key
+  - company_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_company.company_id
+  row_count_source: null
+  count: 1
+- name: fct_revenue
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: plan_id
+    dtype: id
+    source: fk:dim_plan.plan_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: mrr
+    dtype: float
+    source: metric:mrr
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key:
+  - date_key
+  - company_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_company.company_id
+  - dim_plan.plan_id
+  row_count_source: null
+  count: 1
+- name: fct_support_tickets
+  type: fact
+  grain: per_entity_per_period
+  columns:
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: ticket_count
+    dtype: int
+    source: metric:support_tickets
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: churn_risk
+    dtype: float
+    source: metric:churn_risk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: nps
+    dtype: float
+    source: metric:nps
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key:
+  - date_key
+  - company_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_company.company_id
+  row_count_source: null
+  count: 1
+- name: evt_login
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: user_id
+    dtype: id
+    source: fk:dim_user.user_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: event_ts
+    dtype: date
+    source: generated:timestamp
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_user.user_id
+  - dim_company.company_id
+  row_count_source: proportional:engagement:scale:5.0
+  count: 1
+- name: evt_churn
+  type: event
+  grain: variable
+  columns:
+  - name: event_id
+    dtype: id
+    source: pk
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: date_key
+    dtype: id
+    source: fk:dim_date.date_key
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: company_id
+    dtype: id
+    source: fk:dim_company.company_id
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: churn_reason
+    dtype: string
+    source: generated:faker.sentence
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  - name: churn_flag
+    dtype: boolean
+    source: threshold:churn_risk:above:0.7:for:3
+    pii_note: null
+    distribution: null
+    allow_outside_window: false
+    scd_type2: null
+    value_pool: null
+  primary_key: event_id
+  foreign_keys:
+  - dim_date.date_key
+  - dim_company.company_id
+  row_count_source: null
+  count: 1
+correlations:
+- metric_a: engagement
+  metric_b: mrr
+  coefficient: 0.55
+- metric_a: engagement
+  metric_b: churn_risk
+  coefficient: -0.55
+- metric_a: support_tickets
+  metric_b: churn_risk
+  coefficient: 0.4
+noise:
+  gaussian_sigma: 0.0
+  outlier_rate: 0.0
+  mcar_rate: 0.0
+output:
+  format: csv
+  directory: output
+manifest:
+  include: true
+  trajectory_sample_rate: 1.0
+stages:
+  field: churn_risk
+  sequence:
+  - name: onboarding
+    threshold_enter: 0.0
+    threshold_exit: 0.2
+  - name: active
+    threshold_enter: 0.2
+    threshold_exit: 0.5
+  - name: at_risk
+    threshold_enter: 0.5
+    threshold_exit: 0.8
+  - name: churned
+    threshold_enter: 0.8
+    threshold_exit: null
+  enforce_order: false
+  downgrade_delay: null
+bridges: []
+quality:
+  quality_issues: []
+entity_features:
+  enabled: false
+  metrics: []
+  include_labels: true
+holdout:
+  enabled: true
+  target_metric: mrr
+  holdout_periods: 6
+  min_training_periods: 3
+locale: en_US
+seasonal_effects: []
+compensate_correlations: true
+generation_mode: auto
+
