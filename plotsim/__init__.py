@@ -25,7 +25,7 @@ The CLI offers the same flow against a YAML file:
     plotsim run config.yaml -o ./output
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 import importlib.resources as _resources
 from pathlib import Path as _Path

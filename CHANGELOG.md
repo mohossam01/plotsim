@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub URLs migrated to `mohossam01/plotsim` (M129).** Project
   metadata (`pyproject.toml` URLs), `mkdocs.yml` site_url + repo_url,
   `CONTRIBUTING.md`, and 12 docs files updated from the prior
-  `mohossam-ae/` namespace.
+  `mohossam01/` namespace.
 - **Copula reformulation (M127b).** The Gaussian copula is now applied in
   the textbook order: `rng.standard_normal(M) → L @ → family-grouped
   transform → clip`. The previous `dist.rvs → dist.cdf → Φ⁻¹ → L @ → Φ →
