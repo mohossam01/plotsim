@@ -11,10 +11,6 @@ copyright: Apache-2.0 licensed.
 
 docs_dir: docs/site
 
-exclude_docs: |
-  assets/brand/README.md
-  assets/brand/head.html
-
 validation:
   omitted_files: warn
   absolute_links: warn
