@@ -19,6 +19,7 @@ validation:
 
 theme:
   name: material
+  custom_dir: docs/site/overrides
   language: en
   logo: assets/brand/favicon.svg
   favicon: assets/brand/favicon-32.png
