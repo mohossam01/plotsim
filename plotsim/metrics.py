@@ -1299,13 +1299,14 @@ def generate_entity_metrics(
 # down to ~30 would not change behavior on any bundled template (all
 # already cross 50); re-tuning up would lose the baseline-config win.
 #
-# Open question deferred to a follow-up: should the threshold key on
-# ``max(archetype_group_size)`` instead of ``len(config.entities)``?
-# At 50 total entities × 10 archetypes the largest batch is 5, which
-# may not amortize numpy overhead. Manifest's
-# ``vectorized_threshold_used`` field carries the constant value at
-# generation time so downstream tooling can detect drift if the
-# heuristic refines.
+# The threshold keys on ``max(archetype_group_size)`` (per-archetype
+# batch size, not total entity count). This catches the thin-archetype
+# case — 60 entities × 12 archetypes has avg group size 5 and would
+# pay vectorized setup cost with no per-batch amortization win. See
+# ``plotsim.tables._resolve_generation_mode`` for the resolution.
+# Manifest's ``vectorized_threshold_used`` field carries the constant
+# value at generation time so downstream tooling can detect drift if
+# the heuristic refines further.
 _VECTORIZED_AUTO_THRESHOLD = 50
 
 

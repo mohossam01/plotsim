@@ -214,19 +214,34 @@ def _build_seasonal_factors(
 
 
 def _resolve_generation_mode(config: PlotsimConfig) -> str:
-    """Resolve ``"auto"`` to ``"serial"`` or ``"vectorized"`` from entity count.
+    """Resolve ``"auto"`` to ``"serial"`` or ``"vectorized"`` from archetype batch size.
 
     Returns ``"serial"`` or ``"vectorized"`` — the two concrete modes
     ``_compute_entity_metrics`` dispatches against. ``"auto"`` selects
-    ``vectorized`` when ``len(config.entities) >= _VECTORIZED_AUTO_THRESHOLD``
-    (50). The threshold trades constant overhead (archetype grouping,
-    full-axis ndarray allocation) against per-cell loop savings; small
-    configs run faster on the serial path.
+    ``vectorized`` when **the largest single-archetype entity group**
+    crosses ``_VECTORIZED_AUTO_THRESHOLD`` (50). The vectorized path
+    works archetype-batch-by-archetype-batch — its per-cell savings
+    only amortize the per-batch numpy setup cost when at least one
+    batch is large. A 60-entity, 12-archetype config (avg group size
+    5) used to flip to vectorized on the old ``len(config.entities)``
+    threshold and pay overhead with no win; the per-archetype variant
+    keeps it on serial.
+
+    Per-entity-override entities are excluded from the batch and run
+    serial regardless of mode (handled inside the vectorized path),
+    so they do not affect the size used for selection — the count is
+    of the entity rows themselves.
     """
     mode = config.generation_mode
-    if mode == "auto":
-        return "vectorized" if len(config.entities) >= _VECTORIZED_AUTO_THRESHOLD else "serial"
-    return mode
+    if mode != "auto":
+        return mode
+    if not config.entities:
+        return "serial"
+    counts: dict[str, int] = {}
+    for ent in config.entities:
+        counts[ent.archetype] = counts.get(ent.archetype, 0) + ent.size
+    largest_group = max(counts.values())
+    return "vectorized" if largest_group >= _VECTORIZED_AUTO_THRESHOLD else "serial"
 
 
 def _compute_entity_metrics(

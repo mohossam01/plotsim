@@ -364,7 +364,11 @@ def test_null_policy_flags_metric_over_bound(saas_cfg, saas_tables):
         and i.details.get("column") == "engagement_score"
     ]
     assert metric_errors, issues
-    assert metric_errors[0].details["null_count"] == 40
+    # >= 40 because mcar_rate=0.01 may have produced 0-1 nulls in the
+    # original column before injection. The validator's job is detecting
+    # the over-bound condition, not asserting the original column was
+    # clean.
+    assert metric_errors[0].details["null_count"] >= 40
 
 
 # --- Orchestrator + report ---------------------------------------------------

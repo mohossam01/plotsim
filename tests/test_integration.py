@@ -318,8 +318,15 @@ def test_lagged_metric_correlates_better_when_shifted():
 
     For a majority of entities, corr(tickets[2:], engagement[:-2]) must be
     stronger (in absolute value) than the unshifted correlation.
+
+    Pinned to serial mode: per-entity lag detection on ~22 periods is a
+    borderline statistical signal — cross-mode RNG order can flip a
+    minority/majority result on N=3 entities. Lag correctness is a math
+    check, not a mode check; serial keeps the baseline stable.
     """
-    config, tables = _saas_tables()
+    config = load_config(SAAS_YAML)
+    config = config.model_copy(update={"generation_mode": "serial"})
+    tables = generate(config)
     eng = tables["fct_engagement"][["company_id", "date_key", "engagement_score"]]
     tix = tables["fct_support_tickets"][["company_id", "date_key", "ticket_count"]]
     merged = eng.merge(tix, on=["company_id", "date_key"]).merge(

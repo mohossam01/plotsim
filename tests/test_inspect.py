@@ -43,9 +43,16 @@ def saas_cfg():
     # Higham projection fires on saas (engagement↔churn_risk |Δ| ≈ 0.117) and
     # raises a UserWarning at config load. Suppress here so test output stays
     # focused on assertions; M111's projection behavior is its own test surface.
+    #
+    # Pinned to serial mode: ``trace_metric_cell`` replays the serial RNG
+    # consumption path; under the package's auto default the actual
+    # generation may resolve to vectorized for saas, which has a different
+    # RNG order. Inspect replay vs generation byte-equality only holds
+    # within a single mode.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        return load_config(SAAS_CONFIG)
+        cfg = load_config(SAAS_CONFIG)
+    return cfg.model_copy(update={"generation_mode": "serial"})
 
 
 def test_trace_returns_populated_traceresult(saas_cfg):

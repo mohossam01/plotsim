@@ -48,6 +48,7 @@ class TestEligibility:
 
     def test_csv_serial_not_eligible(self):
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
+        cfg = cfg.model_copy(update={"generation_mode": "serial"})
         assert cfg.output.format == "csv"
         assert _resolve_generation_mode(cfg) == "serial"
         assert not _streaming_parquet_eligible(cfg)
@@ -69,6 +70,7 @@ class TestEligibility:
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
         cfg = cfg.model_copy(update={
             "output": cfg.output.model_copy(update={"format": "parquet"}),
+            "generation_mode": "serial",
         })
         assert _resolve_generation_mode(cfg) == "serial"
         assert not _streaming_parquet_eligible(cfg)
@@ -328,6 +330,7 @@ class TestBackwardCompat:
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
         cfg = cfg.model_copy(update={
             "output": cfg.output.model_copy(update={"format": "parquet"}),
+            "generation_mode": "serial",
         })
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
