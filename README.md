@@ -154,15 +154,69 @@ metrics that tell a realistic story, not random noise.
 
 ```mermaid
 flowchart LR
-    A[YAML config<br/>or create&#40;&#41; builder]:::input --> B[Pydantic<br/>validation]:::stage
-    B --> C[Trajectory<br/>engine]:::stage
-    C --> D[Per-metric<br/>derivation]:::stage
-    D --> E[Schema<br/>assembly]:::stage
-    E --> F[CSV / Parquet<br/>+ manifest<br/>+ validation report]:::output
+    %% Three input paths
+    YAML["YAML config"]
+    PY["Python · create&#40;&#41;"]
+    CLI["CLI · plotsim run"]
 
-    classDef input fill:#eef2ff,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
-    classDef stage fill:#ffffff,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
-    classDef output fill:#e6f4f1,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
+    %% Audit surface (read-only, post-generation)
+    INS(["inspect · trace_metric_cell"])
+
+    %% All three converge on the builder
+    YAML --> BUILD
+    PY --> BUILD
+    CLI --> BUILD
+
+    BUILD["Builder · interpret<br/>UserInput → PlotsimConfig"]
+
+    %% Schema gate
+    BUILD --> SCHEMA
+    SCHEMA{{"Schema gate<br/>Pydantic + cell-budget"}}
+
+    %% Engine — trajectory hub
+    SCHEMA --> TRAJ
+    TRAJ(((Trajectory<br/>engine)))
+
+    %% Generation-mode decision (only on the fact-table path)
+    TRAJ -->|"position p"| MODE{"Mode<br/>serial / vectorized<br/>(auto: group ≥ 50)"}
+
+    %% Direct & transitive consumers
+    MODE --> METR["Metrics → Facts"]
+    TRAJ -->|"banding"| SCDB["Bands → SCD-2 dims"]
+    METR -->|"threshold on value"| EVTR["Triggers → Events"]
+
+    %% Architectural firewall — static / pool dims bypass trajectory
+    SCHEMA -.firewall.-> SDIMS["Static + pool dims"]
+
+    %% Quality injection (deliberate defects)
+    METR --> QLT
+    EVTR --> QLT
+    SCDB --> QLT
+    SDIMS --> QLT
+    QLT["Quality injection<br/>nulls · dupes · type-mismatch · late-arrival"]
+
+    %% Validation (integrity checks)
+    QLT --> VAL["38 validators<br/>FK · PK · temporal · PSD"]
+
+    %% Outputs diverge
+    VAL --> CSV[("CSV / Parquet")]
+    VAL --> MAN[("manifest.json")]
+    VAL --> RPT[("validation report")]
+
+    %% Audit back-edge
+    MAN -.audit.-> INS
+
+    classDef gate fill:#eef2ff,stroke:#1f2a44,stroke-width:2px,color:#1f2a44
+    classDef hub fill:#1f2a44,color:#fff,stroke:#1f2a44,stroke-width:3px
+    classDef store fill:#e6f4f1,stroke:#1f2a44,color:#1f2a44
+    classDef audit fill:#f4f0fa,stroke:#5a3da3,color:#1f2a44
+    classDef decision fill:#fff8d6,stroke:#1f2a44,color:#1f2a44
+
+    class SCHEMA gate
+    class TRAJ hub
+    class CSV,MAN,RPT store
+    class INS audit
+    class MODE decision
 ```
 
 Every entity in the dataset follows a **behavioral trajectory** — a 
