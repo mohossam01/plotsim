@@ -70,6 +70,7 @@ output_*/
 
 # MkDocs build output
 /site/
+/.cache/
 
 # Internal-only — operator engineering scratch, never published
 /analysis/
