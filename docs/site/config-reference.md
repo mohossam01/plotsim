@@ -764,13 +764,33 @@ to the table files. Set `manifest: {include: false}` for microbenchmarks
 or sandboxed CI runs that don't need the ground-truth payload. See
 [Manifest reference](./manifest-reference.md).
 
-### Per-archetype `metric_overrides.curve` and `metric_overrides.distribution`
+### Per-archetype overrides — `curve_segments` and `metric_overrides`
 
-The builder applies baselines to `metric_overrides.value_range` only.
-Engine-direct configs may override per-archetype curve segments and
-distributions for finer-grained control. See
-[engine-internals.md](https://github.com/mohossam01/plotsim/blob/main/docs/engine-internals.md)
-for the override resolution order.
+Two mechanisms let an archetype diverge from the global metric defaults.
+
+**`Archetype.curve_segments`** — per-archetype list of `CurveSegment`
+entries defining the full `[0.0, 1.0]` trajectory shape. Segments must
+cover the range without gaps or overlaps (validated at config load).
+Every metric reads its position from this curve; there is no
+per-metric curve override.
+
+**`Archetype.metric_overrides`** — `dict[str, MetricOverride]` keyed
+by metric name. Each entry can override `distribution`, `params`, or
+`value_range` for that metric *only when sampled for entities of this
+archetype*. `polarity` and `causal_lag` are never overridable.
+
+`value_range` overrides must be a *subset* of the global range —
+overrides narrow, never expand. Subset enforcement runs at config
+load.
+
+**Resolution order:** for each `(entity, metric)` draw, the engine
+looks up `archetype.metric_overrides[metric.name]`. If present, listed
+fields replace the global `Metric` fields; unset fields fall through
+to the global metric. Partial overrides compose cleanly via
+`model_copy(update=…)`.
+
+The builder API surfaces `metric_overrides.value_range` only;
+`distribution` and `params` overrides require an engine-direct config.
 
 ---
 
