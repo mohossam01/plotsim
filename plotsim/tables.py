@@ -1860,7 +1860,6 @@ def _resolve_event_row(
 # --- Threshold-event row dispatch handlers -----------------------------------
 
 def _evt_row_pk(parsed: PKSource, ctx: dict):
-    col = ctx["col"]
     tbl = ctx["tbl"]
     width = ctx["width"]
     prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name

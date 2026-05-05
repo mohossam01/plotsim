@@ -56,7 +56,6 @@ Output:
 
 from __future__ import annotations
 
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -64,7 +63,6 @@ import pandas as pd
 from plotsim.config import (
     FKSource,
     PlotsimConfig,
-    QualityIssue,
     Table,
     parse_source,
 )

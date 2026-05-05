@@ -37,8 +37,6 @@ from pydantic import (
 from .parser import ArchetypeParseError, parse_archetype
 from .recipes import (
     VALID_BASELINE_WORDS,
-    VALID_METRIC_TYPES,
-    VALID_POLARITIES,
     VALID_RELATIONSHIP_WORDS,
 )
 

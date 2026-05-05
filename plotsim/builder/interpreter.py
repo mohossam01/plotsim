@@ -1077,7 +1077,7 @@ def _auto_generate_schema(
         grain="per_entity_per_period",
         columns=fact_columns,
         primary_key=["date_key", pk_col],
-        foreign_keys=[f"dim_date.date_key", f"{unit_dim}.{pk_col}"],
+        foreign_keys=["dim_date.date_key", f"{unit_dim}.{pk_col}"],
     )
 
     return [dim_date, dim_unit, fact]
