@@ -5,6 +5,79 @@ All notable changes to plotsim are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Configurable cell-count budget with tiered messaging.** The
+  load-time cell-count gate now reads two environment variables:
+  `PLOTSIM_CELL_BUDGET=N` raises (or `0` disables) the soft cap that
+  defaults to 2,000,000; `PLOTSIM_ALLOW_LARGE_DATASET=1` opts a single
+  run into above-soft-budget generation. The `plotsim run`,
+  `plotsim validate`, and `plotsim info` commands gain a matching
+  `--allow-large-dataset` flag. Output above 500,000 cells now prints
+  a stderr advisory recommending `output.format: parquet` and
+  `generation_mode: auto`. A new non-configurable hard ceiling at
+  50,000,000 cells rejects unreachably-large configs regardless of
+  opt-in. The "Limits and performance gates" docs section covers the
+  full ladder.
+- **Binder and Colab one-click run for tutorial notebooks.** Each of
+  the ten tutorial notebooks under `docs/site/tutorial-notebooks/` now
+  opens directly in Binder or Colab via badges in the first markdown
+  cell. A new `binder/requirements.txt` pre-installs plotsim plus the
+  visualization deps the notebooks use (matplotlib, scikit-learn) so
+  users can run cells without local setup.
+
+### Changed
+
+- **`generation_mode` default flipped from `"serial"` to `"auto"`.** Configs
+  that don't pin `generation_mode` now resolve to vectorized when the
+  entity count crosses the auto threshold, serial below. Same `(config,
+  seed)` produces statistically equivalent but **byte-different** output
+  vs. the previous serial default — the two modes consume RNG in
+  different orders. Layer 4 reference fixtures regenerated under the new
+  default. Pin `generation_mode: "serial"` explicitly to preserve
+  pre-flip bytes.
+- **Auto-mode threshold keys on archetype batch size, not total entity
+  count.** `_resolve_generation_mode` now selects vectorized when the
+  largest single-archetype entity group reaches the threshold (50),
+  rather than when total entities reach it. Catches the thin-archetype
+  case (e.g. 60 entities × 12 archetypes, avg group size 5) where the
+  old heuristic flipped to vectorized and paid setup overhead with no
+  per-batch amortization win. Among the bundled templates, retail and
+  marketing now resolve to serial under auto (largest groups of 30);
+  saas / hr / education stay vectorized.
+- **Tutorial notebooks render as static pages on the docs site.** The
+  ten notebooks moved from `docs/tutorial-notebooks/` to
+  `docs/site/tutorial-notebooks/` and now render via `mkdocs-jupyter`
+  with download-source buttons. The `Tutorials` nav was reorganized
+  into Getting started / Feature surfaces / Workflows / Use cases.
+  The previous standalone `tutorials.md` index page has been removed;
+  cross-links from user-guide pages now point at the relevant specific
+  notebook.
+- **README adds a "See it" output sample plus two diagrams.** A
+  trajectory-first plot at the top of "See it"
+  (`docs/site/assets/trajectory-first.png`, regenerable from
+  `examples/render_trajectory_plot.py`) shows one customer's
+  trajectory and the four metrics derived from it, with positive-
+  polarity metrics rising and negative-polarity metrics falling as
+  the trajectory rises. A Mermaid pipeline diagram at the top of
+  "How it works" maps config → validation → trajectory engine →
+  per-metric derivation → schema assembly → output. The README
+  also gains the side-by-side Faker-style vs. trajectory-correlated
+  comparison tables and the full output-folder file inventory so
+  readers can see what `plotsim run` produces without leaving the
+  README.
+
+### Security
+
+- **`schema` and `template` CLI subcommands sandbox `--output` to the
+  cwd by default.** Absolute paths and `..` traversal are rejected
+  unless `--allow-absolute-output` is passed explicitly, matching the
+  behavior `run` already had. Closes a CWE-22 path-traversal exposure
+  on those subcommands surfaced by the post-0.6.0 free-text field
+  audit.
+
 ## [0.6.0] — 2026-05-04
 
 A reworked public API around a new builder, plus correctness and quality

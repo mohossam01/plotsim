@@ -263,11 +263,22 @@ def test_template_prints_to_stdout_when_no_output():
 
 def test_template_writes_to_file_when_output(tmp_path: Path):
     dst = tmp_path / "my.yaml"
-    code, out, _err = run_cli("template", "hr", "-o", str(dst))
+    code, out, _err = run_cli(
+        "template", "hr", "-o", str(dst), "--allow-absolute-output",
+    )
     assert code == 0
     assert dst.exists()
     assert "HR" in dst.read_text(encoding="utf-8")
     assert f"Wrote {dst}" in out
+
+
+def test_template_rejects_absolute_output_without_flag(tmp_path: Path):
+    """Absolute --output path is rejected unless --allow-absolute-output."""
+    dst = tmp_path / "my.yaml"
+    code, _out, err = run_cli("template", "hr", "-o", str(dst))
+    assert code == 1
+    assert not dst.exists()
+    assert "absolute" in err.lower() or "sandbox" in err.lower()
 
 
 def test_template_unknown_name_exits_nonzero():
@@ -277,7 +288,9 @@ def test_template_unknown_name_exits_nonzero():
 
 def test_template_output_creates_parent_dirs(tmp_path: Path):
     nested = tmp_path / "a" / "b" / "c.yaml"
-    code, _out, _err = run_cli("template", "saas", "-o", str(nested))
+    code, _out, _err = run_cli(
+        "template", "saas", "-o", str(nested), "--allow-absolute-output",
+    )
     assert code == 0
     assert nested.exists()
 

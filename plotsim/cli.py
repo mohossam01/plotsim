@@ -15,6 +15,7 @@ important lives only in argv-parsing land.
 from __future__ import annotations
 
 import argparse
+import os
 import calendar
 import datetime as _dt
 import shutil
@@ -32,7 +33,7 @@ from plotsim.manifest import build_manifest
 from plotsim.schema import SCHEMA_FILENAME, write_schema
 from plotsim.tables import generate_tables_with_state
 from plotsim.validation import validate_tables
-from plotsim.output import write_tables
+from plotsim.output import _resolve_target, write_tables
 
 
 TEMPLATE_PREFIX = "sample_"
@@ -210,7 +211,19 @@ def _estimate_rows(config: PlotsimConfig, n_periods: int) -> int:
 # --- Subcommands --------------------------------------------------------------
 
 
+def _apply_large_dataset_flag(args: argparse.Namespace) -> None:
+    """Translate ``--allow-large-dataset`` into the env var the cell-budget
+    gate reads at config-load time. The gate runs as a Pydantic model
+    validator inside ``PlotsimConfig`` construction, before any CLI code
+    can intercept it — passing the signal through the environment is the
+    minimal coupling that lets the flag override the gate.
+    """
+    if getattr(args, "allow_large_dataset", False):
+        os.environ["PLOTSIM_ALLOW_LARGE_DATASET"] = "1"
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    _apply_large_dataset_flag(args)
     try:
         # M124: route builder-shape YAML through the builder pipeline
         # (UserInput → interpret); engine-direct YAML still uses load_config.
@@ -313,6 +326,7 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
 
     No output files are written under either invocation.
     """
+    _apply_large_dataset_flag(args)
     try:
         load_either_config(args.config)
     except Exception as exc:
@@ -324,6 +338,7 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
 
 
 def cmd_info(args: argparse.Namespace) -> int:
+    _apply_large_dataset_flag(args)
     try:
         config = load_either_config(args.config)
     except Exception as exc:
@@ -428,7 +443,18 @@ def cmd_schema(args: argparse.Namespace) -> int:
         print(_json.dumps(generate_schema(), indent=2, ensure_ascii=False))
         return 0
     else:
-        dst = Path(args.output)
+        # Sandbox --output to cwd by default; --allow-absolute-output opts
+        # out, mirroring the same flag on the ``run`` subcommand.
+        base_dir = None if args.allow_absolute_output else Path.cwd()
+        try:
+            dst = _resolve_target(Path(args.output), base_dir)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print(
+                "Hint: pass --allow-absolute-output to bypass the cwd sandbox.",
+                file=sys.stderr,
+            )
+            return 1
     written = write_schema(dst)
     print(f"Wrote {written}")
     return 0
@@ -445,7 +471,18 @@ def cmd_template(args: argparse.Namespace) -> int:
         return 1
 
     if args.output:
-        dst = Path(args.output)
+        # Sandbox --output to cwd by default; --allow-absolute-output opts
+        # out, mirroring the same flag on the ``run`` subcommand.
+        base_dir = None if args.allow_absolute_output else Path.cwd()
+        try:
+            dst = _resolve_target(Path(args.output), base_dir)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            print(
+                "Hint: pass --allow-absolute-output to bypass the cwd sandbox.",
+                file=sys.stderr,
+            )
+            return 1
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, dst)
         print(f"Wrote {dst}")
@@ -502,6 +539,15 @@ def build_parser() -> argparse.ArgumentParser:
             "directory."
         ),
     )
+    run_p.add_argument(
+        "--allow-large-dataset", action="store_true",
+        help=(
+            "Opt into runs above the cell-budget soft cap (default "
+            "2,000,000 cells; configurable via PLOTSIM_CELL_BUDGET). "
+            "Recommend output.format=parquet and generation_mode=auto "
+            "for runs this size."
+        ),
+    )
     run_p.set_defaults(func=cmd_run)
 
     val_p = subparsers.add_parser("validate", help="Validate a config file")
@@ -514,12 +560,20 @@ def build_parser() -> argparse.ArgumentParser:
             "and reserves the bare command for a future deeper mode."
         ),
     )
+    val_p.add_argument(
+        "--allow-large-dataset", action="store_true",
+        help="Opt into validating configs above the cell-budget soft cap.",
+    )
     val_p.set_defaults(func=cmd_validate_config)
 
     info_p = subparsers.add_parser(
         "info", help="Preview what a config would generate"
     )
     info_p.add_argument("config", help="Path to YAML config file")
+    info_p.add_argument(
+        "--allow-large-dataset", action="store_true",
+        help="Opt into inspecting configs above the cell-budget soft cap.",
+    )
     info_p.set_defaults(func=cmd_info)
 
     list_p = subparsers.add_parser(
@@ -531,6 +585,14 @@ def build_parser() -> argparse.ArgumentParser:
     tmpl_p.add_argument("name", help="Template name (see list-templates)")
     tmpl_p.add_argument("--output", "-o", default=None,
                         help="Destination path (default: stdout)")
+    tmpl_p.add_argument(
+        "--allow-absolute-output", action="store_true",
+        help=(
+            "Bypass the cwd path sandbox. Permits absolute --output values "
+            "and ..-segment traversal. Only use this when you deliberately "
+            "need to write outside the working directory."
+        ),
+    )
     tmpl_p.set_defaults(func=cmd_template)
 
     schema_p = subparsers.add_parser(
@@ -542,6 +604,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             f"Destination path (default: ./{SCHEMA_FILENAME}). "
             f"Pass '-' to write to stdout."
+        ),
+    )
+    schema_p.add_argument(
+        "--allow-absolute-output", action="store_true",
+        help=(
+            "Bypass the cwd path sandbox. Permits absolute --output values "
+            "and ..-segment traversal. Only use this when you deliberately "
+            "need to write outside the working directory."
         ),
     )
     schema_p.set_defaults(func=cmd_schema)

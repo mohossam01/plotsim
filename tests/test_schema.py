@@ -153,9 +153,21 @@ def test_cli_schema_writes_default_destination(tmp_path, monkeypatch):
 def test_cli_schema_writes_custom_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     custom = tmp_path / "subdir" / "custom.json"
-    code, _out, _err = run_cli("schema", "--output", str(custom))
+    code, _out, _err = run_cli(
+        "schema", "--output", str(custom), "--allow-absolute-output",
+    )
     assert code == 0
     assert custom.exists()
+
+
+def test_cli_schema_rejects_absolute_output_without_flag(tmp_path, monkeypatch):
+    """Absolute --output path is rejected unless --allow-absolute-output."""
+    monkeypatch.chdir(tmp_path)
+    custom = tmp_path / "subdir" / "custom.json"
+    code, _out, err = run_cli("schema", "--output", str(custom))
+    assert code == 1
+    assert not custom.exists()
+    assert "absolute" in err.lower() or "sandbox" in err.lower()
 
 
 def test_cli_schema_dash_writes_to_stdout(tmp_path, monkeypatch):
