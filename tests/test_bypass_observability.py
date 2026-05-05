@@ -56,7 +56,7 @@ class TestManifestFieldShape:
 
     def test_serial_run_emits_empty_dict(self):
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        assert cfg.generation_mode == "serial"
+        cfg = cfg.model_copy(update={"generation_mode": "serial"})
         m = _build_manifest_for(cfg)
         assert m.bypass_fallback_counts == {}, (
             "M127b: bypass machinery removed; the manifest field is now "

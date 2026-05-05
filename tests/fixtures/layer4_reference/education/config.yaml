@@ -468,4 +468,4 @@ holdout:
 locale: en_US
 seasonal_effects: []
 compensate_correlations: false
-generation_mode: serial
+generation_mode: auto

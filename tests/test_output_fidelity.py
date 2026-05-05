@@ -827,6 +827,13 @@ class TestLagRegression:
         # nothing to lag regression and require the original cohort
         # semantics anyway.
         raw.pop("stages", None)
+        # Pin generation_mode so lag-fidelity tests isolate from
+        # cross-mode RNG order. Lag correctness is a math check, not a
+        # mode check; the realized cross-correlation peak can shift by
+        # one period across modes when the per-lag r curve is flat
+        # (~0.4-0.46 on the marketing pair). Serial keeps the bytes
+        # stable across default flips.
+        raw["generation_mode"] = "serial"
         cfg = PlotsimConfig(**raw)
         tables = generate_tables(cfg)
         joint = _joint_frame(tables, cfg, driver, target)

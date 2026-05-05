@@ -1201,7 +1201,7 @@
       "type": "boolean"
     },
     "generation_mode": {
-      "default": "serial",
+      "default": "auto",
       "enum": [
         "serial",
         "vectorized",

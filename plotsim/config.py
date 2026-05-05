@@ -1828,7 +1828,7 @@ class PlotsimConfig(_Frozen):
     # is statistically equivalent but not byte-identical between modes —
     # within a mode, ``(config, seed, generation_mode)`` reproduces bytes
     # exactly. Documented in `docs/engine-internals.md` §2.4 and §2.4a.
-    generation_mode: Literal["serial", "vectorized", "auto"] = "serial"
+    generation_mode: Literal["serial", "vectorized", "auto"] = "auto"
 
     # Populated by ``_correlation_matrix_is_psd`` when the user's
     # correlation matrix had to be Higham-projected to nearest PD.

@@ -490,19 +490,21 @@ class TestVectorizedParquet:
 @pytest.mark.parametrize(
     "stem", ["saas", "hr", "education", "retail", "marketing"],
 )
-def test_bundled_templates_have_serial_default(stem):
-    """Bundled engine-direct templates must default to ``serial`` so
-    ``test_layer4_reference_fixtures_match`` byte-equality survives
-    across the M121 boundary. A template that opted into ``vectorized``
-    or ``auto`` would fail the byte-equality regression at fixture
-    comparison time; this test catches the divergence at the config
-    layer with a clearer error message."""
+def test_bundled_templates_use_default_generation_mode(stem):
+    """Bundled engine-direct templates must leave ``generation_mode``
+    at the package default so ``test_layer4_reference_fixtures_match``
+    byte-equality stays meaningful. Pinning a specific mode in a
+    template YAML would mask the package default and silently fix the
+    bytes regardless of any future default change. The fixtures on
+    disk track the default, so the templates must too."""
     cfg_path = ROOT / "plotsim" / "configs" / f"sample_{stem}.yaml"
     cfg = load_config(cfg_path)
-    assert cfg.generation_mode == "serial", (
+    default_mode = PlotsimConfig.model_fields["generation_mode"].default
+    assert cfg.generation_mode == default_mode, (
         f"bundled template {stem} declares generation_mode="
-        f"{cfg.generation_mode!r}; it must stay 'serial' so the "
-        "Layer 4 byte-identity fixture regression survives M121"
+        f"{cfg.generation_mode!r}; it must leave the default "
+        f"({default_mode!r}) so layer4 fixture regen tracks the "
+        "package default."
     )
 
 
