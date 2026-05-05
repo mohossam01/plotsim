@@ -25,6 +25,7 @@ Output:
 from __future__ import annotations
 
 import calendar
+import os
 import re
 import sys
 import warnings
@@ -518,6 +519,51 @@ _SPAN_LIMITS: dict[str, int] = {
     "weekly": 1_560,
     "daily": 3_650,
 }
+
+
+# Cell-budget gate: tiered thresholds for the multiplicative-compounding
+# guard in ``PlotsimConfig._combined_scale_estimator``.
+#
+#   * Below ``_CELL_ADVISORY_THRESHOLD``: silent (just the summary line).
+#   * Between advisory and the soft budget: stderr advisory recommending
+#     parquet + auto generation.
+#   * Above the soft budget without opt-in: ``ValueError`` pointing at
+#     ``PLOTSIM_CELL_BUDGET`` and ``--allow-large-dataset``.
+#   * Above the soft budget with opt-in: stderr large-dataset notice,
+#     proceed.
+#   * Above ``_CELL_HARD_CEILING`` regardless of opt-in: ``ValueError``.
+#     The hard ceiling is non-configurable; configs this large should be
+#     split or chunked rather than coerced through the engine.
+_CELL_ADVISORY_THRESHOLD = 500_000
+_CELL_SOFT_BUDGET_DEFAULT = 2_000_000
+_CELL_HARD_CEILING = 50_000_000
+
+
+def _resolve_cell_budget() -> int:
+    """Return the effective soft budget. ``0`` disables the soft gate.
+
+    Reads ``PLOTSIM_CELL_BUDGET`` from the environment. Non-integer
+    values fall back to the default — invalid env config shouldn't
+    silently raise the cap.
+    """
+    raw = os.environ.get("PLOTSIM_CELL_BUDGET")
+    if raw is None:
+        return _CELL_SOFT_BUDGET_DEFAULT
+    try:
+        n = int(raw)
+    except ValueError:
+        return _CELL_SOFT_BUDGET_DEFAULT
+    return max(n, 0)
+
+
+def _allow_large_dataset() -> bool:
+    """True when the operator has opted into above-soft-budget runs.
+
+    Set by the CLI ``--allow-large-dataset`` flag, or directly by
+    library callers via ``PLOTSIM_ALLOW_LARGE_DATASET=1``.
+    """
+    raw = os.environ.get("PLOTSIM_ALLOW_LARGE_DATASET", "")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 # F10 (M102): granularity-aware ``causal_lag.lag_periods`` ceilings.
 # Period count corresponds to ~10 years of lag at each granularity —
@@ -1884,14 +1930,22 @@ class PlotsimConfig(_Frozen):
         is ruinously large. The scalability report (§6) identified that product
         as the dominant predictor of wall-clock and memory.
 
-        Behavior:
-          * Always prints a summary line to stderr.
-          * Appends a warning line when ``cell_count > 500_000``.
-          * Raises ``ValueError`` when ``cell_count > 2_000_000``.
+        Tiered behavior driven by the ``cell_count`` and two env vars:
+          * Always prints the config summary line to stderr.
+          * ``cell_count`` ≤ ``_CELL_ADVISORY_THRESHOLD``: silent.
+          * ``_CELL_ADVISORY_THRESHOLD`` < ``cell_count`` ≤ soft budget:
+            stderr advisory recommending parquet + vectorized.
+          * soft budget < ``cell_count`` ≤ ``_CELL_HARD_CEILING`` and
+            opt-in not given: ``ValueError`` pointing at how to opt in.
+          * Same range, opt-in given: stderr advisory, proceed.
+          * ``cell_count`` > ``_CELL_HARD_CEILING``: ``ValueError``
+            regardless of opt-in.
 
-        Event-row estimate is informational only — metric values can exceed
-        ``ValueRange.max`` once noise is applied, so it is not a reliable gate.
-        The reject threshold uses the exact ``cell_count`` from the config.
+        Soft budget is read from ``PLOTSIM_CELL_BUDGET`` (defaults to
+        ``_CELL_SOFT_BUDGET_DEFAULT``; ``0`` disables the soft gate).
+        Opt-in is read from ``PLOTSIM_ALLOW_LARGE_DATASET`` (set by the
+        CLI ``--allow-large-dataset`` flag, or directly by library
+        callers).
         """
         n_entities = sum(e.size for e in self.entities)
         n_periods = self.time_window.period_count()
@@ -1934,16 +1988,44 @@ class PlotsimConfig(_Frozen):
             summary += f" Expected event rows (upper bound): ~{event_rows_upper:,}."
         sys.stderr.write(summary + "\n")
 
-        if cell_count > 2_000_000:
+        soft_budget = _resolve_cell_budget()
+        allow_large = _allow_large_dataset()
+
+        if cell_count > _CELL_HARD_CEILING:
             raise ValueError(
                 f"Config produces {cell_count:,} cells (entities × periods), "
-                f"which exceeds the maximum of 2,000,000. Reduce entity count, "
-                f"time window span, or switch to a coarser granularity."
+                f"which exceeds the hard ceiling of {_CELL_HARD_CEILING:,}. "
+                f"Reduce entity count, time window span, or coarsen "
+                f"granularity. The hard ceiling is not configurable; configs "
+                f"this large should be split or chunked."
             )
-        if cell_count > 500_000:
+
+        if soft_budget > 0 and cell_count > soft_budget and not allow_large:
+            raise ValueError(
+                f"Config produces {cell_count:,} cells (entities × periods), "
+                f"which exceeds the soft budget of {soft_budget:,}. To "
+                f"proceed, raise the budget with PLOTSIM_CELL_BUDGET=N "
+                f"(or 0 to disable), or pass --allow-large-dataset on the "
+                f"CLI / set PLOTSIM_ALLOW_LARGE_DATASET=1. Recommend "
+                f"output.format=parquet and generation_mode=auto for runs "
+                f"this size — see the 'Limits and performance gates' "
+                f"section of the config reference."
+            )
+
+        if soft_budget > 0 and cell_count > soft_budget and allow_large:
             sys.stderr.write(
-                f"Warning: {cell_count:,} cells exceeds 500,000. Generation "
-                f"may take several minutes and use significant memory.\n"
+                f"Large dataset opt-in: {cell_count:,} cells exceeds the "
+                f"{soft_budget:,} soft budget but PLOTSIM_ALLOW_LARGE_DATASET "
+                f"is set — proceeding. Recommend output.format=parquet and "
+                f"generation_mode=auto for memory and runtime bounds.\n"
+            )
+        elif cell_count > _CELL_ADVISORY_THRESHOLD:
+            sys.stderr.write(
+                f"Advisory: {cell_count:,} cells exceeds "
+                f"{_CELL_ADVISORY_THRESHOLD:,}. Recommend "
+                f"output.format=parquet for memory bounds; "
+                f"generation_mode=auto picks the vectorized lane "
+                f"automatically.\n"
             )
         return self
 

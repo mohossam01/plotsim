@@ -1825,24 +1825,22 @@ def test_estimator_summary_not_on_stdout(capsys):
 
 
 def test_estimator_below_warn_threshold_no_warning(capsys):
-    # 499,950 cells — below the 500,000 warn threshold.
+    # 499,950 cells — below the 500,000 advisory threshold.
     raw = _cells(n_entities_total=25_000, n_periods=20)
     PlotsimConfig(**raw)
     err = capsys.readouterr().err
     assert "Config summary" in err
-    assert "Warning" not in err
+    assert "Advisory" not in err
+    assert "Large dataset" not in err
 
 
 def test_estimator_warns_above_500k(capsys):
-    # 500,050 cells — one small step over the warn threshold.
+    # 500,050 cells — one small step over the advisory threshold.
     raw = _cells(n_entities_total=25_002, n_periods=20)
     PlotsimConfig(**raw)
     err = capsys.readouterr().err
-    assert "Warning" in err
-    # 25_002 rounded up: 50 cohorts × 500 = 25_000 (integer div) — not exact.
-    # Use the actually-emitted cell count from the summary; the warning line
-    # should mention the threshold or the cell count.
-    assert "500,000" in err or "cells" in err
+    assert "Advisory" in err
+    assert "500,000" in err
 
 
 def test_estimator_passes_at_2m_cells_boundary(capsys):
@@ -1859,6 +1857,50 @@ def test_estimator_rejects_above_2m_cells():
     # 2_100_000 cells — 50 cohorts × 420 = 21_000 entities; 21_000 × 100.
     raw = _cells(n_entities_total=21_000, n_periods=100)
     with pytest.raises(ValidationError, match="2,000,000"):
+        PlotsimConfig(**raw)
+
+
+def test_estimator_env_var_raises_soft_budget(monkeypatch, capsys):
+    # 2_100_000 cells under a 5M soft budget should pass with no opt-in.
+    monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "5000000")
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Config summary" in err
+    # Above advisory but below new soft cap → advisory only.
+    assert "Advisory" in err
+
+
+def test_estimator_env_var_zero_disables_soft_gate(monkeypatch, capsys):
+    # 2_100_000 cells with budget disabled should pass without opt-in.
+    monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "0")
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Advisory" in err  # 2.1M still > 500k advisory threshold
+    assert "Large dataset" not in err  # but no opt-in path either
+
+
+def test_estimator_allow_large_dataset_opts_in(monkeypatch, capsys):
+    # 2_100_000 cells exceeds default 2M budget; opt-in lets it through.
+    monkeypatch.setenv("PLOTSIM_ALLOW_LARGE_DATASET", "1")
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Large dataset opt-in" in err
+
+
+def test_estimator_hard_ceiling_rejects_even_with_opt_in(monkeypatch):
+    # The hard ceiling rejects regardless of opt-in or env-var soft budget.
+    # We can't easily construct a >50M-cell config inside the per-field
+    # caps via the _cells helper (monthly cap is 360 periods × 100k max
+    # entities = 36M), so monkeypatch the ceiling to a low value and
+    # verify the gate path itself rejects.
+    monkeypatch.setattr("plotsim.config._CELL_HARD_CEILING", 1_000_000)
+    monkeypatch.setenv("PLOTSIM_ALLOW_LARGE_DATASET", "1")
+    monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "0")
+    raw = _cells(n_entities_total=21_000, n_periods=100)  # 2.1M cells
+    with pytest.raises(ValidationError, match="hard ceiling"):
         PlotsimConfig(**raw)
 
 

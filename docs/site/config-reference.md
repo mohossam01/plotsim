@@ -811,14 +811,36 @@ below the point where a single laptop run becomes painful.
 | Per-bridge `columns` | 20 | Pydantic rejects at load |
 | `seasonality` effects | 12 | Pydantic rejects at load |
 | Causal lag `delay` | `1`–`10000` periods | Pydantic rejects at load |
-| **Cell count** (`entities × periods`) > 500,000 | warning | One-line stderr warning on load |
-| **Cell count** > 2,000,000 | error | `ValueError` at load — generation blocked |
 
-The cell-count gate is the most likely one to surprise a user — it
-fires on `100 entities × 24 periods × N metrics` configs only when
-`N` is huge, but on `1000 entities × 365 daily periods` it fires
-immediately. Reduce entity count, time-window span, or switch to a
-coarser granularity to clear the error.
+### Cell-count budget
+
+The cell count (`Σ segments.count × n_periods`) drives a tiered
+budget. The thresholds protect against runaway configs while keeping
+big datasets a real feature for users who deliberately want them.
+
+| Cell count | Behavior |
+|---|---|
+| ≤ 500,000 | Silent (just the always-printed summary line) |
+| > 500,000 | Stderr **advisory** recommending `output.format: parquet` and `generation_mode: auto` |
+| > soft budget (default 2,000,000) | `ValueError` at load with instructions to opt in |
+| > soft budget, opt-in given | Stderr **large-dataset notice**, generation proceeds |
+| > 50,000,000 | Hard ceiling — `ValueError` regardless of opt-in |
+
+Two ways to opt into above-soft-budget runs:
+
+1. **CLI flag** — `--allow-large-dataset` on `plotsim run`,
+   `plotsim validate`, or `plotsim info`.
+2. **Environment variable** — `PLOTSIM_ALLOW_LARGE_DATASET=1` for
+   library callers and CI scripts.
+
+Two ways to change the soft-budget threshold itself:
+
+- `PLOTSIM_CELL_BUDGET=N` — set the soft cap to `N` cells.
+- `PLOTSIM_CELL_BUDGET=0` — disable the soft cap entirely (only the
+  50,000,000-cell hard ceiling still applies).
+
+The hard ceiling is non-configurable. Configs above 50,000,000 cells
+should be split or chunked rather than coerced through a single run.
 
 A summary line is *always* printed to stderr at load time so the
 projected cell count and peak memory estimate are visible even on
