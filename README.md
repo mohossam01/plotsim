@@ -150,6 +150,19 @@ metrics that tell a realistic story, not random noise.
 
 ## How it works
 
+```mermaid
+flowchart LR
+    A[YAML config<br/>or create&#40;&#41; builder]:::input --> B[Pydantic<br/>validation]:::stage
+    B --> C[Trajectory<br/>engine]:::stage
+    C --> D[Per-metric<br/>derivation]:::stage
+    D --> E[Schema<br/>assembly]:::stage
+    E --> F[CSV / Parquet<br/>+ manifest<br/>+ validation report]:::output
+
+    classDef input fill:#eef2ff,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
+    classDef stage fill:#ffffff,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
+    classDef output fill:#e6f4f1,stroke:#1f2a44,stroke-width:1px,color:#1f2a44
+```
+
 Every entity in the dataset follows a **behavioral trajectory** — a 
 curve shape like growth, decline, seasonal, or spike-then-crash. At 
 each time period, the entity's position on that curve determines 
