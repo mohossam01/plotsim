@@ -7,7 +7,7 @@
 > [`manifest-reference.md`](./manifest-reference.md) for the ground-truth
 > sidecar.
 >
-> Tutorial walkthroughs live in [Tutorials](./tutorials.md).
+> Tutorial walkthroughs live in [Tutorials](./tutorial-notebooks/getting_started.ipynb).
 
 ---
 

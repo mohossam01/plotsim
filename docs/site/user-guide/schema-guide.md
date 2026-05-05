@@ -333,5 +333,5 @@ A handful of structural rules the builder enforces at construction:
 - [Config field reference §dimensions / §facts / §events / §bridges](../config-reference.md) —
   field-level constraints
 - [Output formats](./output-formats.md) — what the schema produces on disk
-- [Tutorials → schema and dimensions](../tutorials.md) — runnable example
-- [Tutorials → bridges and advanced](../tutorials.md) — bridges + SCD walkthrough
+- [Tutorials → schema and dimensions](../tutorial-notebooks/schema_and_dimensions.ipynb) — runnable example
+- [Tutorials → bridges and advanced](../tutorial-notebooks/bridges_and_advanced.ipynb) — bridges + SCD walkthrough

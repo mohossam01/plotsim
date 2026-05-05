@@ -207,4 +207,4 @@ returns the `seasonal_factor` and `modulated_center` for any single
   pipeline (after distribution center, before noise)
 - [Config field reference §seasonality](../config-reference.md) —
   field-level constraints
-- [Tutorials → seasonality and correlations](../tutorials.md) — runnable example
+- [Tutorials → seasonality and correlations](../tutorial-notebooks/seasonality_and_correlations.ipynb) — runnable example

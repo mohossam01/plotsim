@@ -111,7 +111,7 @@ If a company's engagement trajectory declines, its login events decrease in `evt
 <div class="grid cards" markdown>
 
 - :material-compass: **[User guide → How it works](user-guide/how-it-works.md)** — the mental model in five minutes, then archetypes, metrics, seasonality, schema, output
-- :material-notebook: **[Tutorials](tutorials.md)** — runnable notebooks covering each feature surface
+- :material-notebook: **[Tutorials](tutorial-notebooks/getting_started.ipynb)** — runnable notebooks covering each feature surface
 - :material-file-code: **[Reference → Config fields](config-reference.md)** — every input field with type, default, and constraints; companion docs for [API](api-reference.md), [column types](column-types.md), [manifest](manifest-reference.md)
 
 </div>

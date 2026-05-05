@@ -290,4 +290,4 @@ What this produces:
 - [Seasonality](./seasonality.md) — adding seasonal modulation on top
 - [Config field reference](../config-reference.md) — every metric and
   connection field with constraints
-- [Tutorials → seasonality and correlations](../tutorials.md) — runnable example
+- [Tutorials → seasonality and correlations](../tutorial-notebooks/seasonality_and_correlations.ipynb) — runnable example

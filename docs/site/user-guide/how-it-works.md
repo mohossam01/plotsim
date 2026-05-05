@@ -144,4 +144,4 @@ to load into pandas / polars / DuckDB.
 - [Schema guide](./schema-guide.md) — when to let plotsim auto-build
   your tables and when to override
 - [Config field reference](../config-reference.md) — every input field
-- [Tutorials](../tutorials.md) — runnable notebooks for every feature surface
+- [Tutorials](../tutorial-notebooks/getting_started.ipynb) — runnable notebooks for every feature surface

@@ -293,4 +293,4 @@ write_tables(generate_tables(cfg), cfg)
 - [API reference §write_tables](../api-reference.md#write_tables) —
   full parameter list
 - [How it works](./how-it-works.md) — what the pipeline produces and why
-- [Tutorials → getting started](../tutorials.md) — runnable end-to-end example
+- [Tutorials → getting started](../tutorial-notebooks/getting_started.ipynb) — runnable end-to-end example

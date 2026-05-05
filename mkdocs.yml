@@ -62,6 +62,13 @@ extra_css:
   - assets/brand/tokens.css
   - assets/brand/palette.css
 
+plugins:
+  - search
+  - mkdocs-jupyter:
+      include_source: true
+      execute: false
+      ignore_h1_titles: true
+
 nav:
   - Home: index.md
   - User guide:
@@ -71,7 +78,20 @@ nav:
       - Seasonality: user-guide/seasonality.md
       - Schema guide: user-guide/schema-guide.md
       - Output formats: user-guide/output-formats.md
-  - Tutorials: tutorials.md
+  - Tutorials:
+      - Getting started: tutorial-notebooks/getting_started.ipynb
+      - Feature surfaces:
+          - Designing archetypes: tutorial-notebooks/designing_archetypes.ipynb
+          - Seasonality & correlations: tutorial-notebooks/seasonality_and_correlations.ipynb
+          - Schema & dimensions: tutorial-notebooks/schema_and_dimensions.ipynb
+          - Bridges & advanced: tutorial-notebooks/bridges_and_advanced.ipynb
+          - Data quality: tutorial-notebooks/data_quality.ipynb
+      - Workflows:
+          - Pipeline testing: tutorial-notebooks/pipeline_testing.ipynb
+          - ML readiness: tutorial-notebooks/ml_readiness.ipynb
+      - Use cases:
+          - Data engineer recipes: tutorial-notebooks/de_use_cases.ipynb
+          - Data scientist recipes: tutorial-notebooks/ds_use_cases.ipynb
   - Cookbook:
       - For data engineers: cookbook/data-engineering.md
       - For data scientists: cookbook/data-science.md
