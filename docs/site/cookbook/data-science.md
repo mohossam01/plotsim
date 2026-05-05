@@ -355,7 +355,7 @@ from pathlib import Path
 mf = json.loads(Path("./data/manifest.json").read_text(encoding="utf-8"))
 
 # Entity → archetype label
-labels = {a["entity"]: a["archetype"] for a in mf["entity_archetype_assignments"]}
+labels = {a["entity"]: a["archetype"] for a in mf["archetype_assignments"]}
 
 # Trajectory position at every period for sampled entities
 positions = {
