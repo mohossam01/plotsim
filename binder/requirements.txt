@@ -1,0 +1,10 @@
+# Binder build environment — installs the plotsim package from the repo
+# checkout, plus the visualization deps the tutorial notebooks need.
+# Binder reads this file (instead of root requirements.txt) when the
+# `binder/` directory exists. Keep the runtime deps mirrored from
+# pyproject.toml [project.dependencies] (numpy, scipy, pandas, pyyaml,
+# pydantic, faker) — they install transitively via `pip install .` below.
+
+.
+matplotlib>=3.7
+scikit-learn>=1.3
