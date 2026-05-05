@@ -8,7 +8,7 @@
 [![PyPI](https://img.shields.io/pypi/v/plotsim)](https://pypi.org/project/plotsim/)
 [![Docs](https://img.shields.io/badge/docs-mohossam01.github.io-blue)](https://mohossam01.github.io/plotsim/)
 
-**Generate multi-table relational datasets where every metric tells the same story. Config-driven. No real data required.**
+**Python library to generate synthetic multi-table relational datasets — star schema, correlated metrics, dbt-seed-ready CSV & Parquet. Config-driven, deterministic, no real data required**
 
 ```
 pip install plotsim
@@ -45,7 +45,7 @@ for name, df in tables.items():
 # fct_customer: 960 rows
 ```
 
-## See it
+## Generate multi-table test data
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/mohossam01/plotsim/main/docs/site/assets/trajectory-first.png" alt="One trajectory drives every metric — top panel shows a single sigmoid trajectory rising from 0 to 1; bottom panel shows engagement and mrr (positive polarity) rising with it, while support_tickets and churn_risk (negative polarity) fall as it rises." width="100%">
@@ -94,6 +94,8 @@ Engagement at 0.95 with churn risk near zero, then 0.79 at the highest churn ris
 Engagement is climbing toward its plateau. MRR moves with it. Support tickets stay low. Churn risk stays near zero. All four columns read from the same underlying trajectory position — not from four independent random generators.
 
 The contrast is the entire product.
+
+## Star schema output
 
 A `plotsim run` produces a complete star schema in the chosen output directory:
 
