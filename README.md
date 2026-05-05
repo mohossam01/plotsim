@@ -45,9 +45,76 @@ for name, df in tables.items():
 # fct_customer: 960 rows
 ```
 
-## What you get
+## See it
 
-A complete dataset of CSV (or Parquet) files, ready to load into a warehouse, notebook, or BI tool. Same config plus same seed produces byte-identical output every time — see the [output guide](https://mohossam01.github.io/plotsim/user-guide/output-formats/) for details.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mohossam01/plotsim/main/docs/site/assets/trajectory-first.png" alt="One trajectory drives every metric — top panel shows a single sigmoid trajectory rising from 0 to 1; bottom panel shows engagement and mrr (positive polarity) rising with it, while support_tickets and churn_risk (negative polarity) fall as it rises." width="100%">
+</p>
+
+Top panel: one trajectory for one customer, 24 months. Bottom panel: four metrics on the same x-axis. Engagement and MRR rise with the trajectory; support tickets and churn risk fall as it rises. Every value reads from that one curve.
+
+The same idea in tables — one company, twelve months, the same SaaS schema generated two ways:
+
+**Random columns (Faker-style)** — every column is independent. The numbers don't agree.
+
+| month   | engagement | mrr    | tickets | churn_risk |
+| ------- | ---------: | -----: | ------: | ---------: |
+| 2024-01 |      0.842 |  $483  |       7 |      0.611 |
+| 2024-02 |      0.117 | $4,201 |       0 |      0.043 |
+| 2024-03 |      0.674 | $1,089 |      11 |      0.892 |
+| 2024-04 |      0.298 |  $112  |       2 |      0.355 |
+| 2024-05 |      0.951 | $7,733 |       4 |      0.018 |
+| 2024-06 |      0.024 |  $964  |       9 |      0.477 |
+| 2024-07 |      0.560 | $2,154 |       1 |      0.802 |
+| 2024-08 |      0.405 |  $328  |       6 |      0.220 |
+| 2024-09 |      0.789 |  $617  |       0 |      0.998 |
+| 2024-10 |      0.131 | $5,440 |       8 |      0.156 |
+| 2024-11 |      0.847 |  $192  |       3 |      0.501 |
+| 2024-12 |      0.334 | $3,876 |      12 |      0.063 |
+
+Engagement at 0.95 with churn risk near zero, then 0.79 at the highest churn risk in the table. No story — only fields filled.
+
+**plotsim (trajectory-correlated)** — `plotsim run saas`. Same `dim_company` row, twelve monthly rows from `fct_engagement`, `fct_revenue`, `fct_support_tickets`.
+
+| month   | engagement | mrr    | tickets | churn_risk |
+| ------- | ---------: | -----: | ------: | ---------: |
+| 2024-01 |      0.587 | $1,191 |       0 |      0.261 |
+| 2024-02 |      0.807 | $1,265 |       1 |      0.189 |
+| 2024-03 |      1.000 | $3,532 |       2 |      0.129 |
+| 2024-04 |      0.593 |  $818  |       0 |      0.171 |
+| 2024-05 |      0.904 | $3,567 |       2 |      0.237 |
+| 2024-06 |      0.956 | $4,264 |       1 |      0.257 |
+| 2024-07 |      1.000 |  $302  |       2 |      0.000 |
+| 2024-08 |      0.917 | $1,507 |       0 |      0.000 |
+| 2024-09 |      1.000 |  $890  |       1 |      0.000 |
+| 2024-10 |      0.783 |  $512  |       1 |      0.264 |
+| 2024-11 |      0.956 |  $837  |       0 |      0.000 |
+| 2024-12 |      0.827 |  $351  |       1 |      0.248 |
+
+Engagement is climbing toward its plateau. MRR moves with it. Support tickets stay low. Churn risk stays near zero. All four columns read from the same underlying trajectory position — not from four independent random generators.
+
+The contrast is the entire product.
+
+A `plotsim run` produces a complete star schema in the chosen output directory:
+
+```text
+output/
+├── dim_date.csv                # complete date spine
+├── dim_company.csv             # entity attributes (with SCD2 plan_tier)
+├── dim_user.csv                # sub-entity attributes
+├── dim_plan.csv                # reference lookup
+├── fct_engagement.csv          # entity × period metrics
+├── fct_revenue.csv             # entity × period metrics
+├── fct_support_tickets.csv     # entity × period metrics
+├── evt_login.csv               # proportional events
+├── evt_churn.csv               # threshold-triggered events
+├── config.yaml                 # frozen copy of the input config
+└── validation_report.txt       # FK + PK + spine integrity checks
+```
+
+If a company's engagement trajectory declines, its login rows decrease in `evt_login.csv` and churn events appear in `evt_churn.csv` — both event tables read from the same trajectory the fact tables do.
+
+Same config + same seed produces byte-identical output every time. CSV is the default; Parquet is one config flag away. See the [output guide](https://mohossam01.github.io/plotsim/user-guide/output-formats/) for format details and the manifest schema.
 
 
 
