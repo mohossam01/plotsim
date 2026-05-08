@@ -110,11 +110,6 @@ the diff already shows *what*. Reference a mission file or issue when
 one exists. Tests should land in the same commit as the behavior they
 cover.
 
-When the commit was AI-assisted, include the trailer:
-
-```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-```
 
 ## Pull request flow
 
