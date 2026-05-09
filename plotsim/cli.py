@@ -23,7 +23,10 @@ import shutil
 import sys
 from importlib import resources
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from importlib.resources.abc import Traversable
 
 import numpy as np
 import yaml
@@ -91,7 +94,7 @@ def load_either_config(path: str | Path) -> PlotsimConfig:
 # --- Template discovery -------------------------------------------------------
 
 
-def _configs_dir() -> resources.abc.Traversable:
+def _configs_dir() -> Traversable:
     return resources.files("plotsim") / "configs"
 
 
@@ -644,7 +647,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not getattr(args, "command", None):
         parser.print_help()
         return 1
-    return args.func(args)
+    return cast(int, args.func(args))
 
 
 if __name__ == "__main__":

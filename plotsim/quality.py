@@ -145,7 +145,7 @@ def _is_numeric_dtype(series: pd.Series) -> bool:
     type_mismatch direction (numeric → string when the column was
     numeric, otherwise the inverse).
     """
-    return pd.api.types.is_numeric_dtype(series.dtype)
+    return bool(pd.api.types.is_numeric_dtype(series.dtype))
 
 
 def _apply_null_injection(
@@ -277,6 +277,7 @@ def _apply_type_mismatch(
             continue
         clean = out[col].iloc[idxs].tolist()
         out[col] = out[col].astype(object)
+        corrupted_vals: list[object]
         if all(
             _is_numeric_dtype(pd.Series([v]))
             for v in clean

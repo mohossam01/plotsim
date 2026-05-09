@@ -248,7 +248,7 @@ def _entity_pk_values_in_config_order(
     with ``config.entities``.
     """
     deduped = primary_dim_df.drop_duplicates(subset=[pk_col], keep="first")
-    pks = deduped[pk_col].tolist()
+    pks: list = deduped[pk_col].tolist()
     if len(pks) != n_entities:
         raise ValueError(
             f"entity_features: per_entity dim {primary_dim.name!r} has "

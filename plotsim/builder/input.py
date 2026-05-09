@@ -898,7 +898,7 @@ class UserInput(BaseModel):
         graph: dict[str, str] = {m.name: m.follows for m in self.metrics if m.follows is not None}
         for start in graph:
             seen = {start}
-            node = graph[start]
+            node: str | None = graph[start]
             while node is not None:
                 if node in seen:
                     raise ValueError(

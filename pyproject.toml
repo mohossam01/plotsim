@@ -130,11 +130,6 @@ module = [
     "plotsim.metrics",
     "plotsim.inspect",
     "plotsim.tables",
-    "plotsim.cli",
-    "plotsim.quality",
-    "plotsim.builder.input",
-    "plotsim.curves",
-    "plotsim.entity_features",
 ]
 ignore_errors = true
 

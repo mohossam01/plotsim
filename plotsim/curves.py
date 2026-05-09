@@ -17,7 +17,7 @@ Output:
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -55,7 +55,7 @@ def sigmoid(
 def exp_decay(t: np.ndarray, rate: float = 3.0) -> np.ndarray:
     if t.size == 0:
         return _empty_float()
-    return np.clip(np.exp(-rate * t), 0.0, 1.0)
+    return cast(np.ndarray, np.clip(np.exp(-rate * t), 0.0, 1.0))
 
 
 def step(
@@ -98,7 +98,7 @@ def oscillating(
     if t.size == 0:
         return _empty_float()
     raw = center + amplitude * np.sin(2.0 * np.pi * period * t)
-    return np.clip(raw, 0.0, 1.0)
+    return cast(np.ndarray, np.clip(raw, 0.0, 1.0))
 
 
 def compound(
