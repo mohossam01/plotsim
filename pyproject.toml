@@ -1,6 +1,6 @@
 [project]
 name = "plotsim"
-version = "0.6.0"
+version = "0.6.1"
 description = "Generate multi-table relational datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required"
 readme = "README.md"
 license = { text = "Apache-2.0" }

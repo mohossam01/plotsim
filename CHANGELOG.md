@@ -7,8 +7,17 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-05-08
+
 ### Added
 
+- **Contributor release automation.** A new `release.yml`
+  `workflow_dispatch` runs the full release end-to-end: validates
+  source-file versions and the dated `CHANGELOG.md` entry, runs the
+  test matrix on Python 3.10–3.13, builds the wheel + sdist, creates
+  the annotated tag and GitHub Release, and uploads to PyPI via OIDC
+  Trusted Publishing (paused at the `pypi` environment for
+  required-reviewer approval). Full process in `RELEASE.md`.
 - **Configurable cell-count budget with tiered messaging.** The
   load-time cell-count gate now reads two environment variables:
   `PLOTSIM_CELL_BUDGET=N` raises (or `0` disables) the soft cap that
