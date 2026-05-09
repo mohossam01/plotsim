@@ -88,6 +88,7 @@ examples/quickstart_output/
 
 # Non-code markdown / agent scaffolding.
 # un-ignore the files that ARE shipped with the code
+.agent/
 .agents/
 .claude/
 project/
