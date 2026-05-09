@@ -823,7 +823,7 @@ def estimate_trajectory_covariance(
     np.fill_diagonal(accumulator, 1.0)
     # Numerical hygiene — Pearson within ±1 by definition, but float-mean
     # accumulation can drift by an ULP.
-    accumulator = np.clip(accumulator, -1.0, 1.0)
+    accumulator = cast(np.ndarray, np.clip(accumulator, -1.0, 1.0))
     np.fill_diagonal(accumulator, 1.0)
     return accumulator
 
@@ -1664,7 +1664,7 @@ def generate_archetype_batch(
                 centers[:, j] = _position_to_center_batch(eff_pos[:, j], em)
             seasonal_t = float(seasonal_factors[t])
             mult = 1.0 + seasonal_t * em_sens[None, :] * ent_sens[:, None]
-            centers = centers * mult
+            centers = cast(np.ndarray, centers * mult)
             # Clamp to value_range column-by-column (each metric may
             # have different bounds).
             for j, em in enumerate(effective):

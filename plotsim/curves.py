@@ -26,6 +26,12 @@ def _empty_float() -> np.ndarray:
     return np.empty(0, dtype=float)
 
 
+def _clip(arr: np.ndarray, lo: float = 0.0, hi: float = 1.0) -> np.ndarray:
+    # numpy stubs type ``np.clip`` as returning Any; the runtime always
+    # produces an ndarray of the same shape as the input.
+    return cast(np.ndarray, np.clip(arr, lo, hi))
+
+
 def _minmax_normalize(arr: np.ndarray, target_max: float = 1.0) -> np.ndarray:
     """Rescale arr so min→0 and max→target_max. Constant/empty inputs are clipped."""
     if arr.size == 0:
@@ -33,8 +39,8 @@ def _minmax_normalize(arr: np.ndarray, target_max: float = 1.0) -> np.ndarray:
     lo = float(arr.min())
     hi = float(arr.max())
     if hi - lo < 1e-12:
-        return np.clip(arr, 0.0, target_max)
-    return (arr - lo) / (hi - lo) * target_max
+        return _clip(arr, 0.0, target_max)
+    return cast(np.ndarray, (arr - lo) / (hi - lo) * target_max)
 
 
 def sigmoid(
@@ -49,13 +55,13 @@ def sigmoid(
     normed = _minmax_normalize(raw)
     if not rising:
         normed = 1.0 - normed
-    return np.clip(normed, 0.0, 1.0)
+    return _clip(normed)
 
 
 def exp_decay(t: np.ndarray, rate: float = 3.0) -> np.ndarray:
     if t.size == 0:
         return _empty_float()
-    return cast(np.ndarray, np.clip(np.exp(-rate * t), 0.0, 1.0))
+    return _clip(np.exp(-rate * t))
 
 
 def step(
@@ -67,7 +73,7 @@ def step(
     if t.size == 0:
         return _empty_float()
     out = np.where(t < threshold, before, after).astype(float)
-    return np.clip(out, 0.0, 1.0)
+    return _clip(out)
 
 
 def logistic(
@@ -80,13 +86,13 @@ def logistic(
         return _empty_float()
     raw = ceiling / (1.0 + np.exp(-k * (t - midpoint)))
     normed = _minmax_normalize(raw, target_max=ceiling)
-    return np.clip(normed, 0.0, 1.0)
+    return _clip(normed)
 
 
 def plateau(t: np.ndarray, level: float = 0.5) -> np.ndarray:
     if t.size == 0:
         return _empty_float()
-    return np.clip(np.full(t.shape, level, dtype=float), 0.0, 1.0)
+    return _clip(np.full(t.shape, level, dtype=float))
 
 
 def oscillating(
@@ -98,7 +104,7 @@ def oscillating(
     if t.size == 0:
         return _empty_float()
     raw = center + amplitude * np.sin(2.0 * np.pi * period * t)
-    return cast(np.ndarray, np.clip(raw, 0.0, 1.0))
+    return _clip(raw)
 
 
 def compound(
@@ -111,7 +117,7 @@ def compound(
     rate = base_rate + acceleration * t
     raw = np.cumsum(rate)
     normed = _minmax_normalize(raw)
-    return np.clip(normed, 0.0, 1.0)
+    return _clip(normed)
 
 
 def sawtooth(
@@ -123,7 +129,7 @@ def sawtooth(
     if t.size == 0:
         return _empty_float()
     raw = base + amplitude * ((t * period) % 1.0)
-    return np.clip(raw, 0.0, 1.0)
+    return _clip(raw)
 
 
 CURVE_REGISTRY: dict[str, Callable[..., np.ndarray]] = {
@@ -154,4 +160,4 @@ def evaluate_segment(
             f"unknown curve type {curve_type!r}; " f"registered: {sorted(CURVE_REGISTRY)}"
         )
     out = fn(t_segment, **(params or {}))
-    return np.clip(out, 0.0, 1.0)
+    return _clip(out)

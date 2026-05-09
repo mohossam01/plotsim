@@ -46,7 +46,7 @@ from __future__ import annotations
 import datetime as _dt
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -963,7 +963,7 @@ def _fact_vec_lag(parsed: LagSource, ctx: dict):
     target_idx = base - n
     # "If history too short, fall back to current period" — scalar
     # semantics preserved by mapping out-of-range to the current period.
-    target_idx = np.where(target_idx < 0, base, target_idx)
+    target_idx = cast(np.ndarray, np.where(target_idx < 0, base, target_idx))
     sliced = ctx["metrics_3d"][:, target_idx, m_idx]  # (E, P)
     return _coerce_array_for_dtype(
         sliced.ravel(order="C").copy(),
