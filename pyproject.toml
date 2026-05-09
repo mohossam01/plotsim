@@ -65,6 +65,9 @@ dev = [
     "scikit-learn>=1.3",
     "hypothesis>=6.0",
     "pyarrow>=14.0",
+    "pre-commit>=3.7",
+    "mypy>=1.0",
+    "types-PyYAML>=6.0",
     # Pin faker for CI reproducibility — fixture row counts and string
     # outputs depend on faker's RNG, which can change across minor versions.
     # Runtime keeps faker>=18.0 so library users aren't constrained.
@@ -103,7 +106,38 @@ plotsim = ["py.typed"]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint.per-file-ignores]
+# Tests sometimes set up sys.path or imports in mid-file blocks; notebooks
+# naturally interleave imports with prose cells. Both are intentional.
+"tests/**/*.py" = ["E402"]
+"docs/site/tutorial-notebooks/*.ipynb" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+# Suppress errors on the 10 modules with pre-existing type issues; new
+# files and the other 23 modules are checked normally. Future mission
+# cleans up these suppressions one by one.
+[[tool.mypy.overrides]]
+module = [
+    "plotsim.builder.interpreter",
+    "plotsim.validation",
+    "plotsim.builder.parser",
+    "plotsim.config",
+    "plotsim.metrics",
+    "plotsim.inspect",
+    "plotsim.tables",
+    "plotsim.cli",
+    "plotsim.quality",
+    "plotsim.builder.input",
+    "plotsim.curves",
+    "plotsim.entity_features",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: end-to-end tests (slow)"]
-
