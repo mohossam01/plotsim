@@ -1,9 +1,10 @@
 """Pure-data recipes mapping plain-language vocabulary to engine parameters.
 
 The builder layer (input.py / parser.py / interpreter.py) consumes these
-constants. Nothing here imports plotsim engine modules — the recipes are
-parameter dictionaries the interpreter feeds into ``Metric``, ``Archetype``,
-``CurveSegment``, ``MetricOverride``, and ``CorrelationPair`` constructors.
+constants. The only plotsim import here is ``plotsim._types`` — a typing-
+only module providing the Literal aliases (``CurveType``, ``Distribution``)
+so the recipe data can be statically verified against the engine's
+vocabulary without depending on engine code or pydantic.
 
 Four recipe families:
 
@@ -20,6 +21,8 @@ Four recipe families:
 """
 
 from __future__ import annotations
+
+from plotsim._types import CurveType, Distribution
 
 
 # ── Metric recipes ──────────────────────────────────────────────────────────
@@ -41,7 +44,7 @@ METRIC_RECIPES: dict[str, dict] = {
 }
 
 # ``index`` — normal centered on the midpoint of the user-declared range.
-INDEX_DISTRIBUTION = "normal"
+INDEX_DISTRIBUTION: Distribution = "normal"
 # sigma = (max - min) * INDEX_SIGMA_FRACTION. 1/6 keeps ~99.7% inside the
 # declared range when mu sits at the midpoint (3-sigma rule).
 INDEX_SIGMA_FRACTION = 1.0 / 6.0
@@ -66,7 +69,7 @@ AMOUNT_BETA_PARAMS = {"alpha": 2.0, "beta": 5.0}
 # chain contiguously (one's rel_end == next's rel_start) and cover [0.0,
 # 1.0] exactly — Archetype._segments_cover_full_range enforces this on the
 # global side after rescaling.
-ShapeSegment = tuple[str, dict, float, float]
+ShapeSegment = tuple[CurveType, dict, float, float]
 
 SHAPE_RECIPES: dict[str, list[ShapeSegment]] = {
     "growth": [
