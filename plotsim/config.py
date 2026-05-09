@@ -31,10 +31,35 @@ import sys
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+
+# Engine Literal aliases live in ``plotsim._types`` so ``recipes.py`` (which
+# is documented as engine-import-free) can import them without pulling in
+# pydantic. Re-exported here so existing ``from plotsim.config import Dtype``
+# imports continue to work.
+from plotsim._types import (
+    CurveType,
+    Distribution,
+    Dtype,
+    Grain,
+    Granularity,
+    Polarity,
+    TableType,
+    is_threshold_direction,
+)
+
+__all__ = [
+    "CurveType",
+    "Distribution",
+    "Dtype",
+    "Grain",
+    "Granularity",
+    "Polarity",
+    "TableType",
+]
 
 
 # SEC-02: SQL-safe identifier pattern applied to Table.name and Column.name.
@@ -125,29 +150,6 @@ DTYPES: frozenset[str] = frozenset(
     }
 )
 GRANULARITIES: frozenset[str] = frozenset({"monthly", "weekly", "daily"})
-
-CurveType = Literal[
-    "sigmoid",
-    "exp_decay",
-    "step",
-    "logistic",
-    "plateau",
-    "oscillating",
-    "compound",
-    "sawtooth",
-]
-Distribution = Literal["lognorm", "gamma", "poisson", "beta", "normal", "weibull"]
-Polarity = Literal["positive", "negative"]
-TableType = Literal["dim", "fact", "event"]
-Grain = Literal[
-    "per_entity",
-    "per_period",
-    "per_reference",
-    "per_entity_per_period",
-    "variable",
-]
-Dtype = Literal["int", "float", "string", "date", "boolean", "id"]
-Granularity = Literal["monthly", "weekly", "daily"]
 
 
 class SurrogateKeyWarning(UserWarning):
@@ -419,7 +421,7 @@ def parse_source(source: str) -> ParsedSource:
         _, metric, direction, value_str, _, consecutive_str = parts
         if not metric:
             raise ValueError(f"threshold source {source!r} has empty metric name")
-        if direction not in ("above", "below"):
+        if not is_threshold_direction(direction):
             raise ValueError(
                 f"threshold source {source!r}: direction must be "
                 f"'above' or 'below', got {direction!r}"
@@ -436,7 +438,7 @@ def parse_source(source: str) -> ParsedSource:
             ) from e
         return ThresholdSource(
             metric=metric,
-            direction=cast(Literal["above", "below"], direction),
+            direction=direction,
             value=value,
             consecutive=consecutive,
         )

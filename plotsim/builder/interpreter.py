@@ -26,8 +26,9 @@ ran inside ``UserInput.model_validate``.
 from __future__ import annotations
 
 import secrets
-from typing import Optional, cast
+from typing import Optional
 
+from plotsim._types import is_dim_date_dtype
 from plotsim.config import (
     Archetype,
     BridgeCardinality,
@@ -295,7 +296,7 @@ def _pick_distribution(m: MetricInput) -> tuple[Distribution, dict[str, float]]:
         lo, hi = m.range
         mu = (lo + hi) / 2.0
         sigma = (hi - lo) * INDEX_SIGMA_FRACTION
-        return cast(Distribution, INDEX_DISTRIBUTION), {"mu": mu, "sigma": sigma}
+        return INDEX_DISTRIBUTION, {"mu": mu, "sigma": sigma}
 
     if m.type == "amount":
         assert m.range is not None
@@ -953,7 +954,7 @@ def _translate_column(
         return Column(name=col.name, dtype="date", source="generated:timestamp")
 
     # ─── dim_date dtype words ───────────────────────────────────────────
-    if t in ("date", "int", "string", "float"):
+    if is_dim_date_dtype(t):
         if not is_dim_date:
             raise ValueError(
                 f"column {col.name!r} in {owning_table!r}: dtype-only type "
@@ -963,7 +964,7 @@ def _translate_column(
             )
         return Column(
             name=col.name,
-            dtype=cast(Dtype, t),
+            dtype=t,
             source="generated:date_key",
         )
 

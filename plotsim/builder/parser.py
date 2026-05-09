@@ -30,9 +30,7 @@ Examples
 
 from __future__ import annotations
 
-from typing import cast
-
-from plotsim.config import CurveSegment, CurveType
+from plotsim.config import CurveSegment
 
 from .recipes import SHAPE_RECIPES, VALID_SHAPE_WORDS
 
@@ -145,7 +143,7 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
             seg_end = pe if rel_end == 1.0 else ps + rel_end * width
             segments.append(
                 CurveSegment(
-                    curve=cast(CurveType, curve),
+                    curve=curve,
                     params=dict(params),
                     start_pct=seg_start,
                     end_pct=seg_end,
