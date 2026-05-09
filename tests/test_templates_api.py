@@ -4,6 +4,7 @@
 Scope is the public surface only — the underlying YAML content is covered
 by ``test_templates_m112.py``.
 """
+
 from __future__ import annotations
 
 import pytest

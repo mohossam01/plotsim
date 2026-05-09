@@ -6,6 +6,7 @@ the vocabulary surface but produces an engine validation error when threaded
 through the actual config models, the recipe is broken regardless of what
 the interpreter does with it.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -45,16 +46,26 @@ def test_polarities_match_engine_literal():
 def test_shape_words_cover_documented_archetypes():
     # Mirrors the legend in saas_template.yaml lines 280-285.
     assert VALID_SHAPE_WORDS == {
-        "growth", "decline", "seasonal", "flat",
-        "spike_then_crash", "accelerating",
+        "growth",
+        "decline",
+        "seasonal",
+        "flat",
+        "spike_then_crash",
+        "accelerating",
     }
 
 
 def test_relationship_words_cover_full_correlation_spectrum():
     assert VALID_RELATIONSHIP_WORDS == {
-        "mirrors", "driven_by", "related", "hints_at",
+        "mirrors",
+        "driven_by",
+        "related",
+        "hints_at",
         "independent",
-        "hints_against", "resists", "opposes", "inverts",
+        "hints_against",
+        "resists",
+        "opposes",
+        "inverts",
     }
 
 
@@ -135,9 +146,7 @@ def test_shape_sub_segments_produce_valid_curve_segments(shape):
     sub_segments = SHAPE_RECIPES[shape]
     assert sub_segments, f"shape {shape!r} has no sub-segments"
     for curve, params, rel_start, rel_end in sub_segments:
-        assert curve in CURVE_REGISTRY, (
-            f"shape {shape!r} references unknown curve {curve!r}"
-        )
+        assert curve in CURVE_REGISTRY, f"shape {shape!r} references unknown curve {curve!r}"
         # CurveSegment validation runs here — float param types pass through.
         CurveSegment(
             curve=curve,
@@ -150,16 +159,11 @@ def test_shape_sub_segments_produce_valid_curve_segments(shape):
 @pytest.mark.parametrize("shape", sorted(VALID_SHAPE_WORDS))
 def test_shape_sub_segments_chain_contiguously_and_cover_unit_window(shape):
     sub_segments = SHAPE_RECIPES[shape]
-    assert sub_segments[0][2] == 0.0, (
-        f"shape {shape!r} first sub-segment must start at 0.0"
-    )
-    assert sub_segments[-1][3] == 1.0, (
-        f"shape {shape!r} last sub-segment must end at 1.0"
-    )
+    assert sub_segments[0][2] == 0.0, f"shape {shape!r} first sub-segment must start at 0.0"
+    assert sub_segments[-1][3] == 1.0, f"shape {shape!r} last sub-segment must end at 1.0"
     for prev, curr in zip(sub_segments, sub_segments[1:]):
         assert prev[3] == curr[2], (
-            f"shape {shape!r} has gap/overlap between sub-segments: "
-            f"{prev[3]} != {curr[2]}"
+            f"shape {shape!r} has gap/overlap between sub-segments: " f"{prev[3]} != {curr[2]}"
         )
 
 
@@ -177,9 +181,7 @@ def test_spike_then_crash_has_three_sub_segments():
 @pytest.mark.parametrize("word", sorted(VALID_RELATIONSHIP_WORDS))
 def test_relationship_recipe_builds_valid_correlation_pair(word):
     coef = RELATIONSHIP_RECIPES[word]
-    assert -1.0 <= coef <= 1.0, (
-        f"relationship {word!r} has out-of-range coefficient {coef}"
-    )
+    assert -1.0 <= coef <= 1.0, f"relationship {word!r} has out-of-range coefficient {coef}"
     if word == "independent":
         # CorrelationPair rejects coefficient == 0 in some configs; skip
         # the engine-roundtrip check for the no-op word.
@@ -193,15 +195,15 @@ def test_independent_is_zero_coefficient():
 
 def test_relationship_recipes_are_symmetric_around_zero():
     pairs = [
-        ("mirrors",       "inverts"),
-        ("driven_by",     "opposes"),
-        ("related",       "resists"),
-        ("hints_at",      "hints_against"),
+        ("mirrors", "inverts"),
+        ("driven_by", "opposes"),
+        ("related", "resists"),
+        ("hints_at", "hints_against"),
     ]
     for pos, neg in pairs:
-        assert RELATIONSHIP_RECIPES[pos] == -RELATIONSHIP_RECIPES[neg], (
-            f"{pos} and {neg} should be negatives of each other"
-        )
+        assert (
+            RELATIONSHIP_RECIPES[pos] == -RELATIONSHIP_RECIPES[neg]
+        ), f"{pos} and {neg} should be negatives of each other"
 
 
 # ── BASELINE_RECIPES — fractions partition [0, 1] into thirds ───────────────
@@ -210,9 +212,7 @@ def test_relationship_recipes_are_symmetric_around_zero():
 @pytest.mark.parametrize("word", sorted(VALID_BASELINE_WORDS))
 def test_baseline_recipe_fractions_are_valid(word):
     lo, hi = BASELINE_RECIPES[word]
-    assert 0.0 <= lo < hi <= 1.0, (
-        f"baseline {word!r} fractions {(lo, hi)} not a valid sub-range"
-    )
+    assert 0.0 <= lo < hi <= 1.0, f"baseline {word!r} fractions {(lo, hi)} not a valid sub-range"
 
 
 def test_baseline_high_targets_upper_third():

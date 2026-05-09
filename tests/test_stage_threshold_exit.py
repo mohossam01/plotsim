@@ -36,13 +36,12 @@ Plus two helpers:
 * ``test_stage_sequence_mode_property`` — direct unit test on the
   derived ``StageSequence.mode`` property.
 """
+
 from __future__ import annotations
 
 import warnings
-from typing import Iterable
 
 import numpy as np
-import pandas as pd
 import pytest
 from pydantic import ValidationError
 
@@ -101,22 +100,29 @@ def _config_with_stages(
     """Minimal config with a single normal metric named ``score``,
     used as the stages.field driver."""
     metric = Metric(
-        name=metric_name, label=metric_name,
-        distribution="normal", params={"mu": 1.0, "sigma": 0.0001},
+        name=metric_name,
+        label=metric_name,
+        distribution="normal",
+        params={"mu": 1.0, "sigma": 0.0001},
         polarity="positive",
     )
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_score", type="fact", grain="per_entity_per_period",
+        name="fct_score",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "user_id"],
         foreign_keys=["dim_date.date_key", "dim_user.user_id"],
         columns=[
@@ -126,7 +132,9 @@ def _config_with_stages(
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -134,7 +142,9 @@ def _config_with_stages(
         ],
     )
     dim_user = Table(
-        name="dim_user", type="dim", grain="per_entity",
+        name="dim_user",
+        type="dim",
+        grain="per_entity",
         primary_key="user_id",
         columns=[
             Column(name="user_id", dtype="id", source="pk"),
@@ -145,11 +155,15 @@ def _config_with_stages(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="user", entity_label="Users",
+                name="t",
+                description="t",
+                entity_type="user",
+                entity_label="Users",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-12", granularity="monthly",
+                start="2024-01",
+                end="2024-12",
+                granularity="monthly",
             ),
             seed=seed,
             metrics=[metric],
@@ -179,12 +193,19 @@ def test_legacy_mode_byte_identical():
     values = np.asarray([0.0, 0.3, 0.7, 0.9, 0.3, 0.1, 0.7], dtype=float)
 
     out_legacy = _monotonic_stage_walk(
-        values, enter_thresholds, downgrade_delay=None,
+        values,
+        enter_thresholds,
+        downgrade_delay=None,
     )
 
-    actual = np.searchsorted(
-        enter_thresholds, values, side="right",
-    ) - 1
+    actual = (
+        np.searchsorted(
+            enter_thresholds,
+            values,
+            side="right",
+        )
+        - 1
+    )
     np.clip(actual, 0, len(enter_thresholds) - 1, out=actual)
     expected = np.maximum.accumulate(actual)
     np.testing.assert_array_equal(out_legacy, expected)
@@ -203,7 +224,9 @@ def test_legacy_mode_with_delay_unchanged():
     values = np.asarray([0.0, 0.6, 0.3, 0.3, 0.3, 0.7], dtype=float)
 
     out = _monotonic_stage_walk(
-        values, enter_thresholds, downgrade_delay=3,
+        values,
+        enter_thresholds,
+        downgrade_delay=3,
     )
     # i=0: cursor 0, i=1: cursor 1, i=2-4: streak 1,2,3 → demote at i=4,
     # i=5: above 0.5, cursor 1.
@@ -230,11 +253,14 @@ def test_hysteresis_mode_demotes_below_exit():
     # → 0.55 (below stage[2].exit=0.6, demote to a=1) → 0.25 (below
     # stage[1].exit=0.3, demote to a=0).
     values = np.asarray(
-        [0.0, 0.6, 0.4, 0.9, 0.7, 0.55, 0.25], dtype=float,
+        [0.0, 0.6, 0.4, 0.9, 0.7, 0.55, 0.25],
+        dtype=float,
     )
 
     out = _monotonic_stage_walk(
-        values, enter_thresholds, downgrade_delay=None,
+        values,
+        enter_thresholds,
+        downgrade_delay=None,
         exit_thresholds=exit_thresholds,
     )
     np.testing.assert_array_equal(out, [0, 1, 1, 2, 2, 1, 0])
@@ -249,11 +275,14 @@ def test_hysteresis_mode_with_downgrade_delay():
     # Climb to stage 1, single dip below exit (stay), then two
     # consecutive dips (demote on the second).
     values = np.asarray(
-        [0.0, 0.6, 0.2, 0.7, 0.2, 0.2, 0.7], dtype=float,
+        [0.0, 0.6, 0.2, 0.7, 0.2, 0.2, 0.7],
+        dtype=float,
     )
 
     out = _monotonic_stage_walk(
-        values, enter_thresholds, downgrade_delay=2,
+        values,
+        enter_thresholds,
+        downgrade_delay=2,
         exit_thresholds=exit_thresholds,
     )
     # i=0: 0; i=1: 1; i=2: streak 1 below 0.3, stay; i=3: above
@@ -271,11 +300,13 @@ def test_mixed_mode_rejected():
     both per-stage modes named in the message.
     """
     with pytest.raises(ValidationError) as exc_info:
-        _stage_seq([
-            ("low", 0.0, 0.3),    # legacy: 0.3 > 0.0
-            ("mid", 0.5, 0.4),    # hysteresis: 0.4 < 0.5
-            ("high", 0.8, None),  # terminal
-        ])
+        _stage_seq(
+            [
+                ("low", 0.0, 0.3),  # legacy: 0.3 > 0.0
+                ("mid", 0.5, 0.4),  # hysteresis: 0.4 < 0.5
+                ("high", 0.8, None),  # terminal
+            ]
+        )
     msg = str(exc_info.value)
     assert "mix" in msg.lower(), f"mode-mix not mentioned in message: {msg}"
     assert "legacy" in msg.lower()
@@ -287,11 +318,13 @@ def test_mixed_mode_rejected():
 def test_legacy_validator_still_rejects_overlap():
     """Legacy mode rule survives: prev.exit > curr.enter is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        _stage_seq([
-            ("low", 0.0, 0.5),
-            ("mid", 0.3, 0.7),  # 0.3 < prev.exit=0.5 → overlap
-            ("high", 0.8, None),
-        ])
+        _stage_seq(
+            [
+                ("low", 0.0, 0.5),
+                ("mid", 0.3, 0.7),  # 0.3 < prev.exit=0.5 → overlap
+                ("high", 0.8, None),
+            ]
+        )
     assert "overlap" in str(exc_info.value).lower()
 
 
@@ -299,12 +332,14 @@ def test_hysteresis_validator_rejects_exit_below_prev_enter():
     """Hysteresis mode rule: this.exit ≥ prev.enter (so demoting from
     this stage lands the entity in a defined lower stage)."""
     with pytest.raises(ValidationError) as exc_info:
-        _stage_seq([
-            ("low", 0.2, 0.1),    # hysteresis: 0.1 < 0.2
-            # mid.exit=0.05 < prev.enter=0.2 → reject
-            ("mid", 0.5, 0.05),
-            ("high", 0.8, None),
-        ])
+        _stage_seq(
+            [
+                ("low", 0.2, 0.1),  # hysteresis: 0.1 < 0.2
+                # mid.exit=0.05 < prev.enter=0.2 → reject
+                ("mid", 0.5, 0.05),
+                ("high", 0.8, None),
+            ]
+        )
     msg = str(exc_info.value)
     assert "hysteresis" in msg.lower()
     assert ">=" in msg or "previous" in msg.lower()
@@ -317,11 +352,13 @@ def test_generate_tables_legacy_mode_loads_and_runs():
     """End-to-end: a legacy-mode config loads and generate_tables
     produces a stage column. Output values are the strict-monotonic
     walk; no hysteresis effect."""
-    stages = _stage_seq([
-        ("low", 0.0, 0.3),
-        ("mid", 0.3, 0.7),
-        ("high", 0.7, None),
-    ])
+    stages = _stage_seq(
+        [
+            ("low", 0.0, 0.3),
+            ("mid", 0.3, 0.7),
+            ("high", 0.7, None),
+        ]
+    )
     cfg = _config_with_stages(stages)
     tables = generate_tables(cfg, np.random.default_rng(0))
     fct = tables["fct_score"]
@@ -334,11 +371,13 @@ def test_generate_tables_legacy_mode_loads_and_runs():
 def test_generate_tables_hysteresis_mode_loads_and_runs():
     """End-to-end hysteresis-mode config loads and produces a stage
     column. The mode property reflects the new semantic."""
-    stages = _stage_seq([
-        ("low", 0.0, 0.0),
-        ("mid", 0.5, 0.3),     # hysteresis band [0.3, 0.5]
-        ("high", 0.8, None),
-    ])
+    stages = _stage_seq(
+        [
+            ("low", 0.0, 0.0),
+            ("mid", 0.5, 0.3),  # hysteresis band [0.3, 0.5]
+            ("high", 0.8, None),
+        ]
+    )
     cfg = _config_with_stages(stages)
     tables = generate_tables(cfg, np.random.default_rng(0))
     fct = tables["fct_score"]
@@ -353,24 +392,30 @@ def test_generate_tables_hysteresis_mode_loads_and_runs():
 def test_stage_sequence_mode_property():
     """``StageSequence.mode`` is derived from the first non-terminal
     stage's ``exit`` vs ``enter`` relationship."""
-    legacy = _stage_seq([
-        ("low", 0.0, 0.5),
-        ("high", 0.5, None),
-    ])
+    legacy = _stage_seq(
+        [
+            ("low", 0.0, 0.5),
+            ("high", 0.5, None),
+        ]
+    )
     assert legacy.mode == "legacy"
 
-    hysteresis = _stage_seq([
-        ("low", 0.0, 0.0),
-        ("high", 0.5, None),
-    ])
+    hysteresis = _stage_seq(
+        [
+            ("low", 0.0, 0.0),
+            ("high", 0.5, None),
+        ]
+    )
     # exit=0.0 ≤ enter=0.0 → hysteresis (degenerate, equivalent to
     # legacy at runtime since demote_t equals enter; still classified
     # as hysteresis for mode discrimination).
     assert hysteresis.mode == "hysteresis"
 
-    hysteresis_strict = _stage_seq([
-        ("low", 0.2, 0.1),
-        ("high", 0.5, 0.4),
-        ("term", 0.8, None),
-    ])
+    hysteresis_strict = _stage_seq(
+        [
+            ("low", 0.2, 0.1),
+            ("high", 0.5, 0.4),
+            ("term", 0.8, None),
+        ]
+    )
     assert hysteresis_strict.mode == "hysteresis"

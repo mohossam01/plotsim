@@ -15,6 +15,7 @@ Covers the full mission's acceptance criteria:
   * Bundled saas template: SCD plan_tier upgrade flow demonstrates end-to-end
   * All other 4 bundled templates: empty SCD section in manifest, no regressions
 """
+
 from __future__ import annotations
 
 import copy
@@ -170,6 +171,7 @@ def test_scd_type2_labels_must_be_unique():
 def test_parse_source_scd_marker():
     parsed = parse_source("scd_type2")
     from plotsim.config import SCDType2Source
+
     assert isinstance(parsed, SCDType2Source)
 
 
@@ -178,11 +180,13 @@ def test_column_with_scd_source_requires_scd_config():
     # Add an SCD source column to dim_company without the scd_type2 block.
     for tbl in d["tables"]:
         if tbl["name"] == "dim_company":
-            tbl["columns"].append({
-                "name": "broken_tier",
-                "dtype": "string",
-                "source": "scd_type2",
-            })
+            tbl["columns"].append(
+                {
+                    "name": "broken_tier",
+                    "dtype": "string",
+                    "source": "scd_type2",
+                }
+            )
             break
     with pytest.raises(ValidationError, match="scd_type2"):
         _build_cfg_from_dict(d)
@@ -192,16 +196,18 @@ def test_column_with_scd_config_requires_scd_source():
     d = _saas_yaml_dict()
     for tbl in d["tables"]:
         if tbl["name"] == "dim_company":
-            tbl["columns"].append({
-                "name": "broken_tier",
-                "dtype": "string",
-                "source": "static:placeholder",
-                "scd_type2": {
-                    "trigger_metric": "fct_revenue.mrr",
-                    "thresholds": [0.5],
-                    "labels": ["lo", "hi"],
-                },
-            })
+            tbl["columns"].append(
+                {
+                    "name": "broken_tier",
+                    "dtype": "string",
+                    "source": "static:placeholder",
+                    "scd_type2": {
+                        "trigger_metric": "fct_revenue.mrr",
+                        "thresholds": [0.5],
+                        "labels": ["lo", "hi"],
+                    },
+                }
+            )
             break
     with pytest.raises(ValidationError, match="scd_type2"):
         _build_cfg_from_dict(d)
@@ -215,12 +221,14 @@ def _add_scd_column(cfg_dict, *, on_dim, scd_block):
     out = copy.deepcopy(cfg_dict)
     for tbl in out["tables"]:
         if tbl["name"] == on_dim:
-            tbl["columns"].append({
-                "name": "extra_tier",
-                "dtype": "string",
-                "source": "scd_type2",
-                "scd_type2": scd_block,
-            })
+            tbl["columns"].append(
+                {
+                    "name": "extra_tier",
+                    "dtype": "string",
+                    "source": "scd_type2",
+                    "scd_type2": scd_block,
+                }
+            )
             break
     return out
 
@@ -285,16 +293,18 @@ def test_scd_rejected_on_non_per_entity_dim():
     # Try adding SCD to dim_plan (per_reference grain).
     for tbl in d["tables"]:
         if tbl["name"] == "dim_plan":
-            tbl["columns"].append({
-                "name": "tier",
-                "dtype": "string",
-                "source": "scd_type2",
-                "scd_type2": {
-                    "trigger_metric": "fct_revenue.mrr",
-                    "thresholds": [0.5],
-                    "labels": ["a", "b"],
-                },
-            })
+            tbl["columns"].append(
+                {
+                    "name": "tier",
+                    "dtype": "string",
+                    "source": "scd_type2",
+                    "scd_type2": {
+                        "trigger_metric": "fct_revenue.mrr",
+                        "thresholds": [0.5],
+                        "labels": ["a", "b"],
+                    },
+                }
+            )
             break
     with pytest.raises(ValidationError, match="per_entity"):
         _build_cfg_from_dict(d)
@@ -306,7 +316,8 @@ def test_scd_rejected_on_non_per_entity_dim():
 def _date_keys(n_periods: int) -> np.ndarray:
     """Synthesize date_keys 20230101, 20230201, ... for a synthetic config."""
     return np.array(
-        [20230000 + (i + 1) * 100 + 1 for i in range(n_periods)], dtype=np.int64,
+        [20230000 + (i + 1) * 100 + 1 for i in range(n_periods)],
+        dtype=np.int64,
     )
 
 
@@ -442,9 +453,7 @@ def test_saas_validity_windows_cover_every_period_per_entity(saas_run):
     dks = dim_date["date_key"].tolist()
     for company_id, grp in dim.groupby("company_id"):
         for dk in dks:
-            covered = grp[
-                (grp["valid_from"] <= dk) & (dk < grp["valid_to"])
-            ]
+            covered = grp[(grp["valid_from"] <= dk) & (dk < grp["valid_to"])]
             assert len(covered) == 1, (
                 f"company {company_id} period {dk}: expected one active "
                 f"version, got {len(covered)}"
@@ -487,9 +496,9 @@ def test_saas_fact_dim_row_id_advances_with_period(saas_run):
     # only — never goes back).
     for _eid, grp in fct.groupby("company_id"):
         ids = grp["dim_row_id"].tolist()
-        assert all(ids[i] <= ids[i + 1] for i in range(len(ids) - 1)), (
-            f"dim_row_id regressed within entity: {ids}"
-        )
+        assert all(
+            ids[i] <= ids[i + 1] for i in range(len(ids) - 1)
+        ), f"dim_row_id regressed within entity: {ids}"
 
 
 # --- 7. Non-SCD facts unaffected -------------------------------------------
@@ -503,9 +512,7 @@ def test_non_scd_template_no_dim_row_id_added():
     tables, state = generate_tables_with_state(cfg, np.random.default_rng(cfg.seed))
     assert state.scd.is_empty
     for name, df in tables.items():
-        assert "dim_row_id" not in df.columns, (
-            f"{name} unexpectedly has a dim_row_id column"
-        )
+        assert "dim_row_id" not in df.columns, f"{name} unexpectedly has a dim_row_id column"
 
 
 # --- 8. Manifest SCD events ------------------------------------------------
@@ -547,7 +554,8 @@ def test_manifest_no_scd_events_for_non_scd_templates():
             warnings.simplefilter("ignore", SurrogateKeyWarning)
             cfg = load_config(CONFIGS_DIR / f"sample_{name}.yaml")
         tables, state = generate_tables_with_state(
-            cfg, np.random.default_rng(cfg.seed),
+            cfg,
+            np.random.default_rng(cfg.seed),
         )
         m = build_manifest(cfg, state.trajectories, tables, scd_state=state.scd)
         assert m.scd_events == [], f"{name} unexpectedly produced SCD events"
@@ -557,9 +565,7 @@ def test_manifest_scd_events_round_trip_through_disk(saas_run, tmp_path):
     cfg, tables, state = saas_run
     m = build_manifest(cfg, state.trajectories, tables, scd_state=state.scd)
     write_tables(tables, cfg, output_dir=tmp_path, manifest=m)
-    payload = json.loads(
-        (tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8")
-    )
+    payload = json.loads((tmp_path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     assert "scd_events" in payload
     assert len(payload["scd_events"]) == len(m.scd_events)
     # Re-validate via the schema model: forward-compat round trip.
@@ -573,9 +579,7 @@ def test_manifest_scd_events_round_trip_through_disk(saas_run, tmp_path):
 def test_saas_validation_clean_with_scd(saas_run):
     cfg, tables, _state = saas_run
     report = validate(cfg, tables)
-    assert report.ok, [
-        f"{i.check}: {i.message}" for i in report.errors
-    ]
+    assert report.ok, [f"{i.check}: {i.message}" for i in report.errors]
 
 
 def test_validation_detects_missing_dim_row_id_on_scd_dim(saas_run):
@@ -598,7 +602,8 @@ def test_saas_dim_company_byte_identical_across_runs(saas_cfg):
     tables_a, _ = _run_saas_seeded(saas_cfg)
     tables_b, _ = _run_saas_seeded(saas_cfg)
     pd.testing.assert_frame_equal(
-        tables_a["dim_company"], tables_b["dim_company"],
+        tables_a["dim_company"],
+        tables_b["dim_company"],
     )
 
 
@@ -615,9 +620,7 @@ def test_saas_manifest_scd_events_deterministic(saas_cfg):
     tables_b, state_b = _run_saas_seeded(saas_cfg)
     ma = build_manifest(saas_cfg, state_a.trajectories, tables_a, scd_state=state_a.scd)
     mb = build_manifest(saas_cfg, state_b.trajectories, tables_b, scd_state=state_b.scd)
-    assert [e.model_dump() for e in ma.scd_events] == [
-        e.model_dump() for e in mb.scd_events
-    ]
+    assert [e.model_dump() for e in ma.scd_events] == [e.model_dump() for e in mb.scd_events]
 
 
 # --- 11. Schema export ------------------------------------------------------

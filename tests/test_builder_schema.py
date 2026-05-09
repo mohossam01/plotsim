@@ -10,6 +10,7 @@ Covers M116 acceptance criteria:
 - COLUMN_TYPES covers every column-type stem the interpreter handles.
 - Schema round-trip: saas_template.yaml validates against the schema.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -73,15 +74,19 @@ def test_schema_optional_fields_omittable_and_default_correctly():
     defaults — is verified directly here.
     """
     import warnings as _warnings
+
     with _warnings.catch_warnings():
         # Single-segment input intentionally — silence the documented warning.
         _warnings.simplefilter("ignore", UserWarning)
-        minimal = UserInput.model_validate({
-            "about": "X", "unit": "x",
-            "window": {"start": "2024-01", "end": "2024-12"},
-            "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
-            "segments": [{"name": "s", "count": 50, "archetype": "growth"}],
-        })
+        minimal = UserInput.model_validate(
+            {
+                "about": "X",
+                "unit": "x",
+                "window": {"start": "2024-01", "end": "2024-12"},
+                "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
+                "segments": [{"name": "s", "count": 50, "archetype": "growth"}],
+            }
+        )
     assert minimal.connections == []
     assert minimal.lifecycle is None
     assert minimal.dimensions == []
@@ -100,16 +105,15 @@ def test_schema_metric_type_literal_emitted_as_enum():
     """MetricInput.type is Literal[...] → must surface as an enum in the schema."""
     schema = generate_user_input_schema()
     metric_def = schema["$defs"]["MetricInput"]
-    assert sorted(metric_def["properties"]["type"]["enum"]) == sorted(
-        METRIC_TYPES
-    )
+    assert sorted(metric_def["properties"]["type"]["enum"]) == sorted(METRIC_TYPES)
 
 
 def test_schema_polarity_literal_emitted_as_enum():
     schema = generate_user_input_schema()
     metric_def = schema["$defs"]["MetricInput"]
     assert sorted(metric_def["properties"]["polarity"]["enum"]) == [
-        "negative", "positive",
+        "negative",
+        "positive",
     ]
 
 
@@ -117,7 +121,9 @@ def test_schema_window_every_literal_emitted_as_enum():
     schema = generate_user_input_schema()
     window_def = schema["$defs"]["WindowInput"]
     assert sorted(window_def["properties"]["every"]["enum"]) == [
-        "daily", "monthly", "weekly",
+        "daily",
+        "monthly",
+        "weekly",
     ]
 
 
@@ -151,9 +157,21 @@ def test_column_types_cover_every_interpreter_stem():
     literals; if a new one is added there, COLUMN_TYPES must learn it.
     """
     expected = {
-        "id", "ref.{dim}", "metric.{name}", "faker.{kind}", "static.{value}",
-        "segment.count", "pool.{attr}", "timestamp", "flag", "bucket", "scd",
-        "date", "int", "string", "float",
+        "id",
+        "ref.{dim}",
+        "metric.{name}",
+        "faker.{kind}",
+        "static.{value}",
+        "segment.count",
+        "pool.{attr}",
+        "timestamp",
+        "flag",
+        "bucket",
+        "scd",
+        "date",
+        "int",
+        "string",
+        "float",
     }
     assert set(COLUMN_TYPES) == expected
 
@@ -199,6 +217,7 @@ def test_bare_minimum_template_validates_against_schema():
 def test_bare_minimum_loads_via_create_from_yaml():
     """bare_minimum.yaml must build a valid PlotsimConfig (no warnings)."""
     import warnings as _warnings
+
     with _warnings.catch_warnings():
         _warnings.simplefilter("error", UserWarning)
         cfg = create_from_yaml(str(BARE_TEMPLATE))
@@ -206,7 +225,9 @@ def test_bare_minimum_loads_via_create_from_yaml():
     assert {m.name for m in cfg.metrics} == {"engagement", "payments"}
     # Auto-generated schema: dim_date + dim_<unit> + fct_<unit>.
     assert {t.name for t in cfg.tables} == {
-        "dim_date", "dim_customer", "fct_customer",
+        "dim_date",
+        "dim_customer",
+        "fct_customer",
     }
 
 

@@ -18,6 +18,7 @@ blend of own and driver positions, which is Claim 2's territory. Archetype
 metric_overrides are applied per-entity (the engine does this in
 generate_metrics_for_period; the verifier mirrors it at predict time).
 """
+
 from __future__ import annotations
 
 import math
@@ -44,8 +45,7 @@ from plotsim.trajectory import compute_trajectory
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = ["saas", "hr", "ecommerce", "education", "healthcare"]
 TEMPLATE_PATHS = {
-    name: REPO_ROOT / "plotsim" / "configs" / f"sample_{name}.yaml"
-    for name in TEMPLATES
+    name: REPO_ROOT / "plotsim" / "configs" / f"sample_{name}.yaml" for name in TEMPLATES
 }
 RESULT_CSV = REPO_ROOT / "analysis" / "fidelity_sweeps" / "trajectory_first_results.csv"
 
@@ -71,8 +71,9 @@ def _distribution_sigma(metric: Metric, center: float) -> float:
         s = float(params["s"])
         # rng.lognormal(mean=log(center), sigma=s); Var = (e^{s²}-1) e^{2μ+s²}
         # → std = |center| · √(e^{s²}-1) · e^{s²/2}
-        return float(abs(center) * math.sqrt(max(math.exp(s * s) - 1.0, 0.0))
-                     * math.exp(s * s / 2.0))
+        return float(
+            abs(center) * math.sqrt(max(math.exp(s * s) - 1.0, 0.0)) * math.exp(s * s / 2.0)
+        )
     if dist == "poisson":
         return float(math.sqrt(max(center, 1e-12)))
     if dist == "gamma":
@@ -107,7 +108,7 @@ def _envelope_sigma(metric: Metric, center: float, gaussian_noise: float) -> flo
         return dist_sigma
     mag = abs(center) if center != 0.0 else 1.0
     noise_sigma = gaussian_noise * mag
-    return float(math.sqrt(dist_sigma ** 2 + noise_sigma ** 2))
+    return float(math.sqrt(dist_sigma**2 + noise_sigma**2))
 
 
 # --- Resolve archetype overrides per entity ---------------------------------
@@ -144,8 +145,7 @@ def _per_entity_per_period_facts(config: PlotsimConfig) -> list[dict]:
     }
     """
     per_entity_dims = {
-        t.name: (t.primary_key if isinstance(t.primary_key, str)
-                 else t.primary_key[0])
+        t.name: (t.primary_key if isinstance(t.primary_key, str) else t.primary_key[0])
         for t in config.tables
         if t.type == "dim" and t.grain == "per_entity"
     }
@@ -167,13 +167,15 @@ def _per_entity_per_period_facts(config: PlotsimConfig) -> list[dict]:
                 metric_cols.append((col.name, parsed.metric))
         if entity_fk_col is None or not metric_cols:
             continue
-        out.append({
-            "table": tbl.name,
-            "entity_fk_col": entity_fk_col,
-            "parent_dim": parent_dim,
-            "parent_pk": parent_pk,
-            "metric_columns": metric_cols,
-        })
+        out.append(
+            {
+                "table": tbl.name,
+                "entity_fk_col": entity_fk_col,
+                "parent_dim": parent_dim,
+                "parent_pk": parent_pk,
+                "metric_columns": metric_cols,
+            }
+        )
     return out
 
 
@@ -198,6 +200,7 @@ def _verify_template_seed(
 
     # Period count: re-derive from time window so we can recompute trajectories.
     from plotsim.trajectory import compute_time_steps
+
     n_periods = int(compute_time_steps(cfg.time_window).shape[0])
 
     # Trajectories per entity (no overrides — overrides shift inflection but
@@ -238,8 +241,7 @@ def _verify_template_seed(
                 effective = _effective_metric(metric, arch)
                 position = float(trajectories[ent.name][p_idx])
                 predicted_center = position_to_center(position, effective)
-                envelope = _envelope_sigma(effective, predicted_center,
-                                           gaussian_noise)
+                envelope = _envelope_sigma(effective, predicted_center, gaussian_noise)
                 # Look up observed: vectorized fact row order is entity-major.
                 row_idx = e_idx * n_periods + p_idx
                 observed_raw = df.iloc[row_idx][col_name]
@@ -252,22 +254,24 @@ def _verify_template_seed(
                 else:
                     deviation_sigma = float("nan")
                 entity_pk = parent.iloc[e_idx][fact["parent_pk"]]
-                rows.append({
-                    "template": template,
-                    "seed": cfg.seed,
-                    "entity_id": str(entity_pk),
-                    "entity_idx": e_idx,
-                    "period_idx": p_idx,
-                    "fact_table": fact["table"],
-                    "metric": metric_name,
-                    "distribution": effective.distribution,
-                    "trajectory_position": position,
-                    "predicted_center": predicted_center,
-                    "envelope_sigma": envelope,
-                    "observed": observed,
-                    "deviation": observed - predicted_center,
-                    "deviation_in_sigma": deviation_sigma,
-                })
+                rows.append(
+                    {
+                        "template": template,
+                        "seed": cfg.seed,
+                        "entity_id": str(entity_pk),
+                        "entity_idx": e_idx,
+                        "period_idx": p_idx,
+                        "fact_table": fact["table"],
+                        "metric": metric_name,
+                        "distribution": effective.distribution,
+                        "trajectory_position": position,
+                        "predicted_center": predicted_center,
+                        "envelope_sigma": envelope,
+                        "observed": observed,
+                        "deviation": observed - predicted_center,
+                        "deviation_in_sigma": deviation_sigma,
+                    }
+                )
     return rows
 
 
@@ -285,8 +289,7 @@ def run_claim3(
     for template in TEMPLATES:
         for seed_idx in range(seeds_per_template):
             t_cell = time.monotonic()
-            rows = _verify_template_seed(template, seed_idx, cells_per_run,
-                                         sample_rng)
+            rows = _verify_template_seed(template, seed_idx, cells_per_run, sample_rng)
             all_rows.extend(rows)
             sys.stderr.write(
                 f"[claim3] {template} seed_idx={seed_idx}: "
@@ -296,8 +299,7 @@ def run_claim3(
     df = pd.DataFrame(all_rows)
     df.to_csv(out_csv, index=False, encoding="utf-8")
     sys.stderr.write(
-        f"[claim3] wrote {len(df)} rows to {out_csv} "
-        f"in {time.monotonic() - t0:.1f}s total\n"
+        f"[claim3] wrote {len(df)} rows to {out_csv} " f"in {time.monotonic() - t0:.1f}s total\n"
     )
     return len(df)
 

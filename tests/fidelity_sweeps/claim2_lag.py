@@ -20,6 +20,7 @@ trajectory; the lagged metric inherits the driver's effective position
 lags 0..2× configured is computed per entity; the median peak lag and peak
 magnitude characterize whether the lag is recoverable at output level.
 """
+
 from __future__ import annotations
 
 import sys
@@ -36,7 +37,6 @@ from plotsim.config import (
     Archetype,
     CausalLag,
     Column,
-    CorrelationPair,
     CurveSegment,
     Domain,
     Entity,
@@ -66,16 +66,25 @@ SEED_BASE = 9_000
 
 def _archetype_segments(name: str) -> list[CurveSegment]:
     if name == "sigmoid":
-        return [CurveSegment(curve="sigmoid",
-                             params={"midpoint": 0.5, "steepness": 6.0},
-                             start_pct=0.0, end_pct=1.0)]
+        return [
+            CurveSegment(
+                curve="sigmoid",
+                params={"midpoint": 0.5, "steepness": 6.0},
+                start_pct=0.0,
+                end_pct=1.0,
+            )
+        ]
     if name == "oscillating":
-        return [CurveSegment(curve="oscillating",
-                             params={"period": 0.25, "amplitude": 0.4},
-                             start_pct=0.0, end_pct=1.0)]
+        return [
+            CurveSegment(
+                curve="oscillating",
+                params={"period": 0.25, "amplitude": 0.4},
+                start_pct=0.0,
+                end_pct=1.0,
+            )
+        ]
     if name == "plateau":
-        return [CurveSegment(curve="plateau", params={"level": 0.5},
-                             start_pct=0.0, end_pct=1.0)]
+        return [CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0)]
     raise ValueError(f"unsupported archetype name {name!r}")
 
 
@@ -105,22 +114,28 @@ def _build_cfg(
     seed: int,
 ) -> PlotsimConfig:
     arch = Archetype(
-        name="a", label="a", description="lag-test archetype",
+        name="a",
+        label="a",
+        description="lag-test archetype",
         curve_segments=_archetype_segments(archetype_name),
     )
     driver_params, _ = _params_for("lognorm")
     driver = Metric(
-        name="driver", label="driver",
-        distribution="lognorm", params=driver_params,
+        name="driver",
+        label="driver",
+        distribution="lognorm",
+        params=driver_params,
         polarity="positive",
     )
     target_params, target_vr = _params_for(lagged_dist)
     target = Metric(
-        name="target", label="target",
-        distribution=lagged_dist, params=target_params,
-        polarity="positive", value_range=target_vr,
-        causal_lag=CausalLag(driver="driver", lag_periods=lag,
-                             blend_weight=blend),
+        name="target",
+        label="target",
+        distribution=lagged_dist,
+        params=target_params,
+        polarity="positive",
+        value_range=target_vr,
+        causal_lag=CausalLag(driver="driver", lag_periods=lag, blend_weight=blend),
     )
     end_year = 2024 + (n_periods - 1) // 12
     end_month = (n_periods - 1) % 12 + 1
@@ -128,8 +143,7 @@ def _build_cfg(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
-            domain=Domain(name="lag", description="lag",
-                          entity_type="e", entity_label="E"),
+            domain=Domain(name="lag", description="lag", entity_type="e", entity_label="E"),
             time_window=TimeWindow(
                 start="2024-01",
                 end=f"{end_year}-{end_month:02d}",
@@ -138,47 +152,51 @@ def _build_cfg(
             seed=seed,
             metrics=[driver, target],
             archetypes=[arch],
-            entities=[Entity(name=f"e{i:03d}", archetype="a", size=1)
-                      for i in range(n_entities)],
+            entities=[Entity(name=f"e{i:03d}", archetype="a", size=1) for i in range(n_entities)],
             tables=[
-                Table(name="dim_date", type="dim", grain="per_period",
-                      primary_key="date_key",
-                      columns=[
-                          Column(name="date_key", dtype="id", source="pk"),
-                          Column(name="date", dtype="date",
-                                 source="generated:date_key"),
-                      ]),
-                Table(name="dim_entity", type="dim", grain="per_entity",
-                      primary_key="entity_pk",
-                      columns=[
-                          Column(name="entity_pk", dtype="id", source="pk"),
-                          Column(name="nm", dtype="string", source="static:e"),
-                      ]),
-                Table(name="fct", type="fact",
-                      grain="per_entity_per_period",
-                      primary_key=["date_key", "entity_pk"],
-                      foreign_keys=["dim_date.date_key",
-                                    "dim_entity.entity_pk"],
-                      columns=[
-                          Column(name="date_key", dtype="id",
-                                 source="fk:dim_date.date_key"),
-                          Column(name="entity_pk", dtype="id",
-                                 source="fk:dim_entity.entity_pk"),
-                          Column(name="driver_v", dtype="float",
-                                 source="metric:driver"),
-                          Column(name="target_v", dtype=fct_target_dtype,
-                                 source="metric:target"),
-                      ]),
+                Table(
+                    name="dim_date",
+                    type="dim",
+                    grain="per_period",
+                    primary_key="date_key",
+                    columns=[
+                        Column(name="date_key", dtype="id", source="pk"),
+                        Column(name="date", dtype="date", source="generated:date_key"),
+                    ],
+                ),
+                Table(
+                    name="dim_entity",
+                    type="dim",
+                    grain="per_entity",
+                    primary_key="entity_pk",
+                    columns=[
+                        Column(name="entity_pk", dtype="id", source="pk"),
+                        Column(name="nm", dtype="string", source="static:e"),
+                    ],
+                ),
+                Table(
+                    name="fct",
+                    type="fact",
+                    grain="per_entity_per_period",
+                    primary_key=["date_key", "entity_pk"],
+                    foreign_keys=["dim_date.date_key", "dim_entity.entity_pk"],
+                    columns=[
+                        Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                        Column(name="entity_pk", dtype="id", source="fk:dim_entity.entity_pk"),
+                        Column(name="driver_v", dtype="float", source="metric:driver"),
+                        Column(name="target_v", dtype=fct_target_dtype, source="metric:target"),
+                    ],
+                ),
             ],
             correlations=[],
-            noise=NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0,
-                              mcar_rate=0.0),
+            noise=NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0),
             output=OutputConfig(format="csv", directory="out/lag"),
         )
 
 
-def _per_entity_xcorr(driver: np.ndarray, target: np.ndarray,
-                      max_lag: int) -> tuple[int, float, float]:
+def _per_entity_xcorr(
+    driver: np.ndarray, target: np.ndarray, max_lag: int
+) -> tuple[int, float, float]:
     """Cross-correlation of driver and target across lags 0..max_lag.
 
     Returns (peak_lag, peak_magnitude, unlagged_magnitude).
@@ -204,8 +222,7 @@ def run_claim2(out_csv: Path = RESULT_CSV) -> int:
     rows: list[dict] = []
     t0 = time.monotonic()
     cells_total = (
-        len(LAGGED_METRIC_DISTS) * len(LAGS) * len(BLEND_WEIGHTS)
-        * len(ARCHETYPES) * SEEDS_PER_CELL
+        len(LAGGED_METRIC_DISTS) * len(LAGS) * len(BLEND_WEIGHTS) * len(ARCHETYPES) * SEEDS_PER_CELL
     )
     cell_count = 0
 
@@ -218,48 +235,54 @@ def run_claim2(out_csv: Path = RESULT_CSV) -> int:
                         seed = SEED_BASE + seed_offset
                         cell_t0 = time.monotonic()
                         cfg = _build_cfg(
-                            arch_name, lagged_dist, lag, blend,
-                            N_ENTITIES, N_PERIODS, seed,
+                            arch_name,
+                            lagged_dist,
+                            lag,
+                            blend,
+                            N_ENTITIES,
+                            N_PERIODS,
+                            seed,
                         )
                         rng = np.random.default_rng(cfg.seed)
                         tables = generate_tables(cfg, rng)
-                        fct = tables["fct"].sort_values(
-                            ["entity_pk", "date_key"]
-                        )
+                        fct = tables["fct"].sort_values(["entity_pk", "date_key"])
                         peaks, peak_mags, unlagged_mags = [], [], []
                         max_lag_window = max(lag * 2, lag + 3)
-                        for ent_pk, group in fct.groupby("entity_pk",
-                                                        sort=True):
+                        for ent_pk, group in fct.groupby("entity_pk", sort=True):
                             d = group["driver_v"].astype(float).to_numpy()
                             t = group["target_v"].astype(float).to_numpy()
                             peak, mag, unlag = _per_entity_xcorr(
-                                d, t, max_lag_window,
+                                d,
+                                t,
+                                max_lag_window,
                             )
                             if not np.isfinite(mag):
                                 continue
                             peaks.append(peak)
                             peak_mags.append(mag)
                             unlagged_mags.append(unlag)
-                        rows.append({
-                            "archetype": arch_name,
-                            "metric_dist": lagged_dist,
-                            "configured_lag": int(lag),
-                            "blend_weight": float(blend),
-                            "n_entities": N_ENTITIES,
-                            "n_periods": N_PERIODS,
-                            "seed": seed,
-                            "peak_lag_per_entity_median": (
-                                float(np.median(peaks)) if peaks else float("nan")
-                            ),
-                            "peak_magnitude": (
-                                float(np.median(peak_mags)) if peak_mags
-                                else float("nan")
-                            ),
-                            "unlagged_magnitude": (
-                                float(np.median(unlagged_mags))
-                                if unlagged_mags else float("nan")
-                            ),
-                        })
+                        rows.append(
+                            {
+                                "archetype": arch_name,
+                                "metric_dist": lagged_dist,
+                                "configured_lag": int(lag),
+                                "blend_weight": float(blend),
+                                "n_entities": N_ENTITIES,
+                                "n_periods": N_PERIODS,
+                                "seed": seed,
+                                "peak_lag_per_entity_median": (
+                                    float(np.median(peaks)) if peaks else float("nan")
+                                ),
+                                "peak_magnitude": (
+                                    float(np.median(peak_mags)) if peak_mags else float("nan")
+                                ),
+                                "unlagged_magnitude": (
+                                    float(np.median(unlagged_mags))
+                                    if unlagged_mags
+                                    else float("nan")
+                                ),
+                            }
+                        )
                         sys.stderr.write(
                             f"[claim2] {cell_count}/{cells_total} "
                             f"arch={arch_name} dist={lagged_dist} "
@@ -269,13 +292,14 @@ def run_claim2(out_csv: Path = RESULT_CSV) -> int:
                         sys.stderr.flush()
                         if cell_count % 10 == 0 or cell_count == cells_total:
                             pd.DataFrame(rows).to_csv(
-                                out_csv, index=False, encoding="utf-8",
+                                out_csv,
+                                index=False,
+                                encoding="utf-8",
                             )
 
     pd.DataFrame(rows).to_csv(out_csv, index=False, encoding="utf-8")
     sys.stderr.write(
-        f"[claim2] wrote {len(rows)} rows to {out_csv} in "
-        f"{time.monotonic() - t0:.1f}s\n"
+        f"[claim2] wrote {len(rows)} rows to {out_csv} in " f"{time.monotonic() - t0:.1f}s\n"
     )
     return len(rows)
 

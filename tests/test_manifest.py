@@ -55,7 +55,8 @@ def saas_run(tmp_path):
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(cfg, state.trajectories, tables)
     target = write_tables(
-        tables, cfg,
+        tables,
+        cfg,
         output_dir=tmp_path,
         manifest=manifest,
     )
@@ -67,9 +68,9 @@ def saas_run(tmp_path):
 
 def test_manifest_file_present_after_write(saas_run):
     _cfg, _tables, _state, _manifest, target = saas_run
-    assert (target / MANIFEST_FILENAME).is_file(), (
-        f"manifest not written to {target / MANIFEST_FILENAME}"
-    )
+    assert (
+        target / MANIFEST_FILENAME
+    ).is_file(), f"manifest not written to {target / MANIFEST_FILENAME}"
 
 
 def test_manifest_is_json_loadable(saas_run):
@@ -135,8 +136,7 @@ def test_every_entity_has_an_archetype_assignment(saas_run):
     declared = {e.name for e in cfg.entities}
     recorded = {a.entity for a in manifest.archetype_assignments}
     assert recorded == declared, (
-        f"missing entities: {declared - recorded!r}; "
-        f"extra: {recorded - declared!r}"
+        f"missing entities: {declared - recorded!r}; " f"extra: {recorded - declared!r}"
     )
 
 
@@ -171,9 +171,7 @@ def test_trajectory_sample_positions_are_in_unit_interval(saas_run):
 
 def test_every_event_table_has_a_firing_row_per_entity(saas_run):
     cfg, tables, _state, manifest, _target = saas_run
-    event_table_names = {
-        t.name for t in cfg.tables if t.type == "event"
-    } & set(tables)
+    event_table_names = {t.name for t in cfg.tables if t.type == "event"} & set(tables)
     if not event_table_names:
         pytest.skip("template declares no event tables")
     by_table: dict = {}
@@ -192,12 +190,10 @@ def test_event_firing_period_indices_are_valid_and_sorted(saas_run):
     n_periods = len(tables["dim_date"])
     for f in manifest.event_firings:
         assert f.period_indices == sorted(f.period_indices), (
-            f"period_indices for {f.entity}@{f.table} is unsorted: "
-            f"{f.period_indices}"
+            f"period_indices for {f.entity}@{f.table} is unsorted: " f"{f.period_indices}"
         )
         assert all(0 <= p < n_periods for p in f.period_indices), (
-            f"period_indices for {f.entity}@{f.table} out of range: "
-            f"{f.period_indices}"
+            f"period_indices for {f.entity}@{f.table} out of range: " f"{f.period_indices}"
         )
 
 
@@ -245,12 +241,15 @@ def test_include_false_suppresses_manifest_file(tmp_path):
     # Still build (cheap) and pass; write_tables gates on config.manifest.include.
     manifest = build_manifest(cfg, state.trajectories, tables)
     target = write_tables(
-        tables, cfg, output_dir=tmp_path / "out", manifest=manifest,
+        tables,
+        cfg,
+        output_dir=tmp_path / "out",
+        manifest=manifest,
     )
 
-    assert not (target / MANIFEST_FILENAME).exists(), (
-        "include:false config still emitted manifest.json"
-    )
+    assert not (
+        target / MANIFEST_FILENAME
+    ).exists(), "include:false config still emitted manifest.json"
 
 
 def test_include_default_is_true():
@@ -281,9 +280,7 @@ def test_trajectory_sample_rate_below_one_reduces_samples(tmp_path):
     sampled = {s.entity for s in manifest.trajectory_samples}
     # ceil(3 * 0.34) == 2 → first two entities by sorted name.
     expected = set(sorted(e.name for e in cfg.entities)[:2])
-    assert sampled == expected, (
-        f"sampled set {sampled!r} != expected sorted-prefix {expected!r}"
-    )
+    assert sampled == expected, f"sampled set {sampled!r} != expected sorted-prefix {expected!r}"
 
 
 def test_trajectory_sample_rate_minimum_one_entity():
@@ -294,7 +291,10 @@ def test_trajectory_sample_rate_minimum_one_entity():
     rng = np.random.default_rng(cfg.seed)
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(
-        cfg, state.trajectories, tables, sample_rate=0.001,
+        cfg,
+        state.trajectories,
+        tables,
+        sample_rate=0.001,
     )
     sampled = {s.entity for s in manifest.trajectory_samples}
     assert len(sampled) == 1
@@ -333,13 +333,16 @@ def test_config_sha256_changes_when_seed_changes(tmp_path):
 # --- Every bundled template produces a valid manifest -----------------------
 
 
-@pytest.mark.parametrize("template", [
-    "sample_saas.yaml",
-    "sample_retail.yaml",
-    "sample_education.yaml",
-    "sample_marketing.yaml",
-    "sample_hr.yaml",
-])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "sample_saas.yaml",
+        "sample_retail.yaml",
+        "sample_education.yaml",
+        "sample_marketing.yaml",
+        "sample_hr.yaml",
+    ],
+)
 def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
     path = CONFIGS_DIR / template
     with warnings.catch_warnings():
@@ -349,10 +352,12 @@ def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(cfg, state.trajectories, tables)
     target = write_tables(
-        tables, cfg, output_dir=tmp_path, manifest=manifest,
+        tables,
+        cfg,
+        output_dir=tmp_path,
+        manifest=manifest,
     )
     raw = json.loads((target / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     loaded = ManifestSchema(**raw)
     assert loaded.schema_version == MANIFEST_SCHEMA_VERSION
-    assert {a.entity for a in loaded.archetype_assignments} == \
-        {e.name for e in cfg.entities}
+    assert {a.entity for a in loaded.archetype_assignments} == {e.name for e in cfg.entities}

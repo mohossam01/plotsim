@@ -138,14 +138,10 @@ def _resolve_target_metrics(config: PlotsimConfig) -> list[str]:
     requested = list(config.entity_features.metrics)
     if not requested:
         return [
-            m.name for m in config.metrics
-            if m.name in fact_metric_names and m.name not in excluded
+            m.name for m in config.metrics if m.name in fact_metric_names and m.name not in excluded
         ]
     requested_set = set(requested)
-    return [
-        m.name for m in config.metrics
-        if m.name in requested_set and m.name not in excluded
-    ]
+    return [m.name for m in config.metrics if m.name in requested_set and m.name not in excluded]
 
 
 def _slope(x: np.ndarray, y: np.ndarray) -> float:
@@ -184,7 +180,8 @@ def _peak_period(periods: np.ndarray, values: np.ndarray) -> float:
 
 
 def _aggregate_series(
-    periods: np.ndarray, values: np.ndarray,
+    periods: np.ndarray,
+    values: np.ndarray,
 ) -> dict[str, float]:
     """Six-statistic reduction of one entity's metric series.
 
@@ -308,11 +305,12 @@ def build_entity_features(
         )
 
     entity_pks = _entity_pk_values_in_config_order(
-        primary_dim, primary_dim_df, pk_col, len(config.entities),
+        primary_dim,
+        primary_dim_df,
+        pk_col,
+        len(config.entities),
     )
-    pk_to_entity_name = {
-        pk: entity.name for pk, entity in zip(entity_pks, config.entities)
-    }
+    pk_to_entity_name = {pk: entity.name for pk, entity in zip(entity_pks, config.entities)}
 
     dim_date = tables.get("dim_date")
     if dim_date is None or dim_date.empty:
@@ -396,20 +394,19 @@ def build_entity_features(
                 if dk not in period_index_by_date_key:
                     continue
                 period_idx = period_index_by_date_key[dk]
-                if (
-                    training_cutoff is not None
-                    and period_idx >= training_cutoff
-                ):
+                if training_cutoff is not None and period_idx >= training_cutoff:
                     continue
                 row_periods.append((period_idx, row_pos))
             if len(row_periods) == 0:
                 continue
             row_periods.sort(key=lambda pair: pair[0])
             periods_sorted = np.array(
-                [p for p, _ in row_periods], dtype=np.int64,
+                [p for p, _ in row_periods],
+                dtype=np.int64,
             )
             row_positions = np.array(
-                [r for _, r in row_periods], dtype=np.int64,
+                [r for _, r in row_periods],
+                dtype=np.int64,
             )
             for col_name, metric_name in metric_cols:
                 # ``na_value=np.nan`` is required: poisson metrics ride on
@@ -418,7 +415,8 @@ def build_entity_features(
                 # plain ``to_numpy(dtype=float)`` without an explicit NaN
                 # bridge.
                 raw_values = pd.to_numeric(
-                    group[col_name], errors="coerce",
+                    group[col_name],
+                    errors="coerce",
                 ).to_numpy(dtype=float, na_value=np.nan)
                 values_sorted = raw_values[row_positions]
                 stats = _aggregate_series(periods_sorted, values_sorted)
@@ -448,7 +446,8 @@ def build_entity_features(
             entity_name = pk_to_entity_name[pk]
             row["archetype"] = archetype_by_name[entity_name]
             row["final_trajectory_position"] = final_pos_by_name.get(
-                entity_name, nan,
+                entity_name,
+                nan,
             )
         rows.append(row)
 

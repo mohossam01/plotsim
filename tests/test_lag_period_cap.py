@@ -34,6 +34,7 @@ Tests:
   ``lag_periods=200`` (rejected pre-F10 by ``le=120``) loads
   successfully post-fix.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -70,12 +71,16 @@ def _build_config(granularity: str, lag_periods: int) -> PlotsimConfig:
         # Daily cap of 3650 ≈ 10 years; for monthly we only need
         # 121 max — a 10-year window comfortably fits.
         time_window = TimeWindow(
-            start="2024-01", end="2033-12", granularity="monthly",
+            start="2024-01",
+            end="2033-12",
+            granularity="monthly",
         )
     elif granularity == "weekly":
         # 521 weeks ≈ 10 years; bumped to a 12-year span for headroom.
         time_window = TimeWindow(
-            start="2020-01", end="2031-12", granularity="weekly",
+            start="2020-01",
+            end="2031-12",
+            granularity="weekly",
         )
     else:  # daily
         # 3651 days ≈ 10 years — exactly at the configured time-window
@@ -88,36 +93,49 @@ def _build_config(granularity: str, lag_periods: int) -> PlotsimConfig:
         # on the lag_periods value, not on whether the window can
         # hold it.
         time_window = TimeWindow(
-            start="2020-01", end="2024-12", granularity="daily",
+            start="2020-01",
+            end="2024-12",
+            granularity="daily",
         )
 
     metrics = [
         Metric(
-            name="driver", label="driver",
-            distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+            name="driver",
+            label="driver",
+            distribution="normal",
+            params={"mu": 1.0, "sigma": 0.1},
             polarity="positive",
         ),
         Metric(
-            name="follower", label="follower",
-            distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+            name="follower",
+            label="follower",
+            distribution="normal",
+            params={"mu": 1.0, "sigma": 0.1},
             polarity="positive",
             causal_lag=CausalLag(
-                driver="driver", lag_periods=lag_periods, blend_weight=1.0,
+                driver="driver",
+                lag_periods=lag_periods,
+                blend_weight=1.0,
             ),
         ),
     ]
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_metrics", type="fact", grain="per_entity_per_period",
+        name="fct_metrics",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -128,7 +146,9 @@ def _build_config(granularity: str, lag_periods: int) -> PlotsimConfig:
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -136,7 +156,9 @@ def _build_config(granularity: str, lag_periods: int) -> PlotsimConfig:
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
@@ -146,8 +168,10 @@ def _build_config(granularity: str, lag_periods: int) -> PlotsimConfig:
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=time_window,
             seed=0,
@@ -235,10 +259,8 @@ def test_bundled_saas_lag_within_monthly_cap():
     monthly cap of 120. Loads post-F10 unchanged."""
     from plotsim.config import load_config
     from pathlib import Path
-    cfg_path = (
-        Path(__file__).resolve().parent.parent
-        / "plotsim" / "configs" / "sample_saas.yaml"
-    )
+
+    cfg_path = Path(__file__).resolve().parent.parent / "plotsim" / "configs" / "sample_saas.yaml"
     cfg = load_config(cfg_path)
     for m in cfg.metrics:
         if m.causal_lag is not None:
@@ -250,10 +272,8 @@ def test_bundled_hr_lag_within_monthly_cap():
     absence_rate.causal_lag.lag_periods=1 — well below the cap."""
     from plotsim.config import load_config
     from pathlib import Path
-    cfg_path = (
-        Path(__file__).resolve().parent.parent
-        / "plotsim" / "configs" / "sample_hr.yaml"
-    )
+
+    cfg_path = Path(__file__).resolve().parent.parent / "plotsim" / "configs" / "sample_hr.yaml"
     cfg = load_config(cfg_path)
     for m in cfg.metrics:
         if m.causal_lag is not None:

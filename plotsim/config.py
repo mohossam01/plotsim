@@ -67,18 +67,35 @@ def _identifier_field_validator(kind: str):
     surfaced in the error message. This factory collapses the duplication
     while preserving identical error text.
     """
+
     def _check(cls, v: str) -> str:
         return _validate_identifier(kind, v)
+
     return classmethod(_check)
 
 
-CURVE_TYPES: frozenset[str] = frozenset({
-    "sigmoid", "exp_decay", "step", "logistic",
-    "plateau", "oscillating", "compound", "sawtooth",
-})
-DISTRIBUTIONS: frozenset[str] = frozenset({
-    "lognorm", "gamma", "poisson", "beta", "normal", "weibull",
-})
+CURVE_TYPES: frozenset[str] = frozenset(
+    {
+        "sigmoid",
+        "exp_decay",
+        "step",
+        "logistic",
+        "plateau",
+        "oscillating",
+        "compound",
+        "sawtooth",
+    }
+)
+DISTRIBUTIONS: frozenset[str] = frozenset(
+    {
+        "lognorm",
+        "gamma",
+        "poisson",
+        "beta",
+        "normal",
+        "weibull",
+    }
+)
 POLARITIES: frozenset[str] = frozenset({"positive", "negative"})
 TABLE_TYPES: frozenset[str] = frozenset({"dim", "fact", "event"})
 # Grain values — each tells the table builder exactly which loop to run.
@@ -87,22 +104,37 @@ TABLE_TYPES: frozenset[str] = frozenset({"dim", "fact", "event"})
 #   per_reference           dim_plan, dim_department: static lookup (no time, no entity)
 #   per_entity_per_period   fct_engagement: entity × time step
 #   variable                evt_login, evt_churn: trajectory-driven row count
-GRAINS: frozenset[str] = frozenset({
-    "per_entity",
-    "per_period",
-    "per_reference",
-    "per_entity_per_period",
-    "variable",
-})
+GRAINS: frozenset[str] = frozenset(
+    {
+        "per_entity",
+        "per_period",
+        "per_reference",
+        "per_entity_per_period",
+        "variable",
+    }
+)
 COMPOSITE_GRAINS: frozenset[str] = frozenset({"per_entity_per_period"})
-DTYPES: frozenset[str] = frozenset({
-    "int", "float", "string", "date", "boolean", "id",
-})
+DTYPES: frozenset[str] = frozenset(
+    {
+        "int",
+        "float",
+        "string",
+        "date",
+        "boolean",
+        "id",
+    }
+)
 GRANULARITIES: frozenset[str] = frozenset({"monthly", "weekly", "daily"})
 
 CurveType = Literal[
-    "sigmoid", "exp_decay", "step", "logistic",
-    "plateau", "oscillating", "compound", "sawtooth",
+    "sigmoid",
+    "exp_decay",
+    "step",
+    "logistic",
+    "plateau",
+    "oscillating",
+    "compound",
+    "sawtooth",
 ]
 Distribution = Literal["lognorm", "gamma", "poisson", "beta", "normal", "weibull"]
 Polarity = Literal["positive", "negative"]
@@ -145,6 +177,7 @@ class _Frozen(BaseModel):
 # column and dispatch on the returned type rather than re-doing string
 # matching inline.
 
+
 class PKSource(_Frozen):
     """Column is the table's primary key column."""
 
@@ -178,6 +211,7 @@ class FakerSource(_Frozen):
     split exists so parameter parsing and type coercion live on faker
     calls only, where they're meaningful.
     """
+
     method: str
     kwargs: dict[str, str] = Field(default_factory=dict)
 
@@ -192,6 +226,7 @@ class DerivedSource(_Frozen):
 
 class ThresholdSource(_Frozen):
     """Event row exists when a metric stays above/below a threshold for N periods."""
+
     metric: str
     direction: Literal["above", "below"]
     value: float
@@ -206,12 +241,14 @@ class ProportionalSource(_Frozen):
     event-per-period multipliers while keeping the per-run row count
     bounded.
     """
+
     metric: str
     scale: float = Field(gt=0.0, le=100.0)
 
 
 class LagSource(_Frozen):
     """Column value is driven by another metric's value N periods in the past."""
+
     metric: str
     periods: int = Field(ge=1)
 
@@ -250,6 +287,7 @@ class TextBucketSource(_Frozen):
     positive-polarity metrics shape values from position. Configs that
     want the inverse just reverse the bucket list.
     """
+
     buckets: tuple[str, ...] = Field(min_length=2, max_length=20)
 
 
@@ -271,16 +309,26 @@ class PoolSource(_Frozen):
     selection consumes one RNG draw per row, deterministic under the
     engine's single-seed contract.
     """
+
     name: str
 
     _name_is_identifier = field_validator("name")(_identifier_field_validator("pool name"))
 
 
 ParsedSource = (
-    PKSource | FKSource | MetricSource | GeneratedSource | FakerSource
-    | StaticSource | DerivedSource
-    | ThresholdSource | ProportionalSource | LagSource
-    | TextBucketSource | SCDType2Source | PoolSource
+    PKSource
+    | FKSource
+    | MetricSource
+    | GeneratedSource
+    | FakerSource
+    | StaticSource
+    | DerivedSource
+    | ThresholdSource
+    | ProportionalSource
+    | LagSource
+    | TextBucketSource
+    | SCDType2Source
+    | PoolSource
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -303,9 +351,7 @@ def parse_source(source: str) -> ParsedSource:
     PlotsimConfig cross-reference integrity, and Mission 006 dispatch.
     """
     if not isinstance(source, str):
-        raise ValueError(
-            f"source must be a string, got {type(source).__name__}"
-        )
+        raise ValueError(f"source must be a string, got {type(source).__name__}")
     if source == "pk":
         return PKSource()
     if source == "scd_type2":
@@ -316,34 +362,24 @@ def parse_source(source: str) -> ParsedSource:
         if not ref:
             raise ValueError(f"source {source!r}: prefix 'fk:' requires a value")
         if "." not in ref:
-            raise ValueError(
-                f"fk source {source!r} must be 'fk:<table>.<column>' format"
-            )
+            raise ValueError(f"fk source {source!r} must be 'fk:<table>.<column>' format")
         table, column = ref.split(".", 1)
         if not table or not column:
-            raise ValueError(
-                f"fk source {source!r} must have non-empty table and column"
-            )
+            raise ValueError(f"fk source {source!r} must have non-empty table and column")
         return FKSource(table=table, column=column)
 
     if source.startswith("generated:"):
-        body = source[len("generated:"):]
+        body = source[len("generated:") :]
         if not body:
-            raise ValueError(
-                f"source {source!r}: prefix 'generated:' requires a value"
-            )
+            raise ValueError(f"source {source!r}: prefix 'generated:' requires a value")
         if body.startswith("faker."):
-            rest = body[len("faker."):]
+            rest = body[len("faker.") :]
             if not rest:
-                raise ValueError(
-                    f"source {source!r}: 'generated:faker.' requires a method"
-                )
+                raise ValueError(f"source {source!r}: 'generated:faker.' requires a method")
             parts = rest.split(":")
             method = parts[0]
             if not method:
-                raise ValueError(
-                    f"source {source!r}: empty faker method"
-                )
+                raise ValueError(f"source {source!r}: empty faker method")
             param_parts = parts[1:]
             if len(param_parts) % 2 != 0:
                 raise ValueError(
@@ -354,13 +390,9 @@ def parse_source(source: str) -> ParsedSource:
             for i in range(0, len(param_parts), 2):
                 key = param_parts[i]
                 if not key:
-                    raise ValueError(
-                        f"source {source!r}: empty parameter name"
-                    )
+                    raise ValueError(f"source {source!r}: empty parameter name")
                 if key in kwargs:
-                    raise ValueError(
-                        f"source {source!r}: duplicate parameter {key!r}"
-                    )
+                    raise ValueError(f"source {source!r}: duplicate parameter {key!r}")
                 kwargs[key] = param_parts[i + 1]
             return FakerSource(method=method, kwargs=kwargs)
         return GeneratedSource(provider=body)
@@ -371,11 +403,9 @@ def parse_source(source: str) -> ParsedSource:
         ("derived:", ("field", DerivedSource)),
     ):
         if source.startswith(prefix):
-            value = source[len(prefix):]
+            value = source[len(prefix) :]
             if not value:
-                raise ValueError(
-                    f"source {source!r}: prefix {prefix!r} requires a value"
-                )
+                raise ValueError(f"source {source!r}: prefix {prefix!r} requires a value")
             kw, ctor = ctor_kw
             return ctor(**{kw: value})
 
@@ -388,9 +418,7 @@ def parse_source(source: str) -> ParsedSource:
             )
         _, metric, direction, value_str, _, consecutive_str = parts
         if not metric:
-            raise ValueError(
-                f"threshold source {source!r} has empty metric name"
-            )
+            raise ValueError(f"threshold source {source!r} has empty metric name")
         if direction not in ("above", "below"):
             raise ValueError(
                 f"threshold source {source!r}: direction must be "
@@ -399,19 +427,18 @@ def parse_source(source: str) -> ParsedSource:
         try:
             value = float(value_str)
         except ValueError as e:
-            raise ValueError(
-                f"threshold source {source!r}: non-numeric value {value_str!r}"
-            ) from e
+            raise ValueError(f"threshold source {source!r}: non-numeric value {value_str!r}") from e
         try:
             consecutive = int(consecutive_str)
         except ValueError as e:
             raise ValueError(
-                f"threshold source {source!r}: non-integer consecutive "
-                f"{consecutive_str!r}"
+                f"threshold source {source!r}: non-integer consecutive " f"{consecutive_str!r}"
             ) from e
         return ThresholdSource(
-            metric=metric, direction=direction,
-            value=value, consecutive=consecutive,
+            metric=metric,
+            direction=direction,
+            value=value,
+            consecutive=consecutive,
         )
 
     if source.startswith("proportional:"):
@@ -423,9 +450,7 @@ def parse_source(source: str) -> ParsedSource:
             )
         _, metric, _, scale_str = parts
         if not metric:
-            raise ValueError(
-                f"proportional source {source!r} has empty metric name"
-            )
+            raise ValueError(f"proportional source {source!r} has empty metric name")
         try:
             scale = float(scale_str)
         except ValueError as e:
@@ -437,26 +462,21 @@ def parse_source(source: str) -> ParsedSource:
     if source.startswith("lag:"):
         parts = source.split(":")
         if len(parts) != 4 or parts[0] != "lag" or parts[2] != "periods":
-            raise ValueError(
-                f"lag source {source!r} must be 'lag:<metric>:periods:<N>'"
-            )
+            raise ValueError(f"lag source {source!r} must be 'lag:<metric>:periods:<N>'")
         _, metric, _, periods_str = parts
         if not metric:
             raise ValueError(f"lag source {source!r} has empty metric name")
         try:
             periods = int(periods_str)
         except ValueError as e:
-            raise ValueError(
-                f"lag source {source!r}: non-integer periods {periods_str!r}"
-            ) from e
+            raise ValueError(f"lag source {source!r}: non-integer periods {periods_str!r}") from e
         return LagSource(metric=metric, periods=periods)
 
     if source.startswith("pool:"):
-        body = source[len("pool:"):]
+        body = source[len("pool:") :]
         if not body:
             raise ValueError(
-                f"pool source {source!r}: prefix 'pool:' requires a name "
-                f"(e.g. 'pool:industry')"
+                f"pool source {source!r}: prefix 'pool:' requires a name " f"(e.g. 'pool:industry')"
             )
         # Reject embedded colons: ``pool:industry:extra`` would be ambiguous
         # under any future grammar extension. Surface it now.
@@ -468,7 +488,7 @@ def parse_source(source: str) -> ParsedSource:
         return PoolSource(name=body)
 
     if source.startswith("text:bucket:"):
-        body = source[len("text:bucket:"):]
+        body = source[len("text:bucket:") :]
         if not body.startswith("[") or not body.endswith("]"):
             raise ValueError(
                 f"text-bucket source {source!r} must wrap labels in '[ ... ]': "
@@ -476,9 +496,7 @@ def parse_source(source: str) -> ParsedSource:
             )
         inner = body[1:-1].strip()
         if not inner:
-            raise ValueError(
-                f"text-bucket source {source!r} has empty bucket list"
-            )
+            raise ValueError(f"text-bucket source {source!r} has empty bucket list")
         labels = [p.strip() for p in inner.split(",")]
         if any(not label for label in labels):
             raise ValueError(
@@ -502,6 +520,7 @@ def parse_source(source: str) -> ParsedSource:
 
 
 # --- Schema models -----------------------------------------------------------
+
 
 class Domain(_Frozen):
     name: str
@@ -565,6 +584,7 @@ def _allow_large_dataset() -> bool:
     raw = os.environ.get("PLOTSIM_ALLOW_LARGE_DATASET", "")
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+
 # F10 (M102): granularity-aware ``causal_lag.lag_periods`` ceilings.
 # Period count corresponds to ~10 years of lag at each granularity —
 # tight enough to keep the lag-buffer per-period work bounded and to
@@ -609,9 +629,7 @@ class TimeWindow(_Frozen):
     @model_validator(mode="after")
     def _start_before_end(self) -> "TimeWindow":
         if self.start >= self.end:
-            raise ValueError(
-                f"time_window.start ({self.start}) must be before end ({self.end})"
-            )
+            raise ValueError(f"time_window.start ({self.start}) must be before end ({self.end})")
         return self
 
     def period_count(self) -> int:
@@ -729,6 +747,7 @@ class SeasonalEffect(_Frozen):
     entity is; seasonality says what the world does to that entity at that
     calendar moment.
     """
+
     months: tuple[int, ...] = Field(min_length=1, max_length=12)
     strength: float
 
@@ -737,13 +756,9 @@ class SeasonalEffect(_Frozen):
     def _months_in_range_unique(cls, v: tuple[int, ...]) -> tuple[int, ...]:
         for m in v:
             if not 1 <= int(m) <= 12:
-                raise ValueError(
-                    f"seasonal effect month {m} out of range; valid: 1..12"
-                )
+                raise ValueError(f"seasonal effect month {m} out of range; valid: 1..12")
         if len(set(v)) != len(v):
-            raise ValueError(
-                f"seasonal effect months must be unique, got {list(v)}"
-            )
+            raise ValueError(f"seasonal effect months must be unique, got {list(v)}")
         return v
 
 
@@ -763,6 +778,7 @@ class CausalLag(_Frozen):
     (xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded
     behavior is recovered with ``blend_weight: 0.6``.
     """
+
     driver: str
     # F10 (M102): field-level cap relaxed to a sanity bound above the
     # daily-granularity maximum. The authoritative per-granularity
@@ -813,8 +829,7 @@ class CurveSegment(_Frozen):
     def _start_before_end(self) -> "CurveSegment":
         if self.start_pct >= self.end_pct:
             raise ValueError(
-                f"curve segment start_pct ({self.start_pct}) must be "
-                f"< end_pct ({self.end_pct})"
+                f"curve segment start_pct ({self.start_pct}) must be " f"< end_pct ({self.end_pct})"
             )
         return self
 
@@ -842,9 +857,7 @@ class Archetype(_Frozen):
     @model_validator(mode="after")
     def _segments_cover_full_range(self) -> "Archetype":
         if not self.curve_segments:
-            raise ValueError(
-                f"archetype {self.name!r} must have at least one curve segment"
-            )
+            raise ValueError(f"archetype {self.name!r} must have at least one curve segment")
         sorted_segs = sorted(self.curve_segments, key=lambda s: s.start_pct)
         if sorted_segs[0].start_pct != 0.0:
             raise ValueError(
@@ -881,6 +894,7 @@ class EntityOverrides(_Frozen):
     this model rather than threading new dict keys through
     ``compute_trajectory``.
     """
+
     inflection_month: Optional[int] = None
 
 
@@ -923,6 +937,7 @@ class FKDistribution(_Frozen):
     ``Column._normalize_distribution`` coerces the string form to
     ``FKDistribution(weights=None)`` before validation.
     """
+
     weights: Optional[dict[str, float]] = None
 
     @model_validator(mode="after")
@@ -932,9 +947,7 @@ class FKDistribution(_Frozen):
                 raise ValueError("FKDistribution.weights cannot be empty dict")
             for k, v in self.weights.items():
                 if v < 0.0:
-                    raise ValueError(
-                        f"FKDistribution weight for {k!r} is negative ({v})"
-                    )
+                    raise ValueError(f"FKDistribution weight for {k!r} is negative ({v})")
             if sum(self.weights.values()) <= 0.0:
                 raise ValueError("FKDistribution weights sum must be > 0")
         return self
@@ -981,6 +994,7 @@ class SCDType2Config(_Frozen):
     semantics so SCD versioning has a single behavioural contract with
     the rest of the engine.
     """
+
     trigger_metric: str
     thresholds: tuple[float, ...] = Field(min_length=1, max_length=20)
     labels: tuple[str, ...] = Field(min_length=2, max_length=21)
@@ -989,10 +1003,7 @@ class SCDType2Config(_Frozen):
     @classmethod
     def _trigger_metric_format(cls, v: str) -> str:
         if not isinstance(v, str) or "." not in v:
-            raise ValueError(
-                f"scd_type2.trigger_metric {v!r} must be "
-                f"'table_name.metric_name'"
-            )
+            raise ValueError(f"scd_type2.trigger_metric {v!r} must be " f"'table_name.metric_name'")
         table, metric = v.split(".", 1)
         if not table or not metric:
             raise ValueError(
@@ -1007,14 +1018,12 @@ class SCDType2Config(_Frozen):
         for t in v:
             if not (0.0 < float(t) < 1.0):
                 raise ValueError(
-                    f"scd_type2.thresholds values must lie in the open "
-                    f"interval (0, 1); got {t}"
+                    f"scd_type2.thresholds values must lie in the open " f"interval (0, 1); got {t}"
                 )
         for prev, curr in zip(v, v[1:]):
             if curr <= prev:
                 raise ValueError(
-                    f"scd_type2.thresholds must be strictly increasing; "
-                    f"got {list(v)}"
+                    f"scd_type2.thresholds must be strictly increasing; " f"got {list(v)}"
                 )
         return v
 
@@ -1149,8 +1158,7 @@ class Column(_Frozen):
             for entity_name, values in self.value_pool.items():
                 if not entity_name:
                     raise ValueError(
-                        f"column {self.name!r} value_pool has an empty "
-                        f"entity-name key"
+                        f"column {self.name!r} value_pool has an empty " f"entity-name key"
                     )
                 if not values:
                     raise ValueError(
@@ -1234,9 +1242,7 @@ class Table(_Frozen):
                 f"not in columns {sorted(col_names)}"
             )
         if len(set(pk_cols)) != len(pk_cols):
-            raise ValueError(
-                f"table {self.name!r} primary_key has duplicate columns: {pk_cols}"
-            )
+            raise ValueError(f"table {self.name!r} primary_key has duplicate columns: {pk_cols}")
         # Composite-grain tables with a single-column PK: warn, don't block.
         # A (entity_id, date_key) composite natural key is cleaner, but some
         # users prefer surrogate row_id keys — honour that choice.
@@ -1299,11 +1305,14 @@ class BridgeMetric(_Frozen):
     rejected at load — bridges have no time axis to anchor those
     sources against.
     """
+
     name: str
     dtype: Dtype
     source: str
 
-    _name_is_identifier = field_validator("name")(_identifier_field_validator("bridge metric column name"))
+    _name_is_identifier = field_validator("name")(
+        _identifier_field_validator("bridge metric column name")
+    )
 
     @field_validator("source")
     @classmethod
@@ -1330,15 +1339,14 @@ class BridgeCardinality(_Frozen):
     from the entity's trajectory position (closer to ``max`` for higher
     positions) or uniformly at random in ``[min, max]``.
     """
+
     min: int = Field(ge=0)
     max: int = Field(ge=1)
 
     @model_validator(mode="after")
     def _min_le_max(self) -> "BridgeCardinality":
         if self.min > self.max:
-            raise ValueError(
-                f"bridge cardinality.min ({self.min}) must be <= max ({self.max})"
-            )
+            raise ValueError(f"bridge cardinality.min ({self.min}) must be <= max ({self.max})")
         return self
 
 
@@ -1364,6 +1372,7 @@ class BridgeTableConfig(_Frozen):
     period. Temporal M:M (a relationship that opens and closes over
     time) is intentionally out of scope for V1.
     """
+
     name: str
     type: Literal["bridge"] = "bridge"
     connects: list[str] = Field(min_length=2, max_length=2)
@@ -1377,9 +1386,7 @@ class BridgeTableConfig(_Frozen):
     @classmethod
     def _connects_are_two_distinct_dims(cls, v: list[str]) -> list[str]:
         if len(v) != 2:
-            raise ValueError(
-                f"bridge.connects must list exactly 2 dim tables, got {len(v)}"
-            )
+            raise ValueError(f"bridge.connects must list exactly 2 dim tables, got {len(v)}")
         if v[0] == v[1]:
             raise ValueError(
                 f"bridge.connects entries must be distinct dim tables; got "
@@ -1432,6 +1439,7 @@ class QualityIssue(_Frozen):
     columns are excluded automatically). Explicit lists are validated
     at load against the resolved target_table's columns.
     """
+
     type: Literal[
         "null_injection",
         "duplicate_rows",
@@ -1465,6 +1473,7 @@ class QualityConfig(_Frozen):
     pipeline entirely when ``quality_issues`` is empty so the cost is
     zero for non-injected runs.
     """
+
     quality_issues: list[QualityIssue] = Field(default_factory=list, max_length=50)
 
 
@@ -1507,6 +1516,7 @@ class ManifestConfig(_Frozen):
     sampled subset is the first N entities under sorted-name order, so
     the same config always selects the same rows regardless of seed.
     """
+
     include: bool = True
     trajectory_sample_rate: float = Field(default=1.0, gt=0.0, le=1.0)
 
@@ -1544,6 +1554,7 @@ class EntityFeaturesConfig(_Frozen):
     clean and corrupted aggregates). Both rules raise at load time —
     see ``plotsim.validation.validate_entity_features_config``.
     """
+
     enabled: bool = False
     metrics: list[str] = Field(default_factory=list, max_length=50)
     include_labels: bool = True
@@ -1592,6 +1603,7 @@ class HoldoutConfig(_Frozen):
 
     Disabled (default) skips the split entirely.
     """
+
     enabled: bool = False
     target_metric: Optional[str] = None
     holdout_periods: int = Field(default=0, ge=0, le=10_000)
@@ -1613,6 +1625,7 @@ class OutputConfig(_Frozen):
     ``ImportError`` naming the install command — fail-fast at the
     write call rather than mid-iteration.
     """
+
     format: Literal["csv", "parquet"] = "csv"
     directory: str
 
@@ -1632,6 +1645,7 @@ NOISE_PRESETS: dict[str, NoiseConfig] = {
 
 class StageDefinition(_Frozen):
     """One stage in a lifecycle funnel (onboarding → active → at_risk → churned)."""
+
     name: str
     threshold_enter: float = Field(ge=0.0, le=1.0)
     # Terminal stage has threshold_exit=None (entity never leaves once entered).
@@ -1689,6 +1703,7 @@ class StageSequence(_Frozen):
     behavior under legacy mode and immediate-demote behavior under
     hysteresis mode. Ignored when ``enforce_order=False``.
     """
+
     field: str
     sequence: list[StageDefinition] = Field(min_length=2, max_length=10)
     enforce_order: bool = False
@@ -1726,8 +1741,7 @@ class StageSequence(_Frozen):
         for stage in seq[:-1]:
             if stage.threshold_exit is None:
                 raise ValueError(
-                    f"stage {stage.name!r} is not terminal but has "
-                    f"threshold_exit: null"
+                    f"stage {stage.name!r} is not terminal but has " f"threshold_exit: null"
                 )
 
         # F8: detect per-stage mode and enforce consistency. Mixing
@@ -1850,7 +1864,8 @@ class PlotsimConfig(_Frozen):
     # per-period summed strength is 0.0 and the metrics pipeline short-circuits
     # the modulation step. ``max_length=12`` matches the calendar-month domain.
     seasonal_effects: list[SeasonalEffect] = Field(
-        default_factory=list, max_length=12,
+        default_factory=list,
+        max_length=12,
     )
 
     # M120: trajectory-aware correlation pre-compensation. Default ``false``
@@ -1916,8 +1931,7 @@ class PlotsimConfig(_Frozen):
         total = sum(e.size for e in self.entities)
         if total > 100_000:
             raise ValueError(
-                f"Total entity count across all groups is {total:,}. "
-                f"Maximum is 100,000."
+                f"Total entity count across all groups is {total:,}. " f"Maximum is 100,000."
             )
         return self
 
@@ -1951,9 +1965,7 @@ class PlotsimConfig(_Frozen):
         n_periods = self.time_window.period_count()
         cell_count = n_entities * n_periods
 
-        n_fact_fields = sum(
-            len(t.columns) for t in self.tables if t.type == "fact"
-        )
+        n_fact_fields = sum(len(t.columns) for t in self.tables if t.type == "fact")
         metrics_bytes = n_entities * n_periods * len(self.metrics) * 8
         fact_bytes = n_entities * n_periods * n_fact_fields * 8
         peak_mb = (metrics_bytes + fact_bytes) / 1_000_000 + 100
@@ -1968,16 +1980,15 @@ class PlotsimConfig(_Frozen):
             if not isinstance(parsed_rc, ProportionalSource):
                 continue
             driver = next(
-                (m for m in self.metrics if m.name == parsed_rc.metric), None,
+                (m for m in self.metrics if m.name == parsed_rc.metric),
+                None,
             )
             if driver is None or driver.value_range is None:
                 continue
             v_max = driver.value_range.max
             if v_max is None:
                 continue
-            event_rows_upper += int(
-                n_entities * n_periods * v_max * parsed_rc.scale
-            )
+            event_rows_upper += int(n_entities * n_periods * v_max * parsed_rc.scale)
 
         summary = (
             f"Config summary: {n_entities:,} entities × {n_periods:,} periods "
@@ -2185,9 +2196,7 @@ def load_config(path: str | Path) -> PlotsimConfig:
     with p.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
-        raise ValueError(
-            f"config file {p} did not parse to a mapping (got {type(data).__name__})"
-        )
+        raise ValueError(f"config file {p} did not parse to a mapping (got {type(data).__name__})")
     return PlotsimConfig(**data)
 
 

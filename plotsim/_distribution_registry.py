@@ -72,6 +72,7 @@ class DistributionFamily:
 # where ``Z ~ N(0, 1)``. That's the closed form M127b uses to skip the
 # Φ + ppf round trip for normal/lognorm families.
 
+
 def _lognorm_sample_scalar(center, params, vr, rng):
     s = params["s"]
     safe_center = max(center, _CENTER_EPS)
@@ -106,6 +107,7 @@ def _lognorm_direct_transform(gaussian, centers, params, vr):
 # scipy's gamma(shape, scale=center/shape) has no closed-form unit-Gaussian
 # transform; the copula keeps the Φ + ppf path for this family.
 
+
 def _gamma_sample_scalar(center, params, vr, rng):
     shape = params["shape"]
     if shape <= 0.0 or center <= 0.0:
@@ -136,6 +138,7 @@ def _gamma_ppf_batch(uniform, centers, params, vr):
 # Φ + ppf path. Degenerate λ ≤ eps produces a deterministic-zero column
 # (matches scalar ``sample_single_metric``'s ``max(center, 0.0)`` guard).
 
+
 def _poisson_sample_scalar(center, params, vr, rng):
     lam = max(center, 0.0)
     return float(rng.poisson(lam=lam))
@@ -157,6 +160,7 @@ def _poisson_ppf_batch(uniform, centers, params, vr):
 # scipy.beta with affine reparameterization to land the mean on ``center``.
 # Two paths depending on whether ``value_range`` is set; both produce the
 # same shape modulo the affine transform. No closed-form unit-Gaussian map.
+
 
 def _beta_sample_scalar(center, params, vr, rng):
     alpha = params["alpha"]
@@ -190,13 +194,15 @@ def _beta_ppf_batch(uniform, centers, params, vr):
     if vr is not None and vr.min is not None and vr.max is not None:
         span = float(vr.max - vr.min)
         return sp_stats.beta(
-            a=alpha, b=beta,
+            a=alpha,
+            b=beta,
             loc=centers - base_mean * span,
             scale=span,
         ).ppf(uniform)
     scale = float(params.get("scale", 1.0))
     return sp_stats.beta(
-        a=alpha, b=beta,
+        a=alpha,
+        b=beta,
         loc=scale * (centers - base_mean),
         scale=scale,
     ).ppf(uniform)
@@ -206,6 +212,7 @@ def _beta_ppf_batch(uniform, centers, params, vr):
 #
 # Closed-form direct transform: ``X = center + sigma * Z``. Sigma > 0 is
 # enforced at config-load by the marginal validator.
+
 
 def _normal_sample_scalar(center, params, vr, rng):
     sigma = params["sigma"]
@@ -232,6 +239,7 @@ def _normal_direct_transform(gaussian, centers, params, vr):
 # --- weibull -----------------------------------------------------------------
 #
 # weibull_min(c=shape, scale=center). No closed-form Gaussian transform.
+
 
 def _weibull_sample_scalar(center, params, vr, rng):
     shape = params["shape"]

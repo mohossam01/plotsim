@@ -10,6 +10,7 @@ construction). The contract is round-trip DataFrame equality —
 ``pd.read_parquet(streaming) == pd.read_parquet(non_streaming)`` for
 the same ``(config, seed, generation_mode)``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -20,7 +21,7 @@ import pandas as pd
 import pytest
 
 from plotsim.builder import create_from_yaml
-from plotsim.config import OutputConfig, load_config
+from plotsim.config import load_config
 from plotsim.output import (
     _streaming_fact_table_names,
     _streaming_parquet_eligible,
@@ -68,19 +69,23 @@ class TestEligibility:
         assumption only holds for the vectorized dispatcher's archetype
         groupings."""
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        cfg = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "serial",
-        })
+        cfg = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "serial",
+            }
+        )
         assert _resolve_generation_mode(cfg) == "serial"
         assert not _streaming_parquet_eligible(cfg)
 
     def test_parquet_vectorized_eligible(self):
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        cfg = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "vectorized",
-        })
+        cfg = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "vectorized",
+            }
+        )
         assert _streaming_parquet_eligible(cfg)
 
 
@@ -93,9 +98,7 @@ class TestIterFactChunks:
     independently because it's also a useful seam for analysis tooling."""
 
     def test_chunk_count_matches_archetypes(self):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
@@ -111,9 +114,7 @@ class TestIterFactChunks:
         assert len(archetype_chunks) == len(unique_archetypes)
 
     def test_chunk_row_counts_match_entity_counts(self):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
@@ -130,25 +131,22 @@ class TestIterFactChunks:
                 continue
             for _name, df in chunk.items():
                 assert len(df) == ents_per_arch[arch] * n_periods, (
-                    f"{arch}: expected {ents_per_arch[arch]}×{n_periods} "
-                    f"rows, got {len(df)}"
+                    f"{arch}: expected {ents_per_arch[arch]}×{n_periods} " f"rows, got {len(df)}"
                 )
 
     def test_chunk_union_equals_unified(self):
         """Concatenating every chunk's fact DataFrame should reconstruct
         the unified DataFrame (row order may differ, but row sets match)."""
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
                 cfg.model_copy(update={"generation_mode": "vectorized"}),
                 np.random.default_rng(cfg.seed),
             )
-        for fact_name in (n for n in tables
-                          if any(t.name == n and t.type == "fact"
-                                 for t in cfg.tables)):
+        for fact_name in (
+            n for n in tables if any(t.name == n and t.type == "fact" for t in cfg.tables)
+        ):
             unified = tables[fact_name]
             collected = []
             for arch, chunk in iter_fact_chunks(cfg, tables):
@@ -156,8 +154,7 @@ class TestIterFactChunks:
                     collected.append(chunk[fact_name])
             recombined = pd.concat(collected, ignore_index=True)
             assert len(recombined) == len(unified), (
-                f"{fact_name}: chunks total {len(recombined)} rows, "
-                f"unified has {len(unified)}"
+                f"{fact_name}: chunks total {len(recombined)} rows, " f"unified has {len(unified)}"
             )
 
     def test_per_period_fact_uses_sentinel(self):
@@ -176,8 +173,7 @@ class TestIterFactChunks:
         chunks = list(iter_fact_chunks(cfg, tables))
         sentinel_chunks = [c for c in chunks if c[0] == "__per_period__"]
         assert sentinel_chunks == [], (
-            "sample_saas has no per_period facts — sentinel chunk should "
-            "not be emitted"
+            "sample_saas has no per_period facts — sentinel chunk should " "not be emitted"
         )
 
 
@@ -191,13 +187,13 @@ class TestRoundTripEquality:
     ``pd.read_parquet`` and compare frames, never bytes."""
 
     def test_streaming_round_trips_to_unified(self, tmp_path):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg_v = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "vectorized",
+            }
         )
-        cfg_v = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "vectorized",
-        })
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(cfg_v, np.random.default_rng(cfg_v.seed))
@@ -217,11 +213,11 @@ class TestRoundTripEquality:
                 if pd.api.types.is_numeric_dtype(a) and pd.api.types.is_numeric_dtype(b):
                     a_arr = pd.to_numeric(a, errors="coerce").to_numpy()
                     b_arr = pd.to_numeric(b, errors="coerce").to_numpy()
-                    np.testing.assert_array_equal(a_arr, b_arr,
-                                                  err_msg=f"{fact_name}.{col}")
+                    np.testing.assert_array_equal(a_arr, b_arr, err_msg=f"{fact_name}.{col}")
                 else:
-                    assert (a.astype(object).tolist()
-                            == b.astype(object).tolist()), f"{fact_name}.{col}"
+                    assert (
+                        a.astype(object).tolist() == b.astype(object).tolist()
+                    ), f"{fact_name}.{col}"
 
     def test_streaming_vs_non_streaming_dataframes_equal(self, tmp_path):
         """Two writes — one with vectorized+parquet (streaming) and one
@@ -230,9 +226,11 @@ class TestRoundTripEquality:
         sides; the path the engine produced differs but the on-disk
         data must reconcile."""
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        cfg_parquet = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-        })
+        cfg_parquet = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+            }
+        )
         # Serial run — non-streaming path.
         cfg_s = cfg_parquet.model_copy(update={"generation_mode": "serial"})
         # Vectorized run — streaming path.
@@ -259,8 +257,7 @@ class TestRoundTripEquality:
             # Shape parity must hold across modes (same row count, same
             # columns) even though cell values differ.
             assert on_disk_streaming.shape == on_disk_serial.shape, fact_name
-            assert sorted(on_disk_streaming.columns) == sorted(
-                on_disk_serial.columns), fact_name
+            assert sorted(on_disk_streaming.columns) == sorted(on_disk_serial.columns), fact_name
 
 
 # --- Row group AC ----------------------------------------------------------
@@ -271,13 +268,13 @@ class TestRowGroups:
     batches for ``per_entity_per_period`` facts."""
 
     def test_row_group_count_matches_archetypes(self, tmp_path):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "vectorized",
+            }
         )
-        cfg = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "vectorized",
-        })
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -288,13 +285,13 @@ class TestRowGroups:
             assert meta.num_row_groups == len(unique_archetypes), fact_name
 
     def test_row_group_sizes_match_entity_counts(self, tmp_path):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "vectorized",
+            }
         )
-        cfg = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "vectorized",
-        })
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -313,8 +310,7 @@ class TestRowGroups:
             meta = pq.read_metadata(tmp_path / f"{fact_name}.parquet")
             sizes = [meta.row_group(i).num_rows for i in range(meta.num_row_groups)]
             assert sizes == expected_sizes, (
-                f"{fact_name}: expected row group sizes {expected_sizes}, "
-                f"got {sizes}"
+                f"{fact_name}: expected row group sizes {expected_sizes}, " f"got {sizes}"
             )
 
 
@@ -328,10 +324,12 @@ class TestBackwardCompat:
         """Serial + parquet still uses the single-shot ``to_parquet``
         path → one row group per fact (pyarrow default)."""
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        cfg = cfg.model_copy(update={
-            "output": cfg.output.model_copy(update={"format": "parquet"}),
-            "generation_mode": "serial",
-        })
+        cfg = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "serial",
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -341,8 +339,7 @@ class TestBackwardCompat:
                 continue
             meta = pq.read_metadata(tmp_path / f"{tbl.name}.parquet")
             assert meta.num_row_groups == 1, (
-                f"{tbl.name}: serial+parquet expected 1 row group, "
-                f"got {meta.num_row_groups}"
+                f"{tbl.name}: serial+parquet expected 1 row group, " f"got {meta.num_row_groups}"
             )
 
     def test_vectorized_csv_unchanged(self, tmp_path):
@@ -350,9 +347,11 @@ class TestBackwardCompat:
         per-row-group concept in CSV; the test only confirms output
         is produced and readable."""
         cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
-        cfg = cfg.model_copy(update={
-            "generation_mode": "vectorized",
-        })
+        cfg = cfg.model_copy(
+            update={
+                "generation_mode": "vectorized",
+            }
+        )
         # Format remains CSV (the default for sample_saas).
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

@@ -16,15 +16,13 @@ Plus the "### Packaging" checks that don't require actually running pip:
 The build-tool checks (pip install, python -m build, twine check) are covered
 by a separate invocation in the mission runbook, not as pytest tests.
 """
+
 from __future__ import annotations
 
 import io
-import os
-import sys
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
-import pytest
 
 import plotsim
 from plotsim import cli
@@ -61,6 +59,7 @@ def run_cli(*argv: str) -> tuple[int, str, str]:
 
 def test_package_version_is_wired():
     from importlib.metadata import version as _pkg_version
+
     assert plotsim.__version__ == _pkg_version("plotsim")
 
 
@@ -73,6 +72,7 @@ def test_public_api_quick_start_import():
         validate,
         ValidationReport,
     )
+
     assert callable(load_config)
     assert callable(generate_tables)
     assert callable(write_tables)
@@ -155,8 +155,16 @@ def test_info_saas_summary():
     code, out, _err = run_cli("info", str(SAAS_YAML))
     assert code == 0
     # Hit every summary line
-    for token in ("Domain:", "Entities:", "Time window:", "Metrics:",
-                  "Archetypes:", "Tables:", "Estimated rows:", "Seed:"):
+    for token in (
+        "Domain:",
+        "Entities:",
+        "Time window:",
+        "Metrics:",
+        "Archetypes:",
+        "Tables:",
+        "Estimated rows:",
+        "Seed:",
+    ):
         assert token in out, f"missing line starting with {token!r}"
     assert "24 months" in out  # 2023-01..2024-12
     assert "Seed: 42" in out
@@ -175,26 +183,52 @@ def test_info_hr_summary():
 def _estimate_cfg(start: str, end: str, granularity: str):
     """Build a minimal PlotsimConfig covering only what _estimate_periods reads."""
     from plotsim.config import (
-        Archetype, Column, CurveSegment, Domain, Entity, Metric, NoiseConfig,
-        OutputConfig, PlotsimConfig, Table, TimeWindow,
+        Archetype,
+        Column,
+        CurveSegment,
+        Domain,
+        Entity,
+        Metric,
+        NoiseConfig,
+        OutputConfig,
+        PlotsimConfig,
+        Table,
+        TimeWindow,
     )
+
     return PlotsimConfig(
         domain=Domain(name="n", description="d", entity_type="e", entity_label="E"),
         time_window=TimeWindow(start=start, end=end, granularity=granularity),
         seed=1,
-        metrics=[Metric(name="a", label="A", distribution="normal",
-                        params={"mu": 0.0, "sigma": 1.0}, polarity="positive")],
-        archetypes=[Archetype(
-            name="flat", label="Flat", description="-",
-            curve_segments=[CurveSegment(curve="plateau", params={"level": 0.5},
-                                         start_pct=0.0, end_pct=1.0)],
-        )],
+        metrics=[
+            Metric(
+                name="a",
+                label="A",
+                distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive",
+            )
+        ],
+        archetypes=[
+            Archetype(
+                name="flat",
+                label="Flat",
+                description="-",
+                curve_segments=[
+                    CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0)
+                ],
+            )
+        ],
         entities=[Entity(name="e1", archetype="flat", size=1)],
-        tables=[Table(
-            name="dim_date", type="dim", grain="per_period",
-            columns=[Column(name="date_key", dtype="id", source="pk")],
-            primary_key="date_key",
-        )],
+        tables=[
+            Table(
+                name="dim_date",
+                type="dim",
+                grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            )
+        ],
         noise=NoiseConfig(),
         output=OutputConfig(format="csv", directory="out"),
     )
@@ -231,7 +265,12 @@ def test_cli_output_summary_lists_empty_tables(tmp_path: Path):
     declares it without a driver.
     """
     code, out, _err = run_cli(
-        "run", str(HR_YAML), "-o", str(tmp_path), "--seed", "1",
+        "run",
+        str(HR_YAML),
+        "-o",
+        str(tmp_path),
+        "--seed",
+        "1",
         "--allow-absolute-output",
     )
     assert code == 0
@@ -264,7 +303,11 @@ def test_template_prints_to_stdout_when_no_output():
 def test_template_writes_to_file_when_output(tmp_path: Path):
     dst = tmp_path / "my.yaml"
     code, out, _err = run_cli(
-        "template", "hr", "-o", str(dst), "--allow-absolute-output",
+        "template",
+        "hr",
+        "-o",
+        str(dst),
+        "--allow-absolute-output",
     )
     assert code == 0
     assert dst.exists()
@@ -289,7 +332,11 @@ def test_template_unknown_name_exits_nonzero():
 def test_template_output_creates_parent_dirs(tmp_path: Path):
     nested = tmp_path / "a" / "b" / "c.yaml"
     code, _out, _err = run_cli(
-        "template", "saas", "-o", str(nested), "--allow-absolute-output",
+        "template",
+        "saas",
+        "-o",
+        str(nested),
+        "--allow-absolute-output",
     )
     assert code == 0
     assert nested.exists()
@@ -300,7 +347,13 @@ def test_template_output_creates_parent_dirs(tmp_path: Path):
 
 def test_run_writes_csvs_to_specified_output_dir(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q",
+        "run",
+        str(SAAS_YAML),
+        "-o",
+        str(tmp_path),
+        "--seed",
+        "42",
+        "-q",
         "--allow-absolute-output",
     )
     assert code == 0, f"stderr={_err!r}"
@@ -315,10 +368,8 @@ def test_run_writes_csvs_to_specified_output_dir(tmp_path: Path):
 def test_run_seed_override_changes_output(tmp_path: Path):
     dir_a = tmp_path / "seed_a"
     dir_b = tmp_path / "seed_b"
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "1", "-q",
-            "--allow-absolute-output")
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "2", "-q",
-            "--allow-absolute-output")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "1", "-q", "--allow-absolute-output")
+    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "2", "-q", "--allow-absolute-output")
     # Different seeds must produce different facts (engagement scores will differ)
     fct_a = (dir_a / "fct_engagement.csv").read_text(encoding="utf-8")
     fct_b = (dir_b / "fct_engagement.csv").read_text(encoding="utf-8")
@@ -328,18 +379,26 @@ def test_run_seed_override_changes_output(tmp_path: Path):
 def test_run_seed_is_deterministic(tmp_path: Path):
     dir_a = tmp_path / "a"
     dir_b = tmp_path / "b"
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "99", "-q",
-            "--allow-absolute-output")
-    run_cli("run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "99", "-q",
-            "--allow-absolute-output")
+    run_cli(
+        "run", str(SAAS_YAML), "-o", str(dir_a), "--seed", "99", "-q", "--allow-absolute-output"
+    )
+    run_cli(
+        "run", str(SAAS_YAML), "-o", str(dir_b), "--seed", "99", "-q", "--allow-absolute-output"
+    )
     for name in ("fct_engagement.csv", "fct_revenue.csv", "dim_company.csv"):
-        assert (dir_a / name).read_text(encoding="utf-8") == (
-            dir_b / name).read_text(encoding="utf-8"), f"{name} differs"
+        assert (dir_a / name).read_text(encoding="utf-8") == (dir_b / name).read_text(
+            encoding="utf-8"
+        ), f"{name} differs"
 
 
 def test_run_validate_flag_prints_report(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--validate", "-q",
+        "run",
+        str(SAAS_YAML),
+        "-o",
+        str(tmp_path),
+        "--validate",
+        "-q",
         "--allow-absolute-output",
     )
     assert code == 0
@@ -359,7 +418,13 @@ def test_run_default_output_dir_uses_config(tmp_path: Path, monkeypatch):
 
 def test_run_quiet_suppresses_summary(tmp_path: Path):
     code, out, _err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "1", "-q",
+        "run",
+        str(SAAS_YAML),
+        "-o",
+        str(tmp_path),
+        "--seed",
+        "1",
+        "-q",
         "--allow-absolute-output",
     )
     assert code == 0
@@ -379,7 +444,12 @@ def test_run_strict_aborts_on_invalid(tmp_path: Path, monkeypatch):
     broken = tmp_path / "broken.yaml"
     broken.write_text("not a real config\n", encoding="utf-8")
     code, _out, _err = run_cli(
-        "run", str(broken), "-o", str(tmp_path / "out"), "--strict", "-q",
+        "run",
+        str(broken),
+        "-o",
+        str(tmp_path / "out"),
+        "--strict",
+        "-q",
         "--allow-absolute-output",
     )
     assert code == 1
@@ -392,7 +462,13 @@ def test_run_all_five_templates_end_to_end(tmp_path: Path):
         assert path is not None
         out_dir = tmp_path / name
         code, _out, err = run_cli(
-            "run", str(path), "-o", str(out_dir), "--seed", "5", "-q",
+            "run",
+            str(path),
+            "-o",
+            str(out_dir),
+            "--seed",
+            "5",
+            "-q",
             "--allow-absolute-output",
         )
         assert code == 0, f"{name}: exit {code}, stderr={err!r}"
@@ -410,6 +486,7 @@ def test_run_all_five_templates_end_to_end(tmp_path: Path):
 def _write_saas_with_output_dir(dst: Path, output_directory: str) -> Path:
     """Clone sample_saas.yaml with ``output.directory`` rewritten."""
     import yaml as _yaml
+
     with SAAS_YAML.open("r", encoding="utf-8") as f:
         data = _yaml.safe_load(f)
     data["output"]["directory"] = output_directory
@@ -424,7 +501,8 @@ def test_cli_rejects_config_absolute_output_dir(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rogue = tmp_path / "rogue_target"
     cfg_path = _write_saas_with_output_dir(
-        tmp_path / "abs.yaml", str(rogue.resolve()),
+        tmp_path / "abs.yaml",
+        str(rogue.resolve()),
     )
     code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
     assert code == 1
@@ -440,7 +518,8 @@ def test_cli_rejects_config_dotdot_output_dir(tmp_path: Path, monkeypatch):
     workdir.mkdir()
     monkeypatch.chdir(workdir)
     cfg_path = _write_saas_with_output_dir(
-        workdir / "dotdot.yaml", "../escape/hatch",
+        workdir / "dotdot.yaml",
+        "../escape/hatch",
     )
     code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
     assert code == 1
@@ -455,7 +534,13 @@ def test_cli_allow_absolute_output_flag_writes_absolute_path(tmp_path: Path):
     """
     out_dir = tmp_path / "freely_chosen"
     code, _out, err = run_cli(
-        "run", str(SAAS_YAML), "-o", str(out_dir), "--seed", "42", "-q",
+        "run",
+        str(SAAS_YAML),
+        "-o",
+        str(out_dir),
+        "--seed",
+        "42",
+        "-q",
         "--allow-absolute-output",
     )
     assert code == 0, f"stderr={err!r}"
@@ -468,7 +553,8 @@ def test_cli_relative_output_dir_unchanged_behavior(tmp_path: Path, monkeypatch)
     """
     monkeypatch.chdir(tmp_path)
     cfg_path = _write_saas_with_output_dir(
-        tmp_path / "rel.yaml", "out/saas",
+        tmp_path / "rel.yaml",
+        "out/saas",
     )
     code, _out, err = run_cli("run", str(cfg_path), "--seed", "1", "-q")
     assert code == 0, f"stderr={err!r}"
@@ -520,8 +606,7 @@ def test_info_accepts_builder_yaml():
     """M124: ``plotsim info`` works on builder YAML — same summary surface."""
     code, out, _err = run_cli("info", str(BUILDER_SAAS_YAML))
     assert code == 0
-    for token in ("Domain:", "Entities:", "Time window:", "Metrics:",
-                  "Tables:", "Seed:"):
+    for token in ("Domain:", "Entities:", "Time window:", "Metrics:", "Tables:", "Seed:"):
         assert token in out, f"missing summary token {token!r}"
 
 
@@ -531,8 +616,13 @@ def test_run_accepts_builder_yaml(tmp_path: Path):
     (criterion 6) — covered by ``test_run_writes_csvs_to_specified_output_dir``.
     """
     code, _out, err = run_cli(
-        "run", str(BUILDER_SAAS_YAML), "-o", str(tmp_path),
-        "--validate", "-q", "--allow-absolute-output",
+        "run",
+        str(BUILDER_SAAS_YAML),
+        "-o",
+        str(tmp_path),
+        "--validate",
+        "-q",
+        "--allow-absolute-output",
     )
     assert code == 0, f"stderr={err!r}"
     csvs = sorted(p.name for p in tmp_path.glob("*.csv"))
@@ -546,7 +636,8 @@ def test_is_builder_yaml_detects_builder_shape(tmp_path: Path):
     """M124: the dispatcher peek correctly classifies both flavours."""
     builder_path = tmp_path / "builder.yaml"
     builder_path.write_text(
-        "about: x\nunit: company\nsegments: []\n", encoding="utf-8",
+        "about: x\nunit: company\nsegments: []\n",
+        encoding="utf-8",
     )
     engine_path = tmp_path / "engine.yaml"
     engine_path.write_text(

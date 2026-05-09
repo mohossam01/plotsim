@@ -43,6 +43,7 @@ HR_YAML = ROOT / "plotsim" / "configs" / "sample_hr.yaml"
 
 # --- Acceptance: valid load for both sample configs ---
 
+
 def test_load_saas_config():
     c = load_config(SAAS_YAML)
     assert isinstance(c, PlotsimConfig)
@@ -50,19 +51,33 @@ def test_load_saas_config():
     assert c.domain.entity_label == "Customer accounts"
     metric_names = {m.name for m in c.metrics}
     assert metric_names == {
-        "engagement", "mrr", "support_tickets",
-        "feature_adoption", "churn_risk", "nps",
+        "engagement",
+        "mrr",
+        "support_tickets",
+        "feature_adoption",
+        "churn_risk",
+        "nps",
     }
     archetype_names = {a.name for a in c.archetypes}
     assert archetype_names == {
-        "rocket_then_cliff", "steady_grower", "slow_death",
-        "seasonal_spiker", "zombie_account", "expansion_champion",
+        "rocket_then_cliff",
+        "steady_grower",
+        "slow_death",
+        "seasonal_spiker",
+        "zombie_account",
+        "expansion_champion",
     }
     table_names = {t.name for t in c.tables}
     assert table_names == {
-        "dim_date", "dim_company", "dim_user", "dim_plan",
-        "fct_engagement", "fct_revenue", "fct_support_tickets",
-        "evt_login", "evt_churn",
+        "dim_date",
+        "dim_company",
+        "dim_user",
+        "dim_plan",
+        "fct_engagement",
+        "fct_revenue",
+        "fct_support_tickets",
+        "evt_login",
+        "evt_churn",
     }
     assert len(c.entities) == 3
 
@@ -73,19 +88,26 @@ def test_load_hr_config():
     assert c.domain.entity_type == "employee"
     metric_names = {m.name for m in c.metrics}
     assert metric_names == {
-        "performance_score", "engagement_index", "training_hours",
-        "absence_rate", "attrition_risk",
+        "performance_score",
+        "engagement_index",
+        "training_hours",
+        "absence_rate",
+        "attrition_risk",
     }
     archetype_names = {a.name for a in c.archetypes}
     assert archetype_names == {
-        "fast_riser", "steady_performer", "quiet_quitter",
-        "burnout_risk", "new_hire_ramp",
+        "fast_riser",
+        "steady_performer",
+        "quiet_quitter",
+        "burnout_risk",
+        "new_hire_ramp",
     }
     assert len(c.tables) == 7
     assert len(c.entities) == 4
 
 
 # --- Acceptance: PlotsimConfig is frozen ---
+
 
 def test_config_is_frozen():
     c = load_config(SAAS_YAML)
@@ -96,6 +118,7 @@ def test_config_is_frozen():
 
 
 # --- Acceptance: noise presets are named constants ---
+
 
 def test_noise_presets_named_constants():
     assert NOISE_PRESETS["Perfectly clean"] is PERFECTLY_CLEAN
@@ -109,6 +132,7 @@ def test_noise_presets_named_constants():
 
 
 # --- Acceptance: round-trip load → dump → load → equal ---
+
 
 def test_roundtrip_saas():
     c1 = load_config(SAAS_YAML)
@@ -126,6 +150,7 @@ def test_roundtrip_hr():
 
 # --- Helpers for negative tests: a minimal valid raw dict to mutate ---
 
+
 def _minimal_valid() -> dict:
     return {
         "domain": {
@@ -135,27 +160,35 @@ def _minimal_valid() -> dict:
             "entity_label": "Widgets",
         },
         "time_window": {
-            "start": "2024-01", "end": "2024-12", "granularity": "monthly",
+            "start": "2024-01",
+            "end": "2024-12",
+            "granularity": "monthly",
         },
         "seed": 1,
-        "metrics": [{
-            "name": "m1",
-            "label": "M1",
-            "distribution": "lognorm",
-            "params": {"s": 0.5, "scale": 1.0},
-            "polarity": "positive",
-        }],
-        "archetypes": [{
-            "name": "a1",
-            "label": "A1",
-            "description": "single segment covering full range",
-            "curve_segments": [{
-                "curve": "sigmoid",
-                "params": {"midpoint": 0.5, "steepness": 1.0},
-                "start_pct": 0.0,
-                "end_pct": 1.0,
-            }],
-        }],
+        "metrics": [
+            {
+                "name": "m1",
+                "label": "M1",
+                "distribution": "lognorm",
+                "params": {"s": 0.5, "scale": 1.0},
+                "polarity": "positive",
+            }
+        ],
+        "archetypes": [
+            {
+                "name": "a1",
+                "label": "A1",
+                "description": "single segment covering full range",
+                "curve_segments": [
+                    {
+                        "curve": "sigmoid",
+                        "params": {"midpoint": 0.5, "steepness": 1.0},
+                        "start_pct": 0.0,
+                        "end_pct": 1.0,
+                    }
+                ],
+            }
+        ],
         "entities": [{"name": "e1", "archetype": "a1", "size": 5}],
         "tables": [
             {
@@ -200,6 +233,7 @@ def test_minimal_valid_loads():
 
 
 # --- Acceptance: every validation error case ---
+
 
 def test_missing_required_field_seed():
     raw = _minimal_valid()
@@ -379,7 +413,8 @@ def test_non_psd_correlation_projects_at_load():
         _warnings.simplefilter("always")
         cfg = PlotsimConfig(**raw)
     m111 = [
-        w for w in caught
+        w
+        for w in caught
         if issubclass(w.category, UserWarning)
         and "Correlation matrix was not positive definite" in str(w.message)
     ]
@@ -421,27 +456,37 @@ def test_primary_key_not_in_columns():
 
 # --- Flag 1: new grain enum ---
 
+
 def test_new_grain_values_all_accepted():
     raw = _minimal_valid()
     # Add a table per new grain value not already present in the minimal config
-    raw["tables"].append({
-        "name": "dim_plan",
-        "type": "dim",
-        "grain": "per_reference",
-        "columns": [{"name": "plan_id", "dtype": "id", "source": "pk"}],
-        "primary_key": "plan_id",
-    })
-    raw["tables"].append({
-        "name": "evt_thing",
-        "type": "event",
-        "grain": "variable",
-        "columns": [{"name": "event_id", "dtype": "id", "source": "pk"}],
-        "primary_key": "event_id",
-    })
+    raw["tables"].append(
+        {
+            "name": "dim_plan",
+            "type": "dim",
+            "grain": "per_reference",
+            "columns": [{"name": "plan_id", "dtype": "id", "source": "pk"}],
+            "primary_key": "plan_id",
+        }
+    )
+    raw["tables"].append(
+        {
+            "name": "evt_thing",
+            "type": "event",
+            "grain": "variable",
+            "columns": [{"name": "event_id", "dtype": "id", "source": "pk"}],
+            "primary_key": "event_id",
+        }
+    )
     c = PlotsimConfig(**raw)
     grains = {t.grain for t in c.tables}
-    assert {"per_entity", "per_period", "per_entity_per_period",
-            "per_reference", "variable"} <= grains
+    assert {
+        "per_entity",
+        "per_period",
+        "per_entity_per_period",
+        "per_reference",
+        "variable",
+    } <= grains
 
 
 def test_legacy_grain_values_rejected():
@@ -452,6 +497,7 @@ def test_legacy_grain_values_rejected():
 
 
 # --- Flag 2: composite primary keys ---
+
 
 def test_composite_primary_key_accepted():
     raw = _minimal_valid()
@@ -488,9 +534,14 @@ def test_surrogate_pk_on_composite_grain_emits_warning():
     raw = _minimal_valid()
     # Replace the composite PK with a single surrogate column on a
     # per_entity_per_period fact table — should warn but still load.
-    raw["tables"][1]["columns"].insert(0, {
-        "name": "row_id", "dtype": "id", "source": "pk",
-    })
+    raw["tables"][1]["columns"].insert(
+        0,
+        {
+            "name": "row_id",
+            "dtype": "id",
+            "source": "pk",
+        },
+    )
     raw["tables"][1]["primary_key"] = "row_id"
     with pytest.warns(SurrogateKeyWarning, match="per_entity_per_period"):
         c = PlotsimConfig(**raw)
@@ -516,14 +567,18 @@ def test_single_pk_on_non_composite_grain_emits_no_warning():
 
 def test_table_primary_key_cols_property():
     t_single = Table(
-        name="dim_x", type="dim", grain="per_entity",
+        name="dim_x",
+        type="dim",
+        grain="per_entity",
         columns=[{"name": "x_id", "dtype": "id", "source": "pk"}],
         primary_key="x_id",
     )
     assert t_single.primary_key_cols == ["x_id"]
 
     t_composite = Table(
-        name="dim_y", type="dim", grain="per_period",
+        name="dim_y",
+        type="dim",
+        grain="per_period",
         columns=[
             {"name": "a", "dtype": "id", "source": "pk"},
             {"name": "b", "dtype": "id", "source": "pk"},
@@ -535,14 +590,13 @@ def test_table_primary_key_cols_property():
 
 # --- Mission 001a: parse_source returns typed objects ---
 
+
 def test_parse_source_pk():
     assert parse_source("pk") == PKSource()
 
 
 def test_parse_source_fk():
-    assert parse_source("fk:dim_user.user_id") == FKSource(
-        table="dim_user", column="user_id"
-    )
+    assert parse_source("fk:dim_user.user_id") == FKSource(table="dim_user", column="user_id")
 
 
 def test_parse_source_metric():
@@ -550,23 +604,17 @@ def test_parse_source_metric():
 
 
 def test_parse_source_generated_non_faker():
-    assert parse_source("generated:timestamp") == GeneratedSource(
-        provider="timestamp"
-    )
+    assert parse_source("generated:timestamp") == GeneratedSource(provider="timestamp")
 
 
 def test_parse_source_generated_faker_unparameterized():
     # FIX-05: bare faker providers parse as FakerSource with empty kwargs.
-    assert parse_source("generated:faker.company") == FakerSource(
-        method="company", kwargs={}
-    )
+    assert parse_source("generated:faker.company") == FakerSource(method="company", kwargs={})
 
 
 def test_parse_source_generated_faker_parameterized():
     # FIX-05 / MF-2: kwargs are parsed out of the colon-delimited grammar.
-    parsed = parse_source(
-        "generated:faker.date_between:start_date:2020-01-01:end_date:2024-12-31"
-    )
+    parsed = parse_source("generated:faker.date_between:start_date:2020-01-01:end_date:2024-12-31")
     assert parsed == FakerSource(
         method="date_between",
         kwargs={"start_date": "2020-01-01", "end_date": "2024-12-31"},
@@ -602,12 +650,11 @@ def test_parse_source_proportional():
 
 
 def test_parse_source_lag():
-    assert parse_source("lag:engagement:periods:2") == LagSource(
-        metric="engagement", periods=2
-    )
+    assert parse_source("lag:engagement:periods:2") == LagSource(metric="engagement", periods=2)
 
 
 # --- Mission 001a: parse_source rejects malformed inputs ---
+
 
 def test_parse_source_unknown_prefix():
     with pytest.raises(ValueError):
@@ -677,12 +724,16 @@ def test_parse_source_lag_periods_min_one():
 
 # --- Mission 001a: new column source types accepted in Column validator ---
 
+
 def test_column_accepts_threshold_source():
     raw = _minimal_valid()
-    raw["tables"][1]["columns"].append({
-        "name": "flag", "dtype": "boolean",
-        "source": "threshold:m1:above:0.5:for:2",
-    })
+    raw["tables"][1]["columns"].append(
+        {
+            "name": "flag",
+            "dtype": "boolean",
+            "source": "threshold:m1:above:0.5:for:2",
+        }
+    )
     c = PlotsimConfig(**raw)
     fct = next(t for t in c.tables if t.name == "fct_m1")
     assert any(col.source.startswith("threshold:") for col in fct.columns)
@@ -690,19 +741,25 @@ def test_column_accepts_threshold_source():
 
 def test_column_accepts_lag_source():
     raw = _minimal_valid()
-    raw["tables"][1]["columns"].append({
-        "name": "lagged", "dtype": "float",
-        "source": "lag:m1:periods:2",
-    })
+    raw["tables"][1]["columns"].append(
+        {
+            "name": "lagged",
+            "dtype": "float",
+            "source": "lag:m1:periods:2",
+        }
+    )
     PlotsimConfig(**raw)  # does not raise
 
 
 def test_threshold_source_unknown_metric_rejected():
     raw = _minimal_valid()
-    raw["tables"][1]["columns"].append({
-        "name": "flag", "dtype": "boolean",
-        "source": "threshold:ghost:above:0.5:for:2",
-    })
+    raw["tables"][1]["columns"].append(
+        {
+            "name": "flag",
+            "dtype": "boolean",
+            "source": "threshold:ghost:above:0.5:for:2",
+        }
+    )
     with pytest.raises(ValidationError) as exc:
         PlotsimConfig(**raw)
     assert "ghost" in str(exc.value)
@@ -710,16 +767,20 @@ def test_threshold_source_unknown_metric_rejected():
 
 def test_lag_source_unknown_metric_rejected():
     raw = _minimal_valid()
-    raw["tables"][1]["columns"].append({
-        "name": "lagged", "dtype": "float",
-        "source": "lag:ghost:periods:2",
-    })
+    raw["tables"][1]["columns"].append(
+        {
+            "name": "lagged",
+            "dtype": "float",
+            "source": "lag:ghost:periods:2",
+        }
+    )
     with pytest.raises(ValidationError) as exc:
         PlotsimConfig(**raw)
     assert "ghost" in str(exc.value)
 
 
 # --- Mission 001a: Table.row_count_source ---
+
 
 def _event_table(**overrides):
     base = {
@@ -735,9 +796,11 @@ def _event_table(**overrides):
 
 def test_row_count_source_on_event_table_accepted():
     raw = _minimal_valid()
-    raw["tables"].append(_event_table(
-        row_count_source="proportional:m1:scale:5",
-    ))
+    raw["tables"].append(
+        _event_table(
+            row_count_source="proportional:m1:scale:5",
+        )
+    )
     c = PlotsimConfig(**raw)
     evt = next(t for t in c.tables if t.name == "evt_thing")
     assert evt.row_count_source == "proportional:m1:scale:5"
@@ -753,18 +816,22 @@ def test_row_count_source_on_non_event_table_rejected():
 
 def test_row_count_source_bad_format_rejected():
     raw = _minimal_valid()
-    raw["tables"].append(_event_table(
-        row_count_source="not_a_source",
-    ))
+    raw["tables"].append(
+        _event_table(
+            row_count_source="not_a_source",
+        )
+    )
     with pytest.raises(ValidationError):
         PlotsimConfig(**raw)
 
 
 def test_row_count_source_unknown_metric_rejected():
     raw = _minimal_valid()
-    raw["tables"].append(_event_table(
-        row_count_source="proportional:ghost:scale:5",
-    ))
+    raw["tables"].append(
+        _event_table(
+            row_count_source="proportional:ghost:scale:5",
+        )
+    )
     with pytest.raises(ValidationError) as exc:
         PlotsimConfig(**raw)
     assert "ghost" in str(exc.value)
@@ -778,6 +845,7 @@ def test_row_count_source_optional():
 
 
 # --- Mission 001a: causal_lag on metrics ---
+
 
 def _metric(name: str, **overrides) -> dict:
     base = {
@@ -861,6 +929,7 @@ def test_causal_lag_periods_must_be_positive():
 
 
 # --- Mission 001a: stages top-level section ---
+
 
 def _valid_stages() -> dict:
     return {
@@ -960,7 +1029,9 @@ def test_stages_enter_ge_exit_within_stage_rejected():
     raw = _minimal_valid()
     stages = _valid_stages()
     stages["sequence"][0] = {
-        "name": "s1", "threshold_enter": 0.5, "threshold_exit": 0.3,
+        "name": "s1",
+        "threshold_enter": 0.5,
+        "threshold_exit": 0.3,
     }
     raw["stages"] = stages
     with pytest.raises(ValidationError):
@@ -978,13 +1049,17 @@ def test_stages_threshold_out_of_range_rejected():
 
 # --- Mission 001a: sample configs still load (backwards compat + new fields) ---
 
+
 def test_saas_sample_loads_new_fields():
     c = load_config(SAAS_YAML)
     # stages present
     assert c.stages is not None
     assert c.stages.field == "churn_risk"
     assert [s.name for s in c.stages.sequence] == [
-        "onboarding", "active", "at_risk", "churned",
+        "onboarding",
+        "active",
+        "at_risk",
+        "churned",
     ]
     assert c.stages.sequence[-1].threshold_exit is None
     # causal_lag on support_tickets
@@ -1006,7 +1081,10 @@ def test_hr_sample_loads_new_fields():
     assert c.stages is not None
     assert c.stages.field == "attrition_risk"
     assert [s.name for s in c.stages.sequence] == [
-        "new_hire", "established", "disengaging", "exited",
+        "new_hire",
+        "established",
+        "disengaging",
+        "exited",
     ]
     absence = next(m for m in c.metrics if m.name == "absence_rate")
     assert absence.causal_lag is not None
@@ -1037,17 +1115,17 @@ def test_pii_note_field_accepted_in_config():
     """FIX-03 / SF-4: Column accepts an optional pii_note metadata string and
     preserves it through load/dump round-trip."""
     data = _minimal_valid()
-    data["tables"][0]["columns"].append({
-        "name": "full_name",
-        "dtype": "string",
-        "source": "generated:faker.name",
-        "pii_note": "Faker-generated name; may collide with real people.",
-    })
+    data["tables"][0]["columns"].append(
+        {
+            "name": "full_name",
+            "dtype": "string",
+            "source": "generated:faker.name",
+            "pii_note": "Faker-generated name; may collide with real people.",
+        }
+    )
     cfg = PlotsimConfig(**data)
     name_col = next(c for c in cfg.tables[0].columns if c.name == "full_name")
-    assert name_col.pii_note == (
-        "Faker-generated name; may collide with real people."
-    )
+    assert name_col.pii_note == ("Faker-generated name; may collide with real people.")
     # Round-trip through YAML preserves the field.
     dumped = dump_config(cfg)
     cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
@@ -1069,8 +1147,11 @@ def test_pii_note_defaults_to_none_when_omitted():
 def test_column_distribution_string_uniform_normalizes():
     """FIX-04: bare string 'uniform' coerces to FKDistribution(weights=None)."""
     from plotsim.config import Column, FKDistribution
+
     col = Column(
-        name="plan_id", dtype="id", source="fk:dim_plan.plan_id",
+        name="plan_id",
+        dtype="id",
+        source="fk:dim_plan.plan_id",
         distribution="uniform",
     )
     assert isinstance(col.distribution, FKDistribution)
@@ -1080,22 +1161,30 @@ def test_column_distribution_string_uniform_normalizes():
 def test_column_distribution_weighted_loads():
     """FIX-04: weighted distribution preserves keys and values."""
     from plotsim.config import Column
+
     col = Column(
-        name="plan_id", dtype="id", source="fk:dim_plan.plan_id",
+        name="plan_id",
+        dtype="id",
+        source="fk:dim_plan.plan_id",
         distribution={"weights": {"starter": 0.5, "pro": 0.3, "enterprise": 0.2}},
     )
     assert col.distribution is not None
     assert col.distribution.weights == {
-        "starter": 0.5, "pro": 0.3, "enterprise": 0.2,
+        "starter": 0.5,
+        "pro": 0.3,
+        "enterprise": 0.2,
     }
 
 
 def test_column_distribution_unknown_string_rejected():
     """FIX-04: any string other than 'uniform' is invalid."""
     from plotsim.config import Column
+
     with pytest.raises(ValidationError):
         Column(
-            name="x", dtype="id", source="fk:y.z",
+            name="x",
+            dtype="id",
+            source="fk:y.z",
             distribution="bogus",
         )
 
@@ -1103,6 +1192,7 @@ def test_column_distribution_unknown_string_rejected():
 def test_fk_distribution_negative_weight_rejected():
     """FIX-04: weights must be non-negative."""
     from plotsim.config import FKDistribution
+
     with pytest.raises(ValidationError):
         FKDistribution(weights={"a": -1.0, "b": 0.5})
 
@@ -1110,6 +1200,7 @@ def test_fk_distribution_negative_weight_rejected():
 def test_fk_distribution_zero_sum_weights_rejected():
     """FIX-04: weights must sum to a positive value."""
     from plotsim.config import FKDistribution
+
     with pytest.raises(ValidationError):
         FKDistribution(weights={"a": 0.0, "b": 0.0})
 
@@ -1117,6 +1208,7 @@ def test_fk_distribution_zero_sum_weights_rejected():
 def test_entity_cross_dim_fks_defaults_empty():
     """FIX-04: Entity.cross_dim_fks defaults to {} so existing configs load."""
     from plotsim.config import Entity
+
     e = Entity(name="x", archetype="a", size=1)
     assert e.cross_dim_fks == {}
 
@@ -1124,9 +1216,12 @@ def test_entity_cross_dim_fks_defaults_empty():
 def test_entity_cross_dim_fks_accepts_mapping():
     """FIX-04: per-cohort FK pinning round-trips."""
     from plotsim.config import Entity
+
     e = Entity(
-        name="enterprise_accounts", archetype="expansion_champion",
-        size=10, cross_dim_fks={"plan_id": "enterprise"},
+        name="enterprise_accounts",
+        archetype="expansion_champion",
+        size=10,
+        cross_dim_fks={"plan_id": "enterprise"},
     )
     assert e.cross_dim_fks == {"plan_id": "enterprise"}
 
@@ -1134,18 +1229,18 @@ def test_entity_cross_dim_fks_accepts_mapping():
 def test_column_distribution_roundtrip_through_yaml():
     """FIX-04: distribution and pii_note both survive dump_config round-trip."""
     data = _minimal_valid()
-    data["tables"][0]["columns"].append({
-        "name": "plan_id",
-        "dtype": "id",
-        "source": "fk:dim_widget.widget_id",  # fake FK; cross-ref only checks tables
-        "distribution": {"weights": {"a": 0.7, "b": 0.3}},
-    })
+    data["tables"][0]["columns"].append(
+        {
+            "name": "plan_id",
+            "dtype": "id",
+            "source": "fk:dim_widget.widget_id",  # fake FK; cross-ref only checks tables
+            "distribution": {"weights": {"a": 0.7, "b": 0.3}},
+        }
+    )
     cfg = PlotsimConfig(**data)
     dumped = dump_config(cfg)
     cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
-    plan_col = next(
-        c for c in cfg2.tables[0].columns if c.name == "plan_id"
-    )
+    plan_col = next(c for c in cfg2.tables[0].columns if c.name == "plan_id")
     assert plan_col.distribution is not None
     assert plan_col.distribution.weights == {"a": 0.7, "b": 0.3}
 
@@ -1190,12 +1285,14 @@ def test_column_allow_outside_window_defaults_false():
 
 def test_column_allow_outside_window_roundtrips():
     data = _minimal_valid()
-    data["tables"][0]["columns"].append({
-        "name": "birth_date",
-        "dtype": "date",
-        "source": "generated:faker.date_of_birth",
-        "allow_outside_window": True,
-    })
+    data["tables"][0]["columns"].append(
+        {
+            "name": "birth_date",
+            "dtype": "date",
+            "source": "generated:faker.date_of_birth",
+            "allow_outside_window": True,
+        }
+    )
     cfg = PlotsimConfig(**data)
     dumped = dump_config(cfg)
     cfg2 = PlotsimConfig(**yaml.safe_load(dumped))
@@ -1361,6 +1458,7 @@ def test_all_bundled_templates_pass_name_validation():
     after the identifier regex lands — no table or column name needed a rename.
     """
     import warnings as _w
+
     configs_dir = ROOT / "plotsim" / "configs"
     for stem in ("saas", "hr", "education", "retail", "marketing"):
         path = configs_dir / f"sample_{stem}.yaml"
@@ -1377,7 +1475,6 @@ from plotsim.config import (
     CurveSegment,
     Entity,
     NoiseConfig,
-    ProportionalSource,
     TimeWindow,
 )
 
@@ -1476,8 +1573,7 @@ def _bulk_archetype(i: int) -> dict:
         "label": f"A{i}",
         "description": "x",
         "curve_segments": [
-            {"curve": "plateau", "params": {"level": 0.5},
-             "start_pct": 0.0, "end_pct": 1.0},
+            {"curve": "plateau", "params": {"level": 0.5}, "start_pct": 0.0, "end_pct": 1.0},
         ],
     }
 
@@ -1517,9 +1613,7 @@ def test_archetypes_list_above_limit_fails():
 
 def test_entities_list_at_limit_passes():
     raw = _minimal_valid()
-    raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100)
-    ]
+    raw["entities"] = [{"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100)]
     c = PlotsimConfig(**raw)
     assert len(c.entities) == 100
 
@@ -1530,9 +1624,7 @@ def test_entities_list_above_limit_fails():
     # before the cell-count gate, so this test never materialises a
     # generation envelope — only the list length matters.
     raw = _minimal_valid()
-    raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100_001)
-    ]
+    raw["entities"] = [{"name": f"e{i}", "archetype": "a1", "size": 1} for i in range(100_001)]
     with pytest.raises(ValidationError, match="entities"):
         PlotsimConfig(**raw)
 
@@ -1591,13 +1683,19 @@ def test_r09_redundant_zero_correlation_warns():
     previously-accepted config would be a silent breaking change.
     """
     from plotsim.config import RedundantCorrelationWarning
+
     raw = _minimal_valid()
     # Add a second metric so the zero-correlation pair references two known
     # names; the _minimal_valid fixture only ships one.
-    raw["metrics"].append({
-        "name": "m2", "label": "M2", "distribution": "lognorm",
-        "params": {"s": 0.5, "scale": 1.0}, "polarity": "positive",
-    })
+    raw["metrics"].append(
+        {
+            "name": "m2",
+            "label": "M2",
+            "distribution": "lognorm",
+            "params": {"s": 0.5, "scale": 1.0},
+            "polarity": "positive",
+        }
+    )
     raw["correlations"] = [
         {"metric_a": "m1", "metric_b": "m2", "coefficient": 0.0},
     ]
@@ -1613,8 +1711,7 @@ def test_correlations_list_above_limit_fails():
     raw["tables"][1]["columns"][2]["source"] = "metric:m0"
     # 1226 correlation entries (> 1225 cap).
     raw["correlations"] = [
-        {"metric_a": "m0", "metric_b": "m1", "coefficient": 0.0}
-        for _ in range(1_226)
+        {"metric_a": "m0", "metric_b": "m1", "coefficient": 0.0} for _ in range(1_226)
     ]
     with pytest.raises(ValidationError, match="correlations"):
         PlotsimConfig(**raw)
@@ -1623,10 +1720,7 @@ def test_correlations_list_above_limit_fails():
 def test_table_columns_at_limit_passes():
     # Dim table with 100 columns (1 PK + 99 static) should pass.
     raw = _minimal_valid()
-    extra_cols = [
-        {"name": f"col_{i}", "dtype": "string", "source": "static:x"}
-        for i in range(99)
-    ]
+    extra_cols = [{"name": f"col_{i}", "dtype": "string", "source": "static:x"} for i in range(99)]
     raw["tables"][0]["columns"].extend(extra_cols)
     c = PlotsimConfig(**raw)
     assert len(c.tables[0].columns) == 100
@@ -1634,10 +1728,7 @@ def test_table_columns_at_limit_passes():
 
 def test_table_columns_above_limit_fails():
     raw = _minimal_valid()
-    extra_cols = [
-        {"name": f"col_{i}", "dtype": "string", "source": "static:x"}
-        for i in range(100)
-    ]
+    extra_cols = [{"name": f"col_{i}", "dtype": "string", "source": "static:x"} for i in range(100)]
     raw["tables"][0]["columns"].extend(extra_cols)
     with pytest.raises(ValidationError, match="columns"):
         PlotsimConfig(**raw)
@@ -1647,10 +1738,14 @@ def test_archetype_curve_segments_at_limit_passes():
     segs = []
     step = 1.0 / 10
     for i in range(10):
-        segs.append(CurveSegment(
-            curve="plateau", params={"level": 0.5},
-            start_pct=i * step, end_pct=(i + 1) * step,
-        ))
+        segs.append(
+            CurveSegment(
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=i * step,
+                end_pct=(i + 1) * step,
+            )
+        )
     a = Archetype(name="a", label="A", description="x", curve_segments=segs)
     assert len(a.curve_segments) == 10
 
@@ -1659,13 +1754,20 @@ def test_archetype_curve_segments_above_limit_fails():
     segs = []
     step = 1.0 / 11
     for i in range(11):
-        segs.append({
-            "curve": "plateau", "params": {"level": 0.5},
-            "start_pct": i * step, "end_pct": (i + 1) * step,
-        })
+        segs.append(
+            {
+                "curve": "plateau",
+                "params": {"level": 0.5},
+                "start_pct": i * step,
+                "end_pct": (i + 1) * step,
+            }
+        )
     with pytest.raises(ValidationError, match="curve_segments"):
         Archetype(
-            name="a", label="A", description="x", curve_segments=segs,
+            name="a",
+            label="A",
+            description="x",
+            curve_segments=segs,
         )
 
 
@@ -1674,13 +1776,20 @@ def test_stage_sequence_at_limit_passes():
     # + 1 terminal at 0.9.
     stages = []
     for i in range(9):
-        stages.append(StageDefinition(
-            name=f"s{i}", threshold_enter=i / 10,
-            threshold_exit=(i + 1) / 10,
-        ))
-    stages.append(StageDefinition(
-        name="terminal", threshold_enter=0.9, threshold_exit=None,
-    ))
+        stages.append(
+            StageDefinition(
+                name=f"s{i}",
+                threshold_enter=i / 10,
+                threshold_exit=(i + 1) / 10,
+            )
+        )
+    stages.append(
+        StageDefinition(
+            name="terminal",
+            threshold_enter=0.9,
+            threshold_exit=None,
+        )
+    )
     ss = StageSequence(field="m1", sequence=stages)
     assert len(ss.sequence) == 10
 
@@ -1688,13 +1797,20 @@ def test_stage_sequence_at_limit_passes():
 def test_stage_sequence_above_limit_fails():
     stages = []
     for i in range(10):
-        stages.append(StageDefinition(
-            name=f"s{i}", threshold_enter=i / 11,
-            threshold_exit=(i + 1) / 11,
-        ))
-    stages.append(StageDefinition(
-        name="terminal", threshold_enter=10 / 11, threshold_exit=None,
-    ))
+        stages.append(
+            StageDefinition(
+                name=f"s{i}",
+                threshold_enter=i / 11,
+                threshold_exit=(i + 1) / 11,
+            )
+        )
+    stages.append(
+        StageDefinition(
+            name="terminal",
+            threshold_enter=10 / 11,
+            threshold_exit=None,
+        )
+    )
     with pytest.raises(ValidationError, match="sequence"):
         StageSequence(field="m1", sequence=stages)
 
@@ -1734,6 +1850,7 @@ def test_time_window_period_count_matches_trajectory_engine():
     # Parity check against compute_time_steps — the whole point of the span
     # validator is that it rejects what the engine would actually build.
     from plotsim.trajectory import compute_time_steps
+
     for start, end, gran in (
         ("2020-01", "2022-06", "monthly"),
         ("2020-01", "2020-12", "daily"),
@@ -1746,9 +1863,7 @@ def test_time_window_period_count_matches_trajectory_engine():
 def test_total_entity_size_at_limit_passes():
     raw = _minimal_valid()
     # 100 cohorts × 1000 each = 100,000 at the limit.
-    raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": 1000} for i in range(100)
-    ]
+    raw["entities"] = [{"name": f"e{i}", "archetype": "a1", "size": 1000} for i in range(100)]
     c = PlotsimConfig(**raw)
     assert sum(e.size for e in c.entities) == 100_000
 
@@ -1756,9 +1871,7 @@ def test_total_entity_size_at_limit_passes():
 def test_total_entity_size_above_limit_fails():
     raw = _minimal_valid()
     # 100 cohorts × 1001 each = 100,100, just over.
-    raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": 1001} for i in range(100)
-    ]
+    raw["entities"] = [{"name": f"e{i}", "archetype": "a1", "size": 1001} for i in range(100)]
     with pytest.raises(ValidationError, match="100,000"):
         PlotsimConfig(**raw)
 
@@ -1767,6 +1880,7 @@ def test_all_bundled_templates_pass_layer1_bounds():
     # The five shipped templates were audited against every Layer 1 bound
     # before the cap landed. Regression test that they keep loading cleanly.
     import warnings as _w
+
     configs_dir = ROOT / "plotsim" / "configs"
     for stem in ("saas", "hr", "education", "retail", "marketing"):
         with _w.catch_warnings():
@@ -1790,8 +1904,7 @@ def _cells(n_entities_total: int, n_periods: int, raw: "dict | None" = None) -> 
     # want "above threshold" stay above after rounding).
     per_cohort = max(1, -(-n_entities_total // k_cohorts))
     raw["entities"] = [
-        {"name": f"e{i}", "archetype": "a1", "size": per_cohort}
-        for i in range(k_cohorts)
+        {"name": f"e{i}", "archetype": "a1", "size": per_cohort} for i in range(k_cohorts)
     ]
     # Monthly span sized so period_count == n_periods.
     # _start_before_end requires start < end, so n_periods >= 2.
@@ -1909,6 +2022,7 @@ def test_estimator_event_upper_bound_prints_when_derivable(capsys):
     # driver; its summary line should include an event-row estimate.
     from plotsim.config import load_config as _lc
     import warnings as _w
+
     with _w.catch_warnings():
         _w.simplefilter("ignore", SurrogateKeyWarning)
         _lc(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
@@ -1925,6 +2039,7 @@ def test_estimator_event_upper_bound_absent_when_no_range(capsys):
 
 def test_estimator_all_bundled_templates_have_no_warning(capsys):
     import warnings as _w
+
     configs_dir = ROOT / "plotsim" / "configs"
     for stem in ("saas", "hr", "education", "retail", "marketing"):
         with _w.catch_warnings():

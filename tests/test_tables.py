@@ -151,9 +151,9 @@ def test_hr_composite_pk_unique(hr_tables):
 def test_saas_facts_cover_full_time_window(saas_tables):
     facts = saas_tables["fct_engagement"]
     valid_dates = set(saas_tables["dim_date"]["date_key"])
-    assert set(facts["date_key"]) == valid_dates, (
-        "every dim_date period must appear in the fact table"
-    )
+    assert (
+        set(facts["date_key"]) == valid_dates
+    ), "every dim_date period must appear in the fact table"
 
 
 # --- Trajectory-first sanity -------------------------------------------------
@@ -178,9 +178,9 @@ def test_high_trajectory_entity_has_higher_mean_engagement(saas_tables):
     rocket_mean = facts[facts["company_id"] == rocket_id]["engagement_score"].astype(float).mean()
     zombie_mean = facts[facts["company_id"] == zombie_id]["engagement_score"].astype(float).mean()
 
-    assert rocket_mean > zombie_mean, (
-        f"rocket_then_cliff mean ({rocket_mean}) should exceed zombie ({zombie_mean})"
-    )
+    assert (
+        rocket_mean > zombie_mean
+    ), f"rocket_then_cliff mean ({rocket_mean}) should exceed zombie ({zombie_mean})"
 
 
 def test_steady_grower_engagement_trends_upward(saas_tables):
@@ -198,7 +198,8 @@ def test_steady_grower_engagement_trends_upward(saas_tables):
     grower_id = entity_rows.iloc[1]["company_id"]
     series = (
         facts[facts["company_id"] == grower_id]["engagement_score"]
-        .astype(float).reset_index(drop=True)
+        .astype(float)
+        .reset_index(drop=True)
     )
     half = len(series) // 2
     assert series[half:].mean() > series[:half].mean()
@@ -222,18 +223,26 @@ def test_lag_metric_response_trails_driver_inflection():
     (lag=2, negative polarity) should show its inflection >= period 7."""
     metrics = [
         Metric(
-            name="engagement", label="e", distribution="beta",
-            params={"alpha": 2.0, "beta": 5.0}, polarity="positive",
+            name="engagement",
+            label="e",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 5.0},
+            polarity="positive",
             value_range={"min": 0.0, "max": 1.0},
         ),
         Metric(
-            name="support_tickets", label="s", distribution="poisson",
-            params={"lambda": 5.0}, polarity="negative",
+            name="support_tickets",
+            label="s",
+            distribution="poisson",
+            params={"lambda": 5.0},
+            polarity="negative",
             causal_lag={"driver": "engagement", "lag_periods": 2},
         ),
     ]
     archetype = Archetype(
-        name="step_at_mid", label="x", description="x",
+        name="step_at_mid",
+        label="x",
+        description="x",
         curve_segments=[
             CurveSegment(curve="plateau", params={"level": 0.1}, start_pct=0.0, end_pct=0.5),
             CurveSegment(curve="plateau", params={"level": 0.95}, start_pct=0.5, end_pct=1.0),
@@ -248,17 +257,23 @@ def test_lag_metric_response_trails_driver_inflection():
         entities=[Entity(name="e1", archetype="step_at_mid", size=1)],
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
             Table(
-                name="dim_co", type="dim", grain="per_entity",
+                name="dim_co",
+                type="dim",
+                grain="per_entity",
                 columns=[Column(name="co_id", dtype="id", source="pk")],
                 primary_key="co_id",
             ),
             Table(
-                name="fct_e", type="fact", grain="per_entity_per_period",
+                name="fct_e",
+                type="fact",
+                grain="per_entity_per_period",
                 columns=[
                     Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
                     Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
@@ -301,18 +316,16 @@ def test_threshold_event_fires_at_or_after_consecutive_streak(saas_tables):
         cid = ev["company_id"]
         date_key = ev["date_key"]
         company_facts = (
-            facts[facts["company_id"] == cid]
-            .sort_values("date_key")
-            .reset_index(drop=True)
+            facts[facts["company_id"] == cid].sort_values("date_key").reset_index(drop=True)
         )
         idx = company_facts.index[company_facts["date_key"] == date_key]
         assert len(idx) == 1
         i = int(idx[0])
         # The 3 most recent periods (inclusive) must all be > 0.7.
-        window = company_facts.loc[max(0, i - 2): i, "churn_risk"]
-        assert all(float(v) > 0.7 for v in window if v is not None), (
-            f"event at period {date_key} for {cid} fired without a 3-period streak"
-        )
+        window = company_facts.loc[max(0, i - 2) : i, "churn_risk"]
+        assert all(
+            float(v) > 0.7 for v in window if v is not None
+        ), f"event at period {date_key} for {cid} fired without a 3-period streak"
 
 
 def test_threshold_event_no_duplicate_per_entity(saas_tables):
@@ -334,15 +347,20 @@ def test_threshold_event_no_event_when_streak_short():
     """Synthetic: a metric that crosses for 1 period with for:3 → no event."""
     metrics = [
         Metric(
-            name="churn_risk", label="c", distribution="beta",
-            params={"alpha": 2.0, "beta": 5.0}, polarity="negative",
+            name="churn_risk",
+            label="c",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 5.0},
+            polarity="negative",
             value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     # Plateau low → trajectory ~ 0.1 → negative polarity → churn_risk ~ 0.9 EVERY
     # period. To get a single-period crossing we need an oscillator. Use that.
     archetype = Archetype(
-        name="single_spike", label="x", description="x",
+        name="single_spike",
+        label="x",
+        description="x",
         curve_segments=[
             # plateau low - keeps churn high (negative polarity flip), but then
             # plateau high keeps churn low. Only one period at the boundary
@@ -359,30 +377,47 @@ def test_threshold_event_no_event_when_streak_short():
         archetypes=[archetype],
         entities=[Entity(name="e1", archetype="single_spike", size=1)],
         tables=[
-            Table(name="dim_date", type="dim", grain="per_period",
-                  columns=[Column(name="date_key", dtype="id", source="pk")],
-                  primary_key="date_key"),
-            Table(name="dim_co", type="dim", grain="per_entity",
-                  columns=[Column(name="co_id", dtype="id", source="pk")],
-                  primary_key="co_id"),
-            Table(name="fct_c", type="fact", grain="per_entity_per_period",
-                  columns=[
-                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
-                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
-                      Column(name="churn_risk", dtype="float", source="metric:churn_risk"),
-                  ],
-                  primary_key=["date_key", "co_id"],
-                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
-            Table(name="evt_churn", type="event", grain="variable",
-                  columns=[
-                      Column(name="event_id", dtype="id", source="pk"),
-                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
-                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
-                      Column(name="flag", dtype="boolean",
-                             source="threshold:churn_risk:above:0.95:for:3"),
-                  ],
-                  primary_key="event_id",
-                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+            Table(
+                name="dim_date",
+                type="dim",
+                grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+            Table(
+                name="dim_co",
+                type="dim",
+                grain="per_entity",
+                columns=[Column(name="co_id", dtype="id", source="pk")],
+                primary_key="co_id",
+            ),
+            Table(
+                name="fct_c",
+                type="fact",
+                grain="per_entity_per_period",
+                columns=[
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                    Column(name="churn_risk", dtype="float", source="metric:churn_risk"),
+                ],
+                primary_key=["date_key", "co_id"],
+                foreign_keys=["dim_date.date_key", "dim_co.co_id"],
+            ),
+            Table(
+                name="evt_churn",
+                type="event",
+                grain="variable",
+                columns=[
+                    Column(name="event_id", dtype="id", source="pk"),
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                    Column(
+                        name="flag", dtype="boolean", source="threshold:churn_risk:above:0.95:for:3"
+                    ),
+                ],
+                primary_key="event_id",
+                foreign_keys=["dim_date.date_key", "dim_co.co_id"],
+            ),
         ],
         noise=NoiseConfig(),
         output=OutputConfig(directory="out/test"),
@@ -400,9 +435,9 @@ def test_proportional_event_total_scales_with_metric_mean(saas_tables):
     facts = saas_tables["fct_engagement"]
     expected_total = int(round(facts["engagement_score"].astype(float).sum() * 5))
     # Allow a small tolerance: rounding per-row introduces drift vs. summing then rounding.
-    assert abs(len(logins) - expected_total) <= len(facts), (
-        f"login count {len(logins)} should be near sum(engagement * 5) = {expected_total}"
-    )
+    assert abs(len(logins) - expected_total) <= len(
+        facts
+    ), f"login count {len(logins)} should be near sum(engagement * 5) = {expected_total}"
 
 
 def test_proportional_event_row_counts_are_nonnegative_integers(saas_tables):
@@ -472,9 +507,9 @@ def test_stage_never_reverses_under_enforce_order(saas_tables, saas_cfg):
     for cid, group in facts.groupby("company_id", sort=False):
         ordered = group.sort_values("date_key")["stage"].tolist()
         ranks = [rank[s] for s in ordered]
-        assert all(b >= a for a, b in zip(ranks, ranks[1:])), (
-            f"company {cid} stage went backwards: {ordered}"
-        )
+        assert all(
+            b >= a for a, b in zip(ranks, ranks[1:])
+        ), f"company {cid} stage went backwards: {ordered}"
 
 
 def test_stage_omitted_when_config_has_no_stages(saas_cfg):
@@ -488,13 +523,18 @@ def test_assign_stages_choose_highest_when_enforce_order_false():
     """enforce_order=False: a value drop after a peak chooses the lower stage."""
     metrics = [
         Metric(
-            name="m", label="m", distribution="beta",
-            params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+            name="m",
+            label="m",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 2.0},
+            polarity="positive",
             value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     archetype = Archetype(
-        name="x", label="x", description="x",
+        name="x",
+        label="x",
+        description="x",
         curve_segments=[
             CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0),
         ],
@@ -507,25 +547,38 @@ def test_assign_stages_choose_highest_when_enforce_order_false():
         archetypes=[archetype],
         entities=[Entity(name="e1", archetype="x", size=1)],
         tables=[
-            Table(name="dim_date", type="dim", grain="per_period",
-                  columns=[Column(name="date_key", dtype="id", source="pk")],
-                  primary_key="date_key"),
-            Table(name="dim_co", type="dim", grain="per_entity",
-                  columns=[Column(name="co_id", dtype="id", source="pk")],
-                  primary_key="co_id"),
-            Table(name="fct_m", type="fact", grain="per_entity_per_period",
-                  columns=[
-                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
-                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
-                      Column(name="m", dtype="float", source="metric:m"),
-                  ],
-                  primary_key=["date_key", "co_id"],
-                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+            Table(
+                name="dim_date",
+                type="dim",
+                grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+            Table(
+                name="dim_co",
+                type="dim",
+                grain="per_entity",
+                columns=[Column(name="co_id", dtype="id", source="pk")],
+                primary_key="co_id",
+            ),
+            Table(
+                name="fct_m",
+                type="fact",
+                grain="per_entity_per_period",
+                columns=[
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                    Column(name="m", dtype="float", source="metric:m"),
+                ],
+                primary_key=["date_key", "co_id"],
+                foreign_keys=["dim_date.date_key", "dim_co.co_id"],
+            ),
         ],
         noise=NoiseConfig(),
         output=OutputConfig(directory="out/test"),
         stages=StageSequence(
-            field="m", enforce_order=False,
+            field="m",
+            enforce_order=False,
             sequence=[
                 StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.4),
                 StageDefinition(name="mid", threshold_enter=0.4, threshold_exit=0.8),
@@ -622,10 +675,7 @@ def test_per_entity_dim_one_to_one_with_entities(saas_tables, saas_cfg):
     the per-entity invariant holds on the *unique* PK count rather than
     the raw row count.
     """
-    assert (
-        saas_tables["dim_company"]["company_id"].nunique()
-        == len(saas_cfg.entities)
-    )
+    assert saas_tables["dim_company"]["company_id"].nunique() == len(saas_cfg.entities)
 
 
 # --- Sanity: orchestrator returns every configured table --------------------
@@ -664,93 +714,122 @@ def _multiplan_config(
 
     entities = []
     if cross_dim_anchor_first_cohort:
-        entities.append({
-            "name": "enterprise_accounts",
-            "archetype": "flat",
-            "size": 1,
-            "cross_dim_fks": {"plan_id": "p-001"},
-        })
-        for i in range(n_entities - 1):
-            entities.append({
-                "name": f"cohort_{i:03d}",
+        entities.append(
+            {
+                "name": "enterprise_accounts",
                 "archetype": "flat",
                 "size": 1,
-            })
+                "cross_dim_fks": {"plan_id": "p-001"},
+            }
+        )
+        for i in range(n_entities - 1):
+            entities.append(
+                {
+                    "name": f"cohort_{i:03d}",
+                    "archetype": "flat",
+                    "size": 1,
+                }
+            )
     else:
         for i in range(n_entities):
-            entities.append({
-                "name": f"cohort_{i:03d}",
-                "archetype": "flat",
-                "size": 1,
-            })
+            entities.append(
+                {
+                    "name": f"cohort_{i:03d}",
+                    "archetype": "flat",
+                    "size": 1,
+                }
+            )
 
     data = {
         "domain": {
-            "name": "test", "description": "FIX-04 fixture",
-            "entity_type": "account", "entity_label": "Accounts",
+            "name": "test",
+            "description": "FIX-04 fixture",
+            "entity_type": "account",
+            "entity_label": "Accounts",
         },
         "time_window": {
-            "start": "2024-01", "end": "2024-03", "granularity": "monthly",
+            "start": "2024-01",
+            "end": "2024-03",
+            "granularity": "monthly",
         },
         "seed": 42,
-        "metrics": [{
-            "name": "mrr", "label": "MRR", "distribution": "lognorm",
-            "params": {"s": 0.3, "loc": 0.0, "scale": 100.0},
-            "polarity": "positive",
-        }],
-        "archetypes": [{
-            "name": "flat", "label": "Flat", "description": "-",
-            "curve_segments": [{
-                "curve": "plateau", "params": {"level": 0.5},
-                "start_pct": 0.0, "end_pct": 1.0,
-            }],
-        }],
+        "metrics": [
+            {
+                "name": "mrr",
+                "label": "MRR",
+                "distribution": "lognorm",
+                "params": {"s": 0.3, "loc": 0.0, "scale": 100.0},
+                "polarity": "positive",
+            }
+        ],
+        "archetypes": [
+            {
+                "name": "flat",
+                "label": "Flat",
+                "description": "-",
+                "curve_segments": [
+                    {
+                        "curve": "plateau",
+                        "params": {"level": 0.5},
+                        "start_pct": 0.0,
+                        "end_pct": 1.0,
+                    }
+                ],
+            }
+        ],
         "entities": entities,
         "tables": [
             {
-                "name": "dim_date", "type": "dim", "grain": "per_period",
+                "name": "dim_date",
+                "type": "dim",
+                "grain": "per_period",
                 "columns": [
                     {"name": "date_key", "dtype": "id", "source": "pk"},
                 ],
                 "primary_key": "date_key",
             },
             {
-                "name": "dim_plan", "type": "dim", "grain": "per_reference",
+                "name": "dim_plan",
+                "type": "dim",
+                "grain": "per_reference",
                 "columns": [
                     {"name": "plan_id", "dtype": "id", "source": "pk"},
-                    {"name": "plan_name", "dtype": "string",
-                     "source": "static:starter,pro,enterprise"},
+                    {
+                        "name": "plan_name",
+                        "dtype": "string",
+                        "source": "static:starter,pro,enterprise",
+                    },
                 ],
                 "primary_key": "plan_id",
             },
             {
-                "name": "dim_account", "type": "dim", "grain": "per_entity",
+                "name": "dim_account",
+                "type": "dim",
+                "grain": "per_entity",
                 "columns": [
                     {"name": "account_id", "dtype": "id", "source": "pk"},
                 ],
                 "primary_key": "account_id",
             },
             {
-                "name": "fct_revenue", "type": "fact",
+                "name": "fct_revenue",
+                "type": "fact",
                 "grain": "per_entity_per_period",
                 "columns": [
-                    {"name": "date_key", "dtype": "id",
-                     "source": "fk:dim_date.date_key"},
-                    {"name": "account_id", "dtype": "id",
-                     "source": "fk:dim_account.account_id"},
+                    {"name": "date_key", "dtype": "id", "source": "fk:dim_date.date_key"},
+                    {"name": "account_id", "dtype": "id", "source": "fk:dim_account.account_id"},
                     plan_id_col,
-                    {"name": "mrr", "dtype": "float",
-                     "source": "metric:mrr"},
+                    {"name": "mrr", "dtype": "float", "source": "metric:mrr"},
                 ],
                 "primary_key": ["date_key", "account_id"],
                 "foreign_keys": [
-                    "dim_date.date_key", "dim_account.account_id",
+                    "dim_date.date_key",
+                    "dim_account.account_id",
                     "dim_plan.plan_id",
                 ],
             },
         ],
-        "noise": {"gaussian_sigma": 0.0, "outlier_rate": 0.0,
-                  "mcar_rate": 0.0},
+        "noise": {"gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0},
         "output": {"format": "csv", "directory": "out"},
     }
     with warnings.catch_warnings():
@@ -762,6 +841,7 @@ def test_multi_row_dim_plan_distributes_fks_uniformly():
     """FIX-04 / MF-1: with 3 plans + ~100 entities + uniform distribution,
     fct_revenue.plan_id covers all 3 plan IDs and is approximately uniform."""
     from scipy.stats import chisquare
+
     cfg = _multiplan_config(n_entities=100, plan_distribution="uniform")
     tables = generate_tables(cfg, _rng(42))
 
@@ -773,8 +853,7 @@ def test_multi_row_dim_plan_distributes_fks_uniformly():
     observed = [counts.get(p, 0) for p in ("p-001", "p-002", "p-003")]
     _, p_value = chisquare(observed, expected)
     assert p_value > 0.01, (
-        f"plan_id distribution not uniform enough: "
-        f"observed={observed}, p={p_value:.4f}"
+        f"plan_id distribution not uniform enough: " f"observed={observed}, p={p_value:.4f}"
     )
 
 
@@ -808,8 +887,7 @@ def test_weighted_distribution_honors_config():
     for pk, expected in [("p-001", 0.7), ("p-002", 0.2), ("p-003", 0.1)]:
         observed = float(counts.get(pk, 0.0))
         assert abs(observed - expected) < 0.08, (
-            f"weighted plan_id {pk}: observed {observed:.3f} vs "
-            f"expected {expected}"
+            f"weighted plan_id {pk}: observed {observed:.3f} vs " f"expected {expected}"
         )
 
 
@@ -817,7 +895,8 @@ def test_entity_level_fk_anchoring():
     """FIX-04: cross_dim_fks={plan_id: p-001} on the first cohort pins it
     while the rest still see varied distribution-driven assignments."""
     cfg = _multiplan_config(
-        n_entities=50, plan_distribution="uniform",
+        n_entities=50,
+        plan_distribution="uniform",
         cross_dim_anchor_first_cohort=True,
     )
     tables = generate_tables(cfg, _rng(7))
@@ -827,15 +906,14 @@ def test_entity_level_fk_anchoring():
     first_rows = fct[fct["account_id"] == first_account]
     assert len(first_rows) > 0
     assert set(first_rows["plan_id"]) == {"p-001"}, (
-        f"anchored cohort should be all p-001, "
-        f"got {set(first_rows['plan_id'])}"
+        f"anchored cohort should be all p-001, " f"got {set(first_rows['plan_id'])}"
     )
 
     other_rows = fct[fct["account_id"] != first_account]
     other_plans = set(other_rows["plan_id"])
-    assert "p-002" in other_plans or "p-003" in other_plans, (
-        "non-anchored cohorts collapsed to p-001; distribution not active"
-    )
+    assert (
+        "p-002" in other_plans or "p-003" in other_plans
+    ), "non-anchored cohorts collapsed to p-001; distribution not active"
 
 
 def test_determinism_preserved_with_fk_distribution():
@@ -854,13 +932,18 @@ def _three_stage_cfg(downgrade_delay=None, enforce_order=True):
     """Minimal config with a 3-stage sequence driven by metric ``m``."""
     metrics = [
         Metric(
-            name="m", label="m", distribution="beta",
-            params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+            name="m",
+            label="m",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 2.0},
+            polarity="positive",
             value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     archetype = Archetype(
-        name="x", label="x", description="x",
+        name="x",
+        label="x",
+        description="x",
         curve_segments=[
             CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0),
         ],
@@ -873,25 +956,38 @@ def _three_stage_cfg(downgrade_delay=None, enforce_order=True):
         archetypes=[archetype],
         entities=[Entity(name="e1", archetype="x", size=1)],
         tables=[
-            Table(name="dim_date", type="dim", grain="per_period",
-                  columns=[Column(name="date_key", dtype="id", source="pk")],
-                  primary_key="date_key"),
-            Table(name="dim_co", type="dim", grain="per_entity",
-                  columns=[Column(name="co_id", dtype="id", source="pk")],
-                  primary_key="co_id"),
-            Table(name="fct_m", type="fact", grain="per_entity_per_period",
-                  columns=[
-                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
-                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
-                      Column(name="m", dtype="float", source="metric:m"),
-                  ],
-                  primary_key=["date_key", "co_id"],
-                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+            Table(
+                name="dim_date",
+                type="dim",
+                grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+            Table(
+                name="dim_co",
+                type="dim",
+                grain="per_entity",
+                columns=[Column(name="co_id", dtype="id", source="pk")],
+                primary_key="co_id",
+            ),
+            Table(
+                name="fct_m",
+                type="fact",
+                grain="per_entity_per_period",
+                columns=[
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                    Column(name="m", dtype="float", source="metric:m"),
+                ],
+                primary_key=["date_key", "co_id"],
+                foreign_keys=["dim_date.date_key", "dim_co.co_id"],
+            ),
         ],
         noise=NoiseConfig(),
         output=OutputConfig(directory="out/test"),
         stages=StageSequence(
-            field="m", enforce_order=enforce_order,
+            field="m",
+            enforce_order=enforce_order,
             sequence=[
                 StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.4),
                 StageDefinition(name="mid", threshold_enter=0.4, threshold_exit=0.8),
@@ -928,8 +1024,8 @@ def test_downgrade_after_delay_periods():
     # period 4. Period 5 and 6 should sit in the matching lower stage.
     assert stages[:2] == ["high", "high"]
     assert stages[2] == "high"  # streak of 1 — still high
-    assert stages[3] == "low"   # streak hits 2 → cursor drops to the
-                                # actual stage for value 0.1 (low)
+    assert stages[3] == "low"  # streak hits 2 → cursor drops to the
+    # actual stage for value 0.1 (low)
     assert stages[4] == "low"
     assert stages[5] == "low"
 
@@ -977,6 +1073,7 @@ def _assign_stages_scalar(cfg: PlotsimConfig, fact_tables):
     downgrade_delay = cfg.stages.downgrade_delay if enforce else None
 
     from plotsim.tables import _find_entity_fk_column, _per_entity_dim_names
+
     target_name = None
     target_tbl = None
     for tbl in cfg.tables:
@@ -1012,8 +1109,7 @@ def _assign_stages_scalar(cfg: PlotsimConfig, fact_tables):
             continue
         v = float(value)
         if enforce:
-            while (cursor[eid] < len(seq) - 1
-                   and v >= seq[cursor[eid] + 1].threshold_enter):
+            while cursor[eid] < len(seq) - 1 and v >= seq[cursor[eid] + 1].threshold_enter:
                 cursor[eid] += 1
                 lower_streak[eid] = 0
             if downgrade_delay is not None:
@@ -1044,6 +1140,7 @@ def _assign_stages_scalar(cfg: PlotsimConfig, fact_tables):
 def _entity_groups_scalar(fact_df, fact_table, per_entity_dims):
     """Pre-FIX-07 iterrows reference for ``_entity_groups`` parity checks."""
     from plotsim.tables import _find_entity_fk_column
+
     fk = _find_entity_fk_column(fact_table, per_entity_dims)
     entity_col = fk[0]
     seen: list = []
@@ -1067,8 +1164,7 @@ def test_vectorized_assign_stages_matches_iterrows_output(saas_cfg, saas_tables)
     # The staged fact is the one whose columns include the driving field.
     field = saas_cfg.stages.field
     target_name = next(
-        name for name, df in vectorized.items()
-        if field in df.columns and name.startswith("fct_")
+        name for name, df in vectorized.items() if field in df.columns and name.startswith("fct_")
     )
     pd.testing.assert_frame_equal(
         reference[target_name].reset_index(drop=True),
@@ -1088,10 +1184,7 @@ def test_vectorized_assign_stages_matches_iterrows_with_downgrade_delay():
     facts["fct_m"]["m"] = [0.85, 0.85, 0.1, 0.1, 0.85, 0.1]
     reference = _assign_stages_scalar(cfg, facts)
     vectorized = assign_stages(cfg, facts)
-    assert (
-        reference["fct_m"]["stage"].tolist()
-        == vectorized["fct_m"]["stage"].tolist()
-    )
+    assert reference["fct_m"]["stage"].tolist() == vectorized["fct_m"]["stage"].tolist()
 
 
 def test_vectorized_assign_stages_matches_iterrows_enforce_false():
@@ -1104,10 +1197,7 @@ def test_vectorized_assign_stages_matches_iterrows_enforce_false():
     facts["fct_m"]["m"] = [0.5, 0.85, 0.45, 0.1, 0.9, 0.6]
     reference = _assign_stages_scalar(cfg, facts)
     vectorized = assign_stages(cfg, facts)
-    assert (
-        reference["fct_m"]["stage"].tolist()
-        == vectorized["fct_m"]["stage"].tolist()
-    )
+    assert reference["fct_m"]["stage"].tolist() == vectorized["fct_m"]["stage"].tolist()
 
 
 def test_vectorized_assign_stages_handles_nan_values():
@@ -1123,10 +1213,7 @@ def test_vectorized_assign_stages_handles_nan_values():
     facts["fct_m"]["m"] = [None, 0.5, float("nan"), 0.85, float("nan"), 0.1]
     reference = _assign_stages_scalar(cfg, facts)
     vectorized = assign_stages(cfg, facts)
-    assert (
-        reference["fct_m"]["stage"].tolist()
-        == vectorized["fct_m"]["stage"].tolist()
-    )
+    assert reference["fct_m"]["stage"].tolist() == vectorized["fct_m"]["stage"].tolist()
 
 
 def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables):
@@ -1134,6 +1221,7 @@ def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables)
     same first-appearance order as the prior iterrows implementation,
     and each group DataFrame has the same rows in the same order."""
     from plotsim.tables import _entity_groups, _per_entity_dim_names
+
     fact_name = "fct_support_tickets"
     fact_df = saas_tables[fact_name]
     fact_tbl = next(t for t in saas_cfg.tables if t.name == fact_name)
@@ -1144,6 +1232,7 @@ def test_vectorized_entity_groups_matches_iterrows_output(saas_cfg, saas_tables)
 
     assert col_a == col_b
     assert [eid for eid, _ in ref] == [eid for eid, _ in vec]
+
     # F3 (M102): the iterrows reference helper builds groups via
     # `pd.DataFrame(list_of_Series)`, which row-stacks and demotes Int64 →
     # object — and (varies by pandas version) materializes nullable cells as
@@ -1185,19 +1274,24 @@ def test_performance_improvement_on_large_config():
     shape by using a 5-year daily window: 100 × 1826 ≈ 183k rows.
     """
     import time
+
     n_cohorts = 100
     metrics = [
         Metric(
-            name="m", label="m", distribution="beta",
-            params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+            name="m",
+            label="m",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 2.0},
+            polarity="positive",
             value_range={"min": 0.0, "max": 1.0},
         ),
     ]
     archetype = Archetype(
-        name="x", label="x", description="x",
+        name="x",
+        label="x",
+        description="x",
         curve_segments=[
-            CurveSegment(curve="plateau", params={"level": 0.5},
-                         start_pct=0.0, end_pct=1.0),
+            CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0),
         ],
     )
     cfg = PlotsimConfig(
@@ -1208,25 +1302,38 @@ def test_performance_improvement_on_large_config():
         archetypes=[archetype],
         entities=[Entity(name=f"e{i}", archetype="x", size=5) for i in range(n_cohorts)],
         tables=[
-            Table(name="dim_date", type="dim", grain="per_period",
-                  columns=[Column(name="date_key", dtype="id", source="pk")],
-                  primary_key="date_key"),
-            Table(name="dim_co", type="dim", grain="per_entity",
-                  columns=[Column(name="co_id", dtype="id", source="pk")],
-                  primary_key="co_id"),
-            Table(name="fct_m", type="fact", grain="per_entity_per_period",
-                  columns=[
-                      Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
-                      Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
-                      Column(name="m", dtype="float", source="metric:m"),
-                  ],
-                  primary_key=["date_key", "co_id"],
-                  foreign_keys=["dim_date.date_key", "dim_co.co_id"]),
+            Table(
+                name="dim_date",
+                type="dim",
+                grain="per_period",
+                columns=[Column(name="date_key", dtype="id", source="pk")],
+                primary_key="date_key",
+            ),
+            Table(
+                name="dim_co",
+                type="dim",
+                grain="per_entity",
+                columns=[Column(name="co_id", dtype="id", source="pk")],
+                primary_key="co_id",
+            ),
+            Table(
+                name="fct_m",
+                type="fact",
+                grain="per_entity_per_period",
+                columns=[
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="co_id", dtype="id", source="fk:dim_co.co_id"),
+                    Column(name="m", dtype="float", source="metric:m"),
+                ],
+                primary_key=["date_key", "co_id"],
+                foreign_keys=["dim_date.date_key", "dim_co.co_id"],
+            ),
         ],
         noise=NoiseConfig(),
         output=OutputConfig(directory="out/test"),
         stages=StageSequence(
-            field="m", enforce_order=True,
+            field="m",
+            enforce_order=True,
             sequence=[
                 StageDefinition(name="low", threshold_enter=0.0, threshold_exit=0.4),
                 StageDefinition(name="mid", threshold_enter=0.4, threshold_exit=0.8),
@@ -1266,7 +1373,8 @@ LAYER4_FIXTURES = ROOT / "tests" / "fixtures" / "layer4_reference"
 # test_dimensions.py::test_hr_template_hire_dates_within_window and
 # the rest of test_tables.py's HR-shape assertions.
 @pytest.mark.parametrize(
-    "stem", ["saas", "education", "retail", "marketing"],
+    "stem",
+    ["saas", "education", "retail", "marketing"],
 )
 def test_layer4_reference_fixtures_match(stem, tmp_path):
     """Byte-identical regression: the five templates must produce CSVs
@@ -1291,23 +1399,21 @@ def test_layer4_reference_fixtures_match(stem, tmp_path):
 
     reference = LAYER4_FIXTURES / stem
     assert reference.exists(), (
-        f"missing reference fixture for {stem}; run "
-        f"tests/fixtures/_generate_layer4_fixtures.py"
+        f"missing reference fixture for {stem}; run " f"tests/fixtures/_generate_layer4_fixtures.py"
     )
     # Compare every CSV byte-for-byte. config.yaml and validation_report.txt
     # can legitimately drift (timestamps, etc.) so they're not in the diff.
     reference_csvs = sorted(p.name for p in reference.glob("*.csv"))
     actual_csvs = sorted(p.name for p in tmp_path.glob("*.csv"))
     assert reference_csvs == actual_csvs, (
-        f"{stem}: CSV set mismatch — "
-        f"reference={reference_csvs} actual={actual_csvs}"
+        f"{stem}: CSV set mismatch — " f"reference={reference_csvs} actual={actual_csvs}"
     )
     for name in reference_csvs:
         ref_bytes = (reference / name).read_bytes()
         out_bytes = (tmp_path / name).read_bytes()
-        assert ref_bytes == out_bytes, (
-            f"{stem}/{name}: byte-level diff against Layer 4 reference fixture"
-        )
+        assert (
+            ref_bytes == out_bytes
+        ), f"{stem}/{name}: byte-level diff against Layer 4 reference fixture"
 
 
 def test_metrics_3d_shape_and_values():
@@ -1322,13 +1428,18 @@ def test_metrics_3d_shape_and_values():
     n_periods = 24  # sample_saas has 2023-01..2024-12 monthly
     arch_by_name = {a.name: a for a in cfg.archetypes}
     from plotsim.trajectory import compute_all_trajectories
+
     trajs = compute_all_trajectories(cfg, n_periods)
 
     entity_metrics = {}
     for e in cfg.entities:
         entity_metrics[e.name] = generate_entity_metrics(
-            trajs[e.name], list(cfg.metrics), list(cfg.correlations),
-            cfg.noise, rng, archetype=arch_by_name.get(e.archetype),
+            trajs[e.name],
+            list(cfg.metrics),
+            list(cfg.correlations),
+            cfg.noise,
+            rng,
+            archetype=arch_by_name.get(e.archetype),
         )
 
     metrics_3d = _build_metrics_3d(cfg, entity_metrics, n_periods)
@@ -1342,9 +1453,7 @@ def test_metrics_3d_shape_and_values():
             for p in (0, n_periods // 2, n_periods - 1):
                 v_src = src[p]
                 v_3d = metrics_3d[i, p, m_idx]
-                if v_src is None or (
-                    isinstance(v_src, float) and np.isnan(v_src)
-                ):
+                if v_src is None or (isinstance(v_src, float) and np.isnan(v_src)):
                     assert np.isnan(v_3d)
                 else:
                     assert float(v_src) == pytest.approx(v_3d, rel=1e-12)
@@ -1359,42 +1468,62 @@ def test_lag_column_vectorized_matches_scalar_formula():
     from plotsim.tables import generate_tables
 
     raw = {
-        "domain": {"name": "t", "description": "t",
-                   "entity_type": "x", "entity_label": "x"},
-        "time_window": {"start": "2024-01", "end": "2024-12",
-                         "granularity": "monthly"},
+        "domain": {"name": "t", "description": "t", "entity_type": "x", "entity_label": "x"},
+        "time_window": {"start": "2024-01", "end": "2024-12", "granularity": "monthly"},
         "seed": 7,
-        "metrics": [{
-            "name": "m", "label": "M", "distribution": "lognorm",
-            "params": {"s": 0.3, "scale": 10.0}, "polarity": "positive",
-        }],
-        "archetypes": [{
-            "name": "a", "label": "A", "description": "-",
-            "curve_segments": [{
-                "curve": "plateau", "params": {"level": 0.5},
-                "start_pct": 0.0, "end_pct": 1.0,
-            }],
-        }],
+        "metrics": [
+            {
+                "name": "m",
+                "label": "M",
+                "distribution": "lognorm",
+                "params": {"s": 0.3, "scale": 10.0},
+                "polarity": "positive",
+            }
+        ],
+        "archetypes": [
+            {
+                "name": "a",
+                "label": "A",
+                "description": "-",
+                "curve_segments": [
+                    {
+                        "curve": "plateau",
+                        "params": {"level": 0.5},
+                        "start_pct": 0.0,
+                        "end_pct": 1.0,
+                    }
+                ],
+            }
+        ],
         "entities": [{"name": "e", "archetype": "a", "size": 2}],
         "tables": [
-            {"name": "dim_date", "type": "dim", "grain": "per_period",
-             "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
-             "primary_key": "date_key"},
-            {"name": "dim_x", "type": "dim", "grain": "per_entity",
-             "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
-             "primary_key": "x_id"},
-            {"name": "fct_m", "type": "fact", "grain": "per_entity_per_period",
-             "columns": [
-                 {"name": "date_key", "dtype": "id",
-                  "source": "fk:dim_date.date_key"},
-                 {"name": "x_id", "dtype": "id",
-                  "source": "fk:dim_x.x_id"},
-                 {"name": "m", "dtype": "float", "source": "metric:m"},
-                 {"name": "m_lag2", "dtype": "float",
-                  "source": "lag:m:periods:2"},
-             ],
-             "primary_key": ["date_key", "x_id"],
-             "foreign_keys": ["dim_date.date_key", "dim_x.x_id"]},
+            {
+                "name": "dim_date",
+                "type": "dim",
+                "grain": "per_period",
+                "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
+                "primary_key": "date_key",
+            },
+            {
+                "name": "dim_x",
+                "type": "dim",
+                "grain": "per_entity",
+                "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
+                "primary_key": "x_id",
+            },
+            {
+                "name": "fct_m",
+                "type": "fact",
+                "grain": "per_entity_per_period",
+                "columns": [
+                    {"name": "date_key", "dtype": "id", "source": "fk:dim_date.date_key"},
+                    {"name": "x_id", "dtype": "id", "source": "fk:dim_x.x_id"},
+                    {"name": "m", "dtype": "float", "source": "metric:m"},
+                    {"name": "m_lag2", "dtype": "float", "source": "lag:m:periods:2"},
+                ],
+                "primary_key": ["date_key", "x_id"],
+                "foreign_keys": ["dim_date.date_key", "dim_x.x_id"],
+            },
         ],
         # no noise so metric values are deterministic and never null
         "noise": {"gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0},
@@ -1491,53 +1620,77 @@ def test_proportional_event_empty_when_counts_zero():
     """
     # Use a scale so small that round(value * scale) is zero for all rows.
     from plotsim.config import PlotsimConfig
+
     raw = {
-        "domain": {"name": "t", "description": "t",
-                   "entity_type": "x", "entity_label": "x"},
-        "time_window": {"start": "2024-01", "end": "2024-06",
-                         "granularity": "monthly"},
+        "domain": {"name": "t", "description": "t", "entity_type": "x", "entity_label": "x"},
+        "time_window": {"start": "2024-01", "end": "2024-06", "granularity": "monthly"},
         "seed": 0,
-        "metrics": [{
-            "name": "m", "label": "M", "distribution": "beta",
-            "params": {"alpha": 2.0, "beta": 2.0}, "polarity": "positive",
-            "value_range": {"min": 0.0, "max": 0.1},
-        }],
-        "archetypes": [{
-            "name": "a", "label": "A", "description": "-",
-            "curve_segments": [{
-                "curve": "plateau", "params": {"level": 0.1},
-                "start_pct": 0.0, "end_pct": 1.0,
-            }],
-        }],
+        "metrics": [
+            {
+                "name": "m",
+                "label": "M",
+                "distribution": "beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "polarity": "positive",
+                "value_range": {"min": 0.0, "max": 0.1},
+            }
+        ],
+        "archetypes": [
+            {
+                "name": "a",
+                "label": "A",
+                "description": "-",
+                "curve_segments": [
+                    {
+                        "curve": "plateau",
+                        "params": {"level": 0.1},
+                        "start_pct": 0.0,
+                        "end_pct": 1.0,
+                    }
+                ],
+            }
+        ],
         "entities": [{"name": "e", "archetype": "a", "size": 1}],
         "tables": [
-            {"name": "dim_date", "type": "dim", "grain": "per_period",
-             "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
-             "primary_key": "date_key"},
-            {"name": "dim_x", "type": "dim", "grain": "per_entity",
-             "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
-             "primary_key": "x_id"},
-            {"name": "fct_m", "type": "fact", "grain": "per_entity_per_period",
-             "columns": [
-                 {"name": "date_key", "dtype": "id",
-                  "source": "fk:dim_date.date_key"},
-                 {"name": "x_id", "dtype": "id",
-                  "source": "fk:dim_x.x_id"},
-                 {"name": "m", "dtype": "float", "source": "metric:m"},
-             ],
-             "primary_key": ["date_key", "x_id"],
-             "foreign_keys": ["dim_date.date_key", "dim_x.x_id"]},
-            {"name": "evt_never", "type": "event", "grain": "variable",
-             "row_count_source": "proportional:m:scale:0.001",
-             "columns": [
-                 {"name": "event_id", "dtype": "id", "source": "pk"},
-                 {"name": "date_key", "dtype": "id",
-                  "source": "fk:dim_date.date_key"},
-                 {"name": "x_id", "dtype": "id",
-                  "source": "fk:dim_x.x_id"},
-             ],
-             "primary_key": "event_id",
-             "foreign_keys": ["dim_date.date_key", "dim_x.x_id"]},
+            {
+                "name": "dim_date",
+                "type": "dim",
+                "grain": "per_period",
+                "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
+                "primary_key": "date_key",
+            },
+            {
+                "name": "dim_x",
+                "type": "dim",
+                "grain": "per_entity",
+                "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
+                "primary_key": "x_id",
+            },
+            {
+                "name": "fct_m",
+                "type": "fact",
+                "grain": "per_entity_per_period",
+                "columns": [
+                    {"name": "date_key", "dtype": "id", "source": "fk:dim_date.date_key"},
+                    {"name": "x_id", "dtype": "id", "source": "fk:dim_x.x_id"},
+                    {"name": "m", "dtype": "float", "source": "metric:m"},
+                ],
+                "primary_key": ["date_key", "x_id"],
+                "foreign_keys": ["dim_date.date_key", "dim_x.x_id"],
+            },
+            {
+                "name": "evt_never",
+                "type": "event",
+                "grain": "variable",
+                "row_count_source": "proportional:m:scale:0.001",
+                "columns": [
+                    {"name": "event_id", "dtype": "id", "source": "pk"},
+                    {"name": "date_key", "dtype": "id", "source": "fk:dim_date.date_key"},
+                    {"name": "x_id", "dtype": "id", "source": "fk:dim_x.x_id"},
+                ],
+                "primary_key": "event_id",
+                "foreign_keys": ["dim_date.date_key", "dim_x.x_id"],
+            },
         ],
         "noise": {"gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0},
         "output": {"format": "csv", "directory": "out"},

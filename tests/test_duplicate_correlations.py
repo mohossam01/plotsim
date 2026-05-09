@@ -29,6 +29,7 @@ Tests:
   successfully.
 * ``test_single_correlation_loads`` — single entry, no duplicates.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -59,24 +60,31 @@ def _build_three_metric_config(
     only degree of freedom."""
     metrics = [
         Metric(
-            name=name, label=name,
-            distribution="normal", params={"mu": 10.0, "sigma": 2.0},
+            name=name,
+            label=name,
+            distribution="normal",
+            params={"mu": 10.0, "sigma": 2.0},
             polarity="positive",
         )
         for name in ("a", "b", "c")
     ]
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_metrics", type="fact", grain="per_entity_per_period",
+        name="fct_metrics",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "user_id"],
         foreign_keys=["dim_date.date_key", "dim_user.user_id"],
         columns=[
@@ -88,7 +96,9 @@ def _build_three_metric_config(
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -96,7 +106,9 @@ def _build_three_metric_config(
         ],
     )
     dim_user = Table(
-        name="dim_user", type="dim", grain="per_entity",
+        name="dim_user",
+        type="dim",
+        grain="per_entity",
         primary_key="user_id",
         columns=[
             Column(name="user_id", dtype="id", source="pk"),
@@ -107,11 +119,15 @@ def _build_three_metric_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="user", entity_label="Users",
+                name="t",
+                description="t",
+                entity_type="user",
+                entity_label="Users",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-12", granularity="monthly",
+                start="2024-01",
+                end="2024-12",
+                granularity="monthly",
             ),
             seed=0,
             metrics=metrics,
@@ -133,14 +149,10 @@ def test_duplicate_same_order_raises():
     with pytest.raises(ValidationError) as exc_info:
         _build_three_metric_config(correlations)
     msg = str(exc_info.value)
-    assert "duplicate" in msg.lower(), (
-        f"error message does not say 'duplicate': {msg}"
-    )
+    assert "duplicate" in msg.lower(), f"error message does not say 'duplicate': {msg}"
     assert "0.7" in msg, f"missing first coefficient in message: {msg}"
     assert "0.3" in msg, f"missing second coefficient in message: {msg}"
-    assert "'a'" in msg and "'b'" in msg, (
-        f"pair names missing from message: {msg}"
-    )
+    assert "'a'" in msg and "'b'" in msg, f"pair names missing from message: {msg}"
 
 
 def test_duplicate_opposite_order_raises():

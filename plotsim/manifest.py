@@ -79,11 +79,13 @@ class _ManifestBase(BaseModel):
     so a malformed manifest read off disk fails loudly during validation
     instead of silently dropping unknown fields.
     """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class EntityArchetypeAssignment(_ManifestBase):
     """Single (entity, archetype) ground-truth pair."""
+
     entity: str
     archetype: str
 
@@ -94,6 +96,7 @@ class TrajectorySample(_ManifestBase):
     ``position`` is in [0, 1]; values outside that range indicate a
     trajectory builder bug, not a manifest bug.
     """
+
     entity: str
     period_index: int
     position: float
@@ -107,6 +110,7 @@ class EventFiring(_ManifestBase):
     a downstream consumer can iterate the full entity × event-table
     matrix without fallback logic).
     """
+
     entity: str
     table: str
     period_indices: list[int]
@@ -122,6 +126,7 @@ class BridgeAssociationRecord(_ManifestBase):
     is ``len(targets)``, surfaced separately so manifest consumers can
     aggregate per-entity counts without iterating each tuple.
     """
+
     bridge: str
     entity: str
     targets: list[Any]
@@ -144,6 +149,7 @@ class QualityInjection(_ManifestBase):
     name and ``clean_values`` is empty (the corruption isn't a per-cell
     edit but a row-level operation).
     """
+
     issue_index: int
     issue_type: str
     table: str
@@ -166,6 +172,7 @@ class SCDEvent(_ManifestBase):
     "the entity's plan tier upgraded when its trajectory first reached
     0.42" without re-reading thresholds out of the config.
     """
+
     dim_table: str
     entity: str
     period_index: int
@@ -193,6 +200,7 @@ class CorrelationAdjustment(_ManifestBase):
     ``correlation_adjustments=null`` and an empty list with one entry
     rounded out by tolerance never collide.
     """
+
     metric_a: str
     metric_b: str
     requested: float
@@ -240,6 +248,7 @@ class CorrelationCompensation(_ManifestBase):
     declare) are not recorded — they're implicitly feasible and don't
     change the user's contract.
     """
+
     metric_a: str
     metric_b: str
     user_target: float
@@ -267,6 +276,7 @@ class HoldoutInfo(_ManifestBase):
         unsplit fact table or its own derivative on the same axis
         without recomputing ``period_count`` from ``time_window``.
     """
+
     target_metric: str
     holdout_periods: int
     cutoff_period_index: int
@@ -278,6 +288,7 @@ class ManifestSchema(_ManifestBase):
     ``schema_version`` tags the wire shape; bumping it is a signal to
     downstream consumers that they need to re-read the parsing logic.
     """
+
     schema_version: str
     seed: int
     config_sha256: str
@@ -346,7 +357,8 @@ def config_sha256(config: PlotsimConfig) -> str:
 
 
 def _sample_entity_subset(
-    entity_names: list[str], sample_rate: float,
+    entity_names: list[str],
+    sample_rate: float,
 ) -> list[str]:
     """Pick a deterministic entity subset for trajectory sampling.
 
@@ -371,9 +383,7 @@ def _date_key_to_period_index(dim_date: pd.DataFrame) -> dict:
     ``date_key`` FK; mapping it back through this dict gives the period
     index the manifest records.
     """
-    return {
-        row.date_key: idx for idx, row in enumerate(dim_date.itertuples())
-    }
+    return {row.date_key: idx for idx, row in enumerate(dim_date.itertuples())}
 
 
 def _firings_for_event_table(
@@ -403,9 +413,7 @@ def _firings_for_event_table(
     # on evt_login, so a "first non-dim_date FK" heuristic would route
     # firings to dim_user — which is per-row, not per-entity, and makes
     # the entity bridge nonsensical.
-    dim_grain_by_name = {
-        t.name: t.grain for t in config.tables if t.type == "dim"
-    }
+    dim_grain_by_name = {t.name: t.grain for t in config.tables if t.type == "dim"}
 
     entity_fk_col: Optional[str] = None
     parent_dim_name: Optional[str] = None
@@ -416,10 +424,7 @@ def _firings_for_event_table(
             continue
         if parsed.table == "dim_date":
             date_fk_col = col.name
-        elif (
-            entity_fk_col is None
-            and dim_grain_by_name.get(parsed.table) == "per_entity"
-        ):
+        elif entity_fk_col is None and dim_grain_by_name.get(parsed.table) == "per_entity":
             entity_fk_col = col.name
             parent_dim_name = parsed.table
 
@@ -431,7 +436,8 @@ def _firings_for_event_table(
 
     parent_dim_df = tables.get(parent_dim_name)
     parent_dim_tbl = next(
-        (t for t in config.tables if t.name == parent_dim_name), None,
+        (t for t in config.tables if t.name == parent_dim_name),
+        None,
     )
     if parent_dim_df is None or parent_dim_tbl is None:
         return firings
@@ -454,40 +460,45 @@ def _firings_for_event_table(
     # per PK (first-version-wins) so the bridge is config.entities-aligned
     # again — ``expand_scd_dims`` iterates entities in config order, so
     # the deduped frame preserves that ordering.
-    pk_values = (
-        parent_dim_df.drop_duplicates(subset=[parent_pk_col], keep="first")
-        [parent_pk_col].tolist()
-    )
+    pk_values = parent_dim_df.drop_duplicates(subset=[parent_pk_col], keep="first")[
+        parent_pk_col
+    ].tolist()
     if len(pk_values) != len(config.entities):
         # Parent dim unique-PK count doesn't match — can't bridge by position.
         return firings
-    entity_pk_by_name = {
-        entity.name: pk for entity, pk in zip(config.entities, pk_values)
-    }
+    entity_pk_by_name = {entity.name: pk for entity, pk in zip(config.entities, pk_values)}
 
     if event_df.empty:
         for entity in config.entities:
-            firings.append(EventFiring(
-                entity=entity.name, table=table_name, period_indices=[],
-            ))
+            firings.append(
+                EventFiring(
+                    entity=entity.name,
+                    table=table_name,
+                    period_indices=[],
+                )
+            )
         return firings
 
     pk_to_periods: dict = {}
     for pk_value, group in event_df.groupby(entity_fk_col, sort=False):
-        period_idxs = sorted({
-            period_index_by_date_key[dk]
-            for dk in group[date_fk_col].tolist()
-            if dk in period_index_by_date_key
-        })
+        period_idxs = sorted(
+            {
+                period_index_by_date_key[dk]
+                for dk in group[date_fk_col].tolist()
+                if dk in period_index_by_date_key
+            }
+        )
         pk_to_periods[pk_value] = period_idxs
 
     for entity in config.entities:
         pk = entity_pk_by_name[entity.name]
-        firings.append(EventFiring(
-            entity=entity.name,
-            table=table_name,
-            period_indices=pk_to_periods.get(pk, []),
-        ))
+        firings.append(
+            EventFiring(
+                entity=entity.name,
+                table=table_name,
+                period_indices=pk_to_periods.get(pk, []),
+            )
+        )
     return firings
 
 
@@ -529,21 +540,16 @@ def build_manifest(
     The function is pure and stateless — same inputs → same output. No
     RNG, no clock, no filesystem.
     """
-    rate = (
-        sample_rate if sample_rate is not None
-        else config.manifest.trajectory_sample_rate
-    )
+    rate = sample_rate if sample_rate is not None else config.manifest.trajectory_sample_rate
 
     archetype_assignments = sorted(
-        [
-            EntityArchetypeAssignment(entity=e.name, archetype=e.archetype)
-            for e in config.entities
-        ],
+        [EntityArchetypeAssignment(entity=e.name, archetype=e.archetype) for e in config.entities],
         key=lambda a: a.entity,
     )
 
     sampled_entity_names = _sample_entity_subset(
-        [e.name for e in config.entities], rate,
+        [e.name for e in config.entities],
+        rate,
     )
     trajectory_samples: list[TrajectorySample] = []
     for ename in sampled_entity_names:
@@ -551,11 +557,13 @@ def build_manifest(
         if traj is None:
             continue
         for p in range(len(traj)):
-            trajectory_samples.append(TrajectorySample(
-                entity=ename,
-                period_index=p,
-                position=float(traj[p]),
-            ))
+            trajectory_samples.append(
+                TrajectorySample(
+                    entity=ename,
+                    period_index=p,
+                    position=float(traj[p]),
+                )
+            )
 
     dim_date = tables.get("dim_date")
     if dim_date is None:
@@ -564,14 +572,17 @@ def build_manifest(
         period_index_by_date_key = _date_key_to_period_index(dim_date)
 
     event_firings: list[EventFiring] = []
-    event_table_names = sorted(
-        name for name in tables if _is_event_table(name, config)
-    )
+    event_table_names = sorted(name for name in tables if _is_event_table(name, config))
     for table_name in event_table_names:
-        event_firings.extend(_firings_for_event_table(
-            table_name, tables[table_name], config, tables,
-            period_index_by_date_key,
-        ))
+        event_firings.extend(
+            _firings_for_event_table(
+                table_name,
+                tables[table_name],
+                config,
+                tables,
+                period_index_by_date_key,
+            )
+        )
 
     scd_events: list[SCDEvent] = []
     if scd_state is not None and getattr(scd_state, "dims", None):
@@ -585,29 +596,33 @@ def build_manifest(
                 for i in range(1, len(versions)):
                     prev = versions[i - 1]
                     curr = versions[i]
-                    scd_events.append(SCDEvent(
-                        dim_table=dim_name,
-                        entity=entity_name,
-                        period_index=int(curr.valid_from_period),
-                        old_label=prev.band_label,
-                        new_label=curr.band_label,
-                        old_dim_row_id=int(prev.dim_row_id),
-                        new_dim_row_id=int(curr.dim_row_id),
-                        trigger_metric=dim_state.trigger_metric,
-                        trigger_position=float(curr.crossing_position or 0.0),
-                    ))
+                    scd_events.append(
+                        SCDEvent(
+                            dim_table=dim_name,
+                            entity=entity_name,
+                            period_index=int(curr.valid_from_period),
+                            old_label=prev.band_label,
+                            new_label=curr.band_label,
+                            old_dim_row_id=int(prev.dim_row_id),
+                            new_dim_row_id=int(curr.dim_row_id),
+                            trigger_metric=dim_state.trigger_metric,
+                            trigger_position=float(curr.crossing_position or 0.0),
+                        )
+                    )
 
     bridge_associations: list[BridgeAssociationRecord] = []
     if bridge_state is not None and getattr(bridge_state, "bridges", None):
         # Sort bridge names for stable manifest ordering across runs.
         for bridge_name in sorted(bridge_state.bridges.keys()):
             for assoc in bridge_state.bridges[bridge_name]:
-                bridge_associations.append(BridgeAssociationRecord(
-                    bridge=bridge_name,
-                    entity=assoc.entity,
-                    targets=list(assoc.targets),
-                    cardinality=int(assoc.cardinality),
-                ))
+                bridge_associations.append(
+                    BridgeAssociationRecord(
+                        bridge=bridge_name,
+                        entity=assoc.entity,
+                        targets=list(assoc.targets),
+                        cardinality=int(assoc.cardinality),
+                    )
+                )
 
     # M111: read the load-time projection record off the config's private
     # attribute. ``None`` for runs whose user-specified matrix was already
@@ -648,6 +663,7 @@ def build_manifest(
     # at config-load time — this keeps the manifest builder pure
     # without coupling to the orchestrator's state shape.
     from plotsim.metrics import _VECTORIZED_AUTO_THRESHOLD
+
     vectorized_threshold_used = int(_VECTORIZED_AUTO_THRESHOLD)
 
     return ManifestSchema(

@@ -12,6 +12,7 @@ The CLI is a thin shell over the library. Every command here calls a public
 function that's also available as `from plotsim import ...`, so nothing
 important lives only in argv-parsing land.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -67,12 +68,7 @@ def _is_builder_yaml(path: Path) -> bool:
         return False
     if not isinstance(data, dict):
         return False
-    return (
-        "about" in data
-        and "unit" in data
-        and "segments" in data
-        and "domain" not in data
-    )
+    return "about" in data and "unit" in data and "segments" in data and "domain" not in data
 
 
 def load_either_config(path: str | Path) -> PlotsimConfig:
@@ -87,6 +83,7 @@ def load_either_config(path: str | Path) -> PlotsimConfig:
     p = Path(path)
     if _is_builder_yaml(p):
         from plotsim.builder import create_from_yaml
+
         return create_from_yaml(p)
     return load_config(p)
 
@@ -170,8 +167,16 @@ def _estimate_periods(config: PlotsimConfig) -> int:
     the count under-counts by ``(days_in_end_month - 1)``.
     """
     tw = config.time_window
-    start = _dt.date.fromisoformat(tw.start + "-01") if len(tw.start) == 7 else _dt.date.fromisoformat(tw.start)
-    end = _dt.date.fromisoformat(tw.end + "-01") if len(tw.end) == 7 else _dt.date.fromisoformat(tw.end)
+    start = (
+        _dt.date.fromisoformat(tw.start + "-01")
+        if len(tw.start) == 7
+        else _dt.date.fromisoformat(tw.start)
+    )
+    end = (
+        _dt.date.fromisoformat(tw.end + "-01")
+        if len(tw.end) == 7
+        else _dt.date.fromisoformat(tw.end)
+    )
     if tw.granularity == "monthly":
         return (end.year - start.year) * 12 + (end.month - start.month) + 1
     if tw.granularity == "weekly":
@@ -251,8 +256,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if args.strict and not report.ok:
         print(
-            f"--strict: validation has {len(report.errors)} error(s); "
-            f"aborting before write.",
+            f"--strict: validation has {len(report.errors)} error(s); " f"aborting before write.",
             file=sys.stderr,
         )
         return 1
@@ -268,7 +272,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         # is populated for configs that use SCD Type 2. Empty for all other
         # configs (build_manifest no-ops on an empty SCDState).
         manifest = build_manifest(
-            config, gen_state.trajectories, tables,
+            config,
+            gen_state.trajectories,
+            tables,
             scd_state=gen_state.scd,
             bridge_state=gen_state.bridges,
         )
@@ -284,7 +290,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         # validation report; library callers default to generated_at=None
         # and get a deterministic config-fingerprint instead.
         target = write_tables(
-            tables, config, report, output_dir=output_dir, base_dir=base_dir,
+            tables,
+            config,
+            report,
+            output_dir=output_dir,
+            base_dir=base_dir,
             generated_at=_dt.datetime.now(),
             manifest=manifest,
         )
@@ -298,15 +308,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if not args.quiet:
         total_rows = sum(len(df) for df in tables.values())
-        print(
-            f"Wrote {len(tables)} table(s), {total_rows} total row(s) to {target}/"
-        )
+        print(f"Wrote {len(tables)} table(s), {total_rows} total row(s) to {target}/")
         # FIX-03 / SF-9: surface event tables that emitted zero rows because
         # no driver (row_count_source / threshold column) is configured. The
         # validator owns the warning detection; the CLI mirrors it as a
         # one-line note per offending table so users notice without having
         # to open validation_report.txt.
         from plotsim.validation import CHECK_EMPTY_EVENT_TABLE
+
         for issue in report.by_check(CHECK_EMPTY_EVENT_TABLE):
             print(f"  ! {issue.table}: 0 rows (no event driver configured)")
     return 0
@@ -357,16 +366,12 @@ def cmd_info(args: argparse.Namespace) -> int:
     lines = [
         f"Domain: {config.domain.name}",
         f"Entity type: {config.domain.entity_label}",
-        f"Entities: {n_entities} across {len(cohorts)} cohort(s) "
-        f"({', '.join(cohorts)})",
+        f"Entities: {n_entities} across {len(cohorts)} cohort(s) " f"({', '.join(cohorts)})",
         f"Time window: {config.time_window.start} to {config.time_window.end} "
         f"({n_periods} {_period_label(config.time_window.granularity, n_periods)})",
-        f"Metrics: {len(config.metrics)} "
-        f"({', '.join(m.name for m in config.metrics)})",
-        f"Archetypes: {len(config.archetypes)} defined, "
-        f"{len(archetypes_used)} in use",
-        f"Tables: {len(config.tables)} "
-        f"({n_dim} dim, {n_fact} fact, {n_event} event)",
+        f"Metrics: {len(config.metrics)} " f"({', '.join(m.name for m in config.metrics)})",
+        f"Archetypes: {len(config.archetypes)} defined, " f"{len(archetypes_used)} in use",
+        f"Tables: {len(config.tables)} " f"({n_dim} dim, {n_fact} fact, {n_event} event)",
         f"Estimated rows: ~{_estimate_rows(config, n_periods):,}",
         f"Seed: {config.seed}",
     ]
@@ -416,8 +421,7 @@ def cmd_list_templates(_args: argparse.Namespace) -> int:
         print("")
     first_name = (builder_templates or engine_templates)[0][0]
     print(
-        f"Usage: plotsim template {first_name} -o my_config.yaml && "
-        f"plotsim run my_config.yaml"
+        f"Usage: plotsim template {first_name} -o my_config.yaml && " f"plotsim run my_config.yaml"
     )
     return 0
 
@@ -440,6 +444,7 @@ def cmd_schema(args: argparse.Namespace) -> int:
         # Stdout sink — useful for ``plotsim schema -o - | jq``.
         from plotsim.schema import generate_schema
         import json as _json
+
         print(_json.dumps(generate_schema(), indent=2, ensure_ascii=False))
         return 0
     else:
@@ -512,26 +517,25 @@ def _print_validation_report(report) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="plotsim",
-        description=(
-            "Generate realistic multi-table datasets from behavioral archetypes."
-        ),
+        description=("Generate realistic multi-table datasets from behavioral archetypes."),
     )
-    parser.add_argument(
-        "--version", action="version", version=f"plotsim {__version__}"
-    )
+    parser.add_argument("--version", action="version", version=f"plotsim {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
     run_p = subparsers.add_parser("run", help="Generate dataset from config")
     run_p.add_argument("config", help="Path to YAML config file")
     run_p.add_argument("--output-dir", "-o", default=None)
     run_p.add_argument("--seed", "-s", type=int, default=None)
-    run_p.add_argument("--validate", "-v", action="store_true",
-                       help="Print validation report after generation")
-    run_p.add_argument("--strict", action="store_true",
-                       help="Exit non-zero if validation has any errors")
+    run_p.add_argument(
+        "--validate", "-v", action="store_true", help="Print validation report after generation"
+    )
+    run_p.add_argument(
+        "--strict", action="store_true", help="Exit non-zero if validation has any errors"
+    )
     run_p.add_argument("--quiet", "-q", action="store_true")
     run_p.add_argument(
-        "--allow-absolute-output", action="store_true",
+        "--allow-absolute-output",
+        action="store_true",
         help=(
             "Bypass the cwd path sandbox (SEC-01). Permits absolute "
             "output_dir values and ..-segment traversal. Only use this "
@@ -540,7 +544,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     run_p.add_argument(
-        "--allow-large-dataset", action="store_true",
+        "--allow-large-dataset",
+        action="store_true",
         help=(
             "Opt into runs above the cell-budget soft cap (default "
             "2,000,000 cells; configurable via PLOTSIM_CELL_BUDGET). "
@@ -553,7 +558,8 @@ def build_parser() -> argparse.ArgumentParser:
     val_p = subparsers.add_parser("validate", help="Validate a config file")
     val_p.add_argument("config", help="Path to YAML config file")
     val_p.add_argument(
-        "--config-only", action="store_true",
+        "--config-only",
+        action="store_true",
         help=(
             "Run only load-time validators (no generation). Currently the "
             "default — the flag pins the fast-path contract for CI scripts "
@@ -561,32 +567,30 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     val_p.add_argument(
-        "--allow-large-dataset", action="store_true",
+        "--allow-large-dataset",
+        action="store_true",
         help="Opt into validating configs above the cell-budget soft cap.",
     )
     val_p.set_defaults(func=cmd_validate_config)
 
-    info_p = subparsers.add_parser(
-        "info", help="Preview what a config would generate"
-    )
+    info_p = subparsers.add_parser("info", help="Preview what a config would generate")
     info_p.add_argument("config", help="Path to YAML config file")
     info_p.add_argument(
-        "--allow-large-dataset", action="store_true",
+        "--allow-large-dataset",
+        action="store_true",
         help="Opt into inspecting configs above the cell-budget soft cap.",
     )
     info_p.set_defaults(func=cmd_info)
 
-    list_p = subparsers.add_parser(
-        "list-templates", help="List available sample configs"
-    )
+    list_p = subparsers.add_parser("list-templates", help="List available sample configs")
     list_p.set_defaults(func=cmd_list_templates)
 
     tmpl_p = subparsers.add_parser("template", help="Copy a sample config")
     tmpl_p.add_argument("name", help="Template name (see list-templates)")
-    tmpl_p.add_argument("--output", "-o", default=None,
-                        help="Destination path (default: stdout)")
+    tmpl_p.add_argument("--output", "-o", default=None, help="Destination path (default: stdout)")
     tmpl_p.add_argument(
-        "--allow-absolute-output", action="store_true",
+        "--allow-absolute-output",
+        action="store_true",
         help=(
             "Bypass the cwd path sandbox. Permits absolute --output values "
             "and ..-segment traversal. Only use this when you deliberately "
@@ -600,14 +604,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON Schema for PlotsimConfig (used for editor autocomplete)",
     )
     schema_p.add_argument(
-        "--output", "-o", default=None,
-        help=(
-            f"Destination path (default: ./{SCHEMA_FILENAME}). "
-            f"Pass '-' to write to stdout."
-        ),
+        "--output",
+        "-o",
+        default=None,
+        help=(f"Destination path (default: ./{SCHEMA_FILENAME}). " f"Pass '-' to write to stdout."),
     )
     schema_p.add_argument(
-        "--allow-absolute-output", action="store_true",
+        "--allow-absolute-output",
+        action="store_true",
         help=(
             "Bypass the cwd path sandbox. Permits absolute --output values "
             "and ..-segment traversal. Only use this when you deliberately "

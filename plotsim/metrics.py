@@ -81,6 +81,7 @@ _GAUSSIAN_CLAMP_HI = float(sp_norm.ppf(1.0 - _CDF_CLAMP))
 
 # --- Polarity and position → center ------------------------------------------
 
+
 def _apply_polarity(position: float, metric: Metric) -> float:
     """Flip position if metric has negative polarity."""
     if metric.polarity == "negative":
@@ -126,6 +127,7 @@ def position_to_center(position: float, metric: Metric) -> float:
 
 
 # --- Sampling ----------------------------------------------------------------
+
 
 def sample_single_metric(
     center: float,
@@ -189,13 +191,15 @@ def _get_scipy_dist(metric: Metric, center: float):
         if vr is not None and vr.min is not None and vr.max is not None:
             span = float(vr.max - vr.min)
             return sp_stats.beta(
-                a=alpha, b=beta,
+                a=alpha,
+                b=beta,
                 loc=float(center) - base_mean * span,
                 scale=span,
             )
         scale = float(params.get("scale", 1.0))
         return sp_stats.beta(
-            a=alpha, b=beta,
+            a=alpha,
+            b=beta,
             loc=scale * (float(center) - base_mean),
             scale=scale,
         )
@@ -228,6 +232,7 @@ def _clamp_and_round(value: float, metric: Metric) -> float:
 
 
 # --- Correlated noise via Cholesky ------------------------------------------
+
 
 def _build_correlation_matrix(
     metrics: list[Metric],
@@ -264,7 +269,9 @@ _ADJUSTMENT_NOISE_FLOOR = 1e-12
 
 
 def _higham_nearest_pd(
-    A: np.ndarray, max_iter: int = 200, tol: float = 1e-10,
+    A: np.ndarray,
+    max_iter: int = 200,
+    tol: float = 1e-10,
 ) -> tuple[np.ndarray, bool]:
     """Higham 2002 alternating projections — nearest correlation matrix.
 
@@ -368,7 +375,9 @@ def _eigvalue_clip_to_pd(A: np.ndarray, tol: float = 1e-10) -> np.ndarray:
 
 
 def project_correlation_matrix(
-    mat: np.ndarray, max_iter: int = 200, tol: float = 1e-10,
+    mat: np.ndarray,
+    max_iter: int = 200,
+    tol: float = 1e-10,
 ) -> tuple[np.ndarray, bool, bool]:
     """Project ``mat`` onto the nearest PD correlation matrix if needed.
 
@@ -459,13 +468,15 @@ def _correlation_adjustment_records(
         diff = abs(req - ach)
         if diff <= _ADJUSTMENT_NOISE_FLOOR:
             continue
-        records.append({
-            "metric_a": pair.metric_a,
-            "metric_b": pair.metric_b,
-            "requested": req,
-            "achieved": ach,
-            "adjustment": diff,
-        })
+        records.append(
+            {
+                "metric_a": pair.metric_a,
+                "metric_b": pair.metric_b,
+                "requested": req,
+                "achieved": ach,
+                "adjustment": diff,
+            }
+        )
     records.sort(key=lambda r: (r["metric_a"], r["metric_b"]))
     return records
 
@@ -485,8 +496,7 @@ def _format_correlation_adjustment_warning(records: list[dict]) -> str:
     ]
     return (
         "Correlation matrix was not positive definite. "
-        f"Adjusted {len(records)} pairs to nearest valid values: "
-        + ", ".join(parts)
+        f"Adjusted {len(records)} pairs to nearest valid values: " + ", ".join(parts)
     )
 
 
@@ -614,10 +624,12 @@ def apply_correlations(
             m = metrics[i]
             fam = families[i]
             local_u = np.asarray(
-                [u[idx_list.index(i)]], dtype=np.float64,
+                [u[idx_list.index(i)]],
+                dtype=np.float64,
             )
             local_centers = np.asarray(
-                [centers_arr[i]], dtype=np.float64,
+                [centers_arr[i]],
+                dtype=np.float64,
             )
             val = fam.ppf_batch(local_u, local_centers, m.params, m.value_range)
             out[names[i]] = float(val[0])
@@ -784,8 +796,8 @@ def estimate_trajectory_covariance(
     arch_by_name = {a.name: a for a in config.archetypes}
     archetype_sizes: dict[str, int] = {}
     for ent in config.entities:
-        archetype_sizes[ent.archetype] = (
-            archetype_sizes.get(ent.archetype, 0) + max(1, int(ent.size))
+        archetype_sizes[ent.archetype] = archetype_sizes.get(ent.archetype, 0) + max(
+            1, int(ent.size)
         )
     total_size = sum(archetype_sizes.values())
     if total_size == 0:
@@ -798,8 +810,11 @@ def estimate_trajectory_covariance(
             continue
         sensitivity = _archetype_seasonal_sensitivity(arch_name, config)
         centers = _archetype_centers(
-            archetype, metric_order, n_periods,
-            seasonal_factors, sensitivity,
+            archetype,
+            metric_order,
+            n_periods,
+            seasonal_factors,
+            sensitivity,
         )
         r_a = _safe_corrcoef(centers)
         accumulator += (size / total_size) * r_a
@@ -879,19 +894,21 @@ def compensate_correlation_matrix(
         traj = float(traj_covariance[i, j])
         raw = target - traj
         achievable = max(-1.0, min(1.0, raw))
-        infeasible = (raw != achievable)
+        infeasible = raw != achievable
         compensated[i, j] = achievable
         compensated[j, i] = achievable
-        records.append({
-            "metric_a": pair.metric_a,
-            "metric_b": pair.metric_b,
-            "user_target": target,
-            "trajectory_contribution": traj,
-            "compensated_target": raw,
-            "achievable": achievable,
-            "infeasible": infeasible,
-            "adjustment": abs(target - achievable),
-        })
+        records.append(
+            {
+                "metric_a": pair.metric_a,
+                "metric_b": pair.metric_b,
+                "user_target": target,
+                "trajectory_contribution": traj,
+                "compensated_target": raw,
+                "achievable": achievable,
+                "infeasible": infeasible,
+                "adjustment": abs(target - achievable),
+            }
+        )
     records.sort(key=lambda r: (r["metric_a"], r["metric_b"]))
     return compensated, records
 
@@ -919,12 +936,12 @@ def _format_correlation_compensation_warning(records: list[dict]) -> str:
         f"Trajectory-aware correlation pre-compensation: {len(infeasible)} "
         "configured correlation(s) are not jointly achievable given the "
         "archetype mix's trajectory covariance — copula targets clamped to "
-        "the achievable range. "
-        + "; ".join(parts)
+        "the achievable range. " + "; ".join(parts)
     )
 
 
 # --- Causal lag --------------------------------------------------------------
+
 
 def _compute_effective_position(
     current_position: float,
@@ -966,6 +983,7 @@ def _compute_effective_position(
 
 # --- Noise -------------------------------------------------------------------
 
+
 def apply_noise(
     value: float,
     noise: NoiseConfig,
@@ -1000,6 +1018,7 @@ def apply_noise(
 
 
 # --- Per-period and per-entity orchestration --------------------------------
+
 
 def _toposort_metrics(metrics: list[Metric]) -> list[Metric]:
     """Reorder metrics so each causal_lag driver comes before its target.
@@ -1036,14 +1055,13 @@ def _toposort_metrics(metrics: list[Metric]) -> list[Metric]:
     try:
         ordered = list(ts.static_order())
     except CycleError as exc:
-        raise ValueError(
-            f"causal_lag metrics form a cycle: {exc.args[1]!r}"
-        ) from exc
+        raise ValueError(f"causal_lag metrics form a cycle: {exc.args[1]!r}") from exc
     return [by_name[name] for name in ordered]
 
 
 def _apply_archetype_overrides(
-    metric: Metric, archetype: Optional[Archetype],
+    metric: Metric,
+    archetype: Optional[Archetype],
 ) -> Metric:
     """Return `metric` with overridable fields substituted from the archetype.
 
@@ -1121,7 +1139,10 @@ def generate_metrics_for_period(
 
     for em in effective:
         eff_pos = _compute_effective_position(
-            trajectory_position, em, lag_buffer, period_index,
+            trajectory_position,
+            em,
+            lag_buffer,
+            period_index,
         )
         if lag_buffer is not None:
             # Append this metric's effective position BEFORE moving on to
@@ -1134,9 +1155,7 @@ def generate_metrics_for_period(
         center = position_to_center(eff_pos, em)
         if seasonal_global != 0.0:
             effective_strength = (
-                seasonal_global
-                * em.seasonal_sensitivity
-                * entity_seasonal_sensitivity
+                seasonal_global * em.seasonal_sensitivity * entity_seasonal_sensitivity
             )
             if effective_strength != 0.0:
                 center = center * (1.0 + effective_strength)
@@ -1160,8 +1179,12 @@ def generate_metrics_for_period(
 
     if correlations_active:
         correlated = apply_correlations(
-            independent, centers, correlations, effective,
-            cholesky_L=cholesky_L, rng=rng,
+            independent,
+            centers,
+            correlations,
+            effective,
+            cholesky_L=cholesky_L,
+            rng=rng,
         )
     else:
         correlated = dict(independent)
@@ -1229,12 +1252,17 @@ def generate_entity_metrics(
         # lag_buffer is now populated inline inside generate_metrics_for_period
         # — no outer-loop append. Effective positions (not raw trajectory) land
         # in the buffer, so chains A→B→C compose.
-        seasonal_global_t = (
-            float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
-        )
+        seasonal_global_t = float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
         period_out = generate_metrics_for_period(
-            pos, sorted_metrics, correlations, noise, lag_buffer, t, rng,
-            archetype=archetype, cholesky_L=cholesky_L,
+            pos,
+            sorted_metrics,
+            correlations,
+            noise,
+            lag_buffer,
+            t,
+            rng,
+            archetype=archetype,
+            cholesky_L=cholesky_L,
             seasonal_global=seasonal_global_t,
             entity_seasonal_sensitivity=entity_seasonal_sensitivity,
         )
@@ -1402,7 +1430,10 @@ def _apply_correlations_batch(
         col_centers = centers[:, j].astype(np.float64, copy=False)
         if fam.direct_transform is not None:
             out[:, j] = fam.direct_transform(
-                corr_z[:, j], col_centers, m.params, m.value_range,
+                corr_z[:, j],
+                col_centers,
+                m.params,
+                m.value_range,
             )
         else:
             u = sp_norm.cdf(corr_z[:, j])
@@ -1568,15 +1599,15 @@ def generate_archetype_batch(
     # the *effective position* (post-lag-blend) at each period. Mirrors
     # the scalar ``lag_buffer`` dict-of-lists; shape switches to a 2D
     # ndarray so per-batch lookups stay vectorized.
-    lag_buffer = {em.name: np.full((n_batch, n_periods), np.nan, dtype=np.float64)
-                  for em in effective}
+    lag_buffer = {
+        em.name: np.full((n_batch, n_periods), np.nan, dtype=np.float64) for em in effective
+    }
 
     # Output: per-entity dict-of-arrays accumulator. Each metric's
     # series is built up period-by-period so we can decide dtype at the
     # end (object if any NaN appeared, int for poisson, else float).
     series = {
-        e.name: {em.name: np.full(n_periods, np.nan, dtype=np.float64)
-                 for em in effective}
+        e.name: {em.name: np.full(n_periods, np.nan, dtype=np.float64) for em in effective}
         for e in batch_entities
     }
 
@@ -1637,11 +1668,9 @@ def generate_archetype_batch(
                 vr = em.value_range
                 if vr is not None:
                     if vr.min is not None:
-                        centers[:, j] = np.where(centers[:, j] < vr.min,
-                                                 vr.min, centers[:, j])
+                        centers[:, j] = np.where(centers[:, j] < vr.min, vr.min, centers[:, j])
                     if vr.max is not None:
-                        centers[:, j] = np.where(centers[:, j] > vr.max,
-                                                 vr.max, centers[:, j])
+                        centers[:, j] = np.where(centers[:, j] > vr.max, vr.max, centers[:, j])
         else:
             centers = np.empty((n_batch, M), dtype=np.float64)
             for j, em in enumerate(effective):
@@ -1656,13 +1685,20 @@ def generate_archetype_batch(
         #    each marginal is drawn from its own distribution as before.
         if correlations and cholesky_L is not None:
             correlated, _period_bypass = _apply_correlations_batch(
-                None, centers, effective, correlations, cholesky_L, rng=rng,
+                None,
+                centers,
+                effective,
+                correlations,
+                cholesky_L,
+                rng=rng,
             )
         else:
             correlated = np.empty((n_batch, M), dtype=np.float64)
             for j, em in enumerate(effective):
                 correlated[:, j] = sample_single_metric_batch(
-                    centers[:, j], em, rng,
+                    centers[:, j],
+                    em,
+                    rng,
                 )
 
         # 5+6+7. Noise + clamp/round per metric column.

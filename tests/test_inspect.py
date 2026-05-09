@@ -84,7 +84,8 @@ def test_realized_cell_matches_fact_table_floating_point_exact(saas_cfg):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         tables, _ = generate_tables_with_state(
-            saas_cfg, np.random.default_rng(42),
+            saas_cfg,
+            np.random.default_rng(42),
         )
     fct_revenue = tables["fct_revenue"]
     n_periods = 24
@@ -133,9 +134,9 @@ def test_in_matrix_metrics_produce_finite_cells(saas_cfg, metric):
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 4, metric, seed=42)
     assert r.bypass_in_copula is False
     assert r.correlated_draw is not None
-    assert math.isfinite(r.correlated_draw), (
-        f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
-    )
+    assert math.isfinite(
+        r.correlated_draw
+    ), f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
 
 
 def test_engagement_passes_through_copula_as_first_in_toposort(saas_cfg):
@@ -147,7 +148,9 @@ def test_engagement_passes_through_copula_as_first_in_toposort(saas_cfg):
     """
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 4, "engagement", seed=42)
     assert math.isclose(
-        r.independent_draw, r.correlated_draw, abs_tol=1e-9,
+        r.independent_draw,
+        r.correlated_draw,
+        abs_tol=1e-9,
     )
 
 
@@ -164,9 +167,9 @@ def test_non_pair_metrics_produce_finite_cells(saas_cfg, metric):
     """
     r = trace_metric_cell(saas_cfg, "acme_corp_cohort", 12, metric, seed=42)
     assert r.correlated_draw is not None
-    assert math.isfinite(r.correlated_draw), (
-        f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
-    )
+    assert math.isfinite(
+        r.correlated_draw
+    ), f"{metric}: copula produced non-finite cell {r.correlated_draw!r}"
 
 
 def test_mcar_fired_nullifies_downstream(saas_cfg):
@@ -188,7 +191,8 @@ def test_mcar_fired_nullifies_downstream(saas_cfg):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         tables, _ = generate_tables_with_state(
-            saas_cfg, np.random.default_rng(42),
+            saas_cfg,
+            np.random.default_rng(42),
         )
     fct_engagement = tables["fct_engagement"]
     cell = fct_engagement.iloc[1 * 24 + 2]["engagement_score"]
@@ -197,7 +201,11 @@ def test_mcar_fired_nullifies_downstream(saas_cfg):
 
 def test_causal_lag_driver_populated_for_support_tickets(saas_cfg):
     r = trace_metric_cell(
-        saas_cfg, "acme_corp_cohort", 12, "support_tickets", seed=42,
+        saas_cfg,
+        "acme_corp_cohort",
+        12,
+        "support_tickets",
+        seed=42,
     )
     assert r.causal_lag_driver == "engagement"
     assert r.causal_lag_blend_weight is not None
@@ -245,14 +253,17 @@ def test_no_rng_side_effects_on_subsequent_engine_run(saas_cfg):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
         tables_before, _ = generate_tables_with_state(
-            saas_cfg, np.random.default_rng(42),
+            saas_cfg,
+            np.random.default_rng(42),
         )
         _ = trace_metric_cell(saas_cfg, "acme_corp_cohort", 12, "mrr", seed=42)
         tables_after, _ = generate_tables_with_state(
-            saas_cfg, np.random.default_rng(42),
+            saas_cfg,
+            np.random.default_rng(42),
         )
     pd.testing.assert_frame_equal(
-        tables_before["fct_revenue"], tables_after["fct_revenue"],
+        tables_before["fct_revenue"],
+        tables_after["fct_revenue"],
     )
 
 
@@ -260,7 +271,11 @@ def test_seed_default_uses_config_seed(saas_cfg):
     """seed=None must reproduce the engine's default-seeded run."""
     r_default = trace_metric_cell(saas_cfg, "acme_corp_cohort", 12, "mrr")
     r_explicit = trace_metric_cell(
-        saas_cfg, "acme_corp_cohort", 12, "mrr", seed=saas_cfg.seed,
+        saas_cfg,
+        "acme_corp_cohort",
+        12,
+        "mrr",
+        seed=saas_cfg.seed,
     )
     assert r_default == r_explicit
 

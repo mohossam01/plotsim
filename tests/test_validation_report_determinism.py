@@ -15,6 +15,7 @@ dump, threaded through automatically by ``write_tables`` from its
 ``generated_at=datetime.now()`` so operators still see the wall-clock
 stamp.
 """
+
 from __future__ import annotations
 
 import datetime as _dt

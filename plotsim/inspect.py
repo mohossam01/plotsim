@@ -200,7 +200,8 @@ def trace_metric_cell(
     target_entity = config.entities[entity_idx]
 
     metric_in_config = next(
-        (m for m in config.metrics if m.name == metric_name), None,
+        (m for m in config.metrics if m.name == metric_name),
+        None,
     )
     if metric_in_config is None:
         raise MetricNotFound(
@@ -212,7 +213,8 @@ def trace_metric_cell(
 
     # ---- Pass 1: run engine to get realized tables + ground-truth state. ----
     tables, state = generate_tables_with_state(
-        config, np.random.default_rng(effective_seed),
+        config,
+        np.random.default_rng(effective_seed),
     )
     n_periods = len(state.trajectories[entity_name])
     if period_index < 0 or period_index >= n_periods:
@@ -232,20 +234,14 @@ def trace_metric_cell(
     # compose; replay must use the same order or the lag_buffer / RNG order
     # diverge from the engine.
     sorted_metrics = _toposort_metrics(list(config.metrics))
-    effective_metrics = [
-        _apply_archetype_overrides(m, archetype) for m in sorted_metrics
-    ]
-    target_eff_metric = next(
-        em for em in effective_metrics if em.name == metric_name
-    )
+    effective_metrics = [_apply_archetype_overrides(m, archetype) for m in sorted_metrics]
+    target_eff_metric = next(em for em in effective_metrics if em.name == metric_name)
 
     polarity = target_eff_metric.polarity
     distribution_family = target_eff_metric.distribution
     causal_lag = target_eff_metric.causal_lag
     causal_lag_driver = causal_lag.driver if causal_lag is not None else None
-    causal_lag_blend_weight = (
-        causal_lag.blend_weight if causal_lag is not None else None
-    )
+    causal_lag_blend_weight = causal_lag.blend_weight if causal_lag is not None else None
 
     # ---- Pass 2: replay with a fresh RNG; capture intermediates. ----
     replay_rng = np.random.default_rng(effective_seed)
@@ -256,7 +252,9 @@ def trace_metric_cell(
     dim_tables_replay = build_all_dimensions(config, replay_rng)
     trajectories_replay = compute_all_trajectories(config, n_periods)
     dim_tables_replay, _scd_state_replay = expand_scd_dims(
-        config, dim_tables_replay, trajectories_replay,
+        config,
+        dim_tables_replay,
+        trajectories_replay,
     )
 
     cholesky_L = _hoist_cholesky(config)
@@ -291,15 +289,11 @@ def trace_metric_cell(
     # the engine's path.
     target_traj = trajectories_replay[entity_name]
     lag_buffer: dict[str, list[float]] = {m.name: [] for m in sorted_metrics}
-    correlations_arg = (
-        list(config.correlations) if config.correlations else None
-    )
+    correlations_arg = list(config.correlations) if config.correlations else None
 
     for t in range(period_index):
         pos = float(target_traj[t])
-        seasonal_global_t = (
-            float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
-        )
+        seasonal_global_t = float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
         generate_metrics_for_period(
             pos,
             sorted_metrics,
@@ -320,8 +314,7 @@ def trace_metric_cell(
     # already authorized to call.
     pos_target = float(target_traj[period_index])
     seasonal_global_target = (
-        float(seasonal_factors[period_index])
-        if seasonal_factors is not None else 0.0
+        float(seasonal_factors[period_index]) if seasonal_factors is not None else 0.0
     )
     entity_seasonal_sens = target_entity.seasonal_sensitivity
     centers: dict[str, float] = {}
@@ -332,7 +325,10 @@ def trace_metric_cell(
     correlations_active = bool(config.correlations)
     for em in effective_metrics:
         eff_pos = _compute_effective_position(
-            pos_target, em, lag_buffer, period_index,
+            pos_target,
+            em,
+            lag_buffer,
+            period_index,
         )
         # Buffer write must happen inline before moving to the next metric —
         # mirrors generate_metrics_for_period, so multi-hop causal_lag chains
@@ -347,9 +343,7 @@ def trace_metric_cell(
         # engine sees, keeping replay RNG state aligned with generation.
         if seasonal_global_target != 0.0:
             effective_strength = (
-                seasonal_global_target
-                * em.seasonal_sensitivity
-                * entity_seasonal_sens
+                seasonal_global_target * em.seasonal_sensitivity * entity_seasonal_sens
             )
             if effective_strength != 0.0:
                 center = base_center * (1.0 + effective_strength)
@@ -361,9 +355,7 @@ def trace_metric_cell(
                         center = vr.max
         if em.name == metric_name:
             target_seasonal_factor = (
-                seasonal_global_target
-                * em.seasonal_sensitivity
-                * entity_seasonal_sens
+                seasonal_global_target * em.seasonal_sensitivity * entity_seasonal_sens
             )
         centers[em.name] = center
         # M127b: only the no-correlations path draws independent marginals
@@ -443,20 +435,25 @@ def trace_metric_cell(
         noised = apply_noise(float(v), config.noise, replay_rng)
         if em.name == metric_name:
             outlier_fired, mcar_fired = _detect_noise_branches(
-                float(v), config.noise, rng_state_snapshot,
+                float(v),
+                config.noise,
+                rng_state_snapshot,
             )
             noised_value = None if noised is None else float(noised)
             if noised is None:
                 clamped_value = None
             else:
-                clamped_value = float(
-                    _clamp_and_round(float(noised), em)
-                )
+                clamped_value = float(_clamp_and_round(float(noised), em))
 
     # Realized cell — the load-bearing field. Must equal the value in the
     # generated fact table at (entity, period) row, modulo MCAR-induced NaN.
     realized_cell = _resolve_realized_cell(
-        config, tables, n_periods, entity_idx, period_index, metric_name,
+        config,
+        tables,
+        n_periods,
+        entity_idx,
+        period_index,
+        metric_name,
     )
 
     return TraceResult(
@@ -469,9 +466,7 @@ def trace_metric_cell(
         effective_position=float(target_effective_position),
         causal_lag_driver=causal_lag_driver,
         causal_lag_blend_weight=(
-            float(causal_lag_blend_weight)
-            if causal_lag_blend_weight is not None
-            else None
+            float(causal_lag_blend_weight) if causal_lag_blend_weight is not None else None
         ),
         distribution_family=distribution_family,
         distribution_center=float(target_distribution_center),
@@ -489,6 +484,7 @@ def trace_metric_cell(
 
 
 # --- Helpers ---------------------------------------------------------------
+
 
 def _resolve_entity_index(config: PlotsimConfig, entity_name: str) -> int:
     for i, e in enumerate(config.entities):
@@ -525,10 +521,14 @@ def _hoist_cholesky(config: PlotsimConfig) -> Optional[np.ndarray]:
 
         if len(sorted_metrics) <= _MAX_METRICS_FOR_COMPENSATION:
             traj_cov = estimate_trajectory_covariance(
-                config, metric_order=sorted_metrics,
+                config,
+                metric_order=sorted_metrics,
             )
             mat, _records = compensate_correlation_matrix(
-                mat, traj_cov, sorted_metrics, list(config.correlations),
+                mat,
+                traj_cov,
+                sorted_metrics,
+                list(config.correlations),
             )
     projected_mat, _used, _fallback = project_correlation_matrix(mat)
     return np.linalg.cholesky(projected_mat)

@@ -69,9 +69,14 @@ from plotsim.config import (
 from plotsim.manifest import QualityInjection
 
 
-_PROTECTED_COL_NAMES = frozenset({
-    "date_key", "period", "period_index", "period_label",
-})
+_PROTECTED_COL_NAMES = frozenset(
+    {
+        "date_key",
+        "period",
+        "period_index",
+        "period_label",
+    }
+)
 
 
 def _protected_columns(tbl: Table) -> set[str]:
@@ -113,7 +118,9 @@ def _resolve_target_columns(
 
 
 def _select_row_indices(
-    n_rows: int, rate: float, rng: np.random.Generator,
+    n_rows: int,
+    rate: float,
+    rng: np.random.Generator,
 ) -> np.ndarray:
     """Pick ``floor(rate * n_rows)`` distinct row indices in [0, n_rows).
 
@@ -170,14 +177,16 @@ def _apply_null_injection(
         else:
             out[col] = out[col].astype(object)
             out.loc[out.index[idxs], col] = None
-        records.append(QualityInjection(
-            issue_index=issue_idx,
-            issue_type="null_injection",
-            table=table_name,
-            column=col,
-            row_indices=[int(i) for i in idxs.tolist()],
-            clean_values=list(clean),
-        ))
+        records.append(
+            QualityInjection(
+                issue_index=issue_idx,
+                issue_type="null_injection",
+                table=table_name,
+                column=col,
+                row_indices=[int(i) for i in idxs.tolist()],
+                clean_values=list(clean),
+            )
+        )
     return out, records
 
 
@@ -221,7 +230,7 @@ def _apply_duplicate_rows(
             d_idx = next(dup_iter)
         except StopIteration:
             break
-        new_frame_rows.append(duplicated.iloc[d_idx:d_idx + 1])
+        new_frame_rows.append(duplicated.iloc[d_idx : d_idx + 1])
     if cursor < n_orig:
         new_frame_rows.append(out.iloc[cursor:])
     if new_frame_rows:
@@ -229,14 +238,16 @@ def _apply_duplicate_rows(
     else:
         out = pd.concat([out, duplicated], ignore_index=True)
 
-    records = [QualityInjection(
-        issue_index=issue_idx,
-        issue_type="duplicate_rows",
-        table=table_name,
-        column="_rows",
-        row_indices=[int(i) for i in src_idxs.tolist()],
-        clean_values=[],
-    )]
+    records = [
+        QualityInjection(
+            issue_index=issue_idx,
+            issue_type="duplicate_rows",
+            table=table_name,
+            column="_rows",
+            row_indices=[int(i) for i in src_idxs.tolist()],
+            clean_values=[],
+        )
+    ]
     return out, records
 
 
@@ -266,26 +277,29 @@ def _apply_type_mismatch(
             continue
         clean = out[col].iloc[idxs].tolist()
         out[col] = out[col].astype(object)
-        if all(_is_numeric_dtype(pd.Series([v])) for v in clean if v is not None and not (isinstance(v, float) and np.isnan(v))):
+        if all(
+            _is_numeric_dtype(pd.Series([v]))
+            for v in clean
+            if v is not None and not (isinstance(v, float) and np.isnan(v))
+        ):
             corrupted_vals = [
-                None if v is None or (isinstance(v, float) and np.isnan(v))
-                else str(v) for v in clean
+                None if v is None or (isinstance(v, float) and np.isnan(v)) else str(v)
+                for v in clean
             ]
         else:
-            corrupted_vals = [
-                None if v is None
-                else (abs(hash(str(v))) % 1000) for v in clean
-            ]
+            corrupted_vals = [None if v is None else (abs(hash(str(v))) % 1000) for v in clean]
         for offset, ridx in enumerate(idxs.tolist()):
             out.loc[out.index[ridx], col] = corrupted_vals[offset]
-        records.append(QualityInjection(
-            issue_index=issue_idx,
-            issue_type="type_mismatch",
-            table=table_name,
-            column=col,
-            row_indices=[int(i) for i in idxs.tolist()],
-            clean_values=list(clean),
-        ))
+        records.append(
+            QualityInjection(
+                issue_index=issue_idx,
+                issue_type="type_mismatch",
+                table=table_name,
+                column=col,
+                row_indices=[int(i) for i in idxs.tolist()],
+                clean_values=list(clean),
+            )
+        )
     return out, records
 
 
@@ -338,14 +352,16 @@ def _apply_late_arrival(
         except (TypeError, ValueError):
             arrival.iloc[ridx] = None
     out["_arrival_period"] = arrival.values
-    records = [QualityInjection(
-        issue_index=issue_idx,
-        issue_type="late_arrival",
-        table=table_name,
-        column="_arrival_period",
-        row_indices=[int(i) for i in idxs.tolist()],
-        clean_values=[],
-    )]
+    records = [
+        QualityInjection(
+            issue_index=issue_idx,
+            issue_type="late_arrival",
+            table=table_name,
+            column="_arrival_period",
+            row_indices=[int(i) for i in idxs.tolist()],
+            clean_values=[],
+        )
+    ]
     return out, records
 
 
@@ -379,14 +395,16 @@ def _apply_schema_drift(
             for ridx in idxs.tolist():
                 out.loc[out.index[ridx], col] = None
         if len(idxs) > 0:
-            records.append(QualityInjection(
-                issue_index=issue_idx,
-                issue_type="schema_drift",
-                table=table_name,
-                column=col,
-                row_indices=[int(i) for i in idxs.tolist()],
-                clean_values=list(clean),
-            ))
+            records.append(
+                QualityInjection(
+                    issue_index=issue_idx,
+                    issue_type="schema_drift",
+                    table=table_name,
+                    column=col,
+                    row_indices=[int(i) for i in idxs.tolist()],
+                    clean_values=list(clean),
+                )
+            )
     return out, records
 
 
@@ -435,23 +453,47 @@ def apply_issues(
         records: list[QualityInjection] = []
         if issue.type == "null_injection":
             df, records = _apply_null_injection(
-                df, cols, issue.rate, rng, issue_idx, target_table,
+                df,
+                cols,
+                issue.rate,
+                rng,
+                issue_idx,
+                target_table,
             )
         elif issue.type == "duplicate_rows":
             df, records = _apply_duplicate_rows(
-                df, issue.rate, rng, issue_idx, target_table,
+                df,
+                issue.rate,
+                rng,
+                issue_idx,
+                target_table,
             )
         elif issue.type == "type_mismatch":
             df, records = _apply_type_mismatch(
-                df, cols, issue.rate, rng, issue_idx, target_table,
+                df,
+                cols,
+                issue.rate,
+                rng,
+                issue_idx,
+                target_table,
             )
         elif issue.type == "late_arrival":
             df, records = _apply_late_arrival(
-                df, issue.rate, rng, issue_idx, target_table, tbl,
+                df,
+                issue.rate,
+                rng,
+                issue_idx,
+                target_table,
+                tbl,
             )
         elif issue.type == "schema_drift":
             df, records = _apply_schema_drift(
-                df, cols, issue.rate, rng, issue_idx, target_table,
+                df,
+                cols,
+                issue.rate,
+                rng,
+                issue_idx,
+                target_table,
             )
         else:
             raise ValueError(

@@ -82,14 +82,12 @@ def _period_index_by_date_key(dim_date: pd.DataFrame) -> dict:
     column avoids re-deriving the position from the iteration index
     and survives any future re-ordering of the spine.
     """
-    return {
-        int(row.date_key): int(row.period_index)
-        for row in dim_date.itertuples(index=False)
-    }
+    return {int(row.date_key): int(row.period_index) for row in dim_date.itertuples(index=False)}
 
 
 def _splittable_fact_tables(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[Table]:
     """Return the per_entity_per_period fact tables that have data.
 

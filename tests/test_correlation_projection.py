@@ -90,26 +90,46 @@ def _three_metric_config(
         time_window=TimeWindow(start="2024-01", end="2024-06", granularity="monthly"),
         seed=1,
         metrics=[
-            Metric(name="a", label="A", distribution="normal",
-                   params={"mu": 0.0, "sigma": 1.0}, polarity="positive"),
-            Metric(name="b", label="B", distribution="normal",
-                   params={"mu": 0.0, "sigma": 1.0}, polarity="positive"),
-            Metric(name="c", label="C", distribution="normal",
-                   params={"mu": 0.0, "sigma": 1.0}, polarity="positive"),
+            Metric(
+                name="a",
+                label="A",
+                distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive",
+            ),
+            Metric(
+                name="b",
+                label="B",
+                distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive",
+            ),
+            Metric(
+                name="c",
+                label="C",
+                distribution="normal",
+                params={"mu": 0.0, "sigma": 1.0},
+                polarity="positive",
+            ),
         ],
         archetypes=[
             Archetype(
-                name="flat", label="Flat", description="-",
+                name="flat",
+                label="Flat",
+                description="-",
                 curve_segments=[
-                    CurveSegment(curve="plateau", params={"level": 0.5},
-                                 start_pct=0.0, end_pct=1.0),
+                    CurveSegment(
+                        curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0
+                    ),
                 ],
             ),
         ],
         entities=[Entity(name="e1", archetype="flat", size=1)],
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
@@ -159,11 +179,13 @@ class TestProjectionProperties:
     def test_three_cycle_projects_to_textbook_solution(self):
         # Higham's classic worked example: 0.9 / 0.9 / -0.9 on a 3-cycle
         # has Frobenius-nearest correlation matrix at exactly 0.5 / 0.5 / -0.5.
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         out, used, fallback = project_correlation_matrix(mat)
         assert used is True
         assert fallback is False
@@ -176,39 +198,47 @@ class TestProjectionProperties:
         )
 
     def test_projected_matrix_is_pd_with_margin(self):
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         out, _used, _fallback = project_correlation_matrix(mat)
         min_eig = float(np.linalg.eigvalsh(out).min())
         assert min_eig > 1e-10
 
     def test_projected_matrix_has_unit_diagonal(self):
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         out, _used, _fallback = project_correlation_matrix(mat)
         np.testing.assert_array_equal(np.diag(out), [1.0, 1.0, 1.0])
 
     def test_projected_matrix_is_symmetric(self):
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         out, _used, _fallback = project_correlation_matrix(mat)
         np.testing.assert_allclose(out, out.T, atol=1e-12)
 
     def test_projected_off_diagonals_in_open_unit_interval(self):
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         out, _used, _fallback = project_correlation_matrix(mat)
         n = out.shape[0]
         for i in range(n):
@@ -220,12 +250,14 @@ class TestProjectionProperties:
     def test_cholesky_succeeds_on_projected_matrix(self):
         # Adversarial input: Higham must produce a Cholesky-able output
         # for a matrix where vanilla Cholesky fails.
-        mat = np.array([
-            [1.0, 0.99, 0.99, -0.99],
-            [0.99, 1.0, 0.99, -0.99],
-            [0.99, 0.99, 1.0, 0.99],
-            [-0.99, -0.99, 0.99, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.99, 0.99, -0.99],
+                [0.99, 1.0, 0.99, -0.99],
+                [0.99, 0.99, 1.0, 0.99],
+                [-0.99, -0.99, 0.99, 1.0],
+            ]
+        )
         with pytest.raises(np.linalg.LinAlgError):
             np.linalg.cholesky(mat)
         out, used, _fallback = project_correlation_matrix(mat)
@@ -248,11 +280,13 @@ class TestFrobeniusOptimality:
         # the minimum eigenvalue strictly above tol; we compare the raw
         # Higham iterate here so the test measures Frobenius optimality
         # of the projection itself, not the margin-lift post-process.
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         higham, converged = _higham_nearest_pd(mat)
         assert converged is True
         clipped = _eigvalue_clip_to_pd(mat, tol=1e-10)
@@ -356,7 +390,9 @@ class TestConvergence:
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)  # any fallback warning fails the test
             out, used, fallback = project_correlation_matrix(
-                mat, max_iter=200, tol=1e-10,
+                mat,
+                max_iter=200,
+                tol=1e-10,
             )
         assert used is True
         assert fallback is False
@@ -367,15 +403,19 @@ class TestConvergence:
         # Pathological input that forces the fallback: construct a
         # matrix that won't iterate-stabilize within 5 steps. We do this
         # via direct injection by passing `max_iter=1`.
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             out, used, fallback = project_correlation_matrix(
-                mat, max_iter=1, tol=1e-12,
+                mat,
+                max_iter=1,
+                tol=1e-12,
             )
         assert used is True
         assert fallback is True
@@ -390,11 +430,13 @@ class TestDeterminism:
     """Algorithm is deterministic — same input → same output, every time."""
 
     def test_same_input_same_output(self):
-        mat = np.array([
-            [1.0, 0.9, -0.9],
-            [0.9, 1.0, 0.9],
-            [-0.9, 0.9, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 0.9, -0.9],
+                [0.9, 1.0, 0.9],
+                [-0.9, 0.9, 1.0],
+            ]
+        )
         a, _, _ = project_correlation_matrix(mat)
         b, _, _ = project_correlation_matrix(mat)
         c, _, _ = project_correlation_matrix(mat)
@@ -424,10 +466,12 @@ class TestMarginNudge:
 
     def test_margin_nudge_lifts_below_tol_eigenvalue(self):
         # A matrix with a near-zero eigenvalue.
-        mat = np.array([
-            [1.0, 1.0],
-            [1.0, 1.0],
-        ])
+        mat = np.array(
+            [
+                [1.0, 1.0],
+                [1.0, 1.0],
+            ]
+        )
         # Eigenvalues: 0 and 2. After nudge, min eig should exceed 1e-10.
         out = _ensure_pd_margin(mat, tol=1e-8)
         assert float(np.linalg.eigvalsh(out).min()) >= 1e-8 - 1e-12
@@ -439,17 +483,27 @@ class TestMarginNudge:
 
 
 class TestAdjustmentRecords:
-
     def test_records_dropped_below_noise_floor(self):
         # PD passthrough → empty records.
         mat = np.eye(2)
         records = _correlation_adjustment_records(
-            mat, mat,
+            mat,
+            mat,
             metrics=[
-                Metric(name="a", label="A", distribution="normal",
-                       params={"mu": 0.0, "sigma": 1.0}, polarity="positive"),
-                Metric(name="b", label="B", distribution="normal",
-                       params={"mu": 0.0, "sigma": 1.0}, polarity="positive"),
+                Metric(
+                    name="a",
+                    label="A",
+                    distribution="normal",
+                    params={"mu": 0.0, "sigma": 1.0},
+                    polarity="positive",
+                ),
+                Metric(
+                    name="b",
+                    label="B",
+                    distribution="normal",
+                    params={"mu": 0.0, "sigma": 1.0},
+                    polarity="positive",
+                ),
             ],
             correlations=[
                 CorrelationPair(metric_a="a", metric_b="b", coefficient=0.0),
@@ -479,10 +533,20 @@ class TestWarningFormat:
 
     def test_warning_text_includes_every_adjusted_pair(self):
         records = [
-            {"metric_a": "a", "metric_b": "b",
-             "requested": 0.9, "achieved": 0.5, "adjustment": 0.4},
-            {"metric_a": "b", "metric_b": "c",
-             "requested": 0.9, "achieved": 0.5, "adjustment": 0.4},
+            {
+                "metric_a": "a",
+                "metric_b": "b",
+                "requested": 0.9,
+                "achieved": 0.5,
+                "adjustment": 0.4,
+            },
+            {
+                "metric_a": "b",
+                "metric_b": "c",
+                "requested": 0.9,
+                "achieved": 0.5,
+                "adjustment": 0.4,
+            },
         ]
         text = _format_correlation_adjustment_warning(records)
         assert "a ↔ b" in text
@@ -493,8 +557,13 @@ class TestWarningFormat:
 
     def test_warning_text_deterministic(self):
         records = [
-            {"metric_a": "a", "metric_b": "b",
-             "requested": 0.9, "achieved": 0.5, "adjustment": 0.4},
+            {
+                "metric_a": "a",
+                "metric_b": "b",
+                "requested": 0.9,
+                "achieved": 0.5,
+                "adjustment": 0.4,
+            },
         ]
         a = _format_correlation_adjustment_warning(records)
         b = _format_correlation_adjustment_warning(records)
@@ -505,7 +574,6 @@ class TestWarningFormat:
 
 
 class TestLoadTimeValidator:
-
     def test_pd_config_loads_without_warning(self):
         # Education has a PD correlation matrix post-M112 (the saas YAML's
         # correlations got reverted to non-PD originals so Higham now fires
@@ -514,7 +582,8 @@ class TestLoadTimeValidator:
             warnings.simplefilter("always")
             cfg = load_config(EDU_YAML)
         m111_warnings = [
-            w for w in caught
+            w
+            for w in caught
             if issubclass(w.category, UserWarning)
             and "Correlation matrix was not positive definite" in str(w.message)
         ]
@@ -526,7 +595,8 @@ class TestLoadTimeValidator:
             warnings.simplefilter("always")
             cfg = _three_metric_config(_three_cycle_pairs())
         m111_warnings = [
-            w for w in caught
+            w
+            for w in caught
             if issubclass(w.category, UserWarning)
             and "Correlation matrix was not positive definite" in str(w.message)
         ]
@@ -555,9 +625,9 @@ class TestLoadTimeValidator:
             warnings.simplefilter("always")
             cfg = _three_metric_config([])
         m111_warnings = [
-            w for w in caught
-            if issubclass(w.category, UserWarning)
-            and "Correlation matrix" in str(w.message)
+            w
+            for w in caught
+            if issubclass(w.category, UserWarning) and "Correlation matrix" in str(w.message)
         ]
         assert m111_warnings == []
         assert cfg._correlation_adjustments is None
@@ -567,7 +637,6 @@ class TestLoadTimeValidator:
 
 
 class TestProjectOrIssue:
-
     def test_pd_returns_no_issues_no_records(self):
         # Education has a PD matrix post-M112 (saas reverted to non-PD).
         cfg = load_config(EDU_YAML)
@@ -593,7 +662,6 @@ class TestProjectOrIssue:
 
 
 class TestManifestIntegration:
-
     def test_manifest_correlation_adjustments_none_for_pd_template(self):
         # Education is the canonical PD bundled template post-M112.
         cfg = load_config(EDU_YAML)
@@ -621,13 +689,13 @@ class TestManifestIntegration:
 
 
 class TestEndToEndDeterminism:
-
     def test_projection_run_is_byte_deterministic_across_runs(self):
         # Same config + same seed → byte-identical fact tables, even when
         # projection runs. Use saas template mutated to a non-PD matrix on
         # the first three metrics; the three-metric helper-config has only
         # dim_date and no fact tables to compare against.
         import yaml
+
         with open(SAAS_YAML) as f:
             data = yaml.safe_load(f)
         names = [m["name"] for m in data["metrics"]][:3]
@@ -644,16 +712,12 @@ class TestEndToEndDeterminism:
             t1 = generate_tables(cfg1)
             t2 = generate_tables(cfg2)
         # Compare every fact-table column.
-        fact_names = [
-            t.name for t in cfg1.tables
-            if t.type == "fact"
-        ]
+        fact_names = [t.name for t in cfg1.tables if t.type == "fact"]
         assert fact_names, "saas template should have fact tables"
         for name in fact_names:
             df1, df2 = t1[name], t2[name]
             assert df1.equals(df2), (
-                f"non-byte-identical fact table {name} across runs with same "
-                f"seed"
+                f"non-byte-identical fact table {name} across runs with same " f"seed"
             )
 
     @pytest.mark.parametrize("path", [EDU_YAML, RETAIL_YAML])

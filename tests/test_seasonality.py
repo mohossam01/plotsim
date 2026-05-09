@@ -23,6 +23,7 @@ Covers the mission's acceptance criteria:
   - Builder layer (UserInput.seasonality + per-segment sensitivity)
     translates 1:1 into the engine config.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -67,8 +68,10 @@ def _flat_archetype() -> Archetype:
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
@@ -155,11 +158,15 @@ def _config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start=start, end=end, granularity=granularity,  # type: ignore[arg-type]
+                start=start,
+                end=end,
+                granularity=granularity,  # type: ignore[arg-type]
             ),
             seed=seed,
             metrics=metrics,
@@ -255,10 +262,12 @@ def test_build_seasonal_factors_returns_none_when_empty():
 
 
 def test_build_seasonal_factors_sums_overlapping_effects():
-    cfg = _config(seasonal_effects=[
-        SeasonalEffect(months=(12,), strength=0.3),
-        SeasonalEffect(months=(11, 12), strength=0.1),
-    ])
+    cfg = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(12,), strength=0.3),
+            SeasonalEffect(months=(11, 12), strength=0.1),
+        ]
+    )
     factors = _build_seasonal_factors(cfg, n_periods=12)
     assert factors is not None
     # months 1..10 → 0.0; month 11 → 0.1; month 12 → 0.4
@@ -279,26 +288,28 @@ def test_trace_seasonal_factor_zero_when_no_effects():
 
 def test_trace_december_lift_thirty_percent():
     """AC: ``[{months: [12], strength: 0.3}]`` raises Dec center ~30% over base."""
-    cfg = _config(seasonal_effects=[
-        SeasonalEffect(months=(12,), strength=0.3),
-    ])
+    cfg = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(12,), strength=0.3),
+        ]
+    )
     r_nov = trace_metric_cell(cfg, "e1", period_index=10, metric_name="m")
     r_dec = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
     assert r_nov.seasonal_factor == pytest.approx(0.0)
     assert r_dec.seasonal_factor == pytest.approx(0.3)
-    assert r_dec.modulated_center == pytest.approx(
-        r_dec.distribution_center * 1.3
-    )
+    assert r_dec.modulated_center == pytest.approx(r_dec.distribution_center * 1.3)
     # Period 10 (November) should be unchanged from base.
     assert r_nov.modulated_center == pytest.approx(r_nov.distribution_center)
 
 
 def test_trace_overlapping_effects_sum_at_global_level():
     """AC: Dec gets +0.4, Nov gets +0.1 when effects overlap."""
-    cfg = _config(seasonal_effects=[
-        SeasonalEffect(months=(12,), strength=0.3),
-        SeasonalEffect(months=(11, 12), strength=0.1),
-    ])
+    cfg = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(12,), strength=0.3),
+            SeasonalEffect(months=(11, 12), strength=0.1),
+        ]
+    )
     r_oct = trace_metric_cell(cfg, "e1", period_index=9, metric_name="m")
     r_nov = trace_metric_cell(cfg, "e1", period_index=10, metric_name="m")
     r_dec = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
@@ -345,9 +356,14 @@ def test_per_metric_sensitivity_one_follows_global():
 
 def test_per_entity_sensitivity_one_and_a_half_lifts_more():
     cfg = _config(
-        entities=[Entity(
-            name="e1", archetype="flat", size=1, seasonal_sensitivity=1.5,
-        )],
+        entities=[
+            Entity(
+                name="e1",
+                archetype="flat",
+                size=1,
+                seasonal_sensitivity=1.5,
+            )
+        ],
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     r = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
@@ -357,9 +373,14 @@ def test_per_entity_sensitivity_one_and_a_half_lifts_more():
 
 def test_per_entity_sensitivity_zero_immune():
     cfg = _config(
-        entities=[Entity(
-            name="e1", archetype="flat", size=1, seasonal_sensitivity=0.0,
-        )],
+        entities=[
+            Entity(
+                name="e1",
+                archetype="flat",
+                size=1,
+                seasonal_sensitivity=0.0,
+            )
+        ],
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     r = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
@@ -372,10 +393,8 @@ def test_two_entities_same_archetype_different_amplitudes_same_trajectory():
     produce different seasonal amplitudes and identical trajectory shapes."""
     cfg = _config(
         entities=[
-            Entity(name="e_low", archetype="flat", size=1,
-                   seasonal_sensitivity=0.5),
-            Entity(name="e_high", archetype="flat", size=1,
-                   seasonal_sensitivity=2.0),
+            Entity(name="e_low", archetype="flat", size=1, seasonal_sensitivity=0.5),
+            Entity(name="e_high", archetype="flat", size=1, seasonal_sensitivity=2.0),
         ],
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
@@ -396,26 +415,32 @@ def test_composition_metric_and_entity_multiply_with_global():
     """AC: metric=-0.5 × segment=1.5 × global=0.3 → effective = -0.225."""
     cfg = _config(
         metrics=[_normal_metric(seasonal_sensitivity=-0.5)],
-        entities=[Entity(
-            name="e1", archetype="flat", size=1, seasonal_sensitivity=1.5,
-        )],
+        entities=[
+            Entity(
+                name="e1",
+                archetype="flat",
+                size=1,
+                seasonal_sensitivity=1.5,
+            )
+        ],
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     r = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
     assert r.seasonal_factor == pytest.approx(0.3 * -0.5 * 1.5)
-    assert r.modulated_center == pytest.approx(
-        r.distribution_center * (1 + 0.3 * -0.5 * 1.5)
-    )
+    assert r.modulated_center == pytest.approx(r.distribution_center * (1 + 0.3 * -0.5 * 1.5))
 
 
 def test_modulated_center_clamped_to_value_range():
     """A wildly negative effective strength would push center below
     value_range.min — the clamp must trigger BEFORE distribution sampling."""
     cfg = _config(
-        metrics=[_normal_metric(
-            mu=10.0, sigma=0.001,
-            value_range=ValueRange(min=4.0, max=20.0),
-        )],
+        metrics=[
+            _normal_metric(
+                mu=10.0,
+                sigma=0.001,
+                value_range=ValueRange(min=4.0, max=20.0),
+            )
+        ],
         seasonal_effects=[SeasonalEffect(months=(12,), strength=-0.9)],
     )
     r = trace_metric_cell(cfg, "e1", period_index=11, metric_name="m")
@@ -429,9 +454,11 @@ def test_trajectory_unchanged_by_seasonality():
     """Trajectory-first invariant — adding seasonality does NOT shift the
     underlying trajectory positions for any entity."""
     cfg_clean = _config()
-    cfg_seasonal = _config(seasonal_effects=[
-        SeasonalEffect(months=(12,), strength=0.5),
-    ])
+    cfg_seasonal = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(12,), strength=0.5),
+        ]
+    )
     for p in range(12):
         r_clean = trace_metric_cell(cfg_clean, "e1", p, "m")
         r_season = trace_metric_cell(cfg_seasonal, "e1", p, "m")
@@ -444,7 +471,9 @@ def test_trajectory_unchanged_by_seasonality():
 
 def test_monthly_dec_period_only_lifted():
     cfg = _config(
-        granularity="monthly", start="2024-01", end="2024-12",
+        granularity="monthly",
+        start="2024-01",
+        end="2024-12",
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     factors = _build_seasonal_factors(cfg, n_periods=12)
@@ -456,7 +485,9 @@ def test_monthly_dec_period_only_lifted():
 
 def test_daily_dec_days_lifted():
     cfg = _config(
-        granularity="daily", start="2024-11", end="2024-12",
+        granularity="daily",
+        start="2024-11",
+        end="2024-12",
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     n_days = cfg.time_window.period_count()
@@ -472,7 +503,9 @@ def test_daily_dec_days_lifted():
 
 def test_weekly_weeks_starting_in_dec_lifted():
     cfg = _config(
-        granularity="weekly", start="2024-11", end="2024-12",
+        granularity="weekly",
+        start="2024-11",
+        end="2024-12",
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     n_weeks = cfg.time_window.period_count()
@@ -494,7 +527,8 @@ def test_fact_table_december_mean_lifts_thirty_percent():
     +0.3 December effect, the mean of December rows should sit near
     1.3× the mean of non-December rows."""
     cfg = _config(
-        start="2023-01", end="2024-12",
+        start="2023-01",
+        end="2024-12",
         seasonal_effects=[SeasonalEffect(months=(12,), strength=0.3)],
     )
     tables, _ = generate_tables_with_state(cfg, np.random.default_rng(11))
@@ -512,21 +546,26 @@ def test_fact_table_december_mean_lifts_thirty_percent():
 
 
 def test_same_seed_byte_identical_with_seasonality():
-    cfg = _config(seasonal_effects=[
-        SeasonalEffect(months=(11, 12), strength=0.2),
-    ])
+    cfg = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(11, 12), strength=0.2),
+        ]
+    )
     a, _ = generate_tables_with_state(cfg, np.random.default_rng(13))
     b, _ = generate_tables_with_state(cfg, np.random.default_rng(13))
     np.testing.assert_array_equal(
-        a["fct_m"]["m"].to_numpy(), b["fct_m"]["m"].to_numpy(),
+        a["fct_m"]["m"].to_numpy(),
+        b["fct_m"]["m"].to_numpy(),
     )
 
 
 def test_seasonality_changes_values_not_structure():
     cfg_clean = _config()
-    cfg_season = _config(seasonal_effects=[
-        SeasonalEffect(months=(12,), strength=0.5),
-    ])
+    cfg_season = _config(
+        seasonal_effects=[
+            SeasonalEffect(months=(12,), strength=0.5),
+        ]
+    )
     a, _ = generate_tables_with_state(cfg_clean, np.random.default_rng(2))
     b, _ = generate_tables_with_state(cfg_season, np.random.default_rng(2))
     assert list(a) == list(b)
@@ -534,7 +573,8 @@ def test_seasonality_changes_values_not_structure():
     assert len(a["fct_m"]) == len(b["fct_m"])
     # Same row count + columns, but cell values differ in the December rows.
     assert not np.allclose(
-        a["fct_m"]["m"].to_numpy(), b["fct_m"]["m"].to_numpy(),
+        a["fct_m"]["m"].to_numpy(),
+        b["fct_m"]["m"].to_numpy(),
     )
 
 
@@ -586,14 +626,17 @@ def test_builder_user_input_accepts_seasonality_field():
         unit="store",
         window=("2024-01", "2024-12", "monthly"),
         metrics=[
-            MetricInput(name="sales", type="amount", polarity="positive",
-                        range=(0.0, 100.0), seasonal_sensitivity=-0.5),
+            MetricInput(
+                name="sales",
+                type="amount",
+                polarity="positive",
+                range=(0.0, 100.0),
+                seasonal_sensitivity=-0.5,
+            ),
         ],
         segments=[
-            SegmentInput(name="cohort_a", count=3, archetype="flat",
-                         seasonal_sensitivity=1.5),
-            SegmentInput(name="cohort_b", count=3, archetype="flat",
-                         seasonal_sensitivity=0.0),
+            SegmentInput(name="cohort_a", count=3, archetype="flat", seasonal_sensitivity=1.5),
+            SegmentInput(name="cohort_b", count=3, archetype="flat", seasonal_sensitivity=0.0),
         ],
         seasonality=[
             SeasonalEffectInput(months=(11, 12), strength=0.2),
@@ -613,20 +656,24 @@ def test_builder_interpreter_translates_seasonality_to_engine_config():
     ``PlotsimConfig.seasonal_effects``; per-metric and per-segment
     sensitivities land on every ``Metric`` / expanded ``Entity``."""
     from plotsim.builder import create
+
     # ``flat`` (plateau) archetype is in the builder's parser vocabulary.
     cfg = create(
         about="seasonal sandbox",
         unit="store",
         window=("2024-01", "2024-12", "monthly"),
         metrics=[
-            {"name": "sales", "type": "amount", "polarity": "positive",
-             "range": (0.0, 100.0), "seasonal_sensitivity": -0.5},
+            {
+                "name": "sales",
+                "type": "amount",
+                "polarity": "positive",
+                "range": (0.0, 100.0),
+                "seasonal_sensitivity": -0.5,
+            },
         ],
         segments=[
-            {"name": "cohort_a", "count": 3, "archetype": "flat",
-             "seasonal_sensitivity": 1.5},
-            {"name": "cohort_b", "count": 3, "archetype": "flat",
-             "seasonal_sensitivity": 0.0},
+            {"name": "cohort_a", "count": 3, "archetype": "flat", "seasonal_sensitivity": 1.5},
+            {"name": "cohort_b", "count": 3, "archetype": "flat", "seasonal_sensitivity": 0.0},
         ],
         seasonality=[
             {"months": (11, 12), "strength": 0.2},
@@ -650,13 +697,13 @@ def test_builder_default_no_seasonality_produces_empty_effects():
     """A builder config without ``seasonality`` must produce an empty
     engine ``seasonal_effects`` and default-1.0 sensitivities."""
     from plotsim.builder import create
+
     cfg = create(
         about="seasonal sandbox",
         unit="store",
         window=("2024-01", "2024-12", "monthly"),
         metrics=[
-            {"name": "sales", "type": "amount", "polarity": "positive",
-             "range": (0.0, 100.0)},
+            {"name": "sales", "type": "amount", "polarity": "positive", "range": (0.0, 100.0)},
         ],
         segments=[
             {"name": "cohort_a", "count": 3, "archetype": "flat"},

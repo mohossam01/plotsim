@@ -22,6 +22,7 @@ step 3 and the lookup tables built across steps 1–5.
 Errors raised here are interpreter bugs. User-facing validation already
 ran inside ``UserInput.model_validate``.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -107,9 +108,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     metrics = _build_metrics(user_input)
     metric_by_name = {m.name: m for m in metrics}
 
-    archetypes, entities = _build_archetypes_and_entities(
-        user_input, n_periods, metric_by_name
-    )
+    archetypes, entities = _build_archetypes_and_entities(user_input, n_periods, metric_by_name)
 
     correlations = _build_correlations(user_input)
     stages = _build_stages(user_input)
@@ -128,7 +127,9 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     attribute_value_pools = _build_attribute_value_pools(user_input)
 
     tables = _build_tables(
-        user_input, metric_by_name, segment_count_value_pool,
+        user_input,
+        metric_by_name,
+        segment_count_value_pool,
         attribute_value_pools,
     )
 
@@ -350,20 +351,24 @@ def _build_archetypes_and_entities(
     for s in user_input.segments:
         curve_segments = parse_archetype(s.archetype, n_periods=n_periods)
         metric_overrides = _baseline_to_overrides(s, metric_by_name)
-        archetypes.append(Archetype(
-            name=s.name,
-            label=s.label or s.name.replace("_", " ").title(),
-            description=s.label or s.archetype,
-            curve_segments=curve_segments,
-            metric_overrides=metric_overrides,
-        ))
+        archetypes.append(
+            Archetype(
+                name=s.name,
+                label=s.label or s.name.replace("_", " ").title(),
+                description=s.label or s.archetype,
+                curve_segments=curve_segments,
+                metric_overrides=metric_overrides,
+            )
+        )
         for i in range(s.count):
-            entities.append(Entity(
-                name=f"{s.name}_{i:04d}",
-                archetype=s.name,
-                size=1,
-                seasonal_sensitivity=s.seasonal_sensitivity,
-            ))
+            entities.append(
+                Entity(
+                    name=f"{s.name}_{i:04d}",
+                    archetype=s.name,
+                    size=1,
+                    seasonal_sensitivity=s.seasonal_sensitivity,
+                )
+            )
 
     return archetypes, entities
 
@@ -441,11 +446,13 @@ def _build_correlations(user_input: UserInput) -> list[CorrelationPair]:
             coef = RELATIONSHIP_RECIPES[c.relationship]
         if coef == 0.0:
             continue
-        pairs.append(CorrelationPair(
-            metric_a=c.metric_a,
-            metric_b=c.metric_b,
-            coefficient=coef,
-        ))
+        pairs.append(
+            CorrelationPair(
+                metric_a=c.metric_a,
+                metric_b=c.metric_b,
+                coefficient=coef,
+            )
+        )
     return pairs
 
 
@@ -476,11 +483,13 @@ def _stage_sequence_from_lifecycle(lc: LifecycleInput) -> StageSequence:
             exit_threshold: Optional[float] = None
         else:
             exit_threshold = lc.stages[i + 1].threshold
-        sequence.append(StageDefinition(
-            name=stage.name,
-            threshold_enter=stage.threshold,
-            threshold_exit=exit_threshold,
-        ))
+        sequence.append(
+            StageDefinition(
+                name=stage.name,
+                threshold_enter=stage.threshold,
+                threshold_exit=exit_threshold,
+            )
+        )
     return StageSequence(
         field=lc.track,
         sequence=sequence,
@@ -512,11 +521,11 @@ def _build_tables(
     attribute name; ``pool.{attr}`` columns resolve to a PoolSource
     using the value list at that key.
     """
-    if (not user_input.dimensions
-            and not user_input.facts
-            and not user_input.events):
+    if not user_input.dimensions and not user_input.facts and not user_input.events:
         return _auto_generate_schema(
-            user_input, metric_by_name, attribute_value_pools,
+            user_input,
+            metric_by_name,
+            attribute_value_pools,
         )
 
     # Build a dim PK lookup for FK resolution. dim_date is special-cased
@@ -528,9 +537,7 @@ def _build_tables(
     # Reference dims (``reference: true``) are static lookups; their FK
     # columns on a fact table do not contribute to the fact's PK because
     # they don't expand the per-entity-per-period grain.
-    reference_dims: set[str] = {
-        d.name for d in user_input.dimensions if d.reference
-    }
+    reference_dims: set[str] = {d.name for d in user_input.dimensions if d.reference}
 
     # Build a "metric → fact_table" map for SCD trigger_metric resolution.
     metric_to_fact: dict[str, str] = {}
@@ -542,14 +549,24 @@ def _build_tables(
 
     tables: list[Table] = []
     for d in user_input.dimensions:
-        tables.append(_translate_dim(
-            d, dim_pk, metric_to_fact, segment_count_value_pool,
-            attribute_value_pools,
-        ))
+        tables.append(
+            _translate_dim(
+                d,
+                dim_pk,
+                metric_to_fact,
+                segment_count_value_pool,
+                attribute_value_pools,
+            )
+        )
     for f in user_input.facts:
-        tables.append(_translate_fact(
-            f, dim_pk, metric_by_name, reference_dims,
-        ))
+        tables.append(
+            _translate_fact(
+                f,
+                dim_pk,
+                metric_by_name,
+                reference_dims,
+            )
+        )
     for e in user_input.events:
         tables.append(_translate_event(e, dim_pk))
 
@@ -575,9 +592,12 @@ def _build_tables(
     bridge_targets = {side for b in user_input.bridges for side in (b.left, b.right)}
     auto_unit_dim = f"dim_{user_input.unit}"
     if auto_unit_dim in bridge_targets and auto_unit_dim not in table_names:
-        tables.append(_make_default_dim_unit(
-            user_input, attribute_value_pools,
-        ))
+        tables.append(
+            _make_default_dim_unit(
+                user_input,
+                attribute_value_pools,
+            )
+        )
         table_names.add(auto_unit_dim)
 
     return tables
@@ -605,15 +625,17 @@ def _translate_dim(
 ) -> Table:
     columns: list[Column] = []
     for col in d.columns:
-        columns.append(_translate_column(
-            col,
-            owning_table=d.name,
-            dim_pk=dim_pk,
-            metric_to_fact=metric_to_fact,
-            is_dim_date=(d.name == "dim_date"),
-            segment_count_value_pool=segment_count_value_pool,
-            attribute_value_pools=attribute_value_pools,
-        ))
+        columns.append(
+            _translate_column(
+                col,
+                owning_table=d.name,
+                dim_pk=dim_pk,
+                metric_to_fact=metric_to_fact,
+                is_dim_date=(d.name == "dim_date"),
+                segment_count_value_pool=segment_count_value_pool,
+                attribute_value_pools=attribute_value_pools,
+            )
+        )
     pk = _dim_primary_key(d)
     foreign_keys = _foreign_keys(d.columns, dim_pk)
     grain = _dim_grain(d)
@@ -641,8 +663,7 @@ def _dim_grain(d: DimInput) -> str:
     # M115 sub-entity dim (declared with per: unit but having an FK to
     # another dim) is detected by the presence of a ref.X column to a
     # non-date dim. For now: the ``count`` field forces variable grain.
-    if any(col.type.startswith("ref.") and col.type != "ref.dim_date"
-           for col in d.columns):
+    if any(col.type.startswith("ref.") and col.type != "ref.dim_date" for col in d.columns):
         return "variable"
     return "per_entity"
 
@@ -767,9 +788,7 @@ def _translate_event_column(
         direction = "above" if e.above is not None else "below"
         threshold = e.above if e.above is not None else e.below
         for_periods = e.for_periods if e.for_periods is not None else 1
-        source = (
-            f"threshold:{e.metric}:{direction}:{threshold}:for:{for_periods}"
-        )
+        source = f"threshold:{e.metric}:{direction}:{threshold}:for:{for_periods}"
         return Column(name=col.name, dtype="boolean", source=source)
     return _translate_column(
         col,
@@ -838,7 +857,8 @@ def _translate_column(
             # Defer the error to engine validation; it has cross-reference context.
             target_pk = f"{target_dim.removeprefix('dim_')}_id"
         return Column(
-            name=col.name, dtype="id",
+            name=col.name,
+            dtype="id",
             source=f"fk:{target_dim}.{target_pk}",
         )
 
@@ -859,7 +879,8 @@ def _translate_column(
         kind = t.split(".", 1)[1]
         dtype = "int" if kind == "year" else "string"
         return Column(
-            name=col.name, dtype=dtype,
+            name=col.name,
+            dtype=dtype,
             source=f"generated:faker.{kind}",
         )
 
@@ -900,7 +921,9 @@ def _translate_column(
                 f"{available if available else '<none>'}"
             )
         return Column(
-            name=col.name, dtype="string", source=f"pool:{attr_name}",
+            name=col.name,
+            dtype="string",
+            source=f"pool:{attr_name}",
             value_pool=dict(pool),
         )
 
@@ -914,7 +937,9 @@ def _translate_column(
                 f"and event paths supply an empty pool to surface this)"
             )
         return Column(
-            name=col.name, dtype="int", source="pool:cohort_size",
+            name=col.name,
+            dtype="int",
+            source="pool:cohort_size",
             value_pool=dict(segment_count_value_pool),
         )
 
@@ -932,7 +957,8 @@ def _translate_column(
                 f"static.X, ref.X, etc.)"
             )
         return Column(
-            name=col.name, dtype=t,
+            name=col.name,
+            dtype=t,
             source="generated:date_key",
         )
 
@@ -940,12 +966,12 @@ def _translate_column(
     if t == "bucket":
         if not col.labels:
             raise ValueError(
-                f"column {col.name!r}: type 'bucket' requires a non-empty "
-                f"`labels` list"
+                f"column {col.name!r}: type 'bucket' requires a non-empty " f"`labels` list"
             )
         labels_str = ", ".join(col.labels)
         return Column(
-            name=col.name, dtype="string",
+            name=col.name,
+            dtype="string",
             source=f"text:bucket:[{labels_str}]",
         )
 
@@ -963,7 +989,9 @@ def _translate_column(
                 f"but no fact table emits that metric"
             )
         return Column(
-            name=col.name, dtype="string", source="scd_type2",
+            name=col.name,
+            dtype="string",
+            source="scd_type2",
             scd_type2=SCDType2Config(
                 trigger_metric=f"{target_fact}.{col.tracks}",
                 thresholds=tuple(col.at),
@@ -1022,11 +1050,14 @@ def _make_default_dim_unit(
         Column(name=name_col, dtype="string", source=f"generated:{faker_kind}"),
     ]
     for attr_name in sorted(attribute_value_pools):
-        columns.append(Column(
-            name=attr_name, dtype="string",
-            source=f"pool:{attr_name}",
-            value_pool=dict(attribute_value_pools[attr_name]),
-        ))
+        columns.append(
+            Column(
+                name=attr_name,
+                dtype="string",
+                source=f"pool:{attr_name}",
+                value_pool=dict(attribute_value_pools[attr_name]),
+            )
+        )
     return Table(
         name=f"dim_{unit}",
         type="dim",
@@ -1068,9 +1099,13 @@ def _auto_generate_schema(
     for m in user_input.metrics:
         engine_metric = metric_by_name[m.name]
         dtype = "int" if engine_metric.distribution == "poisson" else "float"
-        fact_columns.append(Column(
-            name=m.name, dtype=dtype, source=f"metric:{m.name}",
-        ))
+        fact_columns.append(
+            Column(
+                name=m.name,
+                dtype=dtype,
+                source=f"metric:{m.name}",
+            )
+        )
     fact = Table(
         name=fact_table,
         type="fact",
@@ -1153,16 +1188,17 @@ def _translate_bridges(
     bridges: list[BridgeTableConfig] = []
     for b in user_input.bridges:
         bridge_metrics = [
-            _translate_bridge_column(col, metric_by_name, b.name)
-            for col in b.columns
+            _translate_bridge_column(col, metric_by_name, b.name) for col in b.columns
         ]
-        bridges.append(BridgeTableConfig(
-            name=b.name,
-            connects=[b.left, b.right],
-            cardinality=BridgeCardinality(min=b.cardinality[0], max=b.cardinality[1]),
-            trajectory_driven=True,
-            metrics=bridge_metrics,
-        ))
+        bridges.append(
+            BridgeTableConfig(
+                name=b.name,
+                connects=[b.left, b.right],
+                cardinality=BridgeCardinality(min=b.cardinality[0], max=b.cardinality[1]),
+                trajectory_driven=True,
+                metrics=bridge_metrics,
+            )
+        )
     return bridges
 
 
@@ -1188,7 +1224,9 @@ def _translate_bridge_column(
         if metric is not None and metric.distribution == "poisson":
             dtype = "int"
         return BridgeMetric(
-            name=col.name, dtype=dtype, source=f"metric:{metric_name}",
+            name=col.name,
+            dtype=dtype,
+            source=f"metric:{metric_name}",
         )
     if t.startswith("static."):
         value = t.split(".", 1)[1]
@@ -1198,13 +1236,17 @@ def _translate_bridge_column(
         except ValueError:
             dtype = "string"
         return BridgeMetric(
-            name=col.name, dtype=dtype, source=f"static:{value}",
+            name=col.name,
+            dtype=dtype,
+            source=f"static:{value}",
         )
     if t.startswith("faker."):
         kind = t.split(".", 1)[1]
         dtype = "int" if kind == "year" else "string"
         return BridgeMetric(
-            name=col.name, dtype=dtype, source=f"generated:faker.{kind}",
+            name=col.name,
+            dtype=dtype,
+            source=f"generated:faker.{kind}",
         )
     raise ValueError(
         f"bridge {bridge_name!r} column {col.name!r}: type {t!r} is not "
@@ -1226,13 +1268,15 @@ def _translate_quality(user_input: UserInput) -> QualityConfig:
     issues: list[QualityIssue] = []
     for q in user_input.quality:
         target_columns = [q.column] if q.column else ["*"]
-        issues.append(QualityIssue(
-            type=q.issue,
-            target_table=q.table,
-            target_columns=target_columns,
-            rate=q.rate,
-            seed_offset=q.seed_offset,
-        ))
+        issues.append(
+            QualityIssue(
+                type=q.issue,
+                target_table=q.table,
+                target_columns=target_columns,
+                rate=q.rate,
+                seed_offset=q.seed_offset,
+            )
+        )
     return QualityConfig(quality_issues=issues)
 
 

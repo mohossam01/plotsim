@@ -27,6 +27,7 @@ full set of fields that didn't have an attribute read at the time
 of the audit. Re-running the audit after schema changes is
 expected; adding entries should be deliberate, not ambient.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -49,19 +50,13 @@ PLOTSIM_DIR = Path(__file__).resolve().parent.parent / "plotsim"
 #   * a field consumed via dict-key indirection in the engine
 #     (the heuristic only catches attribute reads).
 ALLOWLIST: dict[tuple[str, str], str] = {
-    ("Archetype", "description"): (
-        "display field surfaced via model_dump and YAML serialization"
-    ),
-    ("Archetype", "label"): (
-        "display field surfaced via model_dump and YAML serialization"
-    ),
+    ("Archetype", "description"): ("display field surfaced via model_dump and YAML serialization"),
+    ("Archetype", "label"): ("display field surfaced via model_dump and YAML serialization"),
     ("Column", "pii_note"): (
         "0.3.0 field-level PII metadata, surfaced via "
         "PlotsimConfig.model_json_schema() for downstream catalogs"
     ),
-    ("Domain", "description"): (
-        "display field surfaced via model_dump and YAML serialization"
-    ),
+    ("Domain", "description"): ("display field surfaced via model_dump and YAML serialization"),
     ("Domain", "entity_type"): (
         "domain metadata for downstream UI/scaffolding "
         "(ed. companion to entity_label, which IS read in cli.py)"
@@ -71,9 +66,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "trajectory.compute_all_trajectories — F9-introduced "
         "indirection that the attribute-read heuristic doesn't see"
     ),
-    ("Metric", "label"): (
-        "display field surfaced via model_dump and YAML serialization"
-    ),
+    ("Metric", "label"): ("display field surfaced via model_dump and YAML serialization"),
 }
 
 
@@ -99,9 +92,7 @@ def _engine_source() -> str:
     declarations are still in scope — validator and property bodies
     in config.py legitimately consume their own model's fields."""
     return "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in PLOTSIM_DIR.glob("*.py")
-        if p.name != "__init__.py"
+        p.read_text(encoding="utf-8") for p in PLOTSIM_DIR.glob("*.py") if p.name != "__init__.py"
     )
 
 
@@ -142,11 +133,7 @@ def test_allowlist_entries_still_apply():
     (model, field) pair currently in the schema. Catches stale
     allowlist entries after refactors that rename or remove fields."""
     fields_set = set(_collect_pydantic_fields())
-    stale = [
-        (model, field)
-        for (model, field) in ALLOWLIST
-        if (model, field) not in fields_set
-    ]
+    stale = [(model, field) for (model, field) in ALLOWLIST if (model, field) not in fields_set]
     assert not stale, (
         f"ALLOWLIST has entries that no longer exist on any model: "
         f"{stale}. Remove the stale entries from ALLOWLIST."
@@ -160,9 +147,7 @@ def test_allowlist_entries_are_actually_unread():
     over time."""
     source = _engine_source()
     spurious = [
-        (model, field)
-        for (model, field) in ALLOWLIST
-        if _has_attribute_read(field, source)
+        (model, field) for (model, field) in ALLOWLIST if _has_attribute_read(field, source)
     ]
     assert not spurious, (
         f"ALLOWLIST entries that ARE read (and thus don't need an "
@@ -175,6 +160,6 @@ def test_allowlist_entry_has_documented_reason(entry):
     """Each ALLOWLIST entry's reason must be a non-empty string.
     Prevents drive-by exemptions with no documented justification."""
     (model_name, field_name), reason = entry
-    assert reason and reason.strip(), (
-        f"ALLOWLIST entry {model_name}.{field_name} has an empty reason"
-    )
+    assert (
+        reason and reason.strip()
+    ), f"ALLOWLIST entry {model_name}.{field_name} has an empty reason"

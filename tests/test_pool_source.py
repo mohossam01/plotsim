@@ -22,6 +22,7 @@ field:
   across two runs (same RNG draws → same indices).
 * Re-export: ``PoolSource`` is reachable from ``plotsim`` top-level.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -58,22 +59,29 @@ def _make_config(
     fixed minimums so the test can focus on the pool surface.
     """
     metric = Metric(
-        name="m", label="m",
-        distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+        name="m",
+        label="m",
+        distribution="normal",
+        params={"mu": 1.0, "sigma": 0.1},
         polarity="positive",
     )
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_m", type="fact", grain="per_entity_per_period",
+        name="fct_m",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -83,7 +91,9 @@ def _make_config(
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -91,7 +101,9 @@ def _make_config(
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=dim_entity_columns,
     )
@@ -99,11 +111,15 @@ def _make_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-04", granularity="monthly",
+                start="2024-01",
+                end="2024-04",
+                granularity="monthly",
             ),
             seed=42,
             metrics=[metric],
@@ -200,7 +216,9 @@ def test_value_pool_missing_entity_key_rejects():
     e1 = Entity(name="e1", archetype="flat", size=1)
     e2 = Entity(name="e2", archetype="flat", size=1)
     pool_col = Column(
-        name="industry", dtype="string", source="pool:industry",
+        name="industry",
+        dtype="string",
+        source="pool:industry",
         value_pool={"e1": ["saas"]},  # missing e2
     )
     with pytest.raises(ValueError, match=r"missing entries for entities \['e2'\]"):
@@ -213,7 +231,9 @@ def test_value_pool_missing_entity_key_rejects():
 def test_value_pool_extra_entity_key_rejects():
     e1 = Entity(name="e1", archetype="flat", size=1)
     pool_col = Column(
-        name="industry", dtype="string", source="pool:industry",
+        name="industry",
+        dtype="string",
+        source="pool:industry",
         value_pool={"e1": ["saas"], "ghost": ["fintech"]},
     )
     with pytest.raises(ValueError, match=r"unknown entities \['ghost'\]"):
@@ -228,22 +248,29 @@ def test_pool_source_on_non_per_entity_dim_rejects():
     # because there's no per-entity 1:1 binding to look up against.
     e1 = Entity(name="e1", archetype="flat", size=1)
     metric = Metric(
-        name="m", label="m",
-        distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+        name="m",
+        label="m",
+        distribution="normal",
+        params={"mu": 1.0, "sigma": 0.1},
         polarity="positive",
     )
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -251,24 +278,31 @@ def test_pool_source_on_non_per_entity_dim_rejects():
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[Column(name="entity_id", dtype="id", source="pk")],
     )
     dim_ref = Table(
-        name="dim_plan", type="dim", grain="per_reference",
+        name="dim_plan",
+        type="dim",
+        grain="per_reference",
         primary_key="plan_id",
         columns=[
             Column(name="plan_id", dtype="id", source="pk"),
             Column(
-                name="plan_kind", dtype="string",
+                name="plan_kind",
+                dtype="string",
                 source="pool:plan_kind",
                 value_pool={"e1": ["starter"]},
             ),
         ],
     )
     fct = Table(
-        name="fct_m", type="fact", grain="per_entity_per_period",
+        name="fct_m",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -282,11 +316,15 @@ def test_pool_source_on_non_per_entity_dim_rejects():
         with pytest.raises(ValueError, match="not a per_entity dim"):
             PlotsimConfig(
                 domain=Domain(
-                    name="t", description="t",
-                    entity_type="entity", entity_label="Entities",
+                    name="t",
+                    description="t",
+                    entity_type="entity",
+                    entity_label="Entities",
                 ),
                 time_window=TimeWindow(
-                    start="2024-01", end="2024-04", granularity="monthly",
+                    start="2024-01",
+                    end="2024-04",
+                    granularity="monthly",
                 ),
                 seed=0,
                 metrics=[metric],
@@ -308,7 +346,9 @@ def test_each_entity_draws_only_from_its_own_pool():
     e1 = Entity(name="e1", archetype="flat", size=1)
     e2 = Entity(name="e2", archetype="flat", size=1)
     pool_col = Column(
-        name="industry", dtype="string", source="pool:industry",
+        name="industry",
+        dtype="string",
+        source="pool:industry",
         value_pool={
             "e1": ["saas", "fintech"],
             "e2": ["retail", "b2c"],
@@ -334,7 +374,9 @@ def test_pool_sampling_is_deterministic_across_runs():
     e2 = Entity(name="e2", archetype="flat", size=1)
     e3 = Entity(name="e3", archetype="flat", size=1)
     pool_col = Column(
-        name="industry", dtype="string", source="pool:industry",
+        name="industry",
+        dtype="string",
+        source="pool:industry",
         value_pool={
             "e1": ["a1", "a2", "a3", "a4"],
             "e2": ["b1", "b2", "b3", "b4"],

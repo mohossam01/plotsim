@@ -18,6 +18,7 @@ Four recipe families:
                           metric's value range. The interpreter uses these
                           to build ``MetricOverride.value_range`` per segment.
 """
+
 from __future__ import annotations
 
 
@@ -97,15 +98,15 @@ SHAPE_RECIPES: dict[str, list[ShapeSegment]] = {
 # The vocabulary is symmetric around ``independent`` so reversing a pair
 # (``a opposes b`` ↔ ``b opposes a``) yields the same coefficient.
 RELATIONSHIP_RECIPES: dict[str, float] = {
-    "mirrors":       0.75,
-    "driven_by":     0.55,
-    "related":       0.40,
-    "hints_at":      0.20,
-    "independent":   0.00,
+    "mirrors": 0.75,
+    "driven_by": 0.55,
+    "related": 0.40,
+    "hints_at": 0.20,
+    "independent": 0.00,
     "hints_against": -0.20,
-    "resists":       -0.40,
-    "opposes":       -0.55,
-    "inverts":       -0.75,
+    "resists": -0.40,
+    "opposes": -0.55,
+    "inverts": -0.75,
 }
 
 
@@ -119,8 +120,8 @@ RELATIONSHIP_RECIPES: dict[str, float] = {
 #     override_max = vmin + hi * (vmax - vmin)
 BASELINE_RECIPES: dict[str, tuple[float, float]] = {
     "high": (2.0 / 3.0, 1.0),
-    "mid":  (1.0 / 3.0, 2.0 / 3.0),
-    "low":  (0.0, 1.0 / 3.0),
+    "mid": (1.0 / 3.0, 2.0 / 3.0),
+    "low": (0.0, 1.0 / 3.0),
 }
 
 

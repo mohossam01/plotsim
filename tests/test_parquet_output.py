@@ -13,6 +13,7 @@ Locks in:
     completion report for context on the literal mission criterion)
   - Missing pyarrow → clear ImportError naming the install command
 """
+
 from __future__ import annotations
 
 import sys
@@ -43,9 +44,7 @@ ALL_TEMPLATES = ("saas", "hr", "education", "retail", "marketing")
 
 
 def _load_template_dict(name: str) -> dict:
-    return yaml.safe_load(
-        (CONFIGS_DIR / f"sample_{name}.yaml").read_text(encoding="utf-8")
-    )
+    return yaml.safe_load((CONFIGS_DIR / f"sample_{name}.yaml").read_text(encoding="utf-8"))
 
 
 def _materialize_config(payload: dict, tmp_path: Path):
@@ -120,18 +119,18 @@ def test_parquet_round_trip_matches_csv_content(name, tmp_path):
 
     csv_files = sorted(f for f in csv_target.iterdir() if f.suffix == ".csv")
     pq_files = sorted(f for f in pq_target.iterdir() if f.suffix == ".parquet")
-    assert {f.stem for f in csv_files} == {f.stem for f in pq_files}, (
-        f"{name}: csv and parquet wrote different table sets"
-    )
+    assert {f.stem for f in csv_files} == {
+        f.stem for f in pq_files
+    }, f"{name}: csv and parquet wrote different table sets"
 
     for csv_path in csv_files:
         pq_path = pq_target / f"{csv_path.stem}.parquet"
         csv_df = _read_table(csv_path)
         pq_df = _read_table(pq_path)
 
-        assert list(csv_df.columns) == list(pq_df.columns), (
-            f"{name}/{csv_path.stem}: column order differs"
-        )
+        assert list(csv_df.columns) == list(
+            pq_df.columns
+        ), f"{name}/{csv_path.stem}: column order differs"
         assert len(csv_df) == len(pq_df), (
             f"{name}/{csv_path.stem}: row count differs "
             f"(csv={len(csv_df)}, parquet={len(pq_df)})"
@@ -144,28 +143,22 @@ def test_parquet_round_trip_matches_csv_content(name, tmp_path):
                 # Coerce both sides to plain float64 (handles Int64 with NA →
                 # float64 with NaN, the path the raw ``.to_numpy(dtype=float)``
                 # call rejects on pandas masked arrays).
-                left = pd.to_numeric(csv_col, errors="coerce").astype(
-                    "float64"
-                ).to_numpy()
-                right = pd.to_numeric(pq_col, errors="coerce").astype(
-                    "float64"
-                ).to_numpy()
+                left = pd.to_numeric(csv_col, errors="coerce").astype("float64").to_numpy()
+                right = pd.to_numeric(pq_col, errors="coerce").astype("float64").to_numpy()
                 # NaN positions must agree.
-                assert np.array_equal(np.isnan(left), np.isnan(right)), (
-                    f"{name}/{csv_path.stem}.{col}: NaN positions differ"
-                )
+                assert np.array_equal(
+                    np.isnan(left), np.isnan(right)
+                ), f"{name}/{csv_path.stem}.{col}: NaN positions differ"
                 mask = ~np.isnan(left)
-                assert np.allclose(left[mask], right[mask], atol=5e-4, rtol=1e-3), (
-                    f"{name}/{csv_path.stem}.{col}: numeric mismatch beyond tolerance"
-                )
+                assert np.allclose(
+                    left[mask], right[mask], atol=5e-4, rtol=1e-3
+                ), f"{name}/{csv_path.stem}.{col}: numeric mismatch beyond tolerance"
             else:
                 # Strings, dates, booleans — exact match (after casting parquet
                 # values to str for any types pandas chose differently).
                 left_s = csv_col.astype(str).fillna("").tolist()
                 right_s = pq_col.astype(str).fillna("").tolist()
-                assert left_s == right_s, (
-                    f"{name}/{csv_path.stem}.{col}: non-numeric mismatch"
-                )
+                assert left_s == right_s, f"{name}/{csv_path.stem}.{col}: non-numeric mismatch"
 
 
 # --- determinism ------------------------------------------------------------
@@ -187,9 +180,9 @@ def test_parquet_output_is_byte_deterministic(tmp_path):
     files_b = sorted(f for f in target_b.iterdir() if f.suffix == ".parquet")
     assert [f.name for f in files_a] == [f.name for f in files_b]
     for fa, fb in zip(files_a, files_b):
-        assert fa.read_bytes() == fb.read_bytes(), (
-            f"{fa.name} differs between two runs of the same config"
-        )
+        assert (
+            fa.read_bytes() == fb.read_bytes()
+        ), f"{fa.name} differs between two runs of the same config"
 
 
 # --- file size --------------------------------------------------------------
@@ -214,7 +207,9 @@ def test_parquet_smaller_than_csv_at_realistic_scale(tmp_path):
     for ent in payload["entities"]:
         ent["size"] = ent["size"] * factor
     payload["time_window"] = {
-        "start": "2023-01", "end": "2023-06", "granularity": "daily",
+        "start": "2023-01",
+        "end": "2023-06",
+        "granularity": "daily",
     }
 
     csv_target = _generate_and_write(payload, "csv", tmp_path)
@@ -286,9 +281,7 @@ def test_parquet_preserves_int64_nullable_dtype(tmp_path):
     target = _generate_and_write(payload, "parquet", tmp_path)
     # support_tickets is the canonical dtype:int column on saas (poisson
     # distribution → integer values → Int64 promotion in the writer).
-    fct = pd.read_parquet(
-        target / "fct_support_tickets.parquet", engine="pyarrow"
-    )
+    fct = pd.read_parquet(target / "fct_support_tickets.parquet", engine="pyarrow")
     int_cols = [c for c in fct.columns if str(fct[c].dtype) in ("Int64", "int64")]
     assert int_cols, (
         f"expected at least one integer column after parquet round trip; "

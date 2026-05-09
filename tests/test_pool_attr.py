@@ -16,6 +16,7 @@ Covers the AC subset under "pool.{attr}" in
   * The pre-M117 ``segment.count`` (now ``pool:cohort_size``) path is
     unaffected by the new vocabulary entry.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -51,48 +52,75 @@ def _input(**overrides: Any) -> UserInput:
 
 
 def test_pool_attr_resolves_to_pool_source_with_value_pool():
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"industry": ["Tech", "Finance"]}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {"industry": ["Healthcare"]}},
-        ],
-        dimensions=[
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "industry", "type": "pool.industry"},
-            ]},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"industry": ["Tech", "Finance"]},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {"industry": ["Healthcare"]},
+                },
+            ],
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "industry", "type": "pool.industry"},
+                    ],
+                },
+            ],
+        )
+    )
     dim = next(t for t in cfg.tables if t.name == "dim_company")
     industry_col = next(c for c in dim.columns if c.name == "industry")
     assert industry_col.source == "pool:industry"
     assert industry_col.dtype == "string"
     assert industry_col.value_pool is not None
-    assert set(industry_col.value_pool.keys()) == {
-        f"alpha_{i:04d}" for i in range(3)
-    } | {f"beta_{i:04d}" for i in range(3)}
+    assert set(industry_col.value_pool.keys()) == {f"alpha_{i:04d}" for i in range(3)} | {
+        f"beta_{i:04d}" for i in range(3)
+    }
 
 
 def test_pool_attr_each_entity_pool_matches_segment_attribute_list():
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"industry": ["Tech", "Finance"]}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {"industry": ["Healthcare", "Retail"]}},
-        ],
-        dimensions=[
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "industry", "type": "pool.industry"},
-            ]},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"industry": ["Tech", "Finance"]},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {"industry": ["Healthcare", "Retail"]},
+                },
+            ],
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "industry", "type": "pool.industry"},
+                    ],
+                },
+            ],
+        )
+    )
     industry_col = next(
-        c for t in cfg.tables if t.name == "dim_company"
-        for c in t.columns if c.name == "industry"
+        c for t in cfg.tables if t.name == "dim_company" for c in t.columns if c.name == "industry"
     )
     pool = industry_col.value_pool
     for i in range(3):
@@ -102,23 +130,36 @@ def test_pool_attr_each_entity_pool_matches_segment_attribute_list():
 
 
 def test_pool_attr_scalar_attribute_wrapped_in_single_element_list():
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"tier": "enterprise"}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {"tier": "starter"}},
-        ],
-        dimensions=[
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "tier", "type": "pool.tier"},
-            ]},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"tier": "enterprise"},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {"tier": "starter"},
+                },
+            ],
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "tier", "type": "pool.tier"},
+                    ],
+                },
+            ],
+        )
+    )
     tier_col = next(
-        c for t in cfg.tables if t.name == "dim_company"
-        for c in t.columns if c.name == "tier"
+        c for t in cfg.tables if t.name == "dim_company" for c in t.columns if c.name == "tier"
     )
     pool = tier_col.value_pool
     assert pool["alpha_0000"] == ["enterprise"]
@@ -130,23 +171,40 @@ def test_pool_attr_numeric_scalar_stringified():
     must be stringified in the value_pool so the engine writes string
     cells without dtype drift.
     """
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"founded_year": 2010}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {"founded_year": 2018}},
-        ],
-        dimensions=[
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "founded_year", "type": "pool.founded_year"},
-            ]},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"founded_year": 2010},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {"founded_year": 2018},
+                },
+            ],
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "founded_year", "type": "pool.founded_year"},
+                    ],
+                },
+            ],
+        )
+    )
     col = next(
-        c for t in cfg.tables if t.name == "dim_company"
-        for c in t.columns if c.name == "founded_year"
+        c
+        for t in cfg.tables
+        if t.name == "dim_company"
+        for c in t.columns
+        if c.name == "founded_year"
     )
     assert col.value_pool["alpha_0000"] == ["2010"]
     assert col.value_pool["beta_0000"] == ["2018"]
@@ -159,21 +217,35 @@ def test_pool_attr_missing_on_some_segments_raises():
     an empty pool entry — caught at column-translate time.
     """
     with pytest.raises(ValueError, match="not declared on every segment"):
-        interpret(_input(
-            segments=[
-                {"name": "alpha", "count": 3, "archetype": "growth",
-                 "attributes": {"industry": ["Tech"]}},
-                {"name": "beta", "count": 3, "archetype": "flat",
-                 # `industry` deliberately missing on this segment
-                 "attributes": {"region": ["EMEA"]}},
-            ],
-            dimensions=[
-                {"name": "dim_company", "per": "unit", "columns": [
-                    {"name": "company_id", "type": "id"},
-                    {"name": "industry", "type": "pool.industry"},
-                ]},
-            ],
-        ))
+        interpret(
+            _input(
+                segments=[
+                    {
+                        "name": "alpha",
+                        "count": 3,
+                        "archetype": "growth",
+                        "attributes": {"industry": ["Tech"]},
+                    },
+                    {
+                        "name": "beta",
+                        "count": 3,
+                        "archetype": "flat",
+                        # `industry` deliberately missing on this segment
+                        "attributes": {"region": ["EMEA"]},
+                    },
+                ],
+                dimensions=[
+                    {
+                        "name": "dim_company",
+                        "per": "unit",
+                        "columns": [
+                            {"name": "company_id", "type": "id"},
+                            {"name": "industry", "type": "pool.industry"},
+                        ],
+                    },
+                ],
+            )
+        )
 
 
 def test_pool_attr_on_fact_column_rejected():
@@ -181,54 +253,86 @@ def test_pool_attr_on_fact_column_rejected():
     pool dict so the column-translate step raises a clear error.
     """
     with pytest.raises(ValueError, match="per_entity dim columns"):
-        interpret(_input(
-            segments=[
-                {"name": "alpha", "count": 3, "archetype": "growth",
-                 "attributes": {"industry": ["Tech"]}},
-                {"name": "beta", "count": 3, "archetype": "flat",
-                 "attributes": {"industry": ["Healthcare"]}},
-            ],
-            dimensions=[
-                {"name": "dim_date", "per": "period", "columns": [
-                    {"name": "date_key", "type": "id"},
-                    {"name": "date", "type": "date"},
-                ]},
-                {"name": "dim_company", "per": "unit", "columns": [
-                    {"name": "company_id", "type": "id"},
-                ]},
-            ],
-            facts=[
-                {"name": "fct_company", "metrics": ["engagement"], "columns": [
-                    {"name": "date_key", "type": "ref.dim_date"},
-                    {"name": "company_id", "type": "ref.dim_company"},
-                    {"name": "engagement", "type": "metric.engagement"},
-                    # Illegal: pool.{attr} on a fact column
-                    {"name": "industry", "type": "pool.industry"},
-                ]},
-            ],
-        ))
+        interpret(
+            _input(
+                segments=[
+                    {
+                        "name": "alpha",
+                        "count": 3,
+                        "archetype": "growth",
+                        "attributes": {"industry": ["Tech"]},
+                    },
+                    {
+                        "name": "beta",
+                        "count": 3,
+                        "archetype": "flat",
+                        "attributes": {"industry": ["Healthcare"]},
+                    },
+                ],
+                dimensions=[
+                    {
+                        "name": "dim_date",
+                        "per": "period",
+                        "columns": [
+                            {"name": "date_key", "type": "id"},
+                            {"name": "date", "type": "date"},
+                        ],
+                    },
+                    {
+                        "name": "dim_company",
+                        "per": "unit",
+                        "columns": [
+                            {"name": "company_id", "type": "id"},
+                        ],
+                    },
+                ],
+                facts=[
+                    {
+                        "name": "fct_company",
+                        "metrics": ["engagement"],
+                        "columns": [
+                            {"name": "date_key", "type": "ref.dim_date"},
+                            {"name": "company_id", "type": "ref.dim_company"},
+                            {"name": "engagement", "type": "metric.engagement"},
+                            # Illegal: pool.{attr} on a fact column
+                            {"name": "industry", "type": "pool.industry"},
+                        ],
+                    },
+                ],
+            )
+        )
 
 
 # ── Auto-schema attribute columns ──────────────────────────────────────────
 
 
 def test_auto_schema_with_attributes_adds_pool_columns_alphabetical():
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {
-                 "tier": "enterprise",
-                 "industry": ["Tech", "Finance"],
-                 "region": ["US", "EMEA"],
-             }},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {
-                 "tier": "starter",
-                 "industry": ["Healthcare"],
-                 "region": ["APAC"],
-             }},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {
+                        "tier": "enterprise",
+                        "industry": ["Tech", "Finance"],
+                        "region": ["US", "EMEA"],
+                    },
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {
+                        "tier": "starter",
+                        "industry": ["Healthcare"],
+                        "region": ["APAC"],
+                    },
+                },
+            ],
+        )
+    )
     dim = next(t for t in cfg.tables if t.name == "dim_company")
     # Expected: company_id, company_name, then attribute columns alphabetically
     pool_cols = [c for c in dim.columns if c.source.startswith("pool:")]
@@ -255,15 +359,25 @@ def test_auto_schema_partial_attribute_omitted_from_dim():
     entry — the engine's ``validate_value_pool_coverage`` would reject
     that. The auto-schema simply omits these.
     """
-    cfg = interpret(_input(
-        segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"industry": ["Tech"], "region": ["US"]}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             # Only `industry`; `region` is partial.
-             "attributes": {"industry": ["Healthcare"]}},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"industry": ["Tech"], "region": ["US"]},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    # Only `industry`; `region` is partial.
+                    "attributes": {"industry": ["Healthcare"]},
+                },
+            ],
+        )
+    )
     dim = next(t for t in cfg.tables if t.name == "dim_company")
     pool_cols = {c.name for c in dim.columns if c.source.startswith("pool:")}
     assert pool_cols == {"industry"}  # `region` excluded
@@ -276,17 +390,26 @@ def test_segment_count_pool_still_works_after_m122():
     """M117's ``segment.count`` (resolves to ``pool:cohort_size``) must
     keep working after ``pool.{attr}`` lands.
     """
-    cfg = interpret(_input(
-        dimensions=[
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "cohort_size", "type": "segment.count"},
-            ]},
-        ],
-    ))
+    cfg = interpret(
+        _input(
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "cohort_size", "type": "segment.count"},
+                    ],
+                },
+            ],
+        )
+    )
     col = next(
-        c for t in cfg.tables if t.name == "dim_company"
-        for c in t.columns if c.name == "cohort_size"
+        c
+        for t in cfg.tables
+        if t.name == "dim_company"
+        for c in t.columns
+        if c.name == "cohort_size"
     )
     assert col.source == "pool:cohort_size"
     assert col.value_pool is not None
@@ -298,28 +421,42 @@ def test_segment_count_pool_still_works_after_m122():
 
 def test_segment_attribute_value_must_be_scalar_or_list_of_scalars():
     with pytest.raises(ValueError, match="must be a scalar"):
-        UserInput.model_validate({
-            "about": "x", "unit": "x",
-            "window": {"start": "2024-01", "end": "2024-12"},
-            "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
-            "segments": [
-                {"name": "a", "count": 3, "archetype": "growth",
-                 "attributes": {"industry": {"nested": "dict"}}},
-            ],
-        })
+        UserInput.model_validate(
+            {
+                "about": "x",
+                "unit": "x",
+                "window": {"start": "2024-01", "end": "2024-12"},
+                "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
+                "segments": [
+                    {
+                        "name": "a",
+                        "count": 3,
+                        "archetype": "growth",
+                        "attributes": {"industry": {"nested": "dict"}},
+                    },
+                ],
+            }
+        )
 
 
 def test_segment_attribute_empty_list_rejected():
     with pytest.raises(ValueError, match="list must be non-empty"):
-        UserInput.model_validate({
-            "about": "x", "unit": "x",
-            "window": {"start": "2024-01", "end": "2024-12"},
-            "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
-            "segments": [
-                {"name": "a", "count": 3, "archetype": "growth",
-                 "attributes": {"industry": []}},
-            ],
-        })
+        UserInput.model_validate(
+            {
+                "about": "x",
+                "unit": "x",
+                "window": {"start": "2024-01", "end": "2024-12"},
+                "metrics": [{"name": "m", "type": "score", "polarity": "positive"}],
+                "segments": [
+                    {
+                        "name": "a",
+                        "count": 3,
+                        "archetype": "growth",
+                        "attributes": {"industry": []},
+                    },
+                ],
+            }
+        )
 
 
 # ── End-to-end: builder → engine load passes ───────────────────────────────
@@ -330,20 +467,28 @@ def test_pool_attr_end_to_end_via_create():
     PlotsimConfig that the engine validates clean.
     """
     cfg = create(
-        about="e2e", unit="company",
+        about="e2e",
+        unit="company",
         window={"start": "2024-01", "end": "2024-12"},
         metrics=[
             {"name": "engagement", "type": "score", "polarity": "positive"},
         ],
         segments=[
-            {"name": "alpha", "count": 3, "archetype": "growth",
-             "attributes": {"industry": ["Tech", "Finance"]}},
-            {"name": "beta", "count": 3, "archetype": "flat",
-             "attributes": {"industry": ["Healthcare"]}},
+            {
+                "name": "alpha",
+                "count": 3,
+                "archetype": "growth",
+                "attributes": {"industry": ["Tech", "Finance"]},
+            },
+            {
+                "name": "beta",
+                "count": 3,
+                "archetype": "flat",
+                "attributes": {"industry": ["Healthcare"]},
+            },
         ],
     )
     industry_col = next(
-        c for t in cfg.tables if t.name == "dim_company"
-        for c in t.columns if c.name == "industry"
+        c for t in cfg.tables if t.name == "dim_company" for c in t.columns if c.name == "industry"
     )
     assert industry_col.source == "pool:industry"

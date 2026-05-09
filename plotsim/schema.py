@@ -11,6 +11,7 @@ Pure metadata module — does not import the generation engine. Calling
 ``plotsim schema`` from the CLI executes nothing beyond Pydantic's
 schema introspection.
 """
+
 from __future__ import annotations
 
 import json

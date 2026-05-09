@@ -16,6 +16,7 @@ combination (``evt_churn`` in saas FKs only into ``dim_company``,
 not ``dim_user``), so the regression here builds a mutated saas
 config that adds a ``user_id`` FK to ``evt_churn``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -23,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pytest
 import yaml
 
 from plotsim import generate_tables, load_config
@@ -53,11 +53,14 @@ def _mutate_evt_churn_to_fk_dim_user(data: dict) -> None:
     """
     for tbl in data["tables"]:
         if tbl["name"] == "evt_churn":
-            tbl["columns"].insert(3, {
-                "name": "user_id",
-                "dtype": "id",
-                "source": "fk:dim_user.user_id",
-            })
+            tbl["columns"].insert(
+                3,
+                {
+                    "name": "user_id",
+                    "dtype": "id",
+                    "source": "fk:dim_user.user_id",
+                },
+            )
             tbl["foreign_keys"] = list(tbl.get("foreign_keys", []))
             tbl["foreign_keys"].insert(1, "dim_user.user_id")
             break
@@ -109,7 +112,8 @@ def test_threshold_event_sub_entity_fk_distributes_uniformly(tmp_path: Path):
     # anything. With rocket_then_cliff on every entity, all three parents
     # should fire on every seed.
     eligible = [
-        (p, picks) for p, picks in picks_by_parent.items()
+        (p, picks)
+        for p, picks in picks_by_parent.items()
         if len(picks) >= 30 and len(parent_to_user_ids[p]) >= 5
     ]
     assert eligible, (

@@ -34,6 +34,7 @@ purpose is reaching the dispatch branches, not pinning their numerical
 output, and a saved-bytes assertion would brittle-up against unrelated
 metric / curve changes elsewhere in the codebase.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -105,38 +106,38 @@ def test_fact_tables_have_expected_row_count(synthetic_cfg, synthetic_tables):
 
 
 _VECTORIZED_DTYPE_CHECKS: dict[str, str] = {
-    "row_id":               "object",      # PKSource → "row_id-NNNN-<entity_pk>"
-    "widget_id":            "object",      # FKSource (local entity)
-    "date_key":             "integer",     # FKSource (local date) — int from dim_date
-    "plan_id":              "object",      # FKSource (cross-dim) — string PK
-    "engagement_score":     "float",       # MetricSource (float)
-    "support_ticket_count": "integer",     # MetricSource (int) — nullable Int64
-    "engagement_lag1":      "float",       # LagSource (float)
-    "support_lag2":         "integer",     # LagSource (int) — nullable Int64
-    "event_ts":             "datetime",    # GeneratedSource(timestamp)
-    "period_dk":            "integer",     # GeneratedSource(date_key)
-    "period_lbl":           "object",      # GeneratedSource(period_label)
-    "region":               "object",      # StaticSource
-    "p_idx":                "integer",     # DerivedSource(period_index)
-    "entity_label":         "object",      # DerivedSource(entity_id)
-    "sentiment":            "object",      # M105: TextBucketSource (vectorized)
+    "row_id": "object",  # PKSource → "row_id-NNNN-<entity_pk>"
+    "widget_id": "object",  # FKSource (local entity)
+    "date_key": "integer",  # FKSource (local date) — int from dim_date
+    "plan_id": "object",  # FKSource (cross-dim) — string PK
+    "engagement_score": "float",  # MetricSource (float)
+    "support_ticket_count": "integer",  # MetricSource (int) — nullable Int64
+    "engagement_lag1": "float",  # LagSource (float)
+    "support_lag2": "integer",  # LagSource (int) — nullable Int64
+    "event_ts": "datetime",  # GeneratedSource(timestamp)
+    "period_dk": "integer",  # GeneratedSource(date_key)
+    "period_lbl": "object",  # GeneratedSource(period_label)
+    "region": "object",  # StaticSource
+    "p_idx": "integer",  # DerivedSource(period_index)
+    "entity_label": "object",  # DerivedSource(entity_id)
+    "sentiment": "object",  # M105: TextBucketSource (vectorized)
 }
 
 _SCALAR_DTYPE_CHECKS: dict[str, str] = {
-    "row_id":               "object",      # PKSource (scalar)
-    "widget_id":            "object",      # FKSource (local entity, scalar)
-    "date_key":             "integer",     # FKSource (local date, scalar)
-    "plan_id":              "object",      # FKSource (cross-dim, scalar)
-    "engagement_score":     "float",       # MetricSource (scalar)
-    "engagement_lag1":      "float",       # LagSource (scalar)
-    "note":                 "object",      # FakerSource — forces the scalar path
-    "region":               "object",      # StaticSource (scalar)
-    "event_ts":             "datetime",    # GeneratedSource(timestamp, scalar)
-    "period_dk":            "integer",     # GeneratedSource(date_key, scalar)
-    "period_lbl":           "object",      # GeneratedSource(period_label, scalar)
-    "p_idx":                "integer",     # DerivedSource(period_index, scalar)
-    "entity_label":         "object",      # DerivedSource(entity_id, scalar)
-    "sentiment":            "object",      # M105: TextBucketSource (scalar)
+    "row_id": "object",  # PKSource (scalar)
+    "widget_id": "object",  # FKSource (local entity, scalar)
+    "date_key": "integer",  # FKSource (local date, scalar)
+    "plan_id": "object",  # FKSource (cross-dim, scalar)
+    "engagement_score": "float",  # MetricSource (scalar)
+    "engagement_lag1": "float",  # LagSource (scalar)
+    "note": "object",  # FakerSource — forces the scalar path
+    "region": "object",  # StaticSource (scalar)
+    "event_ts": "datetime",  # GeneratedSource(timestamp, scalar)
+    "period_dk": "integer",  # GeneratedSource(date_key, scalar)
+    "period_lbl": "object",  # GeneratedSource(period_label, scalar)
+    "p_idx": "integer",  # DerivedSource(period_index, scalar)
+    "entity_label": "object",  # DerivedSource(entity_id, scalar)
+    "sentiment": "object",  # M105: TextBucketSource (scalar)
 }
 
 
@@ -244,9 +245,7 @@ def _run_and_write(cfg, dst: Path) -> dict[str, bytes]:
     return csvs
 
 
-def test_synthetic_config_produces_byte_identical_csvs_across_runs(
-    synthetic_cfg, tmp_path
-):
+def test_synthetic_config_produces_byte_identical_csvs_across_runs(synthetic_cfg, tmp_path):
     """Two runs at the same seed produce byte-identical CSVs. Locks
     determinism end-to-end across every parse_source branch — the
     invariant the bundled-template parity tests guarantee on a narrower
@@ -271,8 +270,7 @@ def test_synthetic_config_produces_byte_identical_csvs_across_runs(
     report_a = (run_a / "validation_report.txt").read_bytes()
     report_b = (run_b / "validation_report.txt").read_bytes()
     assert report_a == report_b, (
-        "validation_report.txt differs across runs — F5's deterministic "
-        "default has regressed."
+        "validation_report.txt differs across runs — F5's deterministic " "default has regressed."
     )
 
 
@@ -305,9 +303,9 @@ def test_derived_entity_id_matches_local_entity_fk(synthetic_tables):
     """
     for tbl_name in ("fct_vectorized", "fct_scalar"):
         df = synthetic_tables[tbl_name]
-        assert (df["entity_label"] == df["widget_id"]).all(), (
-            f"{tbl_name}: derived:entity_id != fk:dim_widget.widget_id"
-        )
+        assert (
+            df["entity_label"] == df["widget_id"]
+        ).all(), f"{tbl_name}: derived:entity_id != fk:dim_widget.widget_id"
 
 
 def test_generated_date_key_matches_local_date_fk(synthetic_tables):
@@ -319,9 +317,9 @@ def test_generated_date_key_matches_local_date_fk(synthetic_tables):
     for tbl_name in ("fct_vectorized", "fct_scalar"):
         df = synthetic_tables[tbl_name]
         # Both should be int (date_key dtype). Compare element-wise.
-        assert (df["period_dk"].to_numpy() == df["date_key"].to_numpy()).all(), (
-            f"{tbl_name}: generated:date_key != fk:dim_date.date_key"
-        )
+        assert (
+            df["period_dk"].to_numpy() == df["date_key"].to_numpy()
+        ).all(), f"{tbl_name}: generated:date_key != fk:dim_date.date_key"
 
 
 def test_static_source_values_are_constant(synthetic_tables):
@@ -330,13 +328,13 @@ def test_static_source_values_are_constant(synthetic_tables):
     path returns ``parsed.value`` per cell.
     """
     vec = synthetic_tables["fct_vectorized"]
-    assert (vec["region"] == "emea").all(), (
-        "fct_vectorized.region not uniformly 'emea' — StaticSource broken"
-    )
+    assert (
+        vec["region"] == "emea"
+    ).all(), "fct_vectorized.region not uniformly 'emea' — StaticSource broken"
     sca = synthetic_tables["fct_scalar"]
-    assert (sca["region"] == "scalar_region").all(), (
-        "fct_scalar.region not uniformly 'scalar_region' — StaticSource broken"
-    )
+    assert (
+        sca["region"] == "scalar_region"
+    ).all(), "fct_scalar.region not uniformly 'scalar_region' — StaticSource broken"
 
 
 def test_lag_source_falls_back_to_current_period_for_short_history(synthetic_tables):
@@ -351,14 +349,14 @@ def test_lag_source_falls_back_to_current_period_for_short_history(synthetic_tab
     # engagement_score (fall-back). Same for support_lag2 across periods 0–1.
     for entity_pk, group in df.groupby("widget_id", sort=False):
         period0 = group.iloc[0]
-        assert period0["engagement_lag1"] == period0["engagement_score"], (
-            f"{entity_pk}: lag=1 fall-back failed at period 0"
-        )
+        assert (
+            period0["engagement_lag1"] == period0["engagement_score"]
+        ), f"{entity_pk}: lag=1 fall-back failed at period 0"
         for k in (0, 1):
             period_k = group.iloc[k]
-            assert period_k["support_lag2"] == period_k["support_ticket_count"], (
-                f"{entity_pk}: lag=2 fall-back failed at period {k}"
-            )
+            assert (
+                period_k["support_lag2"] == period_k["support_ticket_count"]
+            ), f"{entity_pk}: lag=2 fall-back failed at period {k}"
 
 
 def test_faker_source_values_are_non_empty_strings(synthetic_tables):

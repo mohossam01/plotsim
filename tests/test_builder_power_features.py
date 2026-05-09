@@ -15,6 +15,7 @@ Covers the AC subsets in
   * Omitting any feature → identical to pre-M122 default config (engine
     sees ``enabled=false`` / empty list).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -39,35 +40,50 @@ def _explicit_input(**overrides: Any) -> dict[str, Any]:
         "window": {"start": "2024-01", "end": "2024-12"},
         "metrics": [
             {"name": "engagement", "type": "score", "polarity": "positive"},
-            {"name": "mrr", "type": "amount", "polarity": "positive",
-             "range": [100, 50000]},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
         ],
         "segments": [
             {"name": "alpha", "count": 5, "archetype": "growth"},
             {"name": "beta", "count": 5, "archetype": "flat"},
         ],
         "dimensions": [
-            {"name": "dim_date", "per": "period", "columns": [
-                {"name": "date_key", "type": "id"},
-                {"name": "date", "type": "date"},
-            ]},
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "company_name", "type": "faker.company"},
-            ]},
-            {"name": "dim_user", "per": "unit", "columns": [
-                {"name": "user_id", "type": "id"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "user_name", "type": "faker.name"},
-            ]},
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "company_name", "type": "faker.company"},
+                ],
+            },
+            {
+                "name": "dim_user",
+                "per": "unit",
+                "columns": [
+                    {"name": "user_id", "type": "id"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "user_name", "type": "faker.name"},
+                ],
+            },
         ],
         "facts": [
-            {"name": "fct_company", "metrics": ["engagement", "mrr"], "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement", "type": "metric.engagement"},
-                {"name": "mrr", "type": "metric.mrr"},
-            ]},
+            {
+                "name": "fct_company",
+                "metrics": ["engagement", "mrr"],
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement", "type": "metric.engagement"},
+                    {"name": "mrr", "type": "metric.mrr"},
+                ],
+            },
         ],
     }
     base.update(overrides)
@@ -84,11 +100,12 @@ def _create(**overrides: Any):
 
 
 def test_quality_list_populates_quality_issues():
-    cfg = _create(quality=[
-        {"table": "fct_company", "column": "mrr",
-         "issue": "null_injection", "rate": 0.05},
-        {"table": "fct_company", "issue": "duplicate_rows", "rate": 0.02},
-    ])
+    cfg = _create(
+        quality=[
+            {"table": "fct_company", "column": "mrr", "issue": "null_injection", "rate": 0.05},
+            {"table": "fct_company", "issue": "duplicate_rows", "rate": 0.02},
+        ]
+    )
     issues = cfg.quality.quality_issues
     assert len(issues) == 2
     assert issues[0].type == "null_injection"
@@ -100,13 +117,16 @@ def test_quality_list_populates_quality_issues():
     assert issues[1].target_columns == ["*"]
 
 
-@pytest.mark.parametrize("issue_type,needs_column", [
-    ("null_injection", True),
-    ("duplicate_rows", False),
-    ("type_mismatch", True),
-    ("late_arrival", False),
-    ("schema_drift", True),
-])
+@pytest.mark.parametrize(
+    "issue_type,needs_column",
+    [
+        ("null_injection", True),
+        ("duplicate_rows", False),
+        ("type_mismatch", True),
+        ("late_arrival", False),
+        ("schema_drift", True),
+    ],
+)
 def test_all_quality_issue_types_translate(issue_type, needs_column):
     spec: dict[str, Any] = {
         "table": "fct_company",
@@ -126,10 +146,11 @@ def test_quality_omitted_yields_empty_default():
 
 def test_quality_invalid_issue_type_raises():
     with pytest.raises(ValueError):
-        _create(quality=[
-            {"table": "fct_company", "column": "mrr",
-             "issue": "not_a_thing", "rate": 0.05},
-        ])
+        _create(
+            quality=[
+                {"table": "fct_company", "column": "mrr", "issue": "not_a_thing", "rate": 0.05},
+            ]
+        )
 
 
 def test_quality_null_injection_without_column_rejected():
@@ -138,9 +159,11 @@ def test_quality_null_injection_without_column_rejected():
     layer with a clear message rather than passing through to the engine.
     """
     with pytest.raises(ValueError, match="requires a `column` name"):
-        _create(quality=[
-            {"table": "fct_company", "issue": "null_injection", "rate": 0.05},
-        ])
+        _create(
+            quality=[
+                {"table": "fct_company", "issue": "null_injection", "rate": 0.05},
+            ]
+        )
 
 
 # ── Holdout ────────────────────────────────────────────────────────────────
@@ -178,9 +201,12 @@ def test_entity_features_true_enables_with_defaults():
 
 
 def test_entity_features_dict_form_with_metric_filter():
-    cfg = _create(entity_features={
-        "metrics": ["mrr"], "include_labels": False,
-    })
+    cfg = _create(
+        entity_features={
+            "metrics": ["mrr"],
+            "include_labels": False,
+        }
+    )
     assert cfg.entity_features.enabled is True
     assert cfg.entity_features.metrics == ["mrr"]
     assert cfg.entity_features.include_labels is False
@@ -235,11 +261,17 @@ def test_bridge_cardinality_maps_correctly():
 
 
 def test_bridge_columns_translate_to_bridge_metrics():
-    cfg = _create(bridges=[_bridge_spec(columns=[
-        {"name": "engagement_share", "type": "metric.engagement"},
-        {"name": "tier", "type": "static.gold"},
-        {"name": "company_name", "type": "faker.company"},
-    ])])
+    cfg = _create(
+        bridges=[
+            _bridge_spec(
+                columns=[
+                    {"name": "engagement_share", "type": "metric.engagement"},
+                    {"name": "tier", "type": "static.gold"},
+                    {"name": "company_name", "type": "faker.company"},
+                ]
+            )
+        ]
+    )
     metrics = cfg.bridges[0].metrics
     assert len(metrics) == 3
     sources = {m.name: m.source for m in metrics}
@@ -263,9 +295,15 @@ def test_bridge_unsupported_column_type_rejected():
     period axis to anchor period-derived sources.
     """
     with pytest.raises(ValueError, match="not supported on bridge rows"):
-        _create(bridges=[_bridge_spec(columns=[
-            {"name": "date_key", "type": "ref.dim_date"},
-        ])])
+        _create(
+            bridges=[
+                _bridge_spec(
+                    columns=[
+                        {"name": "date_key", "type": "ref.dim_date"},
+                    ]
+                )
+            ]
+        )
 
 
 def test_bridge_omitted_yields_empty_default():
@@ -319,7 +357,9 @@ def test_user_input_rejects_extra_top_level_field():
     additions — typos on the new optional fields surface as schema errors.
     """
     with pytest.raises(ValueError):
-        UserInput.model_validate({
-            **_explicit_input(),
-            "qualitee": [],  # typo — must not silently pass
-        })
+        UserInput.model_validate(
+            {
+                **_explicit_input(),
+                "qualitee": [],  # typo — must not silently pass
+            }
+        )

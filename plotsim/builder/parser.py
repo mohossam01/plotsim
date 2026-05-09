@@ -27,6 +27,7 @@ Examples
     parse_archetype("growth > spike_then_crash > flat @ 8 @ 16", 24)
         → 5 segments (1 + 3 + 1) — spike_then_crash rescaled into [1/3, 2/3]
 """
+
 from __future__ import annotations
 
 from plotsim.config import CurveSegment
@@ -57,9 +58,7 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
         ArchetypeParseError: on any structural or vocabulary violation.
     """
     if not isinstance(spec, str):
-        raise ArchetypeParseError(
-            f"archetype spec must be a string, got {type(spec).__name__}"
-        )
+        raise ArchetypeParseError(f"archetype spec must be a string, got {type(spec).__name__}")
 
     raw = spec.strip()
     if not raw:
@@ -67,14 +66,11 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
 
     if "+" in raw:
         raise ArchetypeParseError(
-            "Layered patterns ship in a future release. "
-            "Use > for sequential composition."
+            "Layered patterns ship in a future release. " "Use > for sequential composition."
         )
 
     if n_periods < 2:
-        raise ArchetypeParseError(
-            f"n_periods must be >= 2 to compose phases, got {n_periods}"
-        )
+        raise ArchetypeParseError(f"n_periods must be >= 2 to compose phases, got {n_periods}")
 
     # Split on "@" first → first chunk is the shape chain, rest are periods.
     parts = [p.strip() for p in raw.split("@")]
@@ -107,9 +103,7 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
     periods: list[int] = []
     for ps in period_strs:
         if not ps:
-            raise ArchetypeParseError(
-                f"archetype spec {spec!r} has an empty '@' value"
-            )
+            raise ArchetypeParseError(f"archetype spec {spec!r} has an empty '@' value")
         try:
             periods.append(int(ps))
         except ValueError:

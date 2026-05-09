@@ -27,9 +27,7 @@ _NOTEBOOKS_DIR = Path(__file__).resolve().parent.parent / "notebooks"
 sys.path.insert(0, str(_NOTEBOOKS_DIR))
 
 # notebooks/ is gitignored — skip the whole module in CI where it doesn't ship.
-_helpers = pytest.importorskip(
-    "_helpers", reason="notebooks/_helpers.py not available in CI"
-)
+_helpers = pytest.importorskip("_helpers", reason="notebooks/_helpers.py not available in CI")
 
 
 def test_load_fixed_point_returns_saas_and_seed_42():
@@ -46,28 +44,38 @@ def test_load_fixed_point_returns_saas_and_seed_42():
 
 def test_manual_rng_replay_lognorm_deterministic():
     a = _helpers.manual_rng_replay(
-        seed=42, n_draws=10, distribution="lognorm",
+        seed=42,
+        n_draws=10,
+        distribution="lognorm",
         params={"s": 0.85, "scale": 1200.0},
     )
     b = _helpers.manual_rng_replay(
-        seed=42, n_draws=10, distribution="lognorm",
+        seed=42,
+        n_draws=10,
+        distribution="lognorm",
         params={"s": 0.85, "scale": 1200.0},
     )
     assert a.shape == (10,)
     np.testing.assert_array_equal(a, b)
 
 
-@pytest.mark.parametrize("distribution,params", [
-    ("lognorm", {"s": 0.85, "scale": 1200.0}),
-    ("gamma", {"shape": 2.0, "scale": 1.5}),
-    ("poisson", {"lambda": 5.0}),
-    ("beta", {"alpha": 2.0, "beta": 5.0}),
-    ("normal", {"loc": 0.0, "sigma": 1.0}),
-    ("weibull", {"shape": 1.5, "scale": 2.0}),
-])
+@pytest.mark.parametrize(
+    "distribution,params",
+    [
+        ("lognorm", {"s": 0.85, "scale": 1200.0}),
+        ("gamma", {"shape": 2.0, "scale": 1.5}),
+        ("poisson", {"lambda": 5.0}),
+        ("beta", {"alpha": 2.0, "beta": 5.0}),
+        ("normal", {"loc": 0.0, "sigma": 1.0}),
+        ("weibull", {"shape": 1.5, "scale": 2.0}),
+    ],
+)
 def test_manual_rng_replay_supports_documented_distributions(distribution, params):
     arr = _helpers.manual_rng_replay(
-        seed=42, n_draws=5, distribution=distribution, params=params,
+        seed=42,
+        n_draws=5,
+        distribution=distribution,
+        params=params,
     )
     assert arr.shape == (5,)
     assert np.all(np.isfinite(arr))
@@ -76,7 +84,10 @@ def test_manual_rng_replay_supports_documented_distributions(distribution, param
 def test_manual_rng_replay_unsupported_distribution_raises():
     with pytest.raises(ValueError, match="unsupported distribution"):
         _helpers.manual_rng_replay(
-            seed=42, n_draws=1, distribution="cauchy", params={},
+            seed=42,
+            n_draws=1,
+            distribution="cauchy",
+            params={},
         )
 
 
@@ -117,6 +128,7 @@ def test_archetype_color_lookup():
 
 # --- Tolerance constants: positive + direction-rule semantics --------------
 
+
 def test_all_tolerance_constants_non_negative():
     """Every constant must be >= 0. DETERMINISM_BYTE_PASS = 0 is the only
     legal zero; the rest are strictly positive.
@@ -140,26 +152,17 @@ def test_all_tolerance_constants_non_negative():
 
 def test_oscillating_pearson_warn_stricter_than_pass():
     """Pearson is a floor metric (higher better) ⇒ ``WARN > PASS``."""
-    assert (
-        _helpers.OSCILLATING_ARCHETYPE_PEARSON_WARN
-        > _helpers.OSCILLATING_ARCHETYPE_PEARSON_PASS
-    )
+    assert _helpers.OSCILLATING_ARCHETYPE_PEARSON_WARN > _helpers.OSCILLATING_ARCHETYPE_PEARSON_PASS
 
 
 def test_marginal_std_outlier_looser_than_pass():
     """Δstd is a ceiling metric (lower better) ⇒ ``OUTLIER > PASS``."""
-    assert (
-        _helpers.MARGINAL_STD_REL_OUTLIER
-        > _helpers.MARGINAL_STD_REL_PASS
-    )
+    assert _helpers.MARGINAL_STD_REL_OUTLIER > _helpers.MARGINAL_STD_REL_PASS
 
 
 def test_correlation_deviation_warn_stricter_than_pass():
     """|Δ correlation| is a ceiling metric (lower better) ⇒ ``WARN < PASS``."""
-    assert (
-        _helpers.CORRELATION_DEVIATION_WARN
-        < _helpers.CORRELATION_DEVIATION_PASS
-    )
+    assert _helpers.CORRELATION_DEVIATION_WARN < _helpers.CORRELATION_DEVIATION_PASS
 
 
 def test_archetype_colors_are_valid_hex():

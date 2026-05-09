@@ -151,8 +151,7 @@ def evaluate_segment(
     fn = CURVE_REGISTRY.get(curve_type)
     if fn is None:
         raise ValueError(
-            f"unknown curve type {curve_type!r}; "
-            f"registered: {sorted(CURVE_REGISTRY)}"
+            f"unknown curve type {curve_type!r}; " f"registered: {sorted(CURVE_REGISTRY)}"
         )
     out = fn(t_segment, **(params or {}))
     return np.clip(out, 0.0, 1.0)

@@ -14,6 +14,7 @@ are short human-readable hints suitable for tooltips. ``COLUMN_TYPES``
 covers the column-type vocabulary handled by the interpreter — there is
 no recipe dict for it, so this module is the single declared source.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,9 +48,7 @@ def write_user_input_schema(path: str | Path) -> Path:
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(
-        generate_user_input_schema(), indent=2, ensure_ascii=False
-    ) + "\n"
+    payload = json.dumps(generate_user_input_schema(), indent=2, ensure_ascii=False) + "\n"
     target.write_text(payload, encoding="utf-8")
     return target
 
@@ -58,55 +57,55 @@ def write_user_input_schema(path: str | Path) -> Path:
 
 
 METRIC_TYPES: dict[str, str] = {
-    "score":  "Bounded [0, 1] score (engagement, adoption, risk).",
+    "score": "Bounded [0, 1] score (engagement, adoption, risk).",
     "amount": "Currency or bounded quantity (requires `range`).",
-    "count":  "Non-negative integer event count (no `range`; poisson).",
-    "index":  "Signed centered metric in a declared range (requires `range`).",
+    "count": "Non-negative integer event count (no `range`; poisson).",
+    "index": "Signed centered metric in a declared range (requires `range`).",
 }
 
 SHAPE_WORDS: dict[str, str] = {
-    "growth":           "Smooth S-curve rise.",
-    "decline":          "Exponential fade.",
-    "seasonal":         "Two oscillation cycles across the window.",
-    "flat":             "Low constant plateau.",
+    "growth": "Smooth S-curve rise.",
+    "decline": "Exponential fade.",
+    "seasonal": "Two oscillation cycles across the window.",
+    "flat": "Low constant plateau.",
     "spike_then_crash": "Rapid rise, sharp drop, low plateau.",
-    "accelerating":     "Compound growth (base + acceleration).",
+    "accelerating": "Compound growth (base + acceleration).",
 }
 
 RELATIONSHIP_WORDS: dict[str, float] = {
-    "mirrors":        0.75,
-    "driven_by":      0.55,
-    "related":        0.40,
-    "hints_at":       0.20,
-    "independent":    0.00,
+    "mirrors": 0.75,
+    "driven_by": 0.55,
+    "related": 0.40,
+    "hints_at": 0.20,
+    "independent": 0.00,
     "hints_against": -0.20,
-    "resists":       -0.40,
-    "opposes":       -0.55,
-    "inverts":       -0.75,
+    "resists": -0.40,
+    "opposes": -0.55,
+    "inverts": -0.75,
 }
 
 BASELINE_WORDS: dict[str, str] = {
     "high": "Restrict the segment's value range to the upper third.",
-    "mid":  "Restrict to the middle third (the default if omitted).",
-    "low":  "Restrict to the lower third.",
+    "mid": "Restrict to the middle third (the default if omitted).",
+    "low": "Restrict to the lower third.",
 }
 
 COLUMN_TYPES: dict[str, str] = {
-    "id":             "Primary key column, auto-generated.",
-    "ref.{dim}":      "Foreign key to the named dimension table.",
-    "metric.{name}":  "Populated from the named declared metric.",
-    "faker.{kind}":   "Generated text via faker (company, name, sentence, year, ...).",
+    "id": "Primary key column, auto-generated.",
+    "ref.{dim}": "Foreign key to the named dimension table.",
+    "metric.{name}": "Populated from the named declared metric.",
+    "faker.{kind}": "Generated text via faker (company, name, sentence, year, ...).",
     "static.{value}": "Fixed literal value for every row (numeric → float, else string).",
-    "segment.count":  "Engine fills with the segment's row count.",
-    "pool.{attr}":    "Per-entity value pool drawn from the segment's `attributes[attr]` list.",
-    "timestamp":      "Datetime sampled within each row's period.",
-    "flag":           "Boolean derived from a threshold-trigger event firing.",
-    "bucket":         "Categorical label derived from trajectory (requires `labels`).",
-    "scd":            "Slowly-changing dim band (requires `tracks`, `tiers`, `at`).",
-    "date":           "`date` dtype on `dim_date` columns only.",
-    "int":            "`int` dtype on `dim_date` columns only.",
-    "string":         "`string` dtype on `dim_date` columns only.",
-    "float":          "`float` dtype on `dim_date` columns only.",
+    "segment.count": "Engine fills with the segment's row count.",
+    "pool.{attr}": "Per-entity value pool drawn from the segment's `attributes[attr]` list.",
+    "timestamp": "Datetime sampled within each row's period.",
+    "flag": "Boolean derived from a threshold-trigger event firing.",
+    "bucket": "Categorical label derived from trajectory (requires `labels`).",
+    "scd": "Slowly-changing dim band (requires `tracks`, `tiers`, `at`).",
+    "date": "`date` dtype on `dim_date` columns only.",
+    "int": "`int` dtype on `dim_date` columns only.",
+    "string": "`string` dtype on `dim_date` columns only.",
+    "float": "`float` dtype on `dim_date` columns only.",
 }
 
 

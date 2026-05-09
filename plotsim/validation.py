@@ -95,6 +95,7 @@ _SAMPLE_LIMIT = 5
 @dataclass(frozen=True)
 class ValidationIssue:
     """One problem surfaced by a check. Immutable."""
+
     check: str
     severity: str  # "error" or "warning"
     table: Optional[str]
@@ -105,6 +106,7 @@ class ValidationIssue:
 @dataclass(frozen=True)
 class ValidationReport:
     """Immutable bundle of issues with accessors for common slices."""
+
     issues: tuple[ValidationIssue, ...]
 
     @property
@@ -150,7 +152,8 @@ def _per_entity_dim_names(config: PlotsimConfig) -> set[str]:
 
 
 def _find_fact_for_metric(
-    metric: str, config: PlotsimConfig,
+    metric: str,
+    config: PlotsimConfig,
 ) -> Optional[tuple[str, str]]:
     for tbl in config.tables:
         if tbl.type != "fact":
@@ -231,10 +234,7 @@ def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
         )
 
     if config.quality.quality_issues:
-        errors.append(
-            "entity_features cannot be combined with quality_issues in this "
-            "version"
-        )
+        errors.append("entity_features cannot be combined with quality_issues in this " "version")
 
     if cfg.metrics:
         metric_names = {m.name for m in config.metrics}
@@ -244,10 +244,7 @@ def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
                 continue
             for col in tbl.columns:
                 parsed = parse_source(col.source)
-                if (
-                    isinstance(parsed, MetricSource)
-                    and col.dtype in ("int", "float")
-                ):
+                if isinstance(parsed, MetricSource) and col.dtype in ("int", "float"):
                     numeric_fact_metrics.add(parsed.metric)
         for name in cfg.metrics:
             if name not in metric_names:
@@ -339,10 +336,7 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
                 continue
             for col in tbl.columns:
                 parsed = parse_source(col.source)
-                if (
-                    isinstance(parsed, MetricSource)
-                    and col.dtype in ("int", "float")
-                ):
+                if isinstance(parsed, MetricSource) and col.dtype in ("int", "float"):
                     numeric_fact_metrics.add(parsed.metric)
         if cfg.target_metric not in metric_names:
             errors.append(
@@ -359,9 +353,7 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
             )
 
     if config.quality.quality_issues:
-        errors.append(
-            "holdout cannot be combined with quality_issues in this version"
-        )
+        errors.append("holdout cannot be combined with quality_issues in this version")
 
     return errors
 
@@ -396,8 +388,7 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
     errors: list[str] = []
     entity_names = {e.name for e in config.entities}
     per_entity_dim_names = {
-        t.name for t in config.tables
-        if t.type == "dim" and t.grain == "per_entity"
+        t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"
     }
 
     for tbl in config.tables:
@@ -481,20 +472,25 @@ def project_correlation_or_issue(
         projected, projection_used, _used_fallback = project_correlation_matrix(mat)
     except RuntimeError as exc:
         eigvals = np.linalg.eigvalsh((mat + mat.T) / 2.0).tolist()
-        return [ValidationIssue(
-            check=CHECK_CORRELATION_PSD,
-            severity="error",
-            table=None,
-            message=(
-                "correlation matrix could not be projected to "
-                f"positive-definite: {exc}"
-            ),
-            details={
-                "metrics": [m.name for m in metrics],
-                "min_eigenvalue": min(eigvals),
-                "eigenvalues": eigvals,
-            },
-        )], None, None
+        return (
+            [
+                ValidationIssue(
+                    check=CHECK_CORRELATION_PSD,
+                    severity="error",
+                    table=None,
+                    message=(
+                        "correlation matrix could not be projected to " f"positive-definite: {exc}"
+                    ),
+                    details={
+                        "metrics": [m.name for m in metrics],
+                        "min_eigenvalue": min(eigvals),
+                        "eigenvalues": eigvals,
+                    },
+                )
+            ],
+            None,
+            None,
+        )
 
     if not projection_used:
         return [], None, None
@@ -529,7 +525,8 @@ def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
 
 
 def validate_pk_uniqueness(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Flag duplicate PK values (single-column and composite).
 
@@ -549,82 +546,91 @@ def validate_pk_uniqueness(
         pk_cols = tbl.primary_key_cols
         if _is_scd_dim(tbl):
             if "dim_row_id" not in df.columns:
-                issues.append(ValidationIssue(
-                    check=CHECK_PK_UNIQUENESS,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"SCD dim {tbl.name!r} is missing the surrogate "
-                        f"'dim_row_id' column expected after SCD expansion"
-                    ),
-                    details={"pk_columns": pk_cols, "actual_columns": list(df.columns)},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_PK_UNIQUENESS,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"SCD dim {tbl.name!r} is missing the surrogate "
+                            f"'dim_row_id' column expected after SCD expansion"
+                        ),
+                        details={"pk_columns": pk_cols, "actual_columns": list(df.columns)},
+                    )
+                )
                 continue
             dup_mask = df["dim_row_id"].duplicated(keep=False)
             if dup_mask.any():
                 dup_values = df.loc[dup_mask, "dim_row_id"].unique().tolist()
-                issues.append(ValidationIssue(
-                    check=CHECK_PK_UNIQUENESS,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"SCD surrogate 'dim_row_id' has {len(dup_values)} "
-                        f"duplicate value(s) on SCD dim {tbl.name!r}"
-                    ),
-                    details={
-                        "pk_columns": ["dim_row_id"],
-                        "duplicates_sample": _sample_sorted(dup_values),
-                        "duplicate_count": int(dup_mask.sum()),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_PK_UNIQUENESS,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"SCD surrogate 'dim_row_id' has {len(dup_values)} "
+                            f"duplicate value(s) on SCD dim {tbl.name!r}"
+                        ),
+                        details={
+                            "pk_columns": ["dim_row_id"],
+                            "duplicates_sample": _sample_sorted(dup_values),
+                            "duplicate_count": int(dup_mask.sum()),
+                        },
+                    )
+                )
             continue
         missing = [c for c in pk_cols if c not in df.columns]
         if missing:
-            issues.append(ValidationIssue(
-                check=CHECK_PK_UNIQUENESS,
-                severity="error",
-                table=tbl.name,
-                message=f"PK columns {missing} not in generated DataFrame",
-                details={"pk_columns": pk_cols, "actual_columns": list(df.columns)},
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_PK_UNIQUENESS,
+                    severity="error",
+                    table=tbl.name,
+                    message=f"PK columns {missing} not in generated DataFrame",
+                    details={"pk_columns": pk_cols, "actual_columns": list(df.columns)},
+                )
+            )
             continue
         if len(pk_cols) == 1:
             col = pk_cols[0]
             dup_mask = df[col].duplicated(keep=False)
             if dup_mask.any():
                 dup_values = df.loc[dup_mask, col].unique().tolist()
-                issues.append(ValidationIssue(
-                    check=CHECK_PK_UNIQUENESS,
-                    severity="error",
-                    table=tbl.name,
-                    message=f"PK column {col!r} has {len(dup_values)} duplicate value(s)",
-                    details={
-                        "pk_columns": pk_cols,
-                        "duplicates_sample": _sample_sorted(dup_values),
-                        "duplicate_count": int(dup_mask.sum()),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_PK_UNIQUENESS,
+                        severity="error",
+                        table=tbl.name,
+                        message=f"PK column {col!r} has {len(dup_values)} duplicate value(s)",
+                        details={
+                            "pk_columns": pk_cols,
+                            "duplicates_sample": _sample_sorted(dup_values),
+                            "duplicate_count": int(dup_mask.sum()),
+                        },
+                    )
+                )
         else:
             dup_mask = df.duplicated(subset=pk_cols, keep=False)
             if dup_mask.any():
                 dup_tuples = [
-                    tuple(row) for row in
-                    df.loc[dup_mask, pk_cols].drop_duplicates().values.tolist()
+                    tuple(row)
+                    for row in df.loc[dup_mask, pk_cols].drop_duplicates().values.tolist()
                 ]
-                issues.append(ValidationIssue(
-                    check=CHECK_PK_UNIQUENESS,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"composite PK {pk_cols} has {len(dup_tuples)} "
-                        f"duplicate tuple(s)"
-                    ),
-                    details={
-                        "pk_columns": pk_cols,
-                        "duplicates_sample": _sample_sorted(dup_tuples),
-                        "duplicate_count": int(dup_mask.sum()),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_PK_UNIQUENESS,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"composite PK {pk_cols} has {len(dup_tuples)} " f"duplicate tuple(s)"
+                        ),
+                        details={
+                            "pk_columns": pk_cols,
+                            "duplicates_sample": _sample_sorted(dup_tuples),
+                            "duplicate_count": int(dup_mask.sum()),
+                        },
+                    )
+                )
     return issues
 
 
@@ -632,7 +638,8 @@ def validate_pk_uniqueness(
 
 
 def validate_fk_integrity(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Every non-null FK value must resolve to a PK in its parent table.
 
@@ -649,56 +656,64 @@ def validate_fk_integrity(
             if not isinstance(parsed, FKSource):
                 continue
             if col.name not in df.columns:
-                issues.append(ValidationIssue(
-                    check=CHECK_FK_INTEGRITY,
-                    severity="error",
-                    table=tbl.name,
-                    message=f"FK column {col.name!r} missing from generated DataFrame",
-                    details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_FK_INTEGRITY,
+                        severity="error",
+                        table=tbl.name,
+                        message=f"FK column {col.name!r} missing from generated DataFrame",
+                        details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
+                    )
+                )
                 continue
             parent_df = tables.get(parsed.table)
             if parent_df is None:
-                issues.append(ValidationIssue(
-                    check=CHECK_FK_INTEGRITY,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"FK column {col.name!r} references parent table "
-                        f"{parsed.table!r} which was not generated"
-                    ),
-                    details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_FK_INTEGRITY,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"FK column {col.name!r} references parent table "
+                            f"{parsed.table!r} which was not generated"
+                        ),
+                        details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
+                    )
+                )
                 continue
             if parsed.column not in parent_df.columns:
-                issues.append(ValidationIssue(
-                    check=CHECK_FK_INTEGRITY,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"FK column {col.name!r} references column "
-                        f"{parsed.column!r} missing from parent {parsed.table!r}"
-                    ),
-                    details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_FK_INTEGRITY,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"FK column {col.name!r} references column "
+                            f"{parsed.column!r} missing from parent {parsed.table!r}"
+                        ),
+                        details={"column": col.name, "parent": f"{parsed.table}.{parsed.column}"},
+                    )
+                )
                 continue
             series = df[col.name]
             null_mask = ~_non_null_mask(series)
             if null_mask.any():
-                issues.append(ValidationIssue(
-                    check=CHECK_FK_INTEGRITY,
-                    severity="warning",
-                    table=tbl.name,
-                    message=(
-                        f"FK column {col.name!r} has {int(null_mask.sum())} "
-                        f"null value(s); builders should not emit null FKs"
-                    ),
-                    details={
-                        "column": col.name,
-                        "parent": f"{parsed.table}.{parsed.column}",
-                        "null_count": int(null_mask.sum()),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_FK_INTEGRITY,
+                        severity="warning",
+                        table=tbl.name,
+                        message=(
+                            f"FK column {col.name!r} has {int(null_mask.sum())} "
+                            f"null value(s); builders should not emit null FKs"
+                        ),
+                        details={
+                            "column": col.name,
+                            "parent": f"{parsed.table}.{parsed.column}",
+                            "null_count": int(null_mask.sum()),
+                        },
+                    )
+                )
             parent_keys = set(parent_df[parsed.column].tolist())
             child_values = series[~null_mask].tolist()
             orphans = sorted(
@@ -706,21 +721,23 @@ def validate_fk_integrity(
                 key=lambda x: str(x),
             )
             if orphans:
-                issues.append(ValidationIssue(
-                    check=CHECK_FK_INTEGRITY,
-                    severity="error",
-                    table=tbl.name,
-                    message=(
-                        f"FK column {col.name!r} has {len(orphans)} orphan "
-                        f"value(s) not present in {parsed.table}.{parsed.column}"
-                    ),
-                    details={
-                        "column": col.name,
-                        "parent": f"{parsed.table}.{parsed.column}",
-                        "orphans_sample": orphans[:_SAMPLE_LIMIT],
-                        "orphan_count": len(orphans),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_FK_INTEGRITY,
+                        severity="error",
+                        table=tbl.name,
+                        message=(
+                            f"FK column {col.name!r} has {len(orphans)} orphan "
+                            f"value(s) not present in {parsed.table}.{parsed.column}"
+                        ),
+                        details={
+                            "column": col.name,
+                            "parent": f"{parsed.table}.{parsed.column}",
+                            "orphans_sample": orphans[:_SAMPLE_LIMIT],
+                            "orphan_count": len(orphans),
+                        },
+                    )
+                )
     return issues
 
 
@@ -740,49 +757,58 @@ def _months_between(a: _dt.date, b: _dt.date) -> int:
 
 
 def validate_date_spine(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """dim_date is strictly monotonic, gap-free, and covers every fact's date_key."""
     issues: list[ValidationIssue] = []
     dim_date = tables.get("dim_date")
     if dim_date is None or dim_date.empty:
-        issues.append(ValidationIssue(
-            check=CHECK_DATE_SPINE,
-            severity="error",
-            table="dim_date",
-            message="dim_date is missing or empty",
-        ))
+        issues.append(
+            ValidationIssue(
+                check=CHECK_DATE_SPINE,
+                severity="error",
+                table="dim_date",
+                message="dim_date is missing or empty",
+            )
+        )
         return issues
 
     for col_name in ("date_key", "date"):
         if col_name not in dim_date.columns:
-            issues.append(ValidationIssue(
-                check=CHECK_DATE_SPINE,
-                severity="error",
-                table="dim_date",
-                message=f"dim_date missing required column {col_name!r}",
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_DATE_SPINE,
+                    severity="error",
+                    table="dim_date",
+                    message=f"dim_date missing required column {col_name!r}",
+                )
+            )
             return issues
 
     date_keys = dim_date["date_key"].tolist()
     if len(set(date_keys)) != len(date_keys):
-        issues.append(ValidationIssue(
-            check=CHECK_DATE_SPINE,
-            severity="error",
-            table="dim_date",
-            message="dim_date has duplicate date_key values",
-            details={"row_count": len(date_keys), "unique": len(set(date_keys))},
-        ))
-
-    for prev, curr in zip(date_keys, date_keys[1:]):
-        if curr <= prev:
-            issues.append(ValidationIssue(
+        issues.append(
+            ValidationIssue(
                 check=CHECK_DATE_SPINE,
                 severity="error",
                 table="dim_date",
-                message="dim_date.date_key is not strictly increasing",
-                details={"prev": prev, "curr": curr},
-            ))
+                message="dim_date has duplicate date_key values",
+                details={"row_count": len(date_keys), "unique": len(set(date_keys))},
+            )
+        )
+
+    for prev, curr in zip(date_keys, date_keys[1:]):
+        if curr <= prev:
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_DATE_SPINE,
+                    severity="error",
+                    table="dim_date",
+                    message="dim_date.date_key is not strictly increasing",
+                    details={"prev": prev, "curr": curr},
+                )
+            )
             break
 
     dates = list(dim_date["date"])
@@ -794,27 +820,31 @@ def validate_date_spine(
         if granularity == "monthly":
             gap = _months_between(prev, curr)
             if gap != 1:
-                issues.append(ValidationIssue(
-                    check=CHECK_DATE_SPINE,
-                    severity="error",
-                    table="dim_date",
-                    message=f"dim_date has a {gap}-month gap at {prev} → {curr}",
-                    details={"prev": str(prev), "curr": str(curr), "expected_months": 1},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_DATE_SPINE,
+                        severity="error",
+                        table="dim_date",
+                        message=f"dim_date has a {gap}-month gap at {prev} → {curr}",
+                        details={"prev": str(prev), "curr": str(curr), "expected_months": 1},
+                    )
+                )
                 break
         elif delta is not None:
             actual = curr - prev
             if actual != delta:
-                issues.append(ValidationIssue(
-                    check=CHECK_DATE_SPINE,
-                    severity="error",
-                    table="dim_date",
-                    message=(
-                        f"dim_date has an unexpected gap at {prev} → {curr} "
-                        f"(got {actual}, expected {delta})"
-                    ),
-                    details={"prev": str(prev), "curr": str(curr)},
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_DATE_SPINE,
+                        severity="error",
+                        table="dim_date",
+                        message=(
+                            f"dim_date has an unexpected gap at {prev} → {curr} "
+                            f"(got {actual}, expected {delta})"
+                        ),
+                        details={"prev": str(prev), "curr": str(curr)},
+                    )
+                )
                 break
 
     dim_date_set = set(date_keys)
@@ -832,20 +862,22 @@ def validate_date_spine(
             key=lambda x: str(x),
         )
         if missing:
-            issues.append(ValidationIssue(
-                check=CHECK_DATE_SPINE,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"fact table {tbl.name!r} has {len(missing)} date_key "
-                    f"value(s) not present in dim_date"
-                ),
-                details={
-                    "column": date_col,
-                    "missing_sample": missing[:_SAMPLE_LIMIT],
-                    "missing_count": len(missing),
-                },
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_DATE_SPINE,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"fact table {tbl.name!r} has {len(missing)} date_key "
+                        f"value(s) not present in dim_date"
+                    ),
+                    details={
+                        "column": date_col,
+                        "missing_sample": missing[:_SAMPLE_LIMIT],
+                        "missing_count": len(missing),
+                    },
+                )
+            )
 
     return issues
 
@@ -864,7 +896,9 @@ def _pearson(a: np.ndarray, b: np.ndarray) -> Optional[float]:
 
 
 def _lag_alignment_better_for_entity(
-    metric_series: np.ndarray, driver_series: np.ndarray, lag: int,
+    metric_series: np.ndarray,
+    driver_series: np.ndarray,
+    lag: int,
 ) -> Optional[bool]:
     """True if the lag-shifted correlation is strong relative to the
     unshifted one.
@@ -912,7 +946,8 @@ def _lag_alignment_better_for_entity(
 
 
 def validate_causal_coherence(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Two coherence checks:
 
@@ -962,7 +997,9 @@ def validate_causal_coherence(
             driver_arr = _numeric_series(dr_slice[dr_col])
             n = min(len(metric_arr), len(driver_arr))
             result = _lag_alignment_better_for_entity(
-                metric_arr[:n], driver_arr[:n], lag,
+                metric_arr[:n],
+                driver_arr[:n],
+                lag,
             )
             if result is None:
                 continue
@@ -973,24 +1010,26 @@ def validate_causal_coherence(
             continue
         ratio = better / total
         if ratio < 0.5:
-            issues.append(ValidationIssue(
-                check=CHECK_CAUSAL_COHERENCE,
-                severity="error",
-                table=mt_name,
-                message=(
-                    f"metric {m.name!r} (causal_lag driver={m.causal_lag.driver!r}, "
-                    f"lag={lag}) aligns with its lagged driver in {better}/{total} "
-                    f"entities (ratio={ratio:.2f}); expected a majority"
-                ),
-                details={
-                    "metric": m.name,
-                    "driver": m.causal_lag.driver,
-                    "lag_periods": lag,
-                    "entities_total": total,
-                    "entities_better": better,
-                    "ratio": ratio,
-                },
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_CAUSAL_COHERENCE,
+                    severity="error",
+                    table=mt_name,
+                    message=(
+                        f"metric {m.name!r} (causal_lag driver={m.causal_lag.driver!r}, "
+                        f"lag={lag}) aligns with its lagged driver in {better}/{total} "
+                        f"entities (ratio={ratio:.2f}); expected a majority"
+                    ),
+                    details={
+                        "metric": m.name,
+                        "driver": m.causal_lag.driver,
+                        "lag_periods": lag,
+                        "entities_total": total,
+                        "entities_better": better,
+                        "ratio": ratio,
+                    },
+                )
+            )
 
     # --- 2. threshold-event coherence ---
     for tbl in config.tables:
@@ -1029,7 +1068,9 @@ def validate_causal_coherence(
         for _, evt_row in df.iterrows():
             eid = evt_row[evt_entity_col]
             dkey = evt_row[evt_date_col]
-            mt_slice = mt_df[mt_df[mt_entity_col] == eid].sort_values(mt_date_col).reset_index(drop=True)
+            mt_slice = (
+                mt_df[mt_df[mt_entity_col] == eid].sort_values(mt_date_col).reset_index(drop=True)
+            )
             match_idx = mt_slice.index[mt_slice[mt_date_col] == dkey]
             if len(match_idx) == 0:
                 bad_events.append((eid, dkey))
@@ -1051,27 +1092,29 @@ def validate_causal_coherence(
                 bad_events.append((eid, dkey))
 
         if bad_events:
-            issues.append(ValidationIssue(
-                check=CHECK_CAUSAL_COHERENCE,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"threshold event column {threshold_col_name!r} fired for "
-                    f"{len(bad_events)} (entity, period) pair(s) where the "
-                    f"fact-table window did not satisfy "
-                    f"{threshold_col_cfg.direction} {threshold_col_cfg.value} "
-                    f"for {threshold_col_cfg.consecutive} consecutive periods"
-                ),
-                details={
-                    "column": threshold_col_name,
-                    "metric": threshold_col_cfg.metric,
-                    "direction": threshold_col_cfg.direction,
-                    "value": threshold_col_cfg.value,
-                    "consecutive": threshold_col_cfg.consecutive,
-                    "bad_events_sample": _sample_sorted(bad_events),
-                    "bad_event_count": len(bad_events),
-                },
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_CAUSAL_COHERENCE,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"threshold event column {threshold_col_name!r} fired for "
+                        f"{len(bad_events)} (entity, period) pair(s) where the "
+                        f"fact-table window did not satisfy "
+                        f"{threshold_col_cfg.direction} {threshold_col_cfg.value} "
+                        f"for {threshold_col_cfg.consecutive} consecutive periods"
+                    ),
+                    details={
+                        "column": threshold_col_name,
+                        "metric": threshold_col_cfg.metric,
+                        "direction": threshold_col_cfg.direction,
+                        "value": threshold_col_cfg.value,
+                        "consecutive": threshold_col_cfg.consecutive,
+                        "bad_events_sample": _sample_sorted(bad_events),
+                        "bad_event_count": len(bad_events),
+                    },
+                )
+            )
 
     return issues
 
@@ -1089,7 +1132,8 @@ def _null_upper_bound(n: int, p: float) -> int:
 
 
 def validate_null_policy(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Metric columns in fact tables: within mcar_rate's 3σ upper bound.
     Non-metric columns (FK/PK/generated/static/derived/lag) on dim and fact
@@ -1113,44 +1157,55 @@ def validate_null_policy(
             if isinstance(parsed, MetricSource) and tbl.type == "fact":
                 upper = _null_upper_bound(len(series), mcar)
                 if null_count > upper:
-                    issues.append(ValidationIssue(
-                        check=CHECK_NULL_POLICY,
-                        severity="error",
-                        table=tbl.name,
-                        message=(
-                            f"metric column {col.name!r} has {null_count} null(s); "
-                            f"upper bound at mcar_rate={mcar} is {upper}"
-                        ),
-                        details={
-                            "column": col.name,
-                            "null_count": null_count,
-                            "mcar_rate": mcar,
-                            "upper_bound": upper,
-                            "row_count": len(series),
-                        },
-                    ))
+                    issues.append(
+                        ValidationIssue(
+                            check=CHECK_NULL_POLICY,
+                            severity="error",
+                            table=tbl.name,
+                            message=(
+                                f"metric column {col.name!r} has {null_count} null(s); "
+                                f"upper bound at mcar_rate={mcar} is {upper}"
+                            ),
+                            details={
+                                "column": col.name,
+                                "null_count": null_count,
+                                "mcar_rate": mcar,
+                                "upper_bound": upper,
+                                "row_count": len(series),
+                            },
+                        )
+                    )
                 continue
             if isinstance(
                 parsed,
-                (FKSource, PKSource, GeneratedSource, FakerSource,
-                 StaticSource, DerivedSource, LagSource),
+                (
+                    FKSource,
+                    PKSource,
+                    GeneratedSource,
+                    FakerSource,
+                    StaticSource,
+                    DerivedSource,
+                    LagSource,
+                ),
             ):
                 if null_count > 0:
-                    issues.append(ValidationIssue(
-                        check=CHECK_NULL_POLICY,
-                        severity="error",
-                        table=tbl.name,
-                        message=(
-                            f"non-metric column {col.name!r} (source "
-                            f"{col.source!r}) has {null_count} null(s); "
-                            f"expected zero"
-                        ),
-                        details={
-                            "column": col.name,
-                            "source": col.source,
-                            "null_count": null_count,
-                        },
-                    ))
+                    issues.append(
+                        ValidationIssue(
+                            check=CHECK_NULL_POLICY,
+                            severity="error",
+                            table=tbl.name,
+                            message=(
+                                f"non-metric column {col.name!r} (source "
+                                f"{col.source!r}) has {null_count} null(s); "
+                                f"expected zero"
+                            ),
+                            details={
+                                "column": col.name,
+                                "source": col.source,
+                                "null_count": null_count,
+                            },
+                        )
+                    )
     return issues
 
 
@@ -1158,7 +1213,8 @@ def validate_null_policy(
 
 
 def validate_empty_event_tables(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Warn when an event table emits zero rows because no driver is configured.
 
@@ -1182,24 +1238,25 @@ def validate_empty_event_tables(
             continue
         has_row_count_source = tbl.row_count_source is not None
         has_threshold_col = any(
-            isinstance(parse_source(c.source), ThresholdSource)
-            for c in tbl.columns
+            isinstance(parse_source(c.source), ThresholdSource) for c in tbl.columns
         )
         if has_row_count_source or has_threshold_col:
             # Driver configured; zero rows is a legitimate generative outcome.
             continue
-        issues.append(ValidationIssue(
-            check=CHECK_EMPTY_EVENT_TABLE,
-            severity="warning",
-            table=tbl.name,
-            message=(
-                f"event table {tbl.name!r} produced 0 rows because no driver "
-                f"is configured. Add a 'row_count_source: proportional:<metric>:"
-                f"scale:<x>' on the table or a 'threshold:<metric>:...' column "
-                f"to drive emission."
-            ),
-            details={"table": tbl.name, "row_count": 0},
-        ))
+        issues.append(
+            ValidationIssue(
+                check=CHECK_EMPTY_EVENT_TABLE,
+                severity="warning",
+                table=tbl.name,
+                message=(
+                    f"event table {tbl.name!r} produced 0 rows because no driver "
+                    f"is configured. Add a 'row_count_source: proportional:<metric>:"
+                    f"scale:<x>' on the table or a 'threshold:<metric>:...' column "
+                    f"to drive emission."
+                ),
+                details={"table": tbl.name, "row_count": 0},
+            )
+        )
     return issues
 
 
@@ -1216,6 +1273,7 @@ def _time_window_bounds(config: PlotsimConfig) -> tuple[_dt.date, _dt.date]:
     granularity-independent resolution.
     """
     import calendar
+
     start_year, start_month = (int(p) for p in config.time_window.start.split("-"))
     end_year, end_month = (int(p) for p in config.time_window.end.split("-"))
     lower = _dt.date(start_year, start_month, 1)
@@ -1242,7 +1300,8 @@ def _as_date_value(value: Any) -> Optional[_dt.date]:
 
 
 def validate_temporal_coherence(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Warn when a dim column with ``dtype: date`` holds values outside ``time_window``.
 
@@ -1279,31 +1338,32 @@ def validate_temporal_coherence(
                 if d < lower or d > upper:
                     out_of_range.append(d)
             if out_of_range:
-                issues.append(ValidationIssue(
-                    check=CHECK_TEMPORAL_COHERENCE,
-                    severity="warning",
-                    table=tbl.name,
-                    message=(
-                        f"column {col.name!r} has {len(out_of_range)} date "
-                        f"value(s) outside time_window "
-                        f"[{lower.isoformat()}, {upper.isoformat()}]. "
-                        f"Parameterize the source (e.g. "
-                        f"'generated:faker.date_between:start_date:"
-                        f"{lower.isoformat()}:end_date:{upper.isoformat()}'), "
-                        f"or set 'allow_outside_window: true' on the column "
-                        f"if out-of-window dates are intentional."
-                    ),
-                    details={
-                        "column": col.name,
-                        "lower": lower.isoformat(),
-                        "upper": upper.isoformat(),
-                        "out_of_range_count": len(out_of_range),
-                        "out_of_range_sample": [
-                            d.isoformat() for d in
-                            _sample_sorted(out_of_range)
-                        ],
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_TEMPORAL_COHERENCE,
+                        severity="warning",
+                        table=tbl.name,
+                        message=(
+                            f"column {col.name!r} has {len(out_of_range)} date "
+                            f"value(s) outside time_window "
+                            f"[{lower.isoformat()}, {upper.isoformat()}]. "
+                            f"Parameterize the source (e.g. "
+                            f"'generated:faker.date_between:start_date:"
+                            f"{lower.isoformat()}:end_date:{upper.isoformat()}'), "
+                            f"or set 'allow_outside_window: true' on the column "
+                            f"if out-of-window dates are intentional."
+                        ),
+                        details={
+                            "column": col.name,
+                            "lower": lower.isoformat(),
+                            "upper": upper.isoformat(),
+                            "out_of_range_count": len(out_of_range),
+                            "out_of_range_sample": [
+                                d.isoformat() for d in _sample_sorted(out_of_range)
+                            ],
+                        },
+                    )
+                )
     return issues
 
 
@@ -1311,7 +1371,8 @@ def validate_temporal_coherence(
 
 
 def validate_cross_dim_fk_cardinality(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Warn when a multi-row parent dim's PK collapses to a single value
     in any child column.
@@ -1341,31 +1402,29 @@ def validate_cross_dim_fk_cardinality(
                 continue
             if col.name not in df.columns:
                 continue
-            child_unique = {
-                v for v in df[col.name].tolist() if not _is_nullish(v)
-            }
+            child_unique = {v for v in df[col.name].tolist() if not _is_nullish(v)}
             if len(child_unique) <= 1:
-                issues.append(ValidationIssue(
-                    check=CHECK_CROSS_DIM_FK_CARDINALITY,
-                    severity="warning",
-                    table=tbl.name,
-                    message=(
-                        f"FK column {col.name!r} carries {len(child_unique)} "
-                        f"unique value(s) despite parent {parsed.table!r} "
-                        f"having {len(parent_df)} rows. Add 'distribution: "
-                        f"uniform' or '{{weights: {{...}}}}' on the column, "
-                        f"or pin per cohort via Entity.cross_dim_fks."
-                    ),
-                    details={
-                        "column": col.name,
-                        "parent": f"{parsed.table}.{parsed.column}",
-                        "parent_row_count": int(len(parent_df)),
-                        "child_unique_count": len(child_unique),
-                        "child_unique_sample": _sample_sorted(
-                            list(child_unique)
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_CROSS_DIM_FK_CARDINALITY,
+                        severity="warning",
+                        table=tbl.name,
+                        message=(
+                            f"FK column {col.name!r} carries {len(child_unique)} "
+                            f"unique value(s) despite parent {parsed.table!r} "
+                            f"having {len(parent_df)} rows. Add 'distribution: "
+                            f"uniform' or '{{weights: {{...}}}}' on the column, "
+                            f"or pin per cohort via Entity.cross_dim_fks."
                         ),
-                    },
-                ))
+                        details={
+                            "column": col.name,
+                            "parent": f"{parsed.table}.{parsed.column}",
+                            "parent_row_count": int(len(parent_df)),
+                            "child_unique_count": len(child_unique),
+                            "child_unique_sample": _sample_sorted(list(child_unique)),
+                        },
+                    )
+                )
     return issues
 
 
@@ -1373,7 +1432,8 @@ def validate_cross_dim_fk_cardinality(
 
 
 def validate_scd_integrity(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """Defensive integrity check for SCD Type 2 dim and fact wiring.
 
@@ -1407,49 +1467,52 @@ def validate_scd_integrity(
             continue
         missing = [c for c in expansion_cols if c not in df.columns]
         if missing:
-            issues.append(ValidationIssue(
-                check=CHECK_SCD_INTEGRITY,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"SCD dim {tbl.name!r} is missing expansion column(s) "
-                    f"{missing}"
-                ),
-                details={"missing_columns": missing},
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_SCD_INTEGRITY,
+                    severity="error",
+                    table=tbl.name,
+                    message=(f"SCD dim {tbl.name!r} is missing expansion column(s) " f"{missing}"),
+                    details={"missing_columns": missing},
+                )
+            )
             continue
         scd_dims_present[tbl.name] = set(df["dim_row_id"].tolist())
 
         n_current = int(df["is_current"].astype(bool).sum())
         n_entities = len(config.entities)
         if n_current != n_entities:
-            issues.append(ValidationIssue(
-                check=CHECK_SCD_INTEGRITY,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"SCD dim {tbl.name!r} has {n_current} 'is_current=True' "
-                    f"row(s) but config has {n_entities} entities; each "
-                    f"entity should hold exactly one current version"
-                ),
-                details={
-                    "is_current_count": n_current,
-                    "entity_count": n_entities,
-                },
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_SCD_INTEGRITY,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"SCD dim {tbl.name!r} has {n_current} 'is_current=True' "
+                        f"row(s) but config has {n_entities} entities; each "
+                        f"entity should hold exactly one current version"
+                    ),
+                    details={
+                        "is_current_count": n_current,
+                        "entity_count": n_entities,
+                    },
+                )
+            )
 
         bad_window = df[df["valid_from"] > df["valid_to"]]
         if not bad_window.empty:
-            issues.append(ValidationIssue(
-                check=CHECK_SCD_INTEGRITY,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"SCD dim {tbl.name!r} has {len(bad_window)} row(s) "
-                    f"where valid_from > valid_to"
-                ),
-                details={"bad_window_count": int(len(bad_window))},
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_SCD_INTEGRITY,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"SCD dim {tbl.name!r} has {len(bad_window)} row(s) "
+                        f"where valid_from > valid_to"
+                    ),
+                    details={"bad_window_count": int(len(bad_window))},
+                )
+            )
 
     if not scd_dims_present:
         return issues
@@ -1469,38 +1532,40 @@ def validate_scd_integrity(
         if scd_parent is None:
             continue
         if "dim_row_id" not in df.columns:
-            issues.append(ValidationIssue(
-                check=CHECK_SCD_INTEGRITY,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"{tbl.type} {tbl.name!r} FKs to SCD dim {scd_parent!r} "
-                    f"but is missing the 'dim_row_id' surrogate column"
-                ),
-                details={"scd_parent": scd_parent},
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_SCD_INTEGRITY,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"{tbl.type} {tbl.name!r} FKs to SCD dim {scd_parent!r} "
+                        f"but is missing the 'dim_row_id' surrogate column"
+                    ),
+                    details={"scd_parent": scd_parent},
+                )
+            )
             continue
         parent_ids = scd_dims_present[scd_parent]
-        child_vals = [
-            int(v) for v in df["dim_row_id"].tolist() if not _is_nullish(v)
-        ]
+        child_vals = [int(v) for v in df["dim_row_id"].tolist() if not _is_nullish(v)]
         orphans = sorted({v for v in child_vals if v not in parent_ids})
         if orphans:
-            issues.append(ValidationIssue(
-                check=CHECK_SCD_INTEGRITY,
-                severity="error",
-                table=tbl.name,
-                message=(
-                    f"{tbl.type} {tbl.name!r} 'dim_row_id' has "
-                    f"{len(orphans)} value(s) not present in SCD dim "
-                    f"{scd_parent!r}.dim_row_id"
-                ),
-                details={
-                    "scd_parent": scd_parent,
-                    "orphan_count": len(orphans),
-                    "orphans_sample": orphans[:_SAMPLE_LIMIT],
-                },
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_SCD_INTEGRITY,
+                    severity="error",
+                    table=tbl.name,
+                    message=(
+                        f"{tbl.type} {tbl.name!r} 'dim_row_id' has "
+                        f"{len(orphans)} value(s) not present in SCD dim "
+                        f"{scd_parent!r}.dim_row_id"
+                    ),
+                    details={
+                        "scd_parent": scd_parent,
+                        "orphan_count": len(orphans),
+                        "orphans_sample": orphans[:_SAMPLE_LIMIT],
+                    },
+                )
+            )
     return issues
 
 
@@ -1508,7 +1573,8 @@ def validate_scd_integrity(
 
 
 def validate_bridge_integrity(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> list[ValidationIssue]:
     """FK integrity + cardinality + composite-PK uniqueness for M:M bridges.
 
@@ -1532,25 +1598,24 @@ def validate_bridge_integrity(
 
     def _fk_col_name(dim_tbl: Table) -> str:
         if dim_tbl.name in scd_dim_names:
-            short = (
-                dim_tbl.name[4:]
-                if dim_tbl.name.startswith("dim_") else dim_tbl.name
-            )
+            short = dim_tbl.name[4:] if dim_tbl.name.startswith("dim_") else dim_tbl.name
             return f"{short}_dim_row_id"
         return dim_tbl.primary_key_cols[0]
 
     for bridge in config.bridges:
         df = tables.get(bridge.name)
         if df is None:
-            issues.append(ValidationIssue(
-                check=CHECK_BRIDGE_INTEGRITY,
-                severity="error",
-                table=bridge.name,
-                message=(
-                    f"bridge {bridge.name!r} declared but no DataFrame was "
-                    f"emitted by the engine"
-                ),
-            ))
+            issues.append(
+                ValidationIssue(
+                    check=CHECK_BRIDGE_INTEGRITY,
+                    severity="error",
+                    table=bridge.name,
+                    message=(
+                        f"bridge {bridge.name!r} declared but no DataFrame was "
+                        f"emitted by the engine"
+                    ),
+                )
+            )
             continue
         first_dim_name, second_dim_name = bridge.connects
         first_dim_tbl = next(t for t in config.tables if t.name == first_dim_name)
@@ -1560,15 +1625,14 @@ def validate_bridge_integrity(
 
         for col_name in (first_fk_col, second_fk_col):
             if col_name not in df.columns:
-                issues.append(ValidationIssue(
-                    check=CHECK_BRIDGE_INTEGRITY,
-                    severity="error",
-                    table=bridge.name,
-                    message=(
-                        f"bridge {bridge.name!r} is missing FK column "
-                        f"{col_name!r}"
-                    ),
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_BRIDGE_INTEGRITY,
+                        severity="error",
+                        table=bridge.name,
+                        message=(f"bridge {bridge.name!r} is missing FK column " f"{col_name!r}"),
+                    )
+                )
         if first_fk_col not in df.columns or second_fk_col not in df.columns:
             continue
 
@@ -1579,23 +1643,27 @@ def validate_bridge_integrity(
         ):
             parent_df = tables.get(dim_name)
             if parent_df is None:
-                issues.append(ValidationIssue(
-                    check=CHECK_BRIDGE_INTEGRITY,
-                    severity="error",
-                    table=bridge.name,
-                    message=(
-                        f"bridge {bridge.name!r} FK column {fk_col!r} "
-                        f"references parent dim {dim_name!r} which was not "
-                        f"generated"
-                    ),
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_BRIDGE_INTEGRITY,
+                        severity="error",
+                        table=bridge.name,
+                        message=(
+                            f"bridge {bridge.name!r} FK column {fk_col!r} "
+                            f"references parent dim {dim_name!r} which was not "
+                            f"generated"
+                        ),
+                    )
+                )
                 continue
             if dim_name in scd_dim_names:
                 if "dim_row_id" not in parent_df.columns:
                     continue
                 parent_keys = {
-                    int(v) for v in parent_df.loc[
-                        parent_df["is_current"].astype(bool), "dim_row_id",
+                    int(v)
+                    for v in parent_df.loc[
+                        parent_df["is_current"].astype(bool),
+                        "dim_row_id",
                     ].tolist()
                 }
             else:
@@ -1607,41 +1675,45 @@ def validate_bridge_integrity(
                 key=lambda x: str(x),
             )
             if orphans:
-                issues.append(ValidationIssue(
-                    check=CHECK_BRIDGE_INTEGRITY,
-                    severity="error",
-                    table=bridge.name,
-                    message=(
-                        f"bridge {bridge.name!r} FK column {fk_col!r} has "
-                        f"{len(orphans)} orphan value(s) not present in "
-                        f"parent dim {dim_name!r}"
-                    ),
-                    details={
-                        "column": fk_col,
-                        "parent": dim_name,
-                        "orphans_sample": orphans[:_SAMPLE_LIMIT],
-                        "orphan_count": len(orphans),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_BRIDGE_INTEGRITY,
+                        severity="error",
+                        table=bridge.name,
+                        message=(
+                            f"bridge {bridge.name!r} FK column {fk_col!r} has "
+                            f"{len(orphans)} orphan value(s) not present in "
+                            f"parent dim {dim_name!r}"
+                        ),
+                        details={
+                            "column": fk_col,
+                            "parent": dim_name,
+                            "orphans_sample": orphans[:_SAMPLE_LIMIT],
+                            "orphan_count": len(orphans),
+                        },
+                    )
+                )
 
         # Composite-PK uniqueness: each (first_fk, second_fk) tuple must be unique.
         if not df.empty:
             dup_mask = df.duplicated(subset=[first_fk_col, second_fk_col], keep=False)
             if dup_mask.any():
                 dup_count = int(dup_mask.sum())
-                issues.append(ValidationIssue(
-                    check=CHECK_BRIDGE_INTEGRITY,
-                    severity="error",
-                    table=bridge.name,
-                    message=(
-                        f"bridge {bridge.name!r} has {dup_count} duplicate "
-                        f"({first_fk_col}, {second_fk_col}) tuple(s); each "
-                        f"M:M association must be unique"
-                    ),
-                    details={
-                        "duplicate_count": dup_count,
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_BRIDGE_INTEGRITY,
+                        severity="error",
+                        table=bridge.name,
+                        message=(
+                            f"bridge {bridge.name!r} has {dup_count} duplicate "
+                            f"({first_fk_col}, {second_fk_col}) tuple(s); each "
+                            f"M:M association must be unique"
+                        ),
+                        details={
+                            "duplicate_count": dup_count,
+                        },
+                    )
+                )
 
             # Cardinality: per-entity association count within [min, max].
             counts = df.groupby(first_fk_col, sort=False).size()
@@ -1649,22 +1721,24 @@ def validate_bridge_integrity(
             max_n = bridge.cardinality.max
             offenders = counts[(counts < min_n) | (counts > max_n)]
             if not offenders.empty:
-                issues.append(ValidationIssue(
-                    check=CHECK_BRIDGE_INTEGRITY,
-                    severity="error",
-                    table=bridge.name,
-                    message=(
-                        f"bridge {bridge.name!r}: {len(offenders)} entity "
-                        f"group(s) have association counts outside "
-                        f"[{min_n}, {max_n}]"
-                    ),
-                    details={
-                        "offending_count": int(len(offenders)),
-                        "min_required": min_n,
-                        "max_required": max_n,
-                        "sample": offenders.head(_SAMPLE_LIMIT).to_dict(),
-                    },
-                ))
+                issues.append(
+                    ValidationIssue(
+                        check=CHECK_BRIDGE_INTEGRITY,
+                        severity="error",
+                        table=bridge.name,
+                        message=(
+                            f"bridge {bridge.name!r}: {len(offenders)} entity "
+                            f"group(s) have association counts outside "
+                            f"[{min_n}, {max_n}]"
+                        ),
+                        details={
+                            "offending_count": int(len(offenders)),
+                            "min_required": min_n,
+                            "max_required": max_n,
+                            "sample": offenders.head(_SAMPLE_LIMIT).to_dict(),
+                        },
+                    )
+                )
 
     return issues
 
@@ -1816,9 +1890,8 @@ def validate_table_schema(config: PlotsimConfig) -> list[str]:
             # ``bool("delighted")`` is always True for text-bucket
             # cells. ThresholdSource produces booleans by design and is
             # correctly typed ``dtype: boolean``.
-            if (
-                col.dtype == "boolean"
-                and isinstance(parsed, (MetricSource, LagSource, TextBucketSource))
+            if col.dtype == "boolean" and isinstance(
+                parsed, (MetricSource, LagSource, TextBucketSource)
             ):
                 if isinstance(parsed, MetricSource):
                     source_kind = "metric"
@@ -1853,9 +1926,7 @@ def validate_table_schema(config: PlotsimConfig) -> list[str]:
                 # ("static:2024-01-01,2024-02-01,2024-03-01") split on
                 # commas before validation, mirroring
                 # ``dimensions._split_static``.
-                raw_values = [
-                    part.strip() for part in parsed.value.split(",")
-                ]
+                raw_values = [part.strip() for part in parsed.value.split(",")]
                 for raw in raw_values:
                     try:
                         date.fromisoformat(raw)
@@ -1967,19 +2038,13 @@ def validate_correlations(config: PlotsimConfig) -> list[str]:
                 )
 
     # Detect cycles in the induced lag graph (A lags B lags A, or longer).
-    lag_graph = {
-        m.name: m.causal_lag.driver
-        for m in config.metrics if m.causal_lag is not None
-    }
+    lag_graph = {m.name: m.causal_lag.driver for m in config.metrics if m.causal_lag is not None}
     for start in lag_graph:
         seen = {start}
         curr = lag_graph[start]
         while curr in lag_graph:
             if curr in seen:
-                errors.append(
-                    f"circular causal_lag chain detected involving "
-                    f"metric {start!r}"
-                )
+                errors.append(f"circular causal_lag chain detected involving " f"metric {start!r}")
                 break
             seen.add(curr)
             curr = lag_graph[curr]
@@ -2026,9 +2091,7 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
 
     # SCD Type 2 cross-references.
     for tbl in config.tables:
-        scd_cols_on_table = [
-            col for col in tbl.columns if col.scd_type2 is not None
-        ]
+        scd_cols_on_table = [col for col in tbl.columns if col.scd_type2 is not None]
         if not scd_cols_on_table:
             continue
         if tbl.type != "dim":
@@ -2067,7 +2130,8 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
             )
             continue
         ref_table_cfg = next(
-            (t for t in config.tables if t.name == ref_table), None,
+            (t for t in config.tables if t.name == ref_table),
+            None,
         )
         if ref_table_cfg is None:
             errors.append(
@@ -2122,8 +2186,7 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
     for bridge in config.bridges:
         if bridge.name in bridge_names:
             errors.append(
-                f"duplicate bridge name {bridge.name!r}; each bridge "
-                f"must have a unique name"
+                f"duplicate bridge name {bridge.name!r}; each bridge " f"must have a unique name"
             )
             continue
         if bridge.name in table_names:
@@ -2159,9 +2222,7 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
                 connects_ok = False
         if not connects_ok:
             continue
-        first_dim_tbl = next(
-            t for t in config.tables if t.name == bridge.connects[0]
-        )
+        first_dim_tbl = next(t for t in config.tables if t.name == bridge.connects[0])
         if first_dim_tbl.grain != "per_entity":
             errors.append(
                 f"bridge {bridge.name!r} first connects entry "
@@ -2198,7 +2259,8 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
     # Quality injection cross-references.
     for issue_idx, issue in enumerate(config.quality.quality_issues):
         target_tbl = next(
-            (t for t in config.tables if t.name == issue.target_table), None,
+            (t for t in config.tables if t.name == issue.target_table),
+            None,
         )
         if target_tbl is None:
             if issue.target_table in bridge_names:
@@ -2262,7 +2324,8 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
 
 
 def validate_tables(
-    config: PlotsimConfig, tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    tables: dict[str, pd.DataFrame],
 ) -> ValidationReport:
     """Run every check and return an immutable report.
 

@@ -68,17 +68,20 @@ def test_parse_text_bucket_with_underscores_and_digits():
 # --- parse_source: rejection paths ------------------------------------------
 
 
-@pytest.mark.parametrize("bad", [
-    "text:bucket:",                       # empty
-    "text:bucket:low,mid,high",           # no brackets
-    "text:bucket:[low, mid, high",        # missing close
-    "text:bucket:low, mid, high]",        # missing open
-    "text:bucket:[]",                     # empty list
-    "text:bucket:[only]",                 # single label
-    "text:bucket:[a,,b]",                 # empty middle
-    "text:bucket:[a, b, a]",              # duplicate labels
-    "text:bucket:[ , a, b]",              # whitespace-only label
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "text:bucket:",  # empty
+        "text:bucket:low,mid,high",  # no brackets
+        "text:bucket:[low, mid, high",  # missing close
+        "text:bucket:low, mid, high]",  # missing open
+        "text:bucket:[]",  # empty list
+        "text:bucket:[only]",  # single label
+        "text:bucket:[a,,b]",  # empty middle
+        "text:bucket:[a, b, a]",  # duplicate labels
+        "text:bucket:[ , a, b]",  # whitespace-only label
+    ],
+)
 def test_parse_text_bucket_invalid_grammar_raises(bad):
     with pytest.raises(ValueError):
         parse_source(bad)
@@ -87,6 +90,7 @@ def test_parse_text_bucket_invalid_grammar_raises(bad):
 def test_text_bucket_source_min_length_enforced():
     """Pydantic min_length=2 raises on direct construction with one label."""
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         TextBucketSource(buckets=("only",))
 
@@ -99,6 +103,7 @@ def test_text_bucket_source_max_length_enforced():
     bucket assignment becomes random under any noise injection.
     """
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         TextBucketSource(buckets=tuple(f"b{i}" for i in range(21)))
 
@@ -106,6 +111,7 @@ def test_text_bucket_source_max_length_enforced():
 def test_text_bucket_source_extra_forbid():
     """extra='forbid' rejects unknown kwargs (M105 architectural rule)."""
     from pydantic import ValidationError
+
     with pytest.raises(ValidationError):
         TextBucketSource(buckets=("a", "b"), nonsense_field=True)
 
@@ -113,6 +119,7 @@ def test_text_bucket_source_extra_forbid():
 def test_text_bucket_source_frozen():
     """The model is frozen — no field reassignment after construction."""
     from pydantic import ValidationError
+
     src = TextBucketSource(buckets=("a", "b"))
     with pytest.raises(ValidationError):
         src.buckets = ("c", "d")
@@ -183,8 +190,7 @@ def test_saas_template_sentiment_values_are_configured_labels(saas_tables):
     expected = {"at_risk", "lukewarm", "satisfied", "delighted"}
     actual = set(df["customer_sentiment"].dropna().unique())
     assert actual.issubset(expected), (
-        f"sentiment column produced unexpected labels: "
-        f"{actual - expected}"
+        f"sentiment column produced unexpected labels: " f"{actual - expected}"
     )
 
 
@@ -199,8 +205,7 @@ def test_saas_template_sentiment_uses_all_buckets(saas_tables):
     df = saas_tables["fct_engagement"]
     seen = set(df["customer_sentiment"].dropna().unique())
     assert seen == {"at_risk", "lukewarm", "satisfied", "delighted"}, (
-        f"missing buckets: "
-        f"{ {'at_risk','lukewarm','satisfied','delighted'} - seen}"
+        f"missing buckets: " f"{ {'at_risk','lukewarm','satisfied','delighted'} - seen}"
     )
 
 
@@ -208,8 +213,10 @@ def test_saas_template_determinism(saas_cfg):
     """Same config + same seed → identical sentiment column across runs."""
     df1 = generate_tables(saas_cfg, np.random.default_rng(saas_cfg.seed))
     df2 = generate_tables(saas_cfg, np.random.default_rng(saas_cfg.seed))
-    assert df1["fct_engagement"]["customer_sentiment"].tolist() == \
-        df2["fct_engagement"]["customer_sentiment"].tolist()
+    assert (
+        df1["fct_engagement"]["customer_sentiment"].tolist()
+        == df2["fct_engagement"]["customer_sentiment"].tolist()
+    )
 
 
 # --- Banding semantics on a controlled trajectory ---------------------------
@@ -241,17 +248,20 @@ def test_band_assignment_position_one_lands_in_last_bucket():
     assert idx == n_buckets - 1
 
 
-@pytest.mark.parametrize("position,expected_idx", [
-    (0.0, 0),
-    (0.24999, 0),
-    (0.25, 1),
-    (0.49999, 1),
-    (0.5, 2),
-    (0.74999, 2),
-    (0.75, 3),
-    (0.99999, 3),
-    (1.0, 3),
-])
+@pytest.mark.parametrize(
+    "position,expected_idx",
+    [
+        (0.0, 0),
+        (0.24999, 0),
+        (0.25, 1),
+        (0.49999, 1),
+        (0.5, 2),
+        (0.74999, 2),
+        (0.75, 3),
+        (0.99999, 3),
+        (1.0, 3),
+    ],
+)
 def test_band_assignment_at_edges(position, expected_idx):
     """Each [k/N, (k+1)/N) band maps to bucket k; the top edge closes."""
     n_buckets = 4
@@ -270,7 +280,10 @@ def test_band_monotonicity_on_saas_per_entity(saas_cfg, saas_tables):
     """
     df = saas_tables["fct_engagement"]
     bucket_to_idx = {
-        "at_risk": 0, "lukewarm": 1, "satisfied": 2, "delighted": 3,
+        "at_risk": 0,
+        "lukewarm": 1,
+        "satisfied": 2,
+        "delighted": 3,
     }
     df = df.assign(
         sentiment_idx=df["customer_sentiment"].map(bucket_to_idx),
@@ -284,6 +297,7 @@ def test_band_monotonicity_on_saas_per_entity(saas_cfg, saas_tables):
     # rank-based to dodge calibration / scale differences between the
     # continuous engagement metric and the discretized sentiment ordinal.
     from scipy.stats import spearmanr
+
     rho, _p = spearmanr(per_entity["mean_engagement"], per_entity["mean_sentiment"])
     assert rho > 0.5, (
         f"per-entity sentiment ordinal does not track engagement (ρ={rho:.3f}); "
@@ -307,11 +321,13 @@ def test_text_bucket_source_works_in_scalar_path(tmp_path):
     base = yaml.safe_load(SAAS_YAML.read_text(encoding="utf-8"))
     for tbl in base["tables"]:
         if tbl["name"] == "fct_engagement":
-            tbl["columns"].append({
-                "name": "row_note",
-                "dtype": "string",
-                "source": "generated:faker.sentence",
-            })
+            tbl["columns"].append(
+                {
+                    "name": "row_note",
+                    "dtype": "string",
+                    "source": "generated:faker.sentence",
+                }
+            )
             break
     out = tmp_path / "saas_scalar.yaml"
     out.write_text(yaml.safe_dump(base, sort_keys=False), encoding="utf-8")
@@ -344,18 +360,22 @@ def test_vectorized_and_scalar_paths_agree_on_band_assignment(tmp_path):
         cfg_vec = load_config(SAAS_YAML)
     rng_vec = np.random.default_rng(cfg_vec.seed)
     tables_vec = generate_tables(cfg_vec, rng_vec)
-    sentiment_vec = tables_vec["fct_engagement"][
-        ["company_id", "date_key", "customer_sentiment"]
-    ].sort_values(["company_id", "date_key"]).reset_index(drop=True)
+    sentiment_vec = (
+        tables_vec["fct_engagement"][["company_id", "date_key", "customer_sentiment"]]
+        .sort_values(["company_id", "date_key"])
+        .reset_index(drop=True)
+    )
 
     base = yaml.safe_load(SAAS_YAML.read_text(encoding="utf-8"))
     for tbl in base["tables"]:
         if tbl["name"] == "fct_engagement":
-            tbl["columns"].append({
-                "name": "row_note",
-                "dtype": "string",
-                "source": "generated:faker.sentence",
-            })
+            tbl["columns"].append(
+                {
+                    "name": "row_note",
+                    "dtype": "string",
+                    "source": "generated:faker.sentence",
+                }
+            )
             break
     forced_path = tmp_path / "saas_force_scalar.yaml"
     forced_path.write_text(yaml.safe_dump(base, sort_keys=False), encoding="utf-8")
@@ -364,13 +384,17 @@ def test_vectorized_and_scalar_paths_agree_on_band_assignment(tmp_path):
         cfg_scalar = load_config(forced_path)
     rng_scalar = np.random.default_rng(cfg_scalar.seed)
     tables_scalar = generate_tables(cfg_scalar, rng_scalar)
-    sentiment_scalar = tables_scalar["fct_engagement"][
-        ["company_id", "date_key", "customer_sentiment"]
-    ].sort_values(["company_id", "date_key"]).reset_index(drop=True)
+    sentiment_scalar = (
+        tables_scalar["fct_engagement"][["company_id", "date_key", "customer_sentiment"]]
+        .sort_values(["company_id", "date_key"])
+        .reset_index(drop=True)
+    )
 
     # Identical sentiment column on identical (entity, period) keys.
-    assert sentiment_vec["customer_sentiment"].tolist() == \
-        sentiment_scalar["customer_sentiment"].tolist(), (
-            "vectorized path and scalar path disagree on text-bucket "
-            "assignment — the band arithmetic has drifted between them"
-        )
+    assert (
+        sentiment_vec["customer_sentiment"].tolist()
+        == sentiment_scalar["customer_sentiment"].tolist()
+    ), (
+        "vectorized path and scalar path disagree on text-bucket "
+        "assignment — the band arithmetic has drifted between them"
+    )

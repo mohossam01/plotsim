@@ -21,6 +21,7 @@ land on lag_periods).
 See ``project/missions/plotsim-mission-output-fidelity-tests.md`` for
 the scope, tolerances, and isolation strategy that govern each category.
 """
+
 from __future__ import annotations
 
 import copy
@@ -93,9 +94,13 @@ def _single_metric_plateau_cfg(
     ]
     for m in all_metrics:
         dtype = "int" if m["distribution"] == "poisson" else "float"
-        fact_cols.append({
-            "name": m["name"], "dtype": dtype, "source": f"metric:{m['name']}",
-        })
+        fact_cols.append(
+            {
+                "name": m["name"],
+                "dtype": dtype,
+                "source": f"metric:{m['name']}",
+            }
+        )
 
     cfg: dict[str, Any] = {
         "domain": {
@@ -105,7 +110,9 @@ def _single_metric_plateau_cfg(
             "entity_label": "Test units",
         },
         "time_window": {
-            "start": "2022-01", "end": "2024-12", "granularity": "monthly",
+            "start": "2022-01",
+            "end": "2024-12",
+            "granularity": "monthly",
         },
         "seed": seed,
         "metrics": all_metrics,
@@ -120,7 +127,9 @@ def _single_metric_plateau_cfg(
         ],
         "tables": [
             {
-                "name": "dim_date", "type": "dim", "grain": "per_period",
+                "name": "dim_date",
+                "type": "dim",
+                "grain": "per_period",
                 "columns": [
                     {"name": "date_key", "dtype": "id", "source": "pk"},
                     {"name": "date", "dtype": "date", "source": "generated:date_key"},
@@ -130,7 +139,9 @@ def _single_metric_plateau_cfg(
                 "primary_key": "date_key",
             },
             {
-                "name": "dim_entity", "type": "dim", "grain": "per_entity",
+                "name": "dim_entity",
+                "type": "dim",
+                "grain": "per_entity",
                 "columns": [
                     {"name": "entity_id", "dtype": "id", "source": "pk"},
                     {"name": "group_size", "dtype": "int", "source": "derived:size"},
@@ -138,15 +149,19 @@ def _single_metric_plateau_cfg(
                 "primary_key": "entity_id",
             },
             {
-                "name": "fct_metric", "type": "fact",
+                "name": "fct_metric",
+                "type": "fact",
                 "grain": "per_entity_per_period",
                 "columns": fact_cols,
                 "primary_key": ["date_key", "entity_id"],
                 "foreign_keys": ["dim_date.date_key", "dim_entity.entity_id"],
             },
         ],
-        "noise": noise or {
-            "gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0,
+        "noise": noise
+        or {
+            "gaussian_sigma": 0.0,
+            "outlier_rate": 0.0,
+            "mcar_rate": 0.0,
         },
         "output": {"format": "csv", "directory": "out/fidelity"},
     }
@@ -164,6 +179,7 @@ def _metric_series(tables: dict[str, pd.DataFrame], metric: str) -> np.ndarray:
 
 # --- Category 1 — Distribution fidelity --------------------------------------
 
+
 class TestDistributionFidelity:
     """Each distribution family: output samples match a scipy reference.
 
@@ -176,7 +192,8 @@ class TestDistributionFidelity:
 
     def test_normal(self) -> None:
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "normal",
             "params": {"mu": 100.0, "sigma": 15.0},
             "polarity": "positive",
@@ -190,7 +207,8 @@ class TestDistributionFidelity:
 
     def test_lognorm(self) -> None:
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "lognorm",
             "params": {"s": 0.5, "loc": 0.0, "scale": 10.0},
             "polarity": "positive",
@@ -212,7 +230,8 @@ class TestDistributionFidelity:
         alpha, beta_p = 2.0, 5.0
         base_mean = alpha / (alpha + beta_p)
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "beta",
             "params": {"alpha": alpha, "beta": beta_p},
             "polarity": "positive",
@@ -222,13 +241,15 @@ class TestDistributionFidelity:
         tables = generate_tables(cfg)
         samples = _metric_series(tables, "m").astype(float)
         stat, p = sp_stats.kstest(
-            samples, sp_stats.beta(a=alpha, b=beta_p, loc=0.0, scale=100.0).cdf,
+            samples,
+            sp_stats.beta(a=alpha, b=beta_p, loc=0.0, scale=100.0).cdf,
         )
         assert p > 0.01, f"beta KS rejected at p={p:.4f} (stat={stat:.4f})"
 
     def test_poisson(self) -> None:
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "poisson",
             "params": {"lambda": 10.0},
             "polarity": "positive",
@@ -283,7 +304,8 @@ class TestDistributionFidelity:
 
     def test_gamma(self) -> None:
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "gamma",
             "params": {"shape": 2.0, "scale": 5.0},
             "polarity": "positive",
@@ -294,13 +316,15 @@ class TestDistributionFidelity:
         # center = shape * scale * 1.0 = 10. Sampler draws
         # gamma(shape=2, scale=center/shape=5). Scipy ref matches.
         stat, p = sp_stats.kstest(
-            samples, sp_stats.gamma(a=2.0, scale=5.0).cdf,
+            samples,
+            sp_stats.gamma(a=2.0, scale=5.0).cdf,
         )
         assert p > 0.01, f"gamma KS rejected at p={p:.4f} (stat={stat:.4f})"
 
     def test_weibull(self) -> None:
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "weibull",
             "params": {"shape": 1.5, "scale": 10.0},
             "polarity": "positive",
@@ -311,12 +335,14 @@ class TestDistributionFidelity:
         # center = scale * 1.0 = 10. Sampler: rng.weibull(shape) * center.
         # Scipy ref: weibull_min(c=shape, scale=center).
         stat, p = sp_stats.kstest(
-            samples, sp_stats.weibull_min(c=1.5, scale=10.0).cdf,
+            samples,
+            sp_stats.weibull_min(c=1.5, scale=10.0).cdf,
         )
         assert p > 0.01, f"weibull KS rejected at p={p:.4f} (stat={stat:.4f})"
 
 
 # --- Category 2 — Noise fidelity ---------------------------------------------
+
 
 class TestNoiseFidelity:
     """Configured ``gaussian_sigma`` produces the expected multiplicative spread.
@@ -332,20 +358,22 @@ class TestNoiseFidelity:
     def test_noise_std_matches_sigma(self) -> None:
         target_sigma = 0.2
         base_metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "normal",
             "params": {"mu": 100.0, "sigma": 5.0},
             "polarity": "positive",
         }
         clean_cfg = _single_metric_plateau_cfg(
-            base_metric, plateau_level=1.0,
+            base_metric,
+            plateau_level=1.0,
             noise={"gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0},
             seed=777,
         )
         noisy_cfg = _single_metric_plateau_cfg(
-            base_metric, plateau_level=1.0,
-            noise={"gaussian_sigma": target_sigma,
-                   "outlier_rate": 0.0, "mcar_rate": 0.0},
+            base_metric,
+            plateau_level=1.0,
+            noise={"gaussian_sigma": target_sigma, "outlier_rate": 0.0, "mcar_rate": 0.0},
             seed=777,
         )
         clean = _metric_series(generate_tables(clean_cfg), "m").astype(float)
@@ -362,6 +390,7 @@ class TestNoiseFidelity:
 
 
 # --- Category 3 — Outlier fidelity -------------------------------------------
+
 
 class TestOutlierFidelity:
     """Configured ``outlier_rate`` produces approximately the right proportion.
@@ -386,16 +415,16 @@ class TestOutlierFidelity:
     def test_outlier_rate_matches(self) -> None:
         target_rate = 0.05
         metric = {
-            "name": "m", "label": "m",
+            "name": "m",
+            "label": "m",
             "distribution": "normal",
             "params": {"mu": 100.0, "sigma": 5.0},
             "polarity": "positive",
         }
         cfg = _single_metric_plateau_cfg(
-            metric, plateau_level=1.0,
-            noise={"gaussian_sigma": 0.0,
-                   "outlier_rate": target_rate,
-                   "mcar_rate": 0.0},
+            metric,
+            plateau_level=1.0,
+            noise={"gaussian_sigma": 0.0, "outlier_rate": target_rate, "mcar_rate": 0.0},
             seed=123,
         )
         samples = _metric_series(generate_tables(cfg), "m").astype(float)
@@ -415,6 +444,7 @@ class TestOutlierFidelity:
 
 # --- Category 4 — MCAR fidelity ----------------------------------------------
 
+
 class TestMCARFidelity:
     """Configured ``mcar_rate`` produces the right null proportion and nulls are
     independent across metrics.
@@ -427,22 +457,23 @@ class TestMCARFidelity:
 
     def _generate_two_metric(self, target_rate: float):
         m1 = {
-            "name": "a", "label": "a",
+            "name": "a",
+            "label": "a",
             "distribution": "normal",
             "params": {"mu": 100.0, "sigma": 5.0},
             "polarity": "positive",
         }
         m2 = {
-            "name": "b", "label": "b",
+            "name": "b",
+            "label": "b",
             "distribution": "normal",
             "params": {"mu": 200.0, "sigma": 10.0},
             "polarity": "positive",
         }
         cfg = _single_metric_plateau_cfg(
-            m1, plateau_level=1.0,
-            noise={"gaussian_sigma": 0.0,
-                   "outlier_rate": 0.0,
-                   "mcar_rate": target_rate},
+            m1,
+            plateau_level=1.0,
+            noise={"gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": target_rate},
             extra_metrics=[m2],
             seed=999,
         )
@@ -460,12 +491,12 @@ class TestMCARFidelity:
         rate_a = null_a / n
         rate_b = null_b / n
         # 2σ binomial at N=3600, p=0.05 ≈ 0.00726; use 0.014 margin.
-        assert abs(rate_a - target_rate) < 0.014, (
-            f"metric a MCAR rate {rate_a:.4f} differs from {target_rate}"
-        )
-        assert abs(rate_b - target_rate) < 0.014, (
-            f"metric b MCAR rate {rate_b:.4f} differs from {target_rate}"
-        )
+        assert (
+            abs(rate_a - target_rate) < 0.014
+        ), f"metric a MCAR rate {rate_a:.4f} differs from {target_rate}"
+        assert (
+            abs(rate_b - target_rate) < 0.014
+        ), f"metric b MCAR rate {rate_b:.4f} differs from {target_rate}"
 
     def test_mcar_independence(self) -> None:
         target_rate = 0.05
@@ -473,7 +504,7 @@ class TestMCARFidelity:
         n = len(a)
         joint_nulls = int((a.isna() & b.isna()).sum())
         joint_rate = joint_nulls / n
-        expected_joint = target_rate ** 2  # 0.0025
+        expected_joint = target_rate**2  # 0.0025
         # 2σ binomial at N=3600, p=0.0025:
         # σ = sqrt(0.0025 * 0.9975 / 3600) ≈ 0.000832 → 2σ ≈ 0.00166
         # Use 0.003 tolerance to absorb a small systematic bump without
@@ -494,7 +525,9 @@ def _load_template_dict(name: str) -> dict:
 
 
 def _override_archetypes_to_plateau(
-    cfg_dict: dict, level: float = 0.5, n_entities: int = 100,
+    cfg_dict: dict,
+    level: float = 0.5,
+    n_entities: int = 100,
 ) -> dict:
     """Replace the template's archetypes with a single plateau, rebuild
     ``entities`` as ``n_entities`` individual rows (each size=1) all bound
@@ -515,7 +548,9 @@ def _override_archetypes_to_plateau(
         for i in range(min(n_entities, 100))
     ]
     out["noise"] = {
-        "gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0,
+        "gaussian_sigma": 0.0,
+        "outlier_rate": 0.0,
+        "mcar_rate": 0.0,
     }
     # Drop stages: stages are gated on a driving metric and assume
     # trajectory variation; a plateau config leaves the funnel stuck
@@ -537,6 +572,7 @@ def _joint_frame(
     inner-joins on the declared entity + date foreign keys. Returns None
     if either metric is not sourced from a fact column.
     """
+
     def find_col(name: str) -> tuple[str, str, str, str] | None:
         for tbl in cfg.tables:
             if tbl.type != "fact" or tbl.grain != "per_entity_per_period":
@@ -553,10 +589,10 @@ def _joint_frame(
                     # Any other FK that lands on a per_entity dim
                     parent = src.split(":", 1)[1].split(".", 1)[0]
                     parent_tbl = next(
-                        (t for t in cfg.tables if t.name == parent), None,
+                        (t for t in cfg.tables if t.name == parent),
+                        None,
                     )
-                    if (parent_tbl is not None
-                            and parent_tbl.grain == "per_entity"):
+                    if parent_tbl is not None and parent_tbl.grain == "per_entity":
                         entity_col = col.name
             if metric_col and entity_col and date_col:
                 return tbl.name, metric_col, entity_col, date_col
@@ -569,12 +605,20 @@ def _joint_frame(
     tbl_a, col_a, ent_a, date_a = loc_a
     tbl_b, col_b, ent_b, date_b = loc_b
 
-    df_a = tables[tbl_a][[ent_a, date_a, col_a]].rename(columns={
-        ent_a: "entity", date_a: "period", col_a: "a",
-    })
-    df_b = tables[tbl_b][[ent_b, date_b, col_b]].rename(columns={
-        ent_b: "entity", date_b: "period", col_b: "b",
-    })
+    df_a = tables[tbl_a][[ent_a, date_a, col_a]].rename(
+        columns={
+            ent_a: "entity",
+            date_a: "period",
+            col_a: "a",
+        }
+    )
+    df_b = tables[tbl_b][[ent_b, date_b, col_b]].rename(
+        columns={
+            ent_b: "entity",
+            date_b: "period",
+            col_b: "b",
+        }
+    )
     return df_a.merge(df_b, on=["entity", "period"], how="inner")
 
 
@@ -597,10 +641,15 @@ def _correlation_cases() -> list[tuple[str, str, str, float, bool]]:
                 metric_dists.get(pair["metric_a"]) == "poisson"
                 or metric_dists.get(pair["metric_b"]) == "poisson"
             )
-            cases.append((
-                name, pair["metric_a"], pair["metric_b"],
-                float(pair["coefficient"]), involves_poisson,
-            ))
+            cases.append(
+                (
+                    name,
+                    pair["metric_a"],
+                    pair["metric_b"],
+                    float(pair["coefficient"]),
+                    involves_poisson,
+                )
+            )
     return cases
 
 
@@ -620,24 +669,28 @@ class TestCorrelationRegression:
         ids=lambda v: str(v),
     )
     def test_pair(
-        self, template: str, metric_a: str, metric_b: str,
-        coeff: float, poisson: bool,
+        self,
+        template: str,
+        metric_a: str,
+        metric_b: str,
+        coeff: float,
+        poisson: bool,
     ) -> None:
         raw = _override_archetypes_to_plateau(_load_template_dict(template))
         cfg = PlotsimConfig(**raw)
         tables = generate_tables(cfg)
         joint = _joint_frame(tables, cfg, metric_a, metric_b)
-        assert joint is not None, (
-            f"could not locate fact columns for {metric_a!r}, {metric_b!r}"
-        )
+        assert joint is not None, f"could not locate fact columns for {metric_a!r}, {metric_b!r}"
         joint = joint.dropna()
         assert len(joint) >= 100, (
-            f"insufficient joined rows ({len(joint)}) for {template}:"
-            f"{metric_a}×{metric_b}"
+            f"insufficient joined rows ({len(joint)}) for {template}:" f"{metric_a}×{metric_b}"
         )
-        observed = float(np.corrcoef(
-            joint["a"].astype(float), joint["b"].astype(float),
-        )[0, 1])
+        observed = float(
+            np.corrcoef(
+                joint["a"].astype(float),
+                joint["b"].astype(float),
+            )[0, 1]
+        )
         # M111 nearest-PD projection may have adjusted ``coeff`` at load
         # time on non-PD templates (M112 restored saas/hr/marketing's
         # original intended pairs that are slightly non-PD). Compare to
@@ -683,9 +736,14 @@ def _lag_cases() -> list[tuple[str, str, str, int]]:
         for m in raw["metrics"]:
             cl = m.get("causal_lag")
             if cl is not None:
-                cases.append((
-                    name, m["name"], cl["driver"], int(cl["lag_periods"]),
-                ))
+                cases.append(
+                    (
+                        name,
+                        m["name"],
+                        cl["driver"],
+                        int(cl["lag_periods"]),
+                    )
+                )
     return cases
 
 
@@ -773,7 +831,11 @@ class TestLagRegression:
         ids=lambda v: str(v),
     )
     def test_lag_peak(
-        self, template: str, target: str, driver: str, lag: int,
+        self,
+        template: str,
+        target: str,
+        driver: str,
+        lag: int,
         request: pytest.FixtureRequest,
     ) -> None:
         # hr's engagement_index→absence_rate at lag=1 is the one configured
@@ -783,25 +845,27 @@ class TestLagRegression:
         # Engine lag correctness IS asserted by R-11/R-12/R-13 in
         # test_metrics.py via the direct API. retail and marketing lag=1
         # cases pass cleanly post-M127b.
-        if (template, driver, target, lag) == (
-            "hr", "engagement_index", "absence_rate", 1
-        ):
-            request.applymarker(pytest.mark.xfail(
-                reason=(
-                    "Output-level Pearson cannot distinguish lag=1 from "
-                    "lag=0 for hr:engagement_index→absence_rate (driver "
-                    "autocorr near 1, beta target with value_range clamp). "
-                    "Engine lag verified via R-11/R-12/R-13 in test_metrics.py."
-                ),
-                strict=True,
-                run=True,
-            ))
+        if (template, driver, target, lag) == ("hr", "engagement_index", "absence_rate", 1):
+            request.applymarker(
+                pytest.mark.xfail(
+                    reason=(
+                        "Output-level Pearson cannot distinguish lag=1 from "
+                        "lag=0 for hr:engagement_index→absence_rate (driver "
+                        "autocorr near 1, beta target with value_range clamp). "
+                        "Engine lag verified via R-11/R-12/R-13 in test_metrics.py."
+                    ),
+                    strict=True,
+                    run=True,
+                )
+            )
         raw = _load_template_dict(template)
         # Disable noise so the xcorr peak is maximally clean; keep each
         # template's archetypes intact so the driver has real variation
         # (plateau runs flatten the driver and make lag invisible).
         raw["noise"] = {
-            "gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0,
+            "gaussian_sigma": 0.0,
+            "outlier_rate": 0.0,
+            "mcar_rate": 0.0,
         }
         # Expand grouped entities into individual rows — one fact series
         # per entity is what the per-entity xcorr groupby needs. Keep
@@ -813,11 +877,13 @@ class TestLagRegression:
         expanded: list[dict] = []
         for ent in grouped:
             for i in range(ent["size"]):
-                expanded.append({
-                    "name": f"{ent['name']}_{i:03d}",
-                    "archetype": ent["archetype"],
-                    "size": 1,
-                })
+                expanded.append(
+                    {
+                        "name": f"{ent['name']}_{i:03d}",
+                        "archetype": ent["archetype"],
+                        "size": 1,
+                    }
+                )
                 if len(expanded) >= 100:
                     break
             if len(expanded) >= 100:
@@ -837,20 +903,17 @@ class TestLagRegression:
         cfg = PlotsimConfig(**raw)
         tables = generate_tables(cfg)
         joint = _joint_frame(tables, cfg, driver, target)
-        assert joint is not None, (
-            f"could not locate fact columns for {driver!r}, {target!r}"
-        )
+        assert joint is not None, f"could not locate fact columns for {driver!r}, {target!r}"
         joint = joint.dropna().sort_values(["entity", "period"])
         driver_by_entity: dict[Any, np.ndarray] = {}
         target_by_entity: dict[Any, np.ndarray] = {}
         for entity, grp in joint.groupby("entity"):
             driver_by_entity[entity] = grp["a"].to_numpy(dtype=float)
             target_by_entity[entity] = grp["b"].to_numpy(dtype=float)
-        assert driver_by_entity, (
-            f"no usable entities for {template}:{driver}→{target}"
-        )
+        assert driver_by_entity, f"no usable entities for {template}:{driver}→{target}"
         peak, per_lag_r = _pooled_argmax_xcorr(
-            driver_by_entity, target_by_entity,
+            driver_by_entity,
+            target_by_entity,
             max_lag=max(lag * 2, 6),
         )
         assert peak == lag, (
@@ -924,7 +987,9 @@ class TestArchetypeSeparability:
     def test_saas_archetypes_separable(self) -> None:
         raw = _load_template_dict("saas")
         raw["noise"] = {
-            "gaussian_sigma": 0.0, "outlier_rate": 0.0, "mcar_rate": 0.0,
+            "gaussian_sigma": 0.0,
+            "outlier_rate": 0.0,
+            "mcar_rate": 0.0,
         }
         # Rebuild entities as individual rows, 16 per archetype × 6 = 96
         # (under the pydantic Entity list max of 100). Each row's
@@ -937,11 +1002,13 @@ class TestArchetypeSeparability:
         new_entities = []
         for arch_name in all_arch_names:
             for i in range(n_per_archetype):
-                new_entities.append({
-                    "name": f"sep_{arch_name}_{i:02d}",
-                    "archetype": arch_name,
-                    "size": 1,
-                })
+                new_entities.append(
+                    {
+                        "name": f"sep_{arch_name}_{i:02d}",
+                        "archetype": arch_name,
+                        "size": 1,
+                    }
+                )
         raw["entities"] = new_entities
         # Drop stages (they reference churn_risk and gate behavior on
         # the original cohort semantics).
@@ -961,9 +1028,7 @@ class TestArchetypeSeparability:
         # config order and emits versions sequentially per entity).
         dim = tables["dim_company"]
         pk_col = "company_id"
-        ordered_ids = (
-            dim.drop_duplicates(subset=pk_col, keep="first")[pk_col].tolist()
-        )
+        ordered_ids = dim.drop_duplicates(subset=pk_col, keep="first")[pk_col].tolist()
         archetype_by_entity: dict[Any, str] = {}
         for ent, entity_id in zip(cfg.entities, ordered_ids):
             archetype_by_entity[entity_id] = ent.archetype
@@ -987,7 +1052,7 @@ class TestArchetypeSeparability:
         archetype_names = sorted(by_archetype.keys())
         failing_pairs: list[tuple[str, str, dict[str, float]]] = []
         for i, a1 in enumerate(archetype_names):
-            for a2 in archetype_names[i + 1:]:
+            for a2 in archetype_names[i + 1 :]:
                 best_p: dict[str, float] = {}
                 separated = False
                 for feat in feat_names:
@@ -1006,9 +1071,7 @@ class TestArchetypeSeparability:
         assert not failing_pairs, (
             "archetype pairs with no feature separating them at p<0.01: "
             + "; ".join(
-                f"{a1} vs {a2}: " + ", ".join(
-                    f"{k}={v:.3f}" for k, v in ps.items()
-                )
+                f"{a1} vs {a2}: " + ", ".join(f"{k}={v:.3f}" for k, v in ps.items())
                 for a1, a2, ps in failing_pairs
             )
         )
