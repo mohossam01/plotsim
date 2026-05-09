@@ -118,20 +118,6 @@ warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 
-# Suppress errors on the 10 modules with pre-existing type issues; new
-# files and the other 23 modules are checked normally. Future mission
-# cleans up these suppressions one by one.
-[[tool.mypy.overrides]]
-module = [
-    "plotsim.builder.interpreter",
-    "plotsim.builder.parser",
-    "plotsim.config",
-    "plotsim.metrics",
-    "plotsim.inspect",
-    "plotsim.tables",
-]
-ignore_errors = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: end-to-end tests (slow)"]

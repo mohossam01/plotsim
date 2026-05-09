@@ -30,7 +30,9 @@ Examples
 
 from __future__ import annotations
 
-from plotsim.config import CurveSegment
+from typing import cast
+
+from plotsim.config import CurveSegment, CurveType
 
 from .recipes import SHAPE_RECIPES, VALID_SHAPE_WORDS
 
@@ -101,14 +103,14 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
         )
 
     periods: list[int] = []
-    for ps in period_strs:
-        if not ps:
+    for period_str in period_strs:
+        if not period_str:
             raise ArchetypeParseError(f"archetype spec {spec!r} has an empty '@' value")
         try:
-            periods.append(int(ps))
+            periods.append(int(period_str))
         except ValueError:
             raise ArchetypeParseError(
-                f"archetype spec {spec!r}: '@ {ps}' is not an integer period"
+                f"archetype spec {spec!r}: '@ {period_str}' is not an integer period"
             ) from None
 
     for p in periods:
@@ -143,7 +145,7 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
             seg_end = pe if rel_end == 1.0 else ps + rel_end * width
             segments.append(
                 CurveSegment(
-                    curve=curve,
+                    curve=cast(CurveType, curve),
                     params=dict(params),
                     start_pct=seg_start,
                     end_pct=seg_end,

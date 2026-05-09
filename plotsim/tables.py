@@ -1873,6 +1873,7 @@ def _build_threshold_event(
 
     _, groups = _entity_groups(fact_df, fact_table_cfg, per_entity_dims)
     fact_date_col = _find_date_fk_column(fact_table_cfg)
+    assert fact_date_col is not None  # fact tables always FK to dim_date
     fact_date_col_name = fact_date_col[0]
 
     dim_date = dim_tables["dim_date"]
@@ -2257,7 +2258,7 @@ def assign_stages(
             target_name = tbl.name
             target_tbl = tbl
             break
-    if target_name is None:
+    if target_name is None or target_tbl is None:
         return fact_tables
 
     per_entity_dims = _per_entity_dim_names(config)
@@ -2918,8 +2919,10 @@ def _bridge_second_dim_fk_pool(
             subset=[second_pk_col],
             keep="first",
         ).reset_index(drop=True)
-        return deduped[second_pk_col].tolist()
-    return second_dim_df[second_pk_col].tolist()
+        deduped_list: list[Any] = deduped[second_pk_col].tolist()
+        return deduped_list
+    full_list: list[Any] = second_dim_df[second_pk_col].tolist()
+    return full_list
 
 
 def _compute_bridge_cardinality(
