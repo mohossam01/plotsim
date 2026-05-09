@@ -10,22 +10,20 @@ Run:
     >>> from plotsim import generate_tables
     >>> tables = generate_tables(config)
 """
+
 from plotsim import create
 
 config = create(
     about="Subscription customers",
     unit="customer",
-    seed=42,                               # pin determinism
-
+    seed=42,  # pin determinism
     window=("2024-01", "2024-12", "monthly"),
-
     metrics=[
         {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "payments",   "type": "count", "polarity": "positive"},
+        {"name": "payments", "type": "count", "polarity": "positive"},
     ],
-
     segments=[
-        {"name": "active",   "count": 50, "archetype": "growth"},
+        {"name": "active", "count": 50, "archetype": "growth"},
         {"name": "inactive", "count": 30, "archetype": "decline"},
     ],
 )

@@ -40,6 +40,7 @@ Tests:
   ``_resolve_fact_cell`` already raised on unhandled cases pre-F14;
   confirm the F14 sweep didn't regress it.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -57,7 +58,6 @@ from plotsim.config import (
     Metric,
     OutputConfig,
     PlotsimConfig,
-    ProportionalSource,
     SurrogateKeyWarning,
     Table,
     TimeWindow,
@@ -75,23 +75,30 @@ def _base_config(
     silent-dispatch behavior."""
     metrics = [
         Metric(
-            name="m1", label="m1",
-            distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+            name="m1",
+            label="m1",
+            distribution="normal",
+            params={"mu": 1.0, "sigma": 0.1},
             polarity="positive",
         ),
     ]
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -99,7 +106,9 @@ def _base_config(
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
@@ -107,7 +116,9 @@ def _base_config(
     )
     # Per-entity-per-period fact (the trajectory-driven backbone).
     fct_eep = Table(
-        name="fct_eep", type="fact", grain="per_entity_per_period",
+        name="fct_eep",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -124,7 +135,9 @@ def _base_config(
     if extra_per_period_columns:
         fct_per_period_columns.extend(extra_per_period_columns)
     fct_per_period = Table(
-        name="fct_per_period", type="fact", grain="per_period",
+        name="fct_per_period",
+        type="fact",
+        grain="per_period",
         primary_key="date_key",
         foreign_keys=["dim_date.date_key"],
         columns=fct_per_period_columns,
@@ -140,7 +153,9 @@ def _base_config(
         if extra_event_columns:
             evt_columns.extend(extra_event_columns)
         evt = Table(
-            name="evt_test", type="event", grain="variable",
+            name="evt_test",
+            type="event",
+            grain="variable",
             primary_key="event_id",
             foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
             columns=evt_columns,
@@ -152,11 +167,15 @@ def _base_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-06", granularity="monthly",
+                start="2024-01",
+                end="2024-06",
+                granularity="monthly",
             ),
             seed=0,
             metrics=metrics,
@@ -245,23 +264,30 @@ def test_resolve_fact_cell_existing_raise_unaffected():
     source still raises a clear ValueError."""
     metrics = [
         Metric(
-            name="m1", label="m1",
-            distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+            name="m1",
+            label="m1",
+            distribution="normal",
+            params={"mu": 1.0, "sigma": 0.1},
             polarity="positive",
         ),
     ]
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -269,14 +295,18 @@ def test_resolve_fact_cell_existing_raise_unaffected():
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
         ],
     )
     fct = Table(
-        name="fct_m1", type="fact", grain="per_entity_per_period",
+        name="fct_m1",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -284,7 +314,9 @@ def test_resolve_fact_cell_existing_raise_unaffected():
             Column(name="entity_id", dtype="id", source="fk:dim_entity.entity_id"),
             Column(name="m1", dtype="float", source="metric:m1"),
             Column(
-                name="bogus", dtype="string", source="derived:nonsense",
+                name="bogus",
+                dtype="string",
+                source="derived:nonsense",
             ),
         ],
     )
@@ -292,11 +324,15 @@ def test_resolve_fact_cell_existing_raise_unaffected():
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         cfg = PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-03", granularity="monthly",
+                start="2024-01",
+                end="2024-03",
+                granularity="monthly",
             ),
             seed=0,
             metrics=metrics,

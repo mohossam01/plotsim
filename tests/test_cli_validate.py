@@ -11,6 +11,7 @@ The acceptance contract:
   - no output files are created on disk
   - invalid configs produce identical error messages with or without the flag
 """
+
 from __future__ import annotations
 
 import io
@@ -95,9 +96,7 @@ def test_validate_config_only_runtime_under_500ms(name):
 def test_validate_config_only_writes_no_files(tmp_path, monkeypatch):
     """Run from a clean cwd; assert no files exist after validation."""
     monkeypatch.chdir(tmp_path)
-    code, _out, _err = run_cli(
-        "validate", "--config-only", str(_template_path("saas"))
-    )
+    code, _out, _err = run_cli("validate", "--config-only", str(_template_path("saas")))
     assert code == 0
     leftovers = list(tmp_path.iterdir())
     assert leftovers == [], f"validate left files: {leftovers}"

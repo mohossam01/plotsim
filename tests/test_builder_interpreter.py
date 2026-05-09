@@ -9,6 +9,7 @@ The interpreter wraps PlotsimConfig.model_validate at the end — passing
 construction here means the engine itself accepts the shape, not just
 that the interpreter returned a python object.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -41,8 +42,7 @@ def _minimal_input(**overrides: Any) -> UserInput:
         "window": {"start": "2023-01", "end": "2024-12", "every": "monthly"},
         "metrics": [
             {"name": "engagement", "type": "score", "polarity": "positive"},
-            {"name": "mrr", "type": "amount", "polarity": "positive",
-             "range": [100, 50000]},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
         ],
         "segments": [
             {"name": "alpha", "count": 10, "archetype": "growth"},
@@ -124,10 +124,12 @@ def test_unit_faker_map_documents_known_units():
 
 
 def test_score_metric_picks_beta():
-    ui = _minimal_input(metrics=[
-        {"name": "x", "type": "score", "polarity": "positive"},
-        {"name": "y", "type": "score", "polarity": "negative"},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "x", "type": "score", "polarity": "positive"},
+            {"name": "y", "type": "score", "polarity": "negative"},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "x")
     assert m.distribution == "beta"
@@ -137,10 +139,12 @@ def test_score_metric_picks_beta():
 
 
 def test_count_metric_picks_poisson_with_no_value_range():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "tickets", "type": "count", "polarity": "negative"},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "tickets", "type": "count", "polarity": "negative"},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "tickets")
     assert m.distribution == "poisson"
@@ -148,11 +152,12 @@ def test_count_metric_picks_poisson_with_no_value_range():
 
 
 def test_index_metric_picks_normal_with_mu_at_midpoint():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "nps", "type": "index", "polarity": "positive",
-         "range": [-100, 100]},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "nps", "type": "index", "polarity": "positive", "range": [-100, 100]},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "nps")
     assert m.distribution == INDEX_DISTRIBUTION
@@ -163,11 +168,12 @@ def test_index_metric_picks_normal_with_mu_at_midpoint():
 
 def test_amount_with_high_ratio_picks_lognorm():
     # ratio = 50000 / 100 = 500× → lognorm
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "mrr", "type": "amount", "polarity": "positive",
-         "range": [100, 50000]},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "mrr")
     assert m.distribution == "lognorm"
@@ -176,11 +182,12 @@ def test_amount_with_high_ratio_picks_lognorm():
 
 
 def test_amount_with_min_zero_picks_lognorm():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "revenue", "type": "amount", "polarity": "positive",
-         "range": [0, 10000]},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "revenue", "type": "amount", "polarity": "positive", "range": [0, 10000]},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "revenue")
     assert m.distribution == "lognorm"
@@ -188,11 +195,12 @@ def test_amount_with_min_zero_picks_lognorm():
 
 def test_amount_with_low_ratio_picks_beta():
     # ratio = 500 / 100 = 5× → below threshold (10) → beta
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "ticket_size", "type": "amount", "polarity": "positive",
-         "range": [100, 500]},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "ticket_size", "type": "amount", "polarity": "positive", "range": [100, 500]},
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "ticket_size")
     assert m.distribution == "beta"
@@ -203,11 +211,18 @@ def test_amount_with_low_ratio_picks_beta():
 
 
 def test_follows_delay_translates_to_causal_lag():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "tickets", "type": "count", "polarity": "negative",
-         "follows": "engagement", "delay": 2},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {
+                "name": "tickets",
+                "type": "count",
+                "polarity": "negative",
+                "follows": "engagement",
+                "delay": 2,
+            },
+        ]
+    )
     cfg = interpret(ui)
     m = next(m for m in cfg.metrics if m.name == "tickets")
     assert m.causal_lag is not None
@@ -225,11 +240,12 @@ def test_no_follows_means_no_causal_lag():
 
 
 def test_baseline_high_restricts_value_range_to_upper_third():
-    ui = _minimal_input(segments=[
-        {"name": "alpha", "count": 10, "archetype": "growth",
-         "baseline": {"mrr": "high"}},
-        {"name": "beta", "count": 10, "archetype": "decline"},
-    ])
+    ui = _minimal_input(
+        segments=[
+            {"name": "alpha", "count": 10, "archetype": "growth", "baseline": {"mrr": "high"}},
+            {"name": "beta", "count": 10, "archetype": "decline"},
+        ]
+    )
     cfg = interpret(ui)
     arc = next(a for a in cfg.archetypes if a.name == "alpha")
     override = arc.metric_overrides["mrr"]
@@ -240,11 +256,17 @@ def test_baseline_high_restricts_value_range_to_upper_third():
 
 
 def test_baseline_low_restricts_value_range_to_lower_third():
-    ui = _minimal_input(segments=[
-        {"name": "alpha", "count": 10, "archetype": "growth",
-         "baseline": {"engagement": "low"}},
-        {"name": "beta", "count": 10, "archetype": "decline"},
-    ])
+    ui = _minimal_input(
+        segments=[
+            {
+                "name": "alpha",
+                "count": 10,
+                "archetype": "growth",
+                "baseline": {"engagement": "low"},
+            },
+            {"name": "beta", "count": 10, "archetype": "decline"},
+        ]
+    )
     cfg = interpret(ui)
     arc = next(a for a in cfg.archetypes if a.name == "alpha")
     override = arc.metric_overrides["engagement"]
@@ -256,14 +278,21 @@ def test_baseline_low_restricts_value_range_to_lower_third():
 def test_baseline_on_count_metric_silently_skipped():
     # count metrics have no value_range; baseline label can't restrict
     # what isn't there. The interpreter skips rather than raising.
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "tickets", "type": "count", "polarity": "negative"},
-    ], segments=[
-        {"name": "alpha", "count": 10, "archetype": "growth",
-         "baseline": {"tickets": "high", "engagement": "low"}},
-        {"name": "beta", "count": 10, "archetype": "decline"},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "tickets", "type": "count", "polarity": "negative"},
+        ],
+        segments=[
+            {
+                "name": "alpha",
+                "count": 10,
+                "archetype": "growth",
+                "baseline": {"tickets": "high", "engagement": "low"},
+            },
+            {"name": "beta", "count": 10, "archetype": "decline"},
+        ],
+    )
     cfg = interpret(ui)
     arc = next(a for a in cfg.archetypes if a.name == "alpha")
     assert "tickets" not in arc.metric_overrides
@@ -274,9 +303,11 @@ def test_baseline_on_count_metric_silently_skipped():
 
 
 def test_connection_translates_to_correlation_pair_with_recipe_coefficient():
-    ui = _minimal_input(connections=[
-        "engagement driven_by mrr",
-    ])
+    ui = _minimal_input(
+        connections=[
+            "engagement driven_by mrr",
+        ]
+    )
     cfg = interpret(ui)
     assert len(cfg.correlations) == 1
     pair = cfg.correlations[0]
@@ -301,24 +332,30 @@ def test_independent_connection_skipped_to_avoid_redundant_zero_warning():
 
 
 def test_lifecycle_translates_to_stage_sequence_with_enforce_order_false():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "churn_risk", "type": "score", "polarity": "negative"},
-    ], lifecycle={
-        "track": "churn_risk",
-        "stages": [
-            {"onboarding": 0.0},
-            {"active": 0.2},
-            {"at_risk": 0.5},
-            {"churned": 0.8},
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "churn_risk", "type": "score", "polarity": "negative"},
         ],
-    })
+        lifecycle={
+            "track": "churn_risk",
+            "stages": [
+                {"onboarding": 0.0},
+                {"active": 0.2},
+                {"at_risk": 0.5},
+                {"churned": 0.8},
+            ],
+        },
+    )
     cfg = interpret(ui)
     assert cfg.stages is not None
     assert cfg.stages.field == "churn_risk"
     assert cfg.stages.enforce_order is False
     assert [s.name for s in cfg.stages.sequence] == [
-        "onboarding", "active", "at_risk", "churned",
+        "onboarding",
+        "active",
+        "at_risk",
+        "churned",
     ]
     # Legacy mode: each non-terminal stage's threshold_exit equals the
     # next stage's threshold_enter; terminal stage has threshold_exit=None.
@@ -344,8 +381,7 @@ def _saas_like_input(**overrides: Any) -> UserInput:
         "window": {"start": "2023-01", "end": "2024-12", "every": "monthly"},
         "metrics": [
             {"name": "engagement", "type": "score", "polarity": "positive"},
-            {"name": "mrr", "type": "amount", "polarity": "positive",
-             "range": [100, 50000]},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
             {"name": "churn_risk", "type": "score", "polarity": "negative"},
         ],
         "segments": [
@@ -353,60 +389,92 @@ def _saas_like_input(**overrides: Any) -> UserInput:
             {"name": "beta", "count": 10, "archetype": "decline"},
         ],
         "dimensions": [
-            {"name": "dim_date", "per": "period", "columns": [
-                {"name": "date_key", "type": "id"},
-                {"name": "date", "type": "date"},
-                {"name": "year", "type": "int"},
-            ]},
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "company_name", "type": "faker.company"},
-                {"name": "cohort_size", "type": "segment.count"},
-                {"name": "plan_tier", "type": "scd",
-                 "tracks": "mrr",
-                 "tiers": ["starter", "growth", "enterprise"],
-                 "at": [0.4, 0.7]},
-            ]},
-            {"name": "dim_plan", "reference": True, "columns": [
-                {"name": "plan_id", "type": "id"},
-                {"name": "plan_name", "type": "static.starter"},
-                {"name": "monthly_price", "type": "static.99.00"},
-            ]},
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                    {"name": "year", "type": "int"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "company_name", "type": "faker.company"},
+                    {"name": "cohort_size", "type": "segment.count"},
+                    {
+                        "name": "plan_tier",
+                        "type": "scd",
+                        "tracks": "mrr",
+                        "tiers": ["starter", "growth", "enterprise"],
+                        "at": [0.4, 0.7],
+                    },
+                ],
+            },
+            {
+                "name": "dim_plan",
+                "reference": True,
+                "columns": [
+                    {"name": "plan_id", "type": "id"},
+                    {"name": "plan_name", "type": "static.starter"},
+                    {"name": "monthly_price", "type": "static.99.00"},
+                ],
+            },
         ],
         "facts": [
-            {"name": "fct_revenue", "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "plan_id", "type": "ref.dim_plan"},
-                {"name": "mrr", "type": "metric.mrr"},
-            ]},
-            {"name": "fct_engagement", "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement_score", "type": "metric.engagement"},
-                {"name": "customer_sentiment", "type": "bucket",
-                 "labels": ["at_risk", "satisfied", "delighted"]},
-            ]},
+            {
+                "name": "fct_revenue",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "plan_id", "type": "ref.dim_plan"},
+                    {"name": "mrr", "type": "metric.mrr"},
+                ],
+            },
+            {
+                "name": "fct_engagement",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement_score", "type": "metric.engagement"},
+                    {
+                        "name": "customer_sentiment",
+                        "type": "bucket",
+                        "labels": ["at_risk", "satisfied", "delighted"],
+                    },
+                ],
+            },
         ],
         "events": [
-            {"name": "evt_churn",
-             "trigger": "threshold", "metric": "churn_risk",
-             "above": 0.7, "for": 3,
-             "columns": [
-                 {"name": "event_id", "type": "id"},
-                 {"name": "date_key", "type": "ref.dim_date"},
-                 {"name": "company_id", "type": "ref.dim_company"},
-                 {"name": "churn_reason", "type": "faker.sentence"},
-                 {"name": "churn_flag", "type": "flag"},
-             ]},
-            {"name": "evt_login",
-             "trigger": "proportional", "driver": "engagement", "scale": 5,
-             "columns": [
-                 {"name": "event_id", "type": "id"},
-                 {"name": "date_key", "type": "ref.dim_date"},
-                 {"name": "company_id", "type": "ref.dim_company"},
-                 {"name": "event_ts", "type": "timestamp"},
-             ]},
+            {
+                "name": "evt_churn",
+                "trigger": "threshold",
+                "metric": "churn_risk",
+                "above": 0.7,
+                "for": 3,
+                "columns": [
+                    {"name": "event_id", "type": "id"},
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "churn_reason", "type": "faker.sentence"},
+                    {"name": "churn_flag", "type": "flag"},
+                ],
+            },
+            {
+                "name": "evt_login",
+                "trigger": "proportional",
+                "driver": "engagement",
+                "scale": 5,
+                "columns": [
+                    {"name": "event_id", "type": "id"},
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "event_ts", "type": "timestamp"},
+                ],
+            },
         ],
     }
     base.update(overrides)
@@ -432,56 +500,83 @@ def test_ref_column_translates_to_fk_with_target_pk_resolved():
 
 
 def test_metric_column_translates_with_correct_dtype_for_count_metric():
-    ui = _minimal_input(metrics=[
-        {"name": "engagement", "type": "score", "polarity": "positive"},
-        {"name": "tickets", "type": "count", "polarity": "negative"},
-    ], dimensions=[
-        {"name": "dim_date", "per": "period", "columns": [
-            {"name": "date_key", "type": "id"},
-            {"name": "date", "type": "date"},
-        ]},
-        {"name": "dim_company", "per": "unit", "columns": [
-            {"name": "company_id", "type": "id"},
-        ]},
-    ], facts=[
-        {"name": "fct_x", "columns": [
-            {"name": "date_key", "type": "ref.dim_date"},
-            {"name": "company_id", "type": "ref.dim_company"},
-            {"name": "ticket_count", "type": "metric.tickets"},
-            {"name": "engagement_score", "type": "metric.engagement"},
-        ]},
-    ])
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "tickets", "type": "count", "polarity": "negative"},
+        ],
+        dimensions=[
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                ],
+            },
+        ],
+        facts=[
+            {
+                "name": "fct_x",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "ticket_count", "type": "metric.tickets"},
+                    {"name": "engagement_score", "type": "metric.engagement"},
+                ],
+            },
+        ],
+    )
     cfg = interpret(ui)
     fact = next(t for t in cfg.tables if t.name == "fct_x")
     ticket_col = next(c for c in fact.columns if c.name == "ticket_count")
     eng_col = next(c for c in fact.columns if c.name == "engagement_score")
-    assert ticket_col.dtype == "int"   # poisson → int
-    assert eng_col.dtype == "float"   # beta → float
+    assert ticket_col.dtype == "int"  # poisson → int
+    assert eng_col.dtype == "float"  # beta → float
 
 
 def test_faker_column_special_case_year_dtype_int():
-    ui = _saas_like_input()
-    cfg = interpret(ui)
     # The integration template uses faker.sentence and faker.company; neither
     # is "year". Build a dedicated minimal fixture instead.
-    extra = _minimal_input(dimensions=[
-        {"name": "dim_date", "per": "period", "columns": [
-            {"name": "date_key", "type": "id"},
-            {"name": "date", "type": "date"},
-        ]},
-        {"name": "dim_company", "per": "unit", "columns": [
-            {"name": "company_id", "type": "id"},
-            {"name": "founded_year", "type": "faker.year"},
-            {"name": "company_name", "type": "faker.company"},
-        ]},
-    ], facts=[
-        {"name": "fct_x", "columns": [
-            {"name": "date_key", "type": "ref.dim_date"},
-            {"name": "company_id", "type": "ref.dim_company"},
-            {"name": "engagement_score", "type": "metric.engagement"},
-            {"name": "mrr", "type": "metric.mrr"},
-        ]},
-    ])
+    extra = _minimal_input(
+        dimensions=[
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "founded_year", "type": "faker.year"},
+                    {"name": "company_name", "type": "faker.company"},
+                ],
+            },
+        ],
+        facts=[
+            {
+                "name": "fct_x",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement_score", "type": "metric.engagement"},
+                    {"name": "mrr", "type": "metric.mrr"},
+                ],
+            },
+        ],
+    )
     cfg2 = interpret(extra)
     dim = next(t for t in cfg2.tables if t.name == "dim_company")
     yr_col = next(c for c in dim.columns if c.name == "founded_year")
@@ -546,7 +641,8 @@ def test_dim_date_dtype_words_translate_with_generated_date_key_source():
 def test_dtype_word_outside_dim_date_rejected():
     # `int` on a non-dim_date column has no source; reject with a guidance.
     ui_dict = {
-        "about": "test", "unit": "company",
+        "about": "test",
+        "unit": "company",
         "window": {"start": "2023-01", "end": "2024-12"},
         "metrics": [
             {"name": "engagement", "type": "score", "polarity": "positive"},
@@ -556,14 +652,22 @@ def test_dtype_word_outside_dim_date_rejected():
             {"name": "b", "count": 10, "archetype": "decline"},
         ],
         "dimensions": [
-            {"name": "dim_date", "per": "period", "columns": [
-                {"name": "date_key", "type": "id"},
-                {"name": "date", "type": "date"},
-            ]},
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "anomaly_count", "type": "int"},  # bare dtype here
-            ]},
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "anomaly_count", "type": "int"},  # bare dtype here
+                ],
+            },
         ],
     }
     with pytest.raises(ValueError, match="dtype-only type"):
@@ -597,7 +701,8 @@ def test_scd_column_resolves_trigger_metric_to_fact_table():
 
 def test_scd_tracks_unknown_metric_rejected():
     ui_dict = {
-        "about": "test", "unit": "company",
+        "about": "test",
+        "unit": "company",
         "window": {"start": "2023-01", "end": "2024-12"},
         "metrics": [
             {"name": "engagement", "type": "score", "polarity": "positive"},
@@ -607,19 +712,30 @@ def test_scd_tracks_unknown_metric_rejected():
             {"name": "b", "count": 10, "archetype": "decline"},
         ],
         "dimensions": [
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "tier", "type": "scd",
-                 "tracks": "phantom",  # no fact emits this
-                 "tiers": ["a", "b"], "at": [0.5]},
-            ]},
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {
+                        "name": "tier",
+                        "type": "scd",
+                        "tracks": "phantom",  # no fact emits this
+                        "tiers": ["a", "b"],
+                        "at": [0.5],
+                    },
+                ],
+            },
         ],
         "facts": [
-            {"name": "fct_x", "columns": [
-                {"name": "date_key", "type": "id"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement_score", "type": "metric.engagement"},
-            ]},
+            {
+                "name": "fct_x",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement_score", "type": "metric.engagement"},
+                ],
+            },
         ],
     }
     with pytest.raises(ValueError, match="phantom"):
@@ -680,26 +796,44 @@ def test_threshold_event_has_no_row_count_source():
 
 
 def test_sub_entity_dim_with_default_count_one_uses_variable_grain():
-    ui = _minimal_input(dimensions=[
-        {"name": "dim_company", "per": "unit", "columns": [
-            {"name": "company_id", "type": "id"},
-        ]},
-        {"name": "dim_user", "per": "unit", "columns": [
-            {"name": "user_id", "type": "id"},
-            {"name": "company_id", "type": "ref.dim_company"},
-        ]},
-        {"name": "dim_date", "per": "period", "columns": [
-            {"name": "date_key", "type": "id"},
-            {"name": "date", "type": "date"},
-        ]},
-    ], facts=[
-        {"name": "fct_x", "columns": [
-            {"name": "date_key", "type": "ref.dim_date"},
-            {"name": "company_id", "type": "ref.dim_company"},
-            {"name": "engagement_score", "type": "metric.engagement"},
-            {"name": "mrr", "type": "metric.mrr"},
-        ]},
-    ])
+    ui = _minimal_input(
+        dimensions=[
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                ],
+            },
+            {
+                "name": "dim_user",
+                "per": "unit",
+                "columns": [
+                    {"name": "user_id", "type": "id"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                ],
+            },
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                    {"name": "date", "type": "date"},
+                ],
+            },
+        ],
+        facts=[
+            {
+                "name": "fct_x",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement_score", "type": "metric.engagement"},
+                    {"name": "mrr", "type": "metric.mrr"},
+                ],
+            },
+        ],
+    )
     cfg = interpret(ui)
     user_dim = next(t for t in cfg.tables if t.name == "dim_user")
     assert user_dim.grain == "variable"

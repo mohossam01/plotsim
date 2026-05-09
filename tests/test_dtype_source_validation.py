@@ -34,6 +34,7 @@ Tests:
   bundled template still loads (none of them violate the
   combination).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -71,12 +72,15 @@ def _build_config(
     """Build a minimal config with a customisable fact table column list."""
     metrics = [
         Metric(
-            name="m1", label="m1",
-            distribution="poisson", params={"lambda": 5.0},
+            name="m1",
+            label="m1",
+            distribution="poisson",
+            params={"lambda": 5.0},
             polarity="positive",
         ),
         Metric(
-            name="m2", label="m2",
+            name="m2",
+            label="m2",
             distribution="lognorm",
             params={"s": 0.5, "loc": 0.0, "scale": 50.0},
             polarity="positive",
@@ -85,17 +89,22 @@ def _build_config(
     if extra_metrics:
         metrics.extend(extra_metrics)
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_metrics", type="fact", grain="per_entity_per_period",
+        name="fct_metrics",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -105,7 +114,9 @@ def _build_config(
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -113,7 +124,9 @@ def _build_config(
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
@@ -123,11 +136,15 @@ def _build_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-12", granularity="monthly",
+                start="2024-01",
+                end="2024-12",
+                granularity="monthly",
             ),
             seed=0,
             metrics=metrics,
@@ -145,9 +162,11 @@ def test_metric_source_with_boolean_dtype_rejected():
     """``dtype: boolean`` on a metric: source raises with column name
     and source in the message."""
     with pytest.raises(ValidationError) as exc_info:
-        _build_config(fct_columns=[
-            Column(name="m1_bool", dtype="boolean", source="metric:m1"),
-        ])
+        _build_config(
+            fct_columns=[
+                Column(name="m1_bool", dtype="boolean", source="metric:m1"),
+            ]
+        )
     msg = str(exc_info.value)
     assert "boolean" in msg.lower()
     assert "m1_bool" in msg
@@ -162,12 +181,15 @@ def test_lag_source_with_boolean_dtype_rejected():
     what the validator catches."""
     extras = [
         Metric(
-            name="m3", label="m3",
+            name="m3",
+            label="m3",
             distribution="normal",
             params={"mu": 10.0, "sigma": 2.0},
             polarity="positive",
             causal_lag=CausalLag(
-                driver="m1", lag_periods=2, blend_weight=1.0,
+                driver="m1",
+                lag_periods=2,
+                blend_weight=1.0,
             ),
         ),
     ]
@@ -190,18 +212,22 @@ def test_lag_source_with_boolean_dtype_rejected():
 def test_metric_source_with_int_dtype_loads():
     """``dtype: int`` on a poisson metric source — the natural
     integer-output combination — loads cleanly."""
-    cfg = _build_config(fct_columns=[
-        Column(name="m1_int", dtype="int", source="metric:m1"),
-    ])
+    cfg = _build_config(
+        fct_columns=[
+            Column(name="m1_int", dtype="int", source="metric:m1"),
+        ]
+    )
     assert cfg is not None
 
 
 def test_metric_source_with_float_dtype_loads():
     """``dtype: float`` on a continuous metric source — the natural
     continuous-output combination — loads cleanly."""
-    cfg = _build_config(fct_columns=[
-        Column(name="m2_float", dtype="float", source="metric:m2"),
-    ])
+    cfg = _build_config(
+        fct_columns=[
+            Column(name="m2_float", dtype="float", source="metric:m2"),
+        ]
+    )
     assert cfg is not None
 
 
@@ -209,13 +235,15 @@ def test_threshold_source_with_boolean_dtype_loads():
     """ThresholdSource is allowed to carry dtype: boolean — that's
     its design (the cell value is the threshold predicate). Verifies
     F12 didn't over-blacklist."""
-    cfg = _build_config(fct_columns=[
-        Column(
-            name="m1_threshold",
-            dtype="boolean",
-            source="threshold:m1:above:3.0:for:2",
-        ),
-    ])
+    cfg = _build_config(
+        fct_columns=[
+            Column(
+                name="m1_threshold",
+                dtype="boolean",
+                source="threshold:m1:above:3.0:for:2",
+            ),
+        ]
+    )
     assert cfg is not None
 
 
@@ -223,7 +251,8 @@ def test_threshold_source_with_boolean_dtype_loads():
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "education", "retail", "marketing"],
+    "stem",
+    ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_bundled_templates_load_under_validator(stem):
     """Every bundled template loads. None of them combine dtype: boolean
@@ -237,10 +266,8 @@ def test_bundled_templates_load_under_validator(stem):
         for col in tbl.columns:
             if col.dtype == "boolean":
                 assert "metric:" not in col.source, (
-                    f"{stem}: {tbl.name}.{col.name} violates F12 "
-                    f"(boolean × metric:source)"
+                    f"{stem}: {tbl.name}.{col.name} violates F12 " f"(boolean × metric:source)"
                 )
                 assert not col.source.startswith("lag:"), (
-                    f"{stem}: {tbl.name}.{col.name} violates F12 "
-                    f"(boolean × lag:source)"
+                    f"{stem}: {tbl.name}.{col.name} violates F12 " f"(boolean × lag:source)"
                 )

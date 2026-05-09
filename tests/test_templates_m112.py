@@ -27,6 +27,7 @@ as Python:
   * Determinism: each domain template produces byte-identical
     CSV/manifest output across two runs with the same seed.
 """
+
 from __future__ import annotations
 
 import io
@@ -51,31 +52,58 @@ RECIPE_FILES = ("ds_recipes.yaml", "de_recipes.yaml")
 # mirrors each YAML's ``tables:`` + ``bridges:`` declarations.
 EXPECTED_TABLES: dict[str, set[str]] = {
     "saas": {
-        "dim_date", "dim_company", "dim_user", "dim_plan",
-        "fct_engagement", "fct_revenue", "fct_support_tickets",
-        "evt_login", "evt_churn",
+        "dim_date",
+        "dim_company",
+        "dim_user",
+        "dim_plan",
+        "fct_engagement",
+        "fct_revenue",
+        "fct_support_tickets",
+        "evt_login",
+        "evt_churn",
     },
     "hr": {
-        "dim_date", "dim_department", "dim_employee",
-        "fct_performance", "fct_training", "fct_attendance",
+        "dim_date",
+        "dim_department",
+        "dim_employee",
+        "fct_performance",
+        "fct_training",
+        "fct_attendance",
         "evt_attrition",
     },
     "education": {
-        "dim_date", "dim_student", "dim_course",
-        "fct_grades", "fct_engagement", "evt_dropout",
+        "dim_date",
+        "dim_student",
+        "dim_course",
+        "fct_grades",
+        "fct_engagement",
+        "evt_dropout",
         "bridge_enrollment",
     },
     "retail": {
-        "dim_date", "dim_customer", "dim_product_category",
-        "dim_store_type", "dim_promotion",
-        "fct_sessions", "fct_purchases", "evt_cart_abandonment",
-        "bridge_customer_category", "bridge_customer_promotion",
+        "dim_date",
+        "dim_customer",
+        "dim_product_category",
+        "dim_store_type",
+        "dim_promotion",
+        "fct_sessions",
+        "fct_purchases",
+        "evt_cart_abandonment",
+        "bridge_customer_category",
+        "bridge_customer_promotion",
     },
     "marketing": {
-        "dim_date", "dim_customer", "dim_channel", "dim_campaign",
+        "dim_date",
+        "dim_customer",
+        "dim_channel",
+        "dim_campaign",
         "dim_product_category",
-        "fct_traffic", "fct_campaigns", "fct_revenue", "evt_churn",
-        "bridge_customer_channel", "bridge_customer_campaign",
+        "fct_traffic",
+        "fct_campaigns",
+        "fct_revenue",
+        "evt_churn",
+        "bridge_customer_channel",
+        "bridge_customer_campaign",
     },
 }
 
@@ -99,9 +127,7 @@ def _run_cli(*argv: str) -> tuple[int, str, str]:
 
 @pytest.mark.parametrize("name", DOMAIN_TEMPLATES)
 def test_validate_config_only_passes(name):
-    code, out, _err = _run_cli(
-        "validate", "--config-only", str(_template_path(name))
-    )
+    code, out, _err = _run_cli("validate", "--config-only", str(_template_path(name)))
     assert code == 0, out
     assert "VALID:" in out
 
@@ -115,7 +141,8 @@ def test_run_succeeds_and_emits_expected_tables(name, tmp_path):
     code, _stdout, _stderr = _run_cli(
         "run",
         str(_template_path(name)),
-        "-o", str(out_dir),
+        "-o",
+        str(out_dir),
         "-q",
         "--allow-absolute-output",
     )
@@ -137,8 +164,12 @@ def test_run_succeeds_and_emits_expected_tables(name, tmp_path):
 def test_education_dim_student_has_scd_columns(tmp_path):
     out_dir = tmp_path / "education"
     code, _o, _e = _run_cli(
-        "run", str(_template_path("education")),
-        "-o", str(out_dir), "-q", "--allow-absolute-output",
+        "run",
+        str(_template_path("education")),
+        "-o",
+        str(out_dir),
+        "-q",
+        "--allow-absolute-output",
     )
     assert code == 0
 
@@ -161,8 +192,12 @@ def test_education_dim_student_has_scd_columns(tmp_path):
 def test_education_fct_engagement_has_stage_column(tmp_path):
     out_dir = tmp_path / "education"
     code, _o, _e = _run_cli(
-        "run", str(_template_path("education")),
-        "-o", str(out_dir), "-q", "--allow-absolute-output",
+        "run",
+        str(_template_path("education")),
+        "-o",
+        str(out_dir),
+        "-q",
+        "--allow-absolute-output",
     )
     assert code == 0
 
@@ -182,16 +217,15 @@ def test_no_ml_or_de_config_in_domain_templates(name):
     parsed = yaml.safe_load(text)
 
     for forbidden in ("entity_features", "holdout", "quality"):
-        assert forbidden not in parsed, (
-            f"{name}.yaml contains active ``{forbidden}:`` key"
-        )
+        assert forbidden not in parsed, f"{name}.yaml contains active ``{forbidden}:`` key"
 
     # Commented active blocks would re-enter the file via copy-paste of an
     # earlier mission's template; reject them too. Match a top-level key
     # appearing as a comment header (``# entity_features:``).
     for forbidden in ("entity_features", "holdout", "quality"):
         comment_pattern = re.compile(
-            rf"^#\s*{re.escape(forbidden)}\s*:", re.MULTILINE,
+            rf"^#\s*{re.escape(forbidden)}\s*:",
+            re.MULTILINE,
         )
         match = comment_pattern.search(text)
         assert match is None, (
@@ -239,9 +273,9 @@ RECIPE_SNIPPETS = (
 def test_recipe_snippet_uncomments_to_valid_yaml(recipe_file, recipe_name):
     snippet = _extract_recipe_snippet(CONFIGS_DIR / recipe_file, recipe_name)
     parsed = yaml.safe_load(snippet)
-    assert isinstance(parsed, dict) and parsed, (
-        f"{recipe_name} snippet did not produce a non-empty mapping"
-    )
+    assert (
+        isinstance(parsed, dict) and parsed
+    ), f"{recipe_name} snippet did not produce a non-empty mapping"
 
 
 def test_ds_recipes_lists_target_for_all_five_domains():
@@ -251,26 +285,22 @@ def test_ds_recipes_lists_target_for_all_five_domains():
     for domain in DOMAIN_TEMPLATES:
         # Each domain name appears at least twice (classification + forecasting
         # per-domain tables).
-        assert text.count(f"{domain}") >= 2, (
-            f"ds_recipes.yaml mentions ``{domain}`` fewer than twice"
-        )
+        assert (
+            text.count(f"{domain}") >= 2
+        ), f"ds_recipes.yaml mentions ``{domain}`` fewer than twice"
 
 
 def test_de_recipes_lists_target_for_all_five_domains():
     text = (CONFIGS_DIR / "de_recipes.yaml").read_text(encoding="utf-8")
     for domain in DOMAIN_TEMPLATES:
-        assert domain in text, (
-            f"de_recipes.yaml does not mention ``{domain}``"
-        )
+        assert domain in text, f"de_recipes.yaml does not mention ``{domain}``"
 
 
 # --- Recipe integration: merged config validates ----------------------------
 
 
 def test_classification_recipe_validates_against_education(tmp_path):
-    snippet = _extract_recipe_snippet(
-        CONFIGS_DIR / "ds_recipes.yaml", "classification"
-    )
+    snippet = _extract_recipe_snippet(CONFIGS_DIR / "ds_recipes.yaml", "classification")
     snippet = snippet.replace("<TARGET_METRIC>", "dropout_risk")
     base = _template_path("education").read_text(encoding="utf-8")
     merged = base + "\n" + snippet
@@ -283,9 +313,7 @@ def test_classification_recipe_validates_against_education(tmp_path):
 
 
 def test_pipeline_testing_recipe_validates_against_saas(tmp_path):
-    snippet = _extract_recipe_snippet(
-        CONFIGS_DIR / "de_recipes.yaml", "pipeline_testing"
-    )
+    snippet = _extract_recipe_snippet(CONFIGS_DIR / "de_recipes.yaml", "pipeline_testing")
     base = _template_path("saas").read_text(encoding="utf-8")
     merged = base + "\n" + snippet
     target = tmp_path / "saas_pipeline_testing.yaml"
@@ -305,8 +333,12 @@ def test_template_output_is_byte_identical_across_runs(name, tmp_path):
     out_b = tmp_path / "run_b"
     for out_dir in (out_a, out_b):
         code, _o, _e = _run_cli(
-            "run", str(_template_path(name)),
-            "-o", str(out_dir), "-q", "--allow-absolute-output",
+            "run",
+            str(_template_path(name)),
+            "-o",
+            str(out_dir),
+            "-q",
+            "--allow-absolute-output",
         )
         assert code == 0
 

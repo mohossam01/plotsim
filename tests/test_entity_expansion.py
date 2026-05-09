@@ -7,6 +7,7 @@ travels via ``Table.count`` (default 1) — the two compose multiplicatively
 in ``dimensions.build_dim_subentity`` so engine-direct and builder paths
 share one code path.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -129,8 +130,8 @@ def test_bug_reproduction_three_segments_180_entities_4320_fact_rows():
         metrics=[{"name": "utilization", "type": "score", "polarity": "positive"}],
         segments=[
             {"name": "new_fleet", "count": 80, "archetype": "growth"},
-            {"name": "mid_life",  "count": 60, "archetype": "flat"},
-            {"name": "retiring",  "count": 40, "archetype": "decline"},
+            {"name": "mid_life", "count": 60, "archetype": "flat"},
+            {"name": "retiring", "count": 40, "archetype": "decline"},
         ],
     )
     assert len(cfg.entities) == 180
@@ -174,9 +175,7 @@ def test_saas_template_validate_returns_ok():
     cfg = _silent_create_from_yaml(TEMPLATE_YAML)
     tables = _generate(cfg)
     report = validate(cfg, tables)
-    assert report.ok, [
-        f"{i.check}: {i.message}" for i in report.errors
-    ]
+    assert report.ok, [f"{i.check}: {i.message}" for i in report.errors]
 
 
 def test_saas_template_dim_user_has_95_rows_default_count():
@@ -196,9 +195,9 @@ def test_saas_template_fact_tables_have_2280_rows_each():
     # 95 entities × 24 periods.
     expected = 95 * 24
     for fact_name in ("fct_engagement", "fct_revenue", "fct_support_tickets"):
-        assert len(tables[fact_name]) == expected, (
-            f"{fact_name}: expected {expected}, got {len(tables[fact_name])}"
-        )
+        assert (
+            len(tables[fact_name]) == expected
+        ), f"{fact_name}: expected {expected}, got {len(tables[fact_name])}"
 
 
 # ── Table.count sub-entity multiplier ───────────────────────────────────────
@@ -215,25 +214,41 @@ def test_table_count_3_on_variable_dim_produces_3x_rows():
         metrics=[{"name": "engagement", "type": "score", "polarity": "positive"}],
         segments=[{"name": "team", "count": 5, "archetype": "growth"}],
         dimensions=[
-            {"name": "dim_date", "per": "period", "columns": [
-                {"name": "date_key", "type": "id"},
-            ]},
-            {"name": "dim_company", "per": "unit", "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "company_name", "type": "faker.company"},
-            ]},
-            {"name": "dim_user", "per": "unit", "count": 3, "columns": [
-                {"name": "user_id", "type": "id"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "user_name", "type": "faker.name"},
-            ]},
+            {
+                "name": "dim_date",
+                "per": "period",
+                "columns": [
+                    {"name": "date_key", "type": "id"},
+                ],
+            },
+            {
+                "name": "dim_company",
+                "per": "unit",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "company_name", "type": "faker.company"},
+                ],
+            },
+            {
+                "name": "dim_user",
+                "per": "unit",
+                "count": 3,
+                "columns": [
+                    {"name": "user_id", "type": "id"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "user_name", "type": "faker.name"},
+                ],
+            },
         ],
         facts=[
-            {"name": "fct_engagement", "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement", "type": "metric.engagement"},
-            ]},
+            {
+                "name": "fct_engagement",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement", "type": "metric.engagement"},
+                ],
+            },
         ],
     )
     dim_user_tbl = next(t for t in cfg.tables if t.name == "dim_user")
@@ -276,65 +291,89 @@ def test_multiplicative_size_times_count():
     should yield 15 sub-entity rows per parent. Validates the
     multiplicative composition without going through the builder."""
     from plotsim.config import (
-        Archetype, CurveSegment, Domain, Metric, OutputConfig,
-        PlotsimConfig, TimeWindow, ValueRange,
+        Archetype,
+        CurveSegment,
+        Domain,
+        Metric,
+        OutputConfig,
+        PlotsimConfig,
+        TimeWindow,
+        ValueRange,
     )
+
     cfg = PlotsimConfig(
         domain=Domain(
-            name="multi", description="multi", entity_type="company",
+            name="multi",
+            description="multi",
+            entity_type="company",
             entity_label="Companies",
         ),
         time_window=TimeWindow(start="2024-01", end="2024-06", granularity="monthly"),
         seed=42,
-        metrics=[Metric(
-            name="engagement", label="Engagement", distribution="beta",
-            params={"alpha": 2.0, "beta": 5.0}, polarity="positive",
-            value_range=ValueRange(min=0.0, max=1.0),
-        )],
-        archetypes=[Archetype(
-            name="growth", label="Growth", description="growth",
-            curve_segments=[CurveSegment(
-                curve="sigmoid", start_pct=0.0, end_pct=1.0,
-                params={"midpoint": 0.5, "steepness": 5.0},
-            )],
-        )],
+        metrics=[
+            Metric(
+                name="engagement",
+                label="Engagement",
+                distribution="beta",
+                params={"alpha": 2.0, "beta": 5.0},
+                polarity="positive",
+                value_range=ValueRange(min=0.0, max=1.0),
+            )
+        ],
+        archetypes=[
+            Archetype(
+                name="growth",
+                label="Growth",
+                description="growth",
+                curve_segments=[
+                    CurveSegment(
+                        curve="sigmoid",
+                        start_pct=0.0,
+                        end_pct=1.0,
+                        params={"midpoint": 0.5, "steepness": 5.0},
+                    )
+                ],
+            )
+        ],
         entities=[Entity(name="cohort", archetype="growth", size=5)],
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
             Table(
-                name="dim_company", type="dim", grain="per_entity",
+                name="dim_company",
+                type="dim",
+                grain="per_entity",
                 columns=[
                     Column(name="company_id", dtype="id", source="pk"),
-                    Column(name="company_name", dtype="string",
-                           source="generated:faker.company"),
+                    Column(name="company_name", dtype="string", source="generated:faker.company"),
                 ],
                 primary_key="company_id",
             ),
             Table(
-                name="dim_user", type="dim", grain="variable",
+                name="dim_user",
+                type="dim",
+                grain="variable",
                 columns=[
                     Column(name="user_id", dtype="id", source="pk"),
-                    Column(name="company_id", dtype="id",
-                           source="fk:dim_company.company_id"),
+                    Column(name="company_id", dtype="id", source="fk:dim_company.company_id"),
                 ],
                 primary_key="user_id",
                 foreign_keys=["dim_company.company_id"],
                 count=3,
             ),
             Table(
-                name="fct_engagement", type="fact",
+                name="fct_engagement",
+                type="fact",
                 grain="per_entity_per_period",
                 columns=[
-                    Column(name="date_key", dtype="id",
-                           source="fk:dim_date.date_key"),
-                    Column(name="company_id", dtype="id",
-                           source="fk:dim_company.company_id"),
-                    Column(name="engagement", dtype="float",
-                           source="metric:engagement"),
+                    Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
+                    Column(name="company_id", dtype="id", source="fk:dim_company.company_id"),
+                    Column(name="engagement", dtype="float", source="metric:engagement"),
                 ],
                 primary_key=["date_key", "company_id"],
                 foreign_keys=["dim_date.date_key", "dim_company.company_id"],
@@ -382,11 +421,12 @@ def test_segment_count_value_pool_carries_original_cohort_size():
     # can't drift if the template changes counts; iterate over all 6
     # segments and assert each expanded entity's pool list = [str(count)].
     import yaml as _yaml
+
     src = _yaml.safe_load(TEMPLATE_YAML.read_text(encoding="utf-8"))
     segment_counts = {s["name"]: s["count"] for s in src["segments"]}
-    assert len(segment_counts) == 6, (
-        f"saas template should have 6 segments; got {sorted(segment_counts)}"
-    )
+    assert (
+        len(segment_counts) == 6
+    ), f"saas template should have 6 segments; got {sorted(segment_counts)}"
 
     seen_segments: set[str] = set()
     for entity_name, pool_values in cohort_col.value_pool.items():
@@ -400,14 +440,14 @@ def test_segment_count_value_pool_carries_original_cohort_size():
             f"{sorted(segment_counts)}"
         )
         expected = [str(segment_counts[prefix])]
-        assert pool_values == expected, (
-            f"{entity_name}: expected pool {expected}, got {pool_values}"
-        )
+        assert (
+            pool_values == expected
+        ), f"{entity_name}: expected pool {expected}, got {pool_values}"
         seen_segments.add(prefix)
     # Every declared segment is represented in the pool.
-    assert seen_segments == set(segment_counts), (
-        f"missing segments: {sorted(set(segment_counts) - seen_segments)}"
-    )
+    assert seen_segments == set(
+        segment_counts
+    ), f"missing segments: {sorted(set(segment_counts) - seen_segments)}"
 
 
 def test_validate_value_pool_coverage_passes_with_expanded_names():
@@ -429,15 +469,18 @@ def test_segment_count_column_resolves_to_cohort_size_in_dim_rows():
     # Build expected map: company_id (in cfg.entities order) → cohort_size.
     expected = []
     for s in (
-        ("promising_client", 20), ("steady_enterprise", 25),
-        ("slow_churn", 15), ("seasonal_accounts", 15),
-        ("dormant", 10), ("turnaround", 10),
+        ("promising_client", 20),
+        ("steady_enterprise", 25),
+        ("slow_churn", 15),
+        ("seasonal_accounts", 15),
+        ("dormant", 10),
+        ("turnaround", 10),
     ):
         expected.extend([s[1]] * s[1])
     actual = current["cohort_size"].tolist()
-    assert actual == expected, (
-        f"cohort_size mismatch: first 5 expected={expected[:5]} actual={actual[:5]}"
-    )
+    assert (
+        actual == expected
+    ), f"cohort_size mismatch: first 5 expected={expected[:5]} actual={actual[:5]}"
 
 
 # ── Backward compatibility ──────────────────────────────────────────────────
@@ -508,6 +551,4 @@ def test_different_seed_yields_different_values_same_structure():
     # At least one fact column differs.
     fct_a = a["fct_company"]["engagement"].to_numpy()
     fct_b = b["fct_company"]["engagement"].to_numpy()
-    assert not np.array_equal(fct_a, fct_b), (
-        "different seeds produced identical fact column"
-    )
+    assert not np.array_equal(fct_a, fct_b), "different seeds produced identical fact column"

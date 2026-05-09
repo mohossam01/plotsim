@@ -116,19 +116,21 @@ def test_position_to_center_weibull():
 
 
 def test_position_to_center_polarity_inverts():
-    m_pos = _metric(distribution="normal", params={"mu": 10.0, "sigma": 1.0},
-                    polarity="positive")
-    m_neg = _metric(distribution="normal", params={"mu": 10.0, "sigma": 1.0},
-                    polarity="negative")
+    m_pos = _metric(distribution="normal", params={"mu": 10.0, "sigma": 1.0}, polarity="positive")
+    m_neg = _metric(distribution="normal", params={"mu": 10.0, "sigma": 1.0}, polarity="negative")
     assert position_to_center(0.8, m_pos) == pytest.approx(position_to_center(0.2, m_neg))
 
 
 def test_position_to_center_unsupported_raises():
     # Bypass Pydantic by mutating a dict; build a fake metric via model_construct.
     m = Metric.model_construct(
-        name="x", label="x", distribution="bogus", params={},
+        name="x",
+        label="x",
+        distribution="bogus",
+        params={},
         polarity="positive",
-        value_range=None, causal_lag=None,
+        value_range=None,
+        causal_lag=None,
     )
     with pytest.raises(ValueError, match="unsupported distribution"):
         position_to_center(0.5, m)
@@ -137,14 +139,17 @@ def test_position_to_center_unsupported_raises():
 # --- sample_single_metric ----------------------------------------------------
 
 
-@pytest.mark.parametrize("dist,params,center", [
-    ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}, 50.0),
-    ("gamma", {"shape": 2.0, "scale": 3.0}, 3.0),
-    ("poisson", {"lambda": 5.0}, 3.0),
-    ("beta", {"alpha": 2.0, "beta": 5.0}, 0.5),
-    ("normal", {"mu": 30.0, "sigma": 5.0}, 15.0),
-    ("weibull", {"shape": 1.5, "scale": 10.0}, 5.0),
-])
+@pytest.mark.parametrize(
+    "dist,params,center",
+    [
+        ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}, 50.0),
+        ("gamma", {"shape": 2.0, "scale": 3.0}, 3.0),
+        ("poisson", {"lambda": 5.0}, 3.0),
+        ("beta", {"alpha": 2.0, "beta": 5.0}, 0.5),
+        ("normal", {"mu": 30.0, "sigma": 5.0}, 15.0),
+        ("weibull", {"shape": 1.5, "scale": 10.0}, 5.0),
+    ],
+)
 def test_sample_single_metric_no_nan_or_inf(dist, params, center):
     m = _metric(distribution=dist, params=params)
     rng = _rng(42)
@@ -161,9 +166,13 @@ def test_sample_gamma_zero_center_returns_zero():
 
 def test_sample_unsupported_raises():
     m = Metric.model_construct(
-        name="x", label="x", distribution="bogus", params={},
+        name="x",
+        label="x",
+        distribution="bogus",
+        params={},
         polarity="positive",
-        value_range=None, causal_lag=None,
+        value_range=None,
+        causal_lag=None,
     )
     with pytest.raises(ValueError, match="unsupported distribution"):
         sample_single_metric(1.0, m, _rng(0))
@@ -173,7 +182,10 @@ def test_sample_unsupported_raises():
 
 
 def _mean_value_at_position(
-    metric: Metric, position: float, n: int = 400, seed: int = 0,
+    metric: Metric,
+    position: float,
+    n: int = 400,
+    seed: int = 0,
 ) -> float:
     rng = _rng(seed)
     center = position_to_center(position, metric)
@@ -181,34 +193,38 @@ def _mean_value_at_position(
     return float(np.mean(vals))
 
 
-@pytest.mark.parametrize("dist,params", [
-    ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}),
-    ("gamma", {"shape": 2.0, "scale": 3.0}),
-    ("poisson", {"lambda": 20.0}),
-    ("beta", {"alpha": 2.0, "beta": 5.0}),
-    ("normal", {"mu": 30.0, "sigma": 5.0}),
-    ("weibull", {"shape": 1.5, "scale": 10.0}),
-])
+@pytest.mark.parametrize(
+    "dist,params",
+    [
+        ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}),
+        ("gamma", {"shape": 2.0, "scale": 3.0}),
+        ("poisson", {"lambda": 20.0}),
+        ("beta", {"alpha": 2.0, "beta": 5.0}),
+        ("normal", {"mu": 30.0, "sigma": 5.0}),
+        ("weibull", {"shape": 1.5, "scale": 10.0}),
+    ],
+)
 def test_positive_polarity_increases_mean_with_position(dist, params):
     vr = ValueRange(min=0.0, max=1.0) if dist == "beta" else None
-    m = _metric(distribution=dist, params=params, polarity="positive",
-                value_range=vr)
+    m = _metric(distribution=dist, params=params, polarity="positive", value_range=vr)
     low = _mean_value_at_position(m, 0.1, seed=0)
     high = _mean_value_at_position(m, 0.9, seed=0)
     assert high > low, f"{dist}: expected high-pos mean > low-pos mean (got {high} vs {low})"
 
 
-@pytest.mark.parametrize("dist,params", [
-    ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}),
-    ("gamma", {"shape": 2.0, "scale": 3.0}),
-    ("poisson", {"lambda": 20.0}),
-    ("beta", {"alpha": 2.0, "beta": 5.0}),
-    ("normal", {"mu": 30.0, "sigma": 5.0}),
-])
+@pytest.mark.parametrize(
+    "dist,params",
+    [
+        ("lognorm", {"s": 0.5, "loc": 0.0, "scale": 100.0}),
+        ("gamma", {"shape": 2.0, "scale": 3.0}),
+        ("poisson", {"lambda": 20.0}),
+        ("beta", {"alpha": 2.0, "beta": 5.0}),
+        ("normal", {"mu": 30.0, "sigma": 5.0}),
+    ],
+)
 def test_negative_polarity_decreases_mean_with_position(dist, params):
     vr = ValueRange(min=0.0, max=1.0) if dist == "beta" else None
-    m = _metric(distribution=dist, params=params, polarity="negative",
-                value_range=vr)
+    m = _metric(distribution=dist, params=params, polarity="negative", value_range=vr)
     low = _mean_value_at_position(m, 0.1, seed=1)
     high = _mean_value_at_position(m, 0.9, seed=1)
     assert low > high, f"{dist}: expected low-pos mean > high-pos mean (got {low} vs {high})"
@@ -218,8 +234,11 @@ def test_negative_polarity_decreases_mean_with_position(dist, params):
 
 
 def test_value_range_clamps_min_and_max():
-    m = _metric(distribution="normal", params={"mu": 100.0, "sigma": 50.0},
-                value_range=ValueRange(min=20.0, max=40.0))
+    m = _metric(
+        distribution="normal",
+        params={"mu": 100.0, "sigma": 50.0},
+        value_range=ValueRange(min=20.0, max=40.0),
+    )
     out = generate_entity_metrics(
         trajectory=np.full(500, 0.5),
         metrics=[m],
@@ -250,7 +269,9 @@ def test_poisson_returns_int_array():
 
 
 def _two_metric_correlated_series(
-    coeff: float, n_periods: int = 1200, seed: int = 0,
+    coeff: float,
+    n_periods: int = 1200,
+    seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Drive two normal metrics with a flat trajectory so only residuals co-move."""
     m_a = _metric("a", distribution="normal", params={"mu": 100.0, "sigma": 10.0})
@@ -296,14 +317,12 @@ def test_no_correlations_config_independent():
 def test_cholesky_handles_multi_metric_sizes(k):
     """Identity matrix (no pairs) is trivially PSD; just check it runs."""
     metrics = [
-        _metric(f"m{i}", distribution="normal",
-                params={"mu": 10.0 + i, "sigma": 1.0})
+        _metric(f"m{i}", distribution="normal", params={"mu": 10.0 + i, "sigma": 1.0})
         for i in range(k)
     ]
     # One chained correlation pair to exercise Cholesky on a k x k matrix.
     correlations = [
-        CorrelationPair(metric_a=f"m{i}", metric_b=f"m{i+1}", coefficient=0.3)
-        for i in range(k - 1)
+        CorrelationPair(metric_a=f"m{i}", metric_b=f"m{i+1}", coefficient=0.3) for i in range(k - 1)
     ]
     out = generate_entity_metrics(
         trajectory=np.full(50, 0.5),
@@ -328,8 +347,9 @@ def test_non_psd_correlation_matrix_projects_in_cold_path():
     # -1.0 has nearest-PD = identity (every pair forces away from every
     # other), so the cold path should run to completion and emit
     # samples whose pairwise correlation is small.
-    metrics = [_metric(f"m{i}", distribution="normal",
-                       params={"mu": 10.0, "sigma": 1.0}) for i in range(3)]
+    metrics = [
+        _metric(f"m{i}", distribution="normal", params={"mu": 10.0, "sigma": 1.0}) for i in range(3)
+    ]
     correlations = [
         CorrelationPair(metric_a="m0", metric_b="m1", coefficient=-1.0),
         CorrelationPair(metric_a="m0", metric_b="m2", coefficient=-1.0),
@@ -361,13 +381,16 @@ def test_apply_correlations_empty_list_returns_input():
 
 def test_causal_lag_no_lag_matches_trajectory():
     """Without causal_lag, generate_entity_metrics uses the trajectory unmodified."""
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.01})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.01})
     rng = _rng(0)
     # A step trajectory: low → high.
     traj = np.concatenate([np.full(10, 0.2), np.full(10, 0.8)])
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[driver], correlations=None, noise=None, rng=rng,
+        trajectory=traj,
+        metrics=[driver],
+        correlations=None,
+        noise=None,
+        rng=rng,
     )
     arr = out["driver"].astype(float)
     # Step in trajectory at t=10 → step in mean at t=10.
@@ -377,18 +400,21 @@ def test_causal_lag_no_lag_matches_trajectory():
 def test_causal_lag_shifts_inflection():
     """A lagged metric's inflection appears ~lag periods after the driver's."""
     # Driver: positive polarity, tracks trajectory directly.
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.01})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.01})
     # Lagged: positive polarity, same distribution, lag_periods=3.
     lagged = _metric(
-        "lagged", distribution="normal",
+        "lagged",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.01},
         causal_lag=CausalLag(driver="driver", lag_periods=3),
     )
     traj = np.concatenate([np.full(15, 0.1), np.full(15, 0.9)])
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[driver, lagged],
-        correlations=None, noise=None, rng=_rng(0),
+        trajectory=traj,
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
     driver_arr = out["driver"].astype(float)
     lagged_arr = out["lagged"].astype(float)
@@ -406,18 +432,21 @@ def test_causal_lag_shifts_inflection():
 
 def test_causal_lag_fallback_when_insufficient_history():
     """For period < lag_periods, effective position = current position."""
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.01})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.01})
     # lag=5, but trajectory starts high — first 5 periods should match "high".
     lagged = _metric(
-        "lagged", distribution="normal",
+        "lagged",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.01},
         causal_lag=CausalLag(driver="driver", lag_periods=5),
     )
     traj = np.full(10, 0.9)
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[driver, lagged],
-        correlations=None, noise=None, rng=_rng(0),
+        trajectory=traj,
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
     lagged_arr = out["lagged"].astype(float)
     # All periods should produce ~90 (mu * 0.9) since position is flat.
@@ -426,24 +455,30 @@ def test_causal_lag_fallback_when_insufficient_history():
 
 def test_causal_lag_no_entity_leak():
     """Two entities generated sequentially don't share lag history."""
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.01})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.01})
     lagged = _metric(
-        "lagged", distribution="normal",
+        "lagged",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.01},
         causal_lag=CausalLag(driver="driver", lag_periods=2),
     )
     rng = _rng(0)
     # Entity 1: high trajectory.
     out1 = generate_entity_metrics(
-        trajectory=np.full(5, 0.9), metrics=[driver, lagged],
-        correlations=None, noise=None, rng=rng,
+        trajectory=np.full(5, 0.9),
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=rng,
     )
     # Entity 2: low trajectory. If lag_buffer leaked, entity 2's first 2 periods
     # would blend against entity 1's 0.9 driver history.
     out2 = generate_entity_metrics(
-        trajectory=np.full(5, 0.1), metrics=[driver, lagged],
-        correlations=None, noise=None, rng=rng,
+        trajectory=np.full(5, 0.1),
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=rng,
     )
     arr2 = out2["lagged"].astype(float)
     # Should all be around mu*0.1 = 10.
@@ -469,21 +504,24 @@ def test_causal_lag_full_override_equals_shifted_driver():
     With sigma=0 the normal distribution collapses to a delta on ``center``,
     so driver[t] = mu * traj[t] and lagged[t] = mu * traj[t-N] for t >= N.
     """
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.0})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.0})
     lagged = _metric(
-        "lagged", distribution="normal",
+        "lagged",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="driver", lag_periods=3, blend_weight=1.0),
     )
     traj = np.linspace(0.1, 0.9, 30)
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[driver, lagged],
-        correlations=None, noise=None, rng=_rng(0),
+        trajectory=traj,
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
     d = out["driver"].astype(float)
-    l = out["lagged"].astype(float)
-    np.testing.assert_allclose(l[3:], d[:-3], atol=1e-9)
+    lag = out["lagged"].astype(float)
+    np.testing.assert_allclose(lag[3:], d[:-3], atol=1e-9)
 
 
 def test_causal_lag_blend_weight_06_recovers_prior_behavior():
@@ -493,22 +531,25 @@ def test_causal_lag_blend_weight_06_recovers_prior_behavior():
     the softer behavior set blend_weight explicitly rather than getting it
     silently as a default.
     """
-    driver = _metric("driver", distribution="normal",
-                     params={"mu": 100.0, "sigma": 0.0})
+    driver = _metric("driver", distribution="normal", params={"mu": 100.0, "sigma": 0.0})
     lagged = _metric(
-        "lagged", distribution="normal",
+        "lagged",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="driver", lag_periods=3, blend_weight=0.6),
     )
     traj = np.linspace(0.1, 0.9, 30)
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[driver, lagged],
-        correlations=None, noise=None, rng=_rng(0),
+        trajectory=traj,
+        metrics=[driver, lagged],
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
-    l = out["lagged"].astype(float)
+    lag = out["lagged"].astype(float)
     mu = 100.0
     expected = mu * (0.4 * traj[3:] + 0.6 * traj[:-3])
-    np.testing.assert_allclose(l[3:], expected, atol=1e-9)
+    np.testing.assert_allclose(lag[3:], expected, atol=1e-9)
 
 
 def test_causal_lag_chain_composes():
@@ -518,22 +559,26 @@ def test_causal_lag_chain_composes():
     period t reads B's effective position at t-3, which was itself buffered
     as A at (t-3)-2 = t-5. So C[t] = A[t-5] for t >= 5.
     """
-    a = _metric("a", distribution="normal",
-                params={"mu": 100.0, "sigma": 0.0})
+    a = _metric("a", distribution="normal", params={"mu": 100.0, "sigma": 0.0})
     b = _metric(
-        "b", distribution="normal",
+        "b",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="a", lag_periods=2, blend_weight=1.0),
     )
     c = _metric(
-        "c", distribution="normal",
+        "c",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="b", lag_periods=3, blend_weight=1.0),
     )
     traj = np.linspace(0.1, 0.9, 30)
     out = generate_entity_metrics(
-        trajectory=traj, metrics=[a, b, c],
-        correlations=None, noise=None, rng=_rng(0),
+        trajectory=traj,
+        metrics=[a, b, c],
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
     a_arr = out["a"].astype(float)
     c_arr = out["c"].astype(float)
@@ -554,20 +599,22 @@ def test_causal_lag_driver_field_is_meaningful():
       target_base     — lag=2 on base          → target[t] = traj[t-2]
       target_intermed — lag=2 on intermediate  → target[t] = traj[t-7] for t >= 7
     """
-    base = _metric("base", distribution="normal",
-                   params={"mu": 100.0, "sigma": 0.0})
+    base = _metric("base", distribution="normal", params={"mu": 100.0, "sigma": 0.0})
     intermediate = _metric(
-        "intermediate", distribution="normal",
+        "intermediate",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="base", lag_periods=5, blend_weight=1.0),
     )
     target_base = _metric(
-        "target_base", distribution="normal",
+        "target_base",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="base", lag_periods=2, blend_weight=1.0),
     )
     target_intermed = _metric(
-        "target_intermed", distribution="normal",
+        "target_intermed",
+        distribution="normal",
         params={"mu": 100.0, "sigma": 0.0},
         causal_lag=CausalLag(driver="intermediate", lag_periods=2, blend_weight=1.0),
     )
@@ -575,7 +622,9 @@ def test_causal_lag_driver_field_is_meaningful():
     out = generate_entity_metrics(
         trajectory=traj,
         metrics=[base, intermediate, target_base, target_intermed],
-        correlations=None, noise=None, rng=_rng(0),
+        correlations=None,
+        noise=None,
+        rng=_rng(0),
     )
     t_base = out["target_base"].astype(float)
     t_inter = out["target_intermed"].astype(float)
@@ -620,19 +669,24 @@ def test_causal_lag_saas_template_determinism():
     cfg = load_config(SAAS_YAML)
     traj = np.linspace(0.05, 0.95, 24)
     out1 = generate_entity_metrics(
-        trajectory=traj, metrics=list(cfg.metrics),
-        correlations=list(cfg.correlations), noise=cfg.noise,
+        trajectory=traj,
+        metrics=list(cfg.metrics),
+        correlations=list(cfg.correlations),
+        noise=cfg.noise,
         rng=_rng(cfg.seed),
     )
     out2 = generate_entity_metrics(
-        trajectory=traj, metrics=list(cfg.metrics),
-        correlations=list(cfg.correlations), noise=cfg.noise,
+        trajectory=traj,
+        metrics=list(cfg.metrics),
+        correlations=list(cfg.correlations),
+        noise=cfg.noise,
         rng=_rng(cfg.seed),
     )
     assert set(out1.keys()) == set(out2.keys())
     for name in out1:
         np.testing.assert_array_equal(
-            np.asarray(out1[name]), np.asarray(out2[name]),
+            np.asarray(out1[name]),
+            np.asarray(out2[name]),
         )
 
 
@@ -644,13 +698,19 @@ def test_noise_gaussian_sigma_zero_is_identity():
     noise = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
     rng1 = _rng(0)
     clean_out = generate_entity_metrics(
-        trajectory=np.full(50, 0.5), metrics=[m],
-        correlations=None, noise=None, rng=rng1,
+        trajectory=np.full(50, 0.5),
+        metrics=[m],
+        correlations=None,
+        noise=None,
+        rng=rng1,
     )
     rng2 = _rng(0)
     noised_out = generate_entity_metrics(
-        trajectory=np.full(50, 0.5), metrics=[m],
-        correlations=None, noise=noise, rng=rng2,
+        trajectory=np.full(50, 0.5),
+        metrics=[m],
+        correlations=None,
+        noise=noise,
+        rng=rng2,
     )
     np.testing.assert_array_equal(clean_out["m"], noised_out["m"])
 
@@ -659,8 +719,11 @@ def test_noise_outlier_rate_approximately_matches():
     m = _metric(distribution="normal", params={"mu": 100.0, "sigma": 5.0})
     noise = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.05, mcar_rate=0.0)
     out = generate_entity_metrics(
-        trajectory=np.full(10000, 0.5), metrics=[m],
-        correlations=None, noise=noise, rng=_rng(0),
+        trajectory=np.full(10000, 0.5),
+        metrics=[m],
+        correlations=None,
+        noise=noise,
+        rng=_rng(0),
     )
     arr = out["m"].astype(float)
     # Baseline sample is ~N(50, 5). Outlier = uniform(3x, 10x) = 150–500.
@@ -674,8 +737,11 @@ def test_noise_mcar_rate_approximately_matches():
     m = _metric(distribution="normal", params={"mu": 100.0, "sigma": 5.0})
     noise = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.02)
     out = generate_entity_metrics(
-        trajectory=np.full(10000, 0.5), metrics=[m],
-        correlations=None, noise=noise, rng=_rng(0),
+        trajectory=np.full(10000, 0.5),
+        metrics=[m],
+        correlations=None,
+        noise=noise,
+        rng=_rng(0),
     )
     none_count = sum(1 for v in out["m"] if v is None)
     rate = none_count / len(out["m"])
@@ -696,8 +762,7 @@ def test_apply_noise_all_zeros_passthrough():
 
 
 def test_same_seed_identical_output():
-    m = _metric(distribution="lognorm",
-                params={"s": 0.5, "loc": 0.0, "scale": 100.0})
+    m = _metric(distribution="lognorm", params={"s": 0.5, "loc": 0.0, "scale": 100.0})
     traj = np.linspace(0.1, 0.9, 24)
     a = generate_entity_metrics(traj, [m], None, None, _rng(123))
     b = generate_entity_metrics(traj, [m], None, None, _rng(123))
@@ -705,8 +770,7 @@ def test_same_seed_identical_output():
 
 
 def test_different_seed_different_values_same_shape():
-    m = _metric(distribution="lognorm",
-                params={"s": 0.5, "loc": 0.0, "scale": 100.0})
+    m = _metric(distribution="lognorm", params={"s": 0.5, "loc": 0.0, "scale": 100.0})
     traj = np.linspace(0.1, 0.9, 200)
     a = generate_entity_metrics(traj, [m], None, None, _rng(1))["m"].astype(float)
     b = generate_entity_metrics(traj, [m], None, None, _rng(2))["m"].astype(float)
@@ -796,13 +860,17 @@ def test_build_correlation_matrix_structure():
     (matches the pre-hoist behavior).
     """
     from plotsim.metrics import _build_correlation_matrix
+
     metrics = [
-        Metric(name="a", label="A", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
-        Metric(name="b", label="B", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
-        Metric(name="c", label="C", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
+        Metric(
+            name="a", label="A", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
+        Metric(
+            name="b", label="B", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
+        Metric(
+            name="c", label="C", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
     ]
     correlations = [
         CorrelationPair(metric_a="a", metric_b="b", coefficient=0.5),
@@ -825,11 +893,14 @@ def test_apply_correlations_cholesky_L_matches_unhoisted():
     consume RNG via the new copula draw, so feeding identical seeds is
     the equivalence test."""
     from plotsim.metrics import _build_correlation_matrix, apply_correlations
+
     metrics = [
-        Metric(name="a", label="A", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
-        Metric(name="b", label="B", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
+        Metric(
+            name="a", label="A", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
+        Metric(
+            name="b", label="B", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
     ]
     correlations = [
         CorrelationPair(metric_a="a", metric_b="b", coefficient=0.7),
@@ -841,11 +912,18 @@ def test_apply_correlations_cholesky_L_matches_unhoisted():
     L = np.linalg.cholesky(mat)
 
     out_internal = apply_correlations(
-        independent, centers, correlations, metrics,
+        independent,
+        centers,
+        correlations,
+        metrics,
         rng=np.random.default_rng(0),
     )
     out_hoisted = apply_correlations(
-        independent, centers, correlations, metrics, cholesky_L=L,
+        independent,
+        centers,
+        correlations,
+        metrics,
+        cholesky_L=L,
         rng=np.random.default_rng(0),
     )
     assert set(out_internal.keys()) == set(out_hoisted.keys())
@@ -858,9 +936,11 @@ def test_apply_correlations_empty_list_ignores_cholesky_L():
     touches cholesky_L — even a deliberately bogus L must not affect output.
     """
     from plotsim.metrics import apply_correlations
+
     metrics = [
-        Metric(name="a", label="A", distribution="normal",
-               params={"sigma": 1.0}, polarity="positive"),
+        Metric(
+            name="a", label="A", distribution="normal", params={"sigma": 1.0}, polarity="positive"
+        ),
     ]
     bogus_L = np.array([[999.0]])
     out = apply_correlations({"a": 1.0}, {"a": 1.0}, [], metrics, cholesky_L=bogus_L)
@@ -874,6 +954,7 @@ def test_generate_tables_byte_identical_across_runs():
     """
     from plotsim.tables import generate_tables
     import pandas as pd
+
     cfg = load_config(SAAS_YAML)
     a = generate_tables(cfg, np.random.default_rng(cfg.seed))
     b = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -890,41 +971,63 @@ def test_generate_tables_no_correlations_flows_none_L_through():
     chain without attempting any matrix construction."""
     from plotsim.config import PlotsimConfig
     from plotsim.tables import generate_tables
+
     raw = {
-        "domain": {"name": "t", "description": "t",
-                   "entity_type": "x", "entity_label": "x"},
-        "time_window": {"start": "2024-01", "end": "2024-06",
-                         "granularity": "monthly"},
+        "domain": {"name": "t", "description": "t", "entity_type": "x", "entity_label": "x"},
+        "time_window": {"start": "2024-01", "end": "2024-06", "granularity": "monthly"},
         "seed": 1,
-        "metrics": [{
-            "name": "m", "label": "M", "distribution": "lognorm",
-            "params": {"s": 0.5, "scale": 1.0}, "polarity": "positive",
-        }],
-        "archetypes": [{
-            "name": "a", "label": "A", "description": "-",
-            "curve_segments": [{
-                "curve": "plateau", "params": {"level": 0.5},
-                "start_pct": 0.0, "end_pct": 1.0,
-            }],
-        }],
+        "metrics": [
+            {
+                "name": "m",
+                "label": "M",
+                "distribution": "lognorm",
+                "params": {"s": 0.5, "scale": 1.0},
+                "polarity": "positive",
+            }
+        ],
+        "archetypes": [
+            {
+                "name": "a",
+                "label": "A",
+                "description": "-",
+                "curve_segments": [
+                    {
+                        "curve": "plateau",
+                        "params": {"level": 0.5},
+                        "start_pct": 0.0,
+                        "end_pct": 1.0,
+                    }
+                ],
+            }
+        ],
         "entities": [{"name": "e", "archetype": "a", "size": 3}],
         "tables": [
-            {"name": "dim_date", "type": "dim", "grain": "per_period",
-             "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
-             "primary_key": "date_key"},
-            {"name": "dim_x", "type": "dim", "grain": "per_entity",
-             "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
-             "primary_key": "x_id"},
-            {"name": "fct_m", "type": "fact", "grain": "per_entity_per_period",
-             "columns": [
-                 {"name": "date_key", "dtype": "id",
-                  "source": "fk:dim_date.date_key"},
-                 {"name": "x_id", "dtype": "id",
-                  "source": "fk:dim_x.x_id"},
-                 {"name": "m", "dtype": "float", "source": "metric:m"},
-             ],
-             "primary_key": ["date_key", "x_id"],
-             "foreign_keys": ["dim_date.date_key", "dim_x.x_id"]},
+            {
+                "name": "dim_date",
+                "type": "dim",
+                "grain": "per_period",
+                "columns": [{"name": "date_key", "dtype": "id", "source": "pk"}],
+                "primary_key": "date_key",
+            },
+            {
+                "name": "dim_x",
+                "type": "dim",
+                "grain": "per_entity",
+                "columns": [{"name": "x_id", "dtype": "id", "source": "pk"}],
+                "primary_key": "x_id",
+            },
+            {
+                "name": "fct_m",
+                "type": "fact",
+                "grain": "per_entity_per_period",
+                "columns": [
+                    {"name": "date_key", "dtype": "id", "source": "fk:dim_date.date_key"},
+                    {"name": "x_id", "dtype": "id", "source": "fk:dim_x.x_id"},
+                    {"name": "m", "dtype": "float", "source": "metric:m"},
+                ],
+                "primary_key": ["date_key", "x_id"],
+                "foreign_keys": ["dim_date.date_key", "dim_x.x_id"],
+            },
         ],
         # correlations deliberately omitted — default factory gives empty list.
         "output": {"format": "csv", "directory": "out"},
@@ -943,8 +1046,12 @@ def test_generate_tables_no_correlations_flows_none_L_through():
 
 
 def _simulate_correlated_pair(
-    metric_a: Metric, metric_b: Metric, coeff: float,
-    n_entities: int = 100, n_periods: int = 36, seed: int = 0,
+    metric_a: Metric,
+    metric_b: Metric,
+    coeff: float,
+    n_entities: int = 100,
+    n_periods: int = 36,
+    seed: int = 0,
 ) -> float:
     """Run N entities through plateau trajectory and return observed Pearson.
 
@@ -953,8 +1060,7 @@ def _simulate_correlated_pair(
     columns. Anything else (co-variation via shared trajectory shape, lag
     blending, archetype overrides) is held constant.
     """
-    pair = CorrelationPair(metric_a=metric_a.name, metric_b=metric_b.name,
-                           coefficient=coeff)
+    pair = CorrelationPair(metric_a=metric_a.name, metric_b=metric_b.name, coefficient=coeff)
     rng = _rng(seed)
     all_a: list[float] = []
     all_b: list[float] = []
@@ -976,19 +1082,35 @@ def _simulate_correlated_pair(
     [
         # Three SaaS template pairs from the mission context.
         # engagement (beta) × mrr (lognormal) at 0.72.
-        ("beta", {"alpha": 2.0, "beta": 5.0}, "lognorm",
-         {"s": 0.4, "scale": 1.0}, None, 0.72),
+        ("beta", {"alpha": 2.0, "beta": 5.0}, "lognorm", {"s": 0.4, "scale": 1.0}, None, 0.72),
         # engagement (beta) × churn_risk (beta) at -0.55.
-        ("beta", {"alpha": 2.0, "beta": 5.0}, "beta",
-         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0), -0.55),
+        (
+            "beta",
+            {"alpha": 2.0, "beta": 5.0},
+            "beta",
+            {"alpha": 2.0, "beta": 5.0},
+            ValueRange(min=0.0, max=1.0),
+            -0.55,
+        ),
         # support_tickets (poisson) × churn_risk (beta) at 0.55 — discrete
         # pair; mission tolerance ±0.15 vs continuous ±0.08.
-        ("poisson", {"lambda": 3.0}, "beta",
-         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0), 0.55),
+        (
+            "poisson",
+            {"lambda": 3.0},
+            "beta",
+            {"alpha": 2.0, "beta": 5.0},
+            ValueRange(min=0.0, max=1.0),
+            0.55,
+        ),
     ],
 )
 def test_r01_configured_correlation_matches_observed_plateau(
-    dist_a, params_a, dist_b, params_b, vr_b, coeff,
+    dist_a,
+    params_a,
+    dist_b,
+    params_b,
+    vr_b,
+    coeff,
 ):
     """R-01 / F-01: observed Pearson must be within ±0.10 (±0.15 for poisson)
     of configured under plateau isolation. The pre-0.4.0 center-normalized
@@ -996,35 +1118,37 @@ def test_r01_configured_correlation_matches_observed_plateau(
     depending on distribution pairing.
     """
     m_a = _metric("a", distribution=dist_a, params=params_a)
-    m_b = _metric("b", distribution=dist_b, params=params_b,
-                  value_range=vr_b)
-    observed = _simulate_correlated_pair(m_a, m_b, coeff,
-                                         n_entities=100, n_periods=36, seed=11)
+    m_b = _metric("b", distribution=dist_b, params=params_b, value_range=vr_b)
+    observed = _simulate_correlated_pair(m_a, m_b, coeff, n_entities=100, n_periods=36, seed=11)
     tol = 0.15 if "poisson" in (dist_a, dist_b) else 0.10
-    assert abs(observed - coeff) <= tol, (
-        f"{dist_a}×{dist_b}: expected {coeff} ± {tol}, got {observed:.4f}"
-    )
+    assert (
+        abs(observed - coeff) <= tol
+    ), f"{dist_a}×{dist_b}: expected {coeff} ± {tol}, got {observed:.4f}"
 
 
 @pytest.mark.parametrize(
     "dist_a,params_a,dist_b,params_b,vr_b",
     [
-        ("normal", {"mu": 100.0, "sigma": 10.0}, "normal",
-         {"mu": 50.0, "sigma": 5.0}, None),
-        ("normal", {"mu": 100.0, "sigma": 10.0}, "lognorm",
-         {"s": 0.5, "scale": 1.0}, None),
-        ("lognorm", {"s": 0.5, "scale": 1.0}, "gamma",
-         {"shape": 2.0, "scale": 1.0}, None),
-        ("gamma", {"shape": 2.0, "scale": 1.0}, "beta",
-         {"alpha": 2.0, "beta": 5.0}, ValueRange(min=0.0, max=1.0)),
-        ("beta", {"alpha": 2.0, "beta": 5.0}, "weibull",
-         {"shape": 1.5, "scale": 1.0}, None),
-        ("weibull", {"shape": 1.5, "scale": 1.0}, "normal",
-         {"mu": 20.0, "sigma": 3.0}, None),
+        ("normal", {"mu": 100.0, "sigma": 10.0}, "normal", {"mu": 50.0, "sigma": 5.0}, None),
+        ("normal", {"mu": 100.0, "sigma": 10.0}, "lognorm", {"s": 0.5, "scale": 1.0}, None),
+        ("lognorm", {"s": 0.5, "scale": 1.0}, "gamma", {"shape": 2.0, "scale": 1.0}, None),
+        (
+            "gamma",
+            {"shape": 2.0, "scale": 1.0},
+            "beta",
+            {"alpha": 2.0, "beta": 5.0},
+            ValueRange(min=0.0, max=1.0),
+        ),
+        ("beta", {"alpha": 2.0, "beta": 5.0}, "weibull", {"shape": 1.5, "scale": 1.0}, None),
+        ("weibull", {"shape": 1.5, "scale": 1.0}, "normal", {"mu": 20.0, "sigma": 3.0}, None),
     ],
 )
 def test_r01b_multiple_distribution_pairings(
-    dist_a, params_a, dist_b, params_b, vr_b,
+    dist_a,
+    params_a,
+    dist_b,
+    params_b,
+    vr_b,
 ):
     """R-01b: every continuous-continuous pair recovers a configured 0.6
     correlation within ±0.10 under plateau isolation and 200 entities × 22
@@ -1034,11 +1158,10 @@ def test_r01b_multiple_distribution_pairings(
     vr_a = ValueRange(min=0.0, max=1.0) if dist_a == "beta" else None
     m_a = _metric("a", distribution=dist_a, params=params_a, value_range=vr_a)
     m_b = _metric("b", distribution=dist_b, params=params_b, value_range=vr_b)
-    observed = _simulate_correlated_pair(m_a, m_b, 0.6,
-                                         n_entities=200, n_periods=22, seed=23)
-    assert abs(observed - 0.6) <= 0.10, (
-        f"{dist_a}×{dist_b}: expected 0.6 ± 0.10, got {observed:.4f}"
-    )
+    observed = _simulate_correlated_pair(m_a, m_b, 0.6, n_entities=200, n_periods=22, seed=23)
+    assert (
+        abs(observed - 0.6) <= 0.10
+    ), f"{dist_a}×{dist_b}: expected 0.6 ± 0.10, got {observed:.4f}"
 
 
 def test_r08_lognormal_stays_positive_under_extreme_correlation():
@@ -1047,10 +1170,8 @@ def test_r08_lognormal_stays_positive_under_extreme_correlation():
     the pre-0.4.0 ``c * (1 + corr_r)`` path could go negative when
     ``corr_r < -1``, which happened under high variance + strong correlation.
     """
-    m_lognorm = _metric("a", distribution="lognorm",
-                        params={"s": 1.5, "scale": 1.0})
-    m_high_var = _metric("b", distribution="normal",
-                         params={"mu": 100.0, "sigma": 80.0})
+    m_lognorm = _metric("a", distribution="lognorm", params={"s": 1.5, "scale": 1.0})
+    m_high_var = _metric("b", distribution="normal", params={"mu": 100.0, "sigma": 80.0})
     pair = CorrelationPair(metric_a="a", metric_b="b", coefficient=0.9)
     rng = _rng(7)
     all_a: list[float] = []
@@ -1077,6 +1198,7 @@ def test_r10_determinism_under_copula():
     """
     from plotsim.tables import generate_tables
     import pandas as pd
+
     cfg = load_config(SAAS_YAML)
     a = generate_tables(cfg, np.random.default_rng(cfg.seed))
     b = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -1108,12 +1230,18 @@ def test_m127b_poisson_lambda_zero_finite_output():
     )
 
     m_normal = Metric(
-        name="x", label="X", distribution="normal",
-        params={"sigma": 1.0}, polarity="positive",
+        name="x",
+        label="X",
+        distribution="normal",
+        params={"sigma": 1.0},
+        polarity="positive",
     )
     m_poisson = Metric(
-        name="p", label="P", distribution="poisson",
-        params={"lambda": 5.0}, polarity="positive",
+        name="p",
+        label="P",
+        distribution="poisson",
+        params={"lambda": 5.0},
+        polarity="positive",
     )
     metrics = _toposort_metrics([m_poisson, m_normal])
     correlations = [
@@ -1131,8 +1259,12 @@ def test_m127b_poisson_lambda_zero_finite_output():
     for _ in range(64):
         independent = {m.name: 0.0 for m in metrics}  # placeholder
         out = apply_correlations(
-            independent, centers_pn, correlations, metrics,
-            cholesky_L=L, rng=rng,
+            independent,
+            centers_pn,
+            correlations,
+            metrics,
+            cholesky_L=L,
+            rng=rng,
         )
         for name, val in out.items():
             assert val is not None, f"{name} returned None"
@@ -1145,15 +1277,22 @@ def test_m127b_poisson_lambda_zero_finite_output():
     rng_a = np.random.default_rng(7)
     rng_b = np.random.default_rng(7)
     out_a = apply_correlations(
-        {"p": 0.0, "x": 5.0}, centers_pn, correlations, metrics,
-        cholesky_L=L, rng=rng_a,
+        {"p": 0.0, "x": 5.0},
+        centers_pn,
+        correlations,
+        metrics,
+        cholesky_L=L,
+        rng=rng_a,
     )
     out_b = apply_correlations(
-        {"p": 0.0, "x": 5.0}, centers_pn, correlations, metrics,
-        cholesky_L=L, rng=rng_b,
+        {"p": 0.0, "x": 5.0},
+        centers_pn,
+        correlations,
+        metrics,
+        cholesky_L=L,
+        rng=rng_b,
     )
     for name in out_a:
         assert out_a[name] == out_b[name], (
-            f"determinism broken under poisson λ=0: "
-            f"{name} a={out_a[name]} b={out_b[name]}"
+            f"determinism broken under poisson λ=0: " f"{name} a={out_a[name]} b={out_b[name]}"
         )

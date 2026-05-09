@@ -1,0 +1,56 @@
+# Pre-commit hook lifecycle for plotsim.
+#
+# Stages: pre-commit (auto-fix on staged files), commit-msg (subject
+# format), pre-push (lint + types + branch guard). pytest is not in
+# pre-push — CI runs the full matrix.
+#
+# Install once after `pip install -e ".[dev]"`:
+#   pre-commit install --install-hooks
+#   pre-commit install --hook-type commit-msg --hook-type pre-push
+#
+# Run manually across the whole repo:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: no-commit-to-branch
+        stages: [pre-push]
+        args: [--branch, main]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        name: ruff (lint, --fix on commit)
+        args: [--fix]
+        stages: [pre-commit]
+      - id: ruff-format
+        stages: [pre-commit]
+      - id: ruff
+        name: ruff (lint, fail-only on push)
+        stages: [pre-push]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: [feat, fix, docs, test, refactor, chore, ci, perf]
+
+  # mypy runs in the project's own environment (needs plotsim's deps),
+  # so it's a local hook rather than a fetched repo.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy plotsim/
+        entry: mypy plotsim/
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]

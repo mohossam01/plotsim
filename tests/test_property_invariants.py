@@ -34,6 +34,7 @@ example count modest preserves a useful CI signal without paying a 4× cost.
 The deadline is disabled because ``generate_tables`` legitimately takes
 longer than hypothesis's default 200 ms budget.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -100,40 +101,51 @@ def _build_minimal_config(
         n_periods_str_end = f"{2024 + years_extra}-{end_month:02d}"
 
     if archetype_kind == "rising":
-        segments = [CurveSegment(curve="sigmoid",
-                                 params={"midpoint": 0.5, "steepness": 6.0},
-                                 start_pct=0.0, end_pct=1.0)]
+        segments = [
+            CurveSegment(
+                curve="sigmoid",
+                params={"midpoint": 0.5, "steepness": 6.0},
+                start_pct=0.0,
+                end_pct=1.0,
+            )
+        ]
     elif archetype_kind == "falling":
-        segments = [CurveSegment(curve="exp_decay",
-                                 params={"rate": 2.0},
-                                 start_pct=0.0, end_pct=1.0)]
+        segments = [
+            CurveSegment(curve="exp_decay", params={"rate": 2.0}, start_pct=0.0, end_pct=1.0)
+        ]
     else:  # flat
-        segments = [CurveSegment(curve="plateau",
-                                 params={"level": 0.5},
-                                 start_pct=0.0, end_pct=1.0)]
+        segments = [
+            CurveSegment(curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0)
+        ]
     archetype = Archetype(
-        name="property_arch", label="property arch",
+        name="property_arch",
+        label="property arch",
         description="property-test archetype",
         curve_segments=segments,
     )
 
     base_metrics = {
         "engagement": Metric(
-            name="engagement", label="engagement",
-            distribution="beta", params={"alpha": 2.0, "beta": 5.0},
+            name="engagement",
+            label="engagement",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 5.0},
             polarity="positive",
             value_range={"min": 0.0, "max": 1.0},
         ),
         "mrr": Metric(
-            name="mrr", label="mrr",
+            name="mrr",
+            label="mrr",
             distribution="lognorm",
             params={"s": 0.85, "loc": 0.0, "scale": 1200.0},
             polarity="positive",
             value_range={"min": 0.0, "max": 100000.0},
         ),
         "support_tickets": Metric(
-            name="support_tickets", label="support tickets",
-            distribution="poisson", params={"lambda": 4.0},
+            name="support_tickets",
+            label="support tickets",
+            distribution="poisson",
+            params={"lambda": 4.0},
             polarity="negative",
         ),
     }
@@ -162,11 +174,15 @@ def _build_minimal_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="property", description="property",
-                entity_type="user", entity_label="Users",
+                name="property",
+                description="property",
+                entity_type="user",
+                entity_label="Users",
             ),
             time_window=TimeWindow(
-                start="2024-01", end=n_periods_str_end, granularity="monthly",
+                start="2024-01",
+                end=n_periods_str_end,
+                granularity="monthly",
             ),
             seed=seed,
             metrics=metrics,
@@ -174,7 +190,9 @@ def _build_minimal_config(
             entities=entities,
             tables=[
                 Table(
-                    name="dim_date", type="dim", grain="per_period",
+                    name="dim_date",
+                    type="dim",
+                    grain="per_period",
                     primary_key="date_key",
                     columns=[
                         Column(name="date_key", dtype="id", source="pk"),
@@ -182,16 +200,19 @@ def _build_minimal_config(
                     ],
                 ),
                 Table(
-                    name="dim_user", type="dim", grain="per_entity",
+                    name="dim_user",
+                    type="dim",
+                    grain="per_entity",
                     primary_key="user_id",
                     columns=[
                         Column(name="user_id", dtype="id", source="pk"),
-                        Column(name="user_name", dtype="string",
-                               source="generated:faker.name"),
+                        Column(name="user_name", dtype="string", source="generated:faker.name"),
                     ],
                 ),
                 Table(
-                    name="fct_metrics", type="fact", grain="per_entity_per_period",
+                    name="fct_metrics",
+                    type="fact",
+                    grain="per_entity_per_period",
                     primary_key=["date_key", "user_id"],
                     foreign_keys=["dim_date.date_key", "dim_user.user_id"],
                     columns=fct_columns,
@@ -266,9 +287,9 @@ def test_property_same_seed_yields_byte_identical_csvs(
 
     report_a = (dir_a / "validation_report.txt").read_bytes()
     report_b = (dir_b / "validation_report.txt").read_bytes()
-    assert report_a == report_b, (
-        "determinism: validation_report.txt drifts across runs (F5 regression)"
-    )
+    assert (
+        report_a == report_b
+    ), "determinism: validation_report.txt drifts across runs (F5 regression)"
 
 
 # --- Property 2: trajectory-first sign --------------------------------------
@@ -330,9 +351,7 @@ def test_property_metric_polarity_aligned_with_trajectory(
         finite = np.isfinite(values)
         if finite.sum() < 6:
             continue  # too few non-null samples to assert
-        rho = pd.Series(values[finite]).corr(
-            pd.Series(period_idx[finite]), method="spearman"
-        )
+        rho = pd.Series(values[finite]).corr(pd.Series(period_idx[finite]), method="spearman")
         if polarity == "positive":
             assert rho > -0.2, (
                 f"trajectory-first regression: {metric_name} (positive) "
@@ -364,7 +383,12 @@ def test_property_metric_polarity_aligned_with_trajectory(
     decl_order=_metric_permutations,
 )
 def test_property_fk_integrity_holds_for_every_fact_and_event_row(
-    seed, n_entities, entity_size, n_periods, archetype_kind, decl_order,
+    seed,
+    n_entities,
+    entity_size,
+    n_periods,
+    archetype_kind,
+    decl_order,
 ):
     """Every non-null FK value in a fact / event table resolves to a parent
     PK. Same invariant the example tests verify on bundled templates; the
@@ -389,11 +413,7 @@ def test_property_fk_integrity_holds_for_every_fact_and_event_row(
             continue
         df = tables[tbl.name]
         # primary_key may be str or list; PK uniqueness is enforced upstream.
-        pk_cols = (
-            tbl.primary_key
-            if isinstance(tbl.primary_key, list)
-            else [tbl.primary_key]
-        )
+        pk_cols = tbl.primary_key if isinstance(tbl.primary_key, list) else [tbl.primary_key]
         # Build the parent PK index by column. For composite PKs we'd need a
         # tuple set; bundled property configs use single-column dim PKs.
         for pk_col in pk_cols:
@@ -439,7 +459,9 @@ def test_property_fk_integrity_holds_for_every_fact_and_event_row(
     decl_order=_metric_permutations,
 )
 def test_property_configured_correlation_holds_independent_of_declaration(
-    seed, target_corr, decl_order,
+    seed,
+    target_corr,
+    decl_order,
 ):
     """For a 3-metric config with a configured pairwise correlation, the
     observed Pearson on that pair lands within ±0.20 of configured —
@@ -482,7 +504,8 @@ def test_property_configured_correlation_holds_independent_of_declaration(
         metric_decl_order=decl_list,
         correlations=[
             CorrelationPair(
-                metric_a=metric_a, metric_b=metric_b,
+                metric_a=metric_a,
+                metric_b=metric_b,
                 coefficient=target_corr,
             ),
         ],
@@ -490,10 +513,12 @@ def test_property_configured_correlation_holds_independent_of_declaration(
     rng = np.random.default_rng(cfg.seed)
     tables = generate_tables(cfg, rng)
     fct = tables["fct_metrics"]
-    observed = float(np.corrcoef(
-        fct[f"{metric_a}_value"].astype(float),
-        fct[f"{metric_b}_value"].astype(float),
-    )[0, 1])
+    observed = float(
+        np.corrcoef(
+            fct[f"{metric_a}_value"].astype(float),
+            fct[f"{metric_b}_value"].astype(float),
+        )[0, 1]
+    )
     # Tolerance widened to ±0.30 vs F6's ±0.10 because hypothesis explores
     # a much wider parameter space (smaller configs, varied seeds, varied
     # decl orders) where per-realization Pearson is noisier. The

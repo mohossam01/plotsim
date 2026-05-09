@@ -122,30 +122,30 @@ Same config + same seed produces byte-identical output every time. CSV is the de
 
 ## Who is this for
 
-**Educators and students** who need realistic datasets for SQL 
-courses, data modeling workshops, analytics training, or portfolio 
-projects — five domain templates ready to go, same seed produces 
+**Educators and students** who need realistic datasets for SQL
+courses, data modeling workshops, analytics training, or portfolio
+projects — five domain templates ready to go, same seed produces
 the same data every time.
 
-**Data engineers** who need test fixtures that behave like production 
-data — with FK integrity, realistic distributions, and configurable 
-corruption — without copying production or hand-rolling three-row 
+**Data engineers** who need test fixtures that behave like production
+data — with FK integrity, realistic distributions, and configurable
+corruption — without copying production or hand-rolling three-row
 CSVs.
 
-**Data scientists** who need labeled training data with known ground 
-truth — archetype labels, trajectory positions, and temporal holdout 
+**Data scientists** who need labeled training data with known ground
+truth — archetype labels, trajectory positions, and temporal holdout
 splits — to validate models before touching real data.
 
-**Analytics engineers** who need a star schema to build dbt models, 
-test transformations, or demonstrate a pipeline end-to-end without 
+**Analytics engineers** who need a star schema to build dbt models,
+test transformations, or demonstrate a pipeline end-to-end without
 waiting for upstream data.
 
-**BI and analytics teams** who need a populated star schema to 
-build dashboards, test reports, or demo a new tool to stakeholders 
+**BI and analytics teams** who need a populated star schema to
+build dashboards, test reports, or demo a new tool to stakeholders
 — dims, facts, events, and SCD versioning out of the box.
 
-**Demo builders** who need a convincing dataset for a conference 
-talk, a product walkthrough, or a proof of concept — correlated 
+**Demo builders** who need a convincing dataset for a conference
+talk, a product walkthrough, or a proof of concept — correlated
 metrics that tell a realistic story, not random noise.
 
 
@@ -219,30 +219,30 @@ flowchart LR
     class MODE decision
 ```
 
-Every entity in the dataset follows a **behavioral trajectory** — a 
-curve shape like growth, decline, seasonal, or spike-then-crash. At 
-each time period, the entity's position on that curve determines 
-every metric value across every table. Revenue, engagement, churn 
-risk, and support tickets all read from the same position, so they 
+Every entity in the dataset follows a **behavioral trajectory** — a
+curve shape like growth, decline, seasonal, or spike-then-crash. At
+each time period, the entity's position on that curve determines
+every metric value across every table. Revenue, engagement, churn
+risk, and support tickets all read from the same position, so they
 move together the way real business metrics do.
 
-Metric relationships are enforced through a **Gaussian copula** — 
-declare `engagement opposes churn_risk` and the engine delivers the 
-configured correlation coefficient regardless of whether one metric 
-is beta-distributed and the other is Poisson. Causal lags compose: 
+Metric relationships are enforced through a **Gaussian copula** —
+declare `engagement opposes churn_risk` and the engine delivers the
+configured correlation coefficient regardless of whether one metric
+is beta-distributed and the other is Poisson. Causal lags compose:
 if `A → B (lag 2) → C (lag 3)`, then C reflects A from 5 periods ago.
 
-Output is **deterministic**. Every random draw flows through a single 
-seeded `numpy.Generator`. Same config + same seed = byte-identical 
-tables within the same Python and dependency versions. The manifest records 
-every generation decision — archetype assignments, trajectory 
-positions, correlation adjustments, quality injections — so any 
+Output is **deterministic**. Every random draw flows through a single
+seeded `numpy.Generator`. Same config + same seed = byte-identical
+tables within the same Python and dependency versions. The manifest records
+every generation decision — archetype assignments, trajectory
+positions, correlation adjustments, quality injections — so any
 cell value can be traced back to its origin.
 
-Config-time **validation** catches problems before generation starts: 
-circular causal chains, non-positive-definite correlation matrices, 
-broken foreign key references, duplicate metric names, and 
-SQL-unsafe identifiers all surface as parse errors with fix 
+Config-time **validation** catches problems before generation starts:
+circular causal chains, non-positive-definite correlation matrices,
+broken foreign key references, duplicate metric names, and
+SQL-unsafe identifiers all surface as parse errors with fix
 suggestions.
 
 

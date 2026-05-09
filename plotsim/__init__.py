@@ -103,9 +103,7 @@ def load_template(name: str) -> PlotsimConfig:
         entry = root / candidate
         if entry.is_file():
             return create_from_yaml(_Path(str(entry)))
-    raise ValueError(
-        f"Unknown template {name!r}. Available: {list_templates()}"
-    )
+    raise ValueError(f"Unknown template {name!r}. Available: {list_templates()}")
 
 
 __all__ = [

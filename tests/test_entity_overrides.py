@@ -33,6 +33,7 @@ Tests:
 * ``test_bundled_templates_load_under_new_schema`` — every bundled
   template still loads (none of them use ``Entity.overrides``).
 """
+
 from __future__ import annotations
 
 import warnings
@@ -76,22 +77,29 @@ def _minimal_config(entity: Entity) -> PlotsimConfig:
     on Entity.overrides via the full PlotsimConfig path (the same code path
     `load_config` uses)."""
     metric = Metric(
-        name="m", label="m",
-        distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+        name="m",
+        label="m",
+        distribution="normal",
+        params={"mu": 1.0, "sigma": 0.1},
         polarity="positive",
     )
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_m", type="fact", grain="per_entity_per_period",
+        name="fct_m",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -101,7 +109,9 @@ def _minimal_config(entity: Entity) -> PlotsimConfig:
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -109,7 +119,9 @@ def _minimal_config(entity: Entity) -> PlotsimConfig:
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
@@ -119,11 +131,15 @@ def _minimal_config(entity: Entity) -> PlotsimConfig:
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-12", granularity="monthly",
+                start="2024-01",
+                end="2024-12",
+                granularity="monthly",
             ),
             seed=0,
             metrics=[metric],
@@ -181,7 +197,9 @@ def test_empty_overrides_loads():
     EntityOverrides with inflection_month=None — equivalent to no
     override declared."""
     e = Entity(
-        name="e", archetype="a", size=1,
+        name="e",
+        archetype="a",
+        size=1,
         overrides={},  # type: ignore[arg-type]
     )
     assert e.overrides is not None
@@ -199,7 +217,9 @@ def test_entity_with_garbage_override_rejected():
     """Through the Entity surface, unknown keys still raise."""
     with pytest.raises(ValidationError) as exc_info:
         Entity(
-            name="e", archetype="a", size=1,
+            name="e",
+            archetype="a",
+            size=1,
             overrides={"inflection_month": 12, "garbage": True},  # type: ignore[arg-type]
         )
     assert "garbage" in str(exc_info.value).lower()
@@ -233,7 +253,8 @@ def test_inflection_override_still_shifts_trajectory():
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "education", "retail", "marketing"],
+    "stem",
+    ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_bundled_templates_load_under_new_schema(stem):
     """Every bundled template loads cleanly under the new
@@ -244,7 +265,8 @@ def test_bundled_templates_load_under_new_schema(stem):
     for entity in cfg.entities:
         # Either None (not declared) or EntityOverrides instance.
         assert entity.overrides is None or isinstance(
-            entity.overrides, EntityOverrides,
+            entity.overrides,
+            EntityOverrides,
         ), (
             f"{stem}: entity {entity.name!r} overrides has unexpected "
             f"type {type(entity.overrides).__name__}"

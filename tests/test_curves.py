@@ -31,10 +31,17 @@ EPS = 1e-9
 
 # --- Registry ---
 
+
 def test_registry_has_all_eight_curves():
     assert set(CURVE_REGISTRY) == {
-        "sigmoid", "exp_decay", "step", "logistic",
-        "plateau", "oscillating", "compound", "sawtooth",
+        "sigmoid",
+        "exp_decay",
+        "step",
+        "logistic",
+        "plateau",
+        "oscillating",
+        "compound",
+        "sawtooth",
     }
 
 
@@ -44,6 +51,7 @@ def test_registry_values_are_callables():
 
 
 # --- Shape & bounds (acceptance: outputs clamped to [0,1]) ---
+
 
 @pytest.mark.parametrize("fn", CURVE_FNS)
 def test_returns_ndarray_and_bounded(fn):
@@ -56,6 +64,7 @@ def test_returns_ndarray_and_bounded(fn):
 
 
 # --- Edge cases ---
+
 
 @pytest.mark.parametrize("fn", CURVE_FNS)
 def test_empty_input_returns_empty(fn):
@@ -90,6 +99,7 @@ def test_all_ones(fn):
 
 
 # --- Per-curve shape properties ---
+
 
 def test_sigmoid_rising():
     t = np.linspace(0.0, 1.0, 100)
@@ -155,13 +165,12 @@ def test_compound_monotonically_increasing():
 def test_sawtooth_has_at_least_period_local_maxima():
     t = np.linspace(0.0, 1.0, 300)
     out = sawtooth(t, period=4.0, amplitude=0.8, base=0.1)
-    peaks = int(
-        np.sum((out[1:-1] > out[:-2]) & (out[1:-1] > out[2:]))
-    )
+    peaks = int(np.sum((out[1:-1] > out[:-2]) & (out[1:-1] > out[2:])))
     assert peaks >= 4
 
 
 # --- Determinism ---
+
 
 @pytest.mark.parametrize("fn", CURVE_FNS)
 def test_deterministic(fn):
@@ -170,6 +179,7 @@ def test_deterministic(fn):
 
 
 # --- Segment evaluator ---
+
 
 def test_evaluate_segment_dispatches_to_each_curve():
     t = np.linspace(0.0, 1.0, 50)
@@ -202,14 +212,13 @@ def test_evaluate_segment_none_params_uses_defaults():
 
 def test_evaluate_segment_clamps_to_unit_interval():
     t = np.linspace(0.0, 1.0, 100)
-    out = evaluate_segment(
-        t, "oscillating", {"period": 2.0, "amplitude": 0.9, "center": 0.5}
-    )
+    out = evaluate_segment(t, "oscillating", {"period": 2.0, "amplitude": 0.9, "center": 0.5})
     assert out.min() >= 0.0
     assert out.max() <= 1.0
 
 
 # --- Real-world validation against sample YAML archetypes ---
+
 
 @pytest.mark.parametrize("yaml_path", [SAAS_YAML, HR_YAML])
 def test_sample_archetypes_evaluate_without_errors(yaml_path):

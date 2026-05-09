@@ -25,6 +25,7 @@ Out of scope here (reported but not measured):
   configured noise widens the observed Pearson tolerance.
 - Causal lag interactions. Pair metrics never have causal_lag here.
 """
+
 from __future__ import annotations
 
 import sys
@@ -54,6 +55,7 @@ APPENDIX_CSV = REPO_ROOT / "analysis" / "fidelity_sweeps" / "correlation_matrix_
 # chosen to match patterns the bundled templates use so the measurement
 # tolerance generalizes to user configs.
 
+
 def _params_for(dist: str) -> tuple[dict[str, Any], ValueRange | None]:
     if dist == "lognorm":
         return {"s": 0.5, "loc": 0.0, "scale": 1.0}, None
@@ -73,8 +75,12 @@ def _params_for(dist: str) -> tuple[dict[str, Any], ValueRange | None]:
 def _make_metric(name: str, dist: str) -> Metric:
     params, vr = _params_for(dist)
     return Metric(
-        name=name, label=name, distribution=dist, params=params,
-        polarity="positive", value_range=vr,
+        name=name,
+        label=name,
+        distribution=dist,
+        params=params,
+        polarity="positive",
+        value_range=vr,
     )
 
 
@@ -83,16 +89,16 @@ def _make_metric(name: str, dist: str) -> Metric:
 # Focused subset (10 pairs): bundled-template pairings + likely-user pairings,
 # covering all 6 distribution families at least once.
 FOCUSED_PAIRS: list[tuple[str, str]] = [
-    ("beta", "lognorm"),       # saas: engagement x mrr
-    ("beta", "beta"),          # universal: engagement x churn_risk
-    ("beta", "poisson"),       # saas/healthcare: bounded x discrete
-    ("beta", "normal"),        # saas/hr/education: engagement x rate
-    ("beta", "gamma"),         # hr/education/healthcare: engagement x duration
-    ("lognorm", "poisson"),    # saas/ecommerce: continuous x discrete
-    ("lognorm", "normal"),     # saas: revenue x rate
-    ("lognorm", "lognorm"),    # likely user: revenue x cost
-    ("normal", "gamma"),       # hr/education
-    ("weibull", "normal"),     # covers weibull (no template uses it)
+    ("beta", "lognorm"),  # saas: engagement x mrr
+    ("beta", "beta"),  # universal: engagement x churn_risk
+    ("beta", "poisson"),  # saas/healthcare: bounded x discrete
+    ("beta", "normal"),  # saas/hr/education: engagement x rate
+    ("beta", "gamma"),  # hr/education/healthcare: engagement x duration
+    ("lognorm", "poisson"),  # saas/ecommerce: continuous x discrete
+    ("lognorm", "normal"),  # saas: revenue x rate
+    ("lognorm", "lognorm"),  # likely user: revenue x cost
+    ("normal", "gamma"),  # hr/education
+    ("weibull", "normal"),  # covers weibull (no template uses it)
 ]
 
 DISTRIBUTIONS = ["lognorm", "gamma", "poisson", "beta", "normal", "weibull"]
@@ -145,8 +151,7 @@ def _simulate_pair_pearson(
             trajectory=np.full(n_periods, 0.5),
             metrics=metrics,
             correlations=correlations,
-            noise=NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0,
-                              mcar_rate=0.0),
+            noise=NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0),
             rng=rng,
         )
         a_pool.extend(float(x) for x in out["m_a"])
@@ -161,20 +166,22 @@ def _simulate_pair_pearson(
 
 def _build_cells(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
     cells: list[dict[str, Any]] = []
-    for (a, b) in pairs:
+    for a, b in pairs:
         for mag in MAGNITUDES:
             for n_metrics in N_METRIC_OPTIONS:
-                for (n_entities, n_periods) in SAMPLE_SIZE_OPTIONS:
+                for n_entities, n_periods in SAMPLE_SIZE_OPTIONS:
                     for seed_offset in range(SEEDS_PER_CELL):
-                        cells.append({
-                            "dist_a": a,
-                            "dist_b": b,
-                            "configured": float(mag),
-                            "n_metrics": int(n_metrics),
-                            "n_entities": int(n_entities),
-                            "n_periods": int(n_periods),
-                            "seed": SEED_BASE + seed_offset,
-                        })
+                        cells.append(
+                            {
+                                "dist_a": a,
+                                "dist_b": b,
+                                "configured": float(mag),
+                                "n_metrics": int(n_metrics),
+                                "n_entities": int(n_entities),
+                                "n_periods": int(n_periods),
+                                "seed": SEED_BASE + seed_offset,
+                            }
+                        )
     return cells
 
 
@@ -189,10 +196,20 @@ def run_correlation_sweep(
     cells = _build_cells(pairs)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
 
-    fieldnames = ["configured", "dist_a", "dist_b", "n_entities", "n_metrics",
-                  "n_periods", "seed", "observed", "error"]
+    fieldnames = [
+        "configured",
+        "dist_a",
+        "dist_b",
+        "n_entities",
+        "n_metrics",
+        "n_periods",
+        "seed",
+        "observed",
+        "error",
+    ]
     with out_csv.open("w", encoding="utf-8", newline="") as fh:
         import csv
+
         csv.DictWriter(fh, fieldnames=fieldnames).writeheader()
 
     buffered: list[dict[str, Any]] = []
@@ -203,14 +220,15 @@ def run_correlation_sweep(
         cell_t0 = time.monotonic()
         n_other = cell["n_metrics"] - 2
         observed = _simulate_pair_pearson(
-            cell["dist_a"], cell["dist_b"], n_other,
-            cell["configured"], cell["n_entities"], cell["n_periods"],
+            cell["dist_a"],
+            cell["dist_b"],
+            n_other,
+            cell["configured"],
+            cell["n_entities"],
+            cell["n_periods"],
             cell["seed"],
         )
-        error = (
-            float("nan") if not np.isfinite(observed)
-            else abs(observed - cell["configured"])
-        )
+        error = float("nan") if not np.isfinite(observed) else abs(observed - cell["configured"])
         row = {**cell, "observed": observed, "error": error}
         buffered.append({k: row.get(k) for k in fieldnames})
         n_written += 1
@@ -218,6 +236,7 @@ def run_correlation_sweep(
         if (i + 1) % flush_every == 0 or i == len(cells) - 1:
             with out_csv.open("a", encoding="utf-8", newline="") as fh:
                 import csv
+
                 writer = csv.DictWriter(fh, fieldnames=fieldnames)
                 for r in buffered:
                     writer.writerow(r)

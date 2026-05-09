@@ -28,6 +28,7 @@ Covers the ``value_range`` override surface added by mission-114:
     - the trace's ``realized_cell`` matches the fact-table cell to
       floating-point equality.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -61,13 +62,15 @@ from plotsim.tables import generate_tables
 def _growth_archetype(name: str, override: MetricOverride | None = None) -> Archetype:
     """Single-segment rising sigmoid 0→1 — useful for shape-recovery tests."""
     return Archetype(
-        name=name, label=name,
+        name=name,
+        label=name,
         description="rising sigmoid",
         curve_segments=[
             CurveSegment(
                 curve="sigmoid",
                 params={"midpoint": 0.5, "steepness": 8.0, "rising": True},
-                start_pct=0.0, end_pct=1.0,
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
         metric_overrides=({"score": override} if override is not None else {}),
@@ -88,7 +91,8 @@ def _baseline_config(
     Pearson to stabilise above noise.
     """
     score = metric or Metric(
-        name="score", label="score",
+        name="score",
+        label="score",
         distribution="beta",
         params={"alpha": 5.0, "beta": 5.0},
         polarity="positive",
@@ -109,19 +113,24 @@ def _baseline_config(
     if extra_metric is not None:
         fct_cols.append(
             Column(
-                name=extra_metric.name, dtype="float",
+                name=extra_metric.name,
+                dtype="float",
                 source=f"metric:{extra_metric.name}",
             ),
         )
 
     fct = Table(
-        name="fct_score", type="fact", grain="per_entity_per_period",
+        name="fct_score",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=fct_cols,
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -129,7 +138,9 @@ def _baseline_config(
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[Column(name="entity_id", dtype="id", source="pk")],
     )
@@ -137,11 +148,15 @@ def _baseline_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="cohort", entity_label="Cohorts",
+                name="t",
+                description="t",
+                entity_type="cohort",
+                entity_label="Cohorts",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2026-12", granularity="monthly",
+                start="2024-01",
+                end="2026-12",
+                granularity="monthly",
             ),
             seed=2026,
             metrics=metrics,
@@ -168,7 +183,8 @@ def test_override_value_range_subset_loads():
     )
     arch = next(a for a in cfg.archetypes if a.name == "high")
     assert arch.metric_overrides["score"].value_range == ValueRange(
-        min=60.0, max=100.0,
+        min=60.0,
+        max=100.0,
     )
 
 
@@ -186,7 +202,8 @@ def test_override_value_range_exceeding_global_max_rejects():
 def test_override_value_range_below_global_min_rejects():
     """Override min < global min is rejected at load."""
     score_with_floor = Metric(
-        name="score", label="score",
+        name="score",
+        label="score",
         distribution="beta",
         params={"alpha": 5.0, "beta": 5.0},
         polarity="positive",
@@ -206,7 +223,8 @@ def test_override_value_range_when_global_unset_rejects():
     """Override on a metric without a global value_range is rejected —
     'subset of nothing' has no defined semantics."""
     score_unbounded = Metric(
-        name="score", label="score",
+        name="score",
+        label="score",
         distribution="normal",
         params={"mu": 50.0, "sigma": 5.0},
         polarity="positive",
@@ -257,7 +275,7 @@ def test_override_distribution_only_unaffected():
     # The overridden distribution shifts the late-trajectory mean above
     # what the default beta(alpha=5, beta=5) on [0,100] would produce
     # (~50 near p≈1) and below ~70 (mu=60 + sigma=5 noise band).
-    last_third = high_vals[-len(high_vals) // 3:]
+    last_third = high_vals[-len(high_vals) // 3 :]
     assert 45.0 <= last_third.mean() <= 75.0
 
 
@@ -320,7 +338,8 @@ def test_correlation_signs_preserved_across_overrides():
     ``error_rate`` still produces negative empirical correlation in
     each cohort's slice."""
     error_rate = Metric(
-        name="error_rate", label="error_rate",
+        name="error_rate",
+        label="error_rate",
         distribution="beta",
         params={"alpha": 5.0, "beta": 5.0},
         polarity="negative",
@@ -336,7 +355,9 @@ def test_correlation_signs_preserved_across_overrides():
         extra_metric=error_rate,
         correlations=[
             CorrelationPair(
-                metric_a="score", metric_b="error_rate", coefficient=-0.6,
+                metric_a="score",
+                metric_b="error_rate",
+                coefficient=-0.6,
             ),
         ],
     )
@@ -354,9 +375,7 @@ def test_correlation_signs_preserved_across_overrides():
         if np.std(score) < 1e-6 or np.std(err) < 1e-6:
             continue
         corr = np.corrcoef(score, err)[0, 1]
-        assert corr < 0.0, (
-            f"entity {entity_idx}: expected negative correlation, got {corr:.3f}"
-        )
+        assert corr < 0.0, f"entity {entity_idx}: expected negative correlation, got {corr:.3f}"
 
 
 def test_determinism_with_overrides():
@@ -395,8 +414,10 @@ def test_trace_metric_cell_respects_override_range_center():
     # Mid-trajectory: position ≈ 0.5, so beta center ≈ vr.min + 0.5*span = 85.
     period = n_periods // 2
     result = trace_metric_cell(
-        cfg, entity_name="cohort_high",
-        period_index=period, metric_name="score",
+        cfg,
+        entity_name="cohort_high",
+        period_index=period,
+        metric_name="score",
     )
     assert 70.0 <= result.distribution_center <= 100.0
 
@@ -419,9 +440,12 @@ def test_trace_metric_cell_realized_cell_matches_fact_table():
     period = len(high_slice) // 2
 
     result = trace_metric_cell(
-        cfg, entity_name="cohort_high",
-        period_index=period, metric_name="score",
+        cfg,
+        entity_name="cohort_high",
+        period_index=period,
+        metric_name="score",
     )
     assert result.realized_cell == pytest.approx(
-        float(high_slice[period]), abs=0.0,
+        float(high_slice[period]),
+        abs=0.0,
     )

@@ -68,36 +68,52 @@ from plotsim.tables import generate_tables, generate_tables_with_state
 
 def _growth_archetype(name: str = "growth") -> Archetype:
     return Archetype(
-        name=name, label=name, description="rising sigmoid",
+        name=name,
+        label=name,
+        description="rising sigmoid",
         curve_segments=[
-            CurveSegment(curve="sigmoid", params={"midpoint": 0.5, "steepness": 8.0},
-                         start_pct=0.0, end_pct=1.0),
+            CurveSegment(
+                curve="sigmoid",
+                params={"midpoint": 0.5, "steepness": 8.0},
+                start_pct=0.0,
+                end_pct=1.0,
+            ),
         ],
     )
 
 
 def _decline_archetype(name: str = "decline") -> Archetype:
     return Archetype(
-        name=name, label=name, description="falling sigmoid",
+        name=name,
+        label=name,
+        description="falling sigmoid",
         curve_segments=[
-            CurveSegment(curve="sigmoid", params={"midpoint": 0.5, "steepness": -8.0},
-                         start_pct=0.0, end_pct=1.0),
+            CurveSegment(
+                curve="sigmoid",
+                params={"midpoint": 0.5, "steepness": -8.0},
+                start_pct=0.0,
+                end_pct=1.0,
+            ),
         ],
     )
 
 
 def _flat_archetype(name: str = "flat", level: float = 0.5) -> Archetype:
     return Archetype(
-        name=name, label=name, description="constant plateau",
+        name=name,
+        label=name,
+        description="constant plateau",
         curve_segments=[
-            CurveSegment(curve="plateau", params={"level": level},
-                         start_pct=0.0, end_pct=1.0),
+            CurveSegment(curve="plateau", params={"level": level}, start_pct=0.0, end_pct=1.0),
         ],
     )
 
 
 def _lognorm_metric(
-    name: str, *, polarity: str = "positive", s: float = 0.55,
+    name: str,
+    *,
+    polarity: str = "positive",
+    s: float = 0.55,
 ) -> Metric:
     """Lognorm with positive ``loc`` floor so center never hits the bypass.
 
@@ -114,7 +130,9 @@ def _lognorm_metric(
     this s.
     """
     return Metric(
-        name=name, label=name, distribution="lognorm",
+        name=name,
+        label=name,
+        distribution="lognorm",
         params={"s": s, "loc": 1.0, "scale": 5.0},
         polarity=polarity,
     )
@@ -137,9 +155,13 @@ def _make_config(
     entities: list[Entity] = []
     for arch in archetypes:
         for i in range(entity_per_archetype):
-            entities.append(Entity(
-                name=f"{arch.name}_{i:03d}", archetype=arch.name, size=1,
-            ))
+            entities.append(
+                Entity(
+                    name=f"{arch.name}_{i:03d}",
+                    archetype=arch.name,
+                    size=1,
+                )
+            )
     fact_cols: list[Column] = [
         Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
         Column(name="entity_id", dtype="id", source="fk:dim_entity.entity_id"),
@@ -147,8 +169,9 @@ def _make_config(
     for m in metrics:
         fact_cols.append(Column(name=m.name, dtype="float", source=f"metric:{m.name}"))
     return PlotsimConfig(
-        domain=Domain(name="m120 harness", description="-",
-                      entity_type="unit", entity_label="Unit"),
+        domain=Domain(
+            name="m120 harness", description="-", entity_type="unit", entity_label="Unit"
+        ),
         time_window=TimeWindow(start=start, end=end, granularity=granularity),
         seed=seed,
         metrics=metrics,
@@ -156,12 +179,16 @@ def _make_config(
         entities=entities,
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
             Table(
-                name="dim_entity", type="dim", grain="per_entity",
+                name="dim_entity",
+                type="dim",
+                grain="per_entity",
                 columns=[
                     Column(name="entity_id", dtype="id", source="pk"),
                     Column(name="entity_name", dtype="string", source="derived:name"),
@@ -169,7 +196,8 @@ def _make_config(
                 primary_key="entity_id",
             ),
             Table(
-                name="fct_metrics", type="fact",
+                name="fct_metrics",
+                type="fact",
                 grain="per_entity_per_period",
                 columns=fact_cols,
                 primary_key=["date_key", "entity_id"],
@@ -257,13 +285,17 @@ class TestEstimateTrajectoryCovariance:
         # multiplicative scaling), which is why this test uses asymmetric
         # sensitivities.
         metric_a = Metric(
-            name="a", label="A", distribution="lognorm",
+            name="a",
+            label="A",
+            distribution="lognorm",
             params={"s": 0.2, "loc": 1.0, "scale": 5.0},
             polarity="positive",
             seasonal_sensitivity=0.0,
         )
         metric_b = Metric(
-            name="b", label="B", distribution="lognorm",
+            name="b",
+            label="B",
+            distribution="lognorm",
             params={"s": 0.2, "loc": 1.0, "scale": 5.0},
             polarity="positive",
             seasonal_sensitivity=2.0,
@@ -271,11 +303,13 @@ class TestEstimateTrajectoryCovariance:
         archetypes = [_growth_archetype()]
         seasonal = [SeasonalEffect(months=(12, 1, 2), strength=0.8)]
         cfg_off = _make_config(
-            metrics=[metric_a, metric_b], archetypes=archetypes,
+            metrics=[metric_a, metric_b],
+            archetypes=archetypes,
             entity_per_archetype=5,
         )
         cfg_on = _make_config(
-            metrics=[metric_a, metric_b], archetypes=archetypes,
+            metrics=[metric_a, metric_b],
+            archetypes=archetypes,
             entity_per_archetype=5,
             seasonal_effects=seasonal,
         )
@@ -295,32 +329,51 @@ class TestCompensateCorrelationMatrix:
         # Mirrors the AC: "Pre-compensation produces identical results to
         # current behavior when all correlations are zero."
         user_mat = np.eye(3)
-        traj_cov = np.array([[1.0, 0.6, 0.5],
-                             [0.6, 1.0, 0.4],
-                             [0.5, 0.4, 1.0]])
+        traj_cov = np.array([[1.0, 0.6, 0.5], [0.6, 1.0, 0.4], [0.5, 0.4, 1.0]])
         metrics = [
-            Metric(name=f"m{i}", label=f"m{i}", distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive")
+            Metric(
+                name=f"m{i}",
+                label=f"m{i}",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            )
             for i in range(3)
         ]
         compensated, records = compensate_correlation_matrix(
-            user_mat, traj_cov, metrics, [],
+            user_mat,
+            traj_cov,
+            metrics,
+            [],
         )
         assert records == []
         np.testing.assert_array_equal(compensated, user_mat)
 
     def test_subtracts_trajectory_contribution_off_diagonal(self):
         metrics = [
-            Metric(name="a", label="A", distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive"),
-            Metric(name="b", label="B", distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive"),
+            Metric(
+                name="a",
+                label="A",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            ),
+            Metric(
+                name="b",
+                label="B",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            ),
         ]
         user_mat = np.array([[1.0, -0.4], [-0.4, 1.0]])
         traj_cov = np.array([[1.0, 0.3], [0.3, 1.0]])
         pairs = [CorrelationPair(metric_a="a", metric_b="b", coefficient=-0.4)]
         compensated, records = compensate_correlation_matrix(
-            user_mat, traj_cov, metrics, pairs,
+            user_mat,
+            traj_cov,
+            metrics,
+            pairs,
         )
         assert compensated[0, 1] == pytest.approx(-0.7)
         assert compensated[1, 0] == pytest.approx(-0.7)
@@ -337,17 +390,30 @@ class TestCompensateCorrelationMatrix:
 
     def test_clamps_infeasible_to_unit_interval_and_marks(self):
         metrics = [
-            Metric(name="a", label="A", distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive"),
-            Metric(name="b", label="B", distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive"),
+            Metric(
+                name="a",
+                label="A",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            ),
+            Metric(
+                name="b",
+                label="B",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            ),
         ]
         # Trajectory contributes +0.85, user wants -0.5 → -0.5 - 0.85 = -1.35.
         user_mat = np.array([[1.0, -0.5], [-0.5, 1.0]])
         traj_cov = np.array([[1.0, 0.85], [0.85, 1.0]])
         pairs = [CorrelationPair(metric_a="a", metric_b="b", coefficient=-0.5)]
         compensated, records = compensate_correlation_matrix(
-            user_mat, traj_cov, metrics, pairs,
+            user_mat,
+            traj_cov,
+            metrics,
+            pairs,
         )
         assert compensated[0, 1] == pytest.approx(-1.0)
         assert records[0]["compensated_target"] == pytest.approx(-1.35)
@@ -356,8 +422,13 @@ class TestCompensateCorrelationMatrix:
 
     def test_records_sorted_for_determinism(self):
         metrics = [
-            Metric(name=n, label=n, distribution="normal",
-                   params={"mu": 1.0, "sigma": 0.1}, polarity="positive")
+            Metric(
+                name=n,
+                label=n,
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.1},
+                polarity="positive",
+            )
             for n in ("c", "a", "b")
         ]
         n = 3
@@ -373,11 +444,16 @@ class TestCompensateCorrelationMatrix:
             CorrelationPair(metric_a="a", metric_b="b", coefficient=0.3),
         ]
         _, records = compensate_correlation_matrix(
-            user_mat, traj_cov, metrics, pairs,
+            user_mat,
+            traj_cov,
+            metrics,
+            pairs,
         )
         # Sorted by (metric_a, metric_b) regardless of input order.
         assert [(r["metric_a"], r["metric_b"]) for r in records] == [
-            ("a", "b"), ("c", "a"), ("c", "b"),
+            ("a", "b"),
+            ("c", "a"),
+            ("c", "b"),
         ]
 
 
@@ -411,7 +487,8 @@ class TestEndToEndCompensation:
         )
 
     def test_compensation_on_flips_realized_sign_negative(
-        self, opposes_pair_cfg,
+        self,
+        opposes_pair_cfg,
     ):
         cfg = _make_config(compensate=True, **opposes_pair_cfg)
         with warnings.catch_warnings():
@@ -423,8 +500,7 @@ class TestEndToEndCompensation:
         # within-archetype formula doesn't aim for exact recovery, only
         # for delivering the configured sign.
         assert observed < 0.0, (
-            f"compensation ON: expected negative table-wide corr(m0, m1), "
-            f"got {observed:+.4f}"
+            f"compensation ON: expected negative table-wide corr(m0, m1), " f"got {observed:+.4f}"
         )
 
     def test_compensation_off_lets_trajectory_show_through(self, opposes_pair_cfg):
@@ -446,7 +522,8 @@ class TestEndToEndCompensation:
         )
 
     def test_compensation_swings_table_corr_toward_configured_sign(
-        self, opposes_pair_cfg,
+        self,
+        opposes_pair_cfg,
     ):
         cfg_off = _make_config(compensate=False, **opposes_pair_cfg)
         cfg_on = _make_config(compensate=True, **opposes_pair_cfg)
@@ -469,11 +546,15 @@ class TestEndToEndCompensation:
         metrics = [_lognorm_metric(f"m{i}") for i in range(3)]
         archetypes = [_growth_archetype(), _decline_archetype()]
         cfg_off = _make_config(
-            metrics=metrics, archetypes=archetypes, entity_per_archetype=20,
+            metrics=metrics,
+            archetypes=archetypes,
+            entity_per_archetype=20,
             compensate=False,
         )
         cfg_on = _make_config(
-            metrics=metrics, archetypes=archetypes, entity_per_archetype=20,
+            metrics=metrics,
+            archetypes=archetypes,
+            entity_per_archetype=20,
             compensate=True,
         )
         with warnings.catch_warnings():
@@ -498,22 +579,30 @@ class TestSeasonalInteraction:
         # sensitivities break the proportional scaling so seasonal
         # modulation actually moves the estimated correlation.
         metric_a = Metric(
-            name="a", label="A", distribution="lognorm",
+            name="a",
+            label="A",
+            distribution="lognorm",
             params={"s": 0.55, "loc": 1.0, "scale": 5.0},
-            polarity="positive", seasonal_sensitivity=0.0,
+            polarity="positive",
+            seasonal_sensitivity=0.0,
         )
         metric_b = Metric(
-            name="b", label="B", distribution="lognorm",
+            name="b",
+            label="B",
+            distribution="lognorm",
             params={"s": 0.55, "loc": 1.0, "scale": 5.0},
-            polarity="positive", seasonal_sensitivity=2.0,
+            polarity="positive",
+            seasonal_sensitivity=2.0,
         )
         archetypes = [_growth_archetype(), _decline_archetype()]
         cfg_off = _make_config(
-            metrics=[metric_a, metric_b], archetypes=archetypes,
+            metrics=[metric_a, metric_b],
+            archetypes=archetypes,
             entity_per_archetype=10,
         )
         cfg_on = _make_config(
-            metrics=[metric_a, metric_b], archetypes=archetypes,
+            metrics=[metric_a, metric_b],
+            archetypes=archetypes,
             entity_per_archetype=10,
             seasonal_effects=[SeasonalEffect(months=(11, 12, 1), strength=0.6)],
         )
@@ -540,6 +629,7 @@ class TestBackwardCompatibility:
         # is the actual byte-identical regression — this test guards
         # only the field's value.
         from plotsim.config import load_config
+
         cfg = load_config("plotsim/configs/sample_saas.yaml")
         assert cfg.compensate_correlations is False
 
@@ -554,7 +644,8 @@ class TestBuilderIntegration:
         from plotsim.builder import create_from_yaml
 
         yaml_path = tmp_path / "builder_input.yaml"
-        yaml_path.write_text("""\
+        yaml_path.write_text(
+            """\
 about: SaaS subscription churn
 unit: company
 window:
@@ -579,7 +670,9 @@ segments:
   - name: at_risk
     archetype: decline
     count: 10
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         cfg = create_from_yaml(yaml_path)
         assert cfg.compensate_correlations is True
 
@@ -671,7 +764,10 @@ class TestInspectTrace:
         raw = _build_correlation_matrix(sorted_metrics, list(cfg_on.correlations))
         traj_cov = estimate_trajectory_covariance(cfg_on, metric_order=sorted_metrics)
         compensated, _ = compensate_correlation_matrix(
-            raw, traj_cov, sorted_metrics, list(cfg_on.correlations),
+            raw,
+            traj_cov,
+            sorted_metrics,
+            list(cfg_on.correlations),
         )
         projected, _, _ = project_correlation_matrix(compensated)
         np.testing.assert_allclose(L_on, np.linalg.cholesky(projected))
@@ -717,21 +813,21 @@ class TestMetricCap:
         metrics = [_lognorm_metric(f"m{i:02d}") for i in range(n)]
         archetypes = [_growth_archetype()]
         cfg = _make_config(
-            metrics=metrics, archetypes=archetypes,
+            metrics=metrics,
+            archetypes=archetypes,
             entity_per_archetype=2,
             correlations=[
-                CorrelationPair(metric_a="m00", metric_b="m01",
-                                coefficient=-0.3),
+                CorrelationPair(metric_a="m00", metric_b="m01", coefficient=-0.3),
             ],
             compensate=True,
-            start="2024-01", end="2024-03",
+            start="2024-01",
+            end="2024-03",
         )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             generate_tables(cfg)
         cap_warnings = [
-            w for w in caught
-            if "compensate_correlations=true but config has" in str(w.message)
+            w for w in caught if "compensate_correlations=true but config has" in str(w.message)
         ]
         assert cap_warnings, (
             "expected metric-cap warning when M exceeds "
@@ -744,21 +840,21 @@ class TestMetricCap:
         metrics = [_lognorm_metric(f"m{i:02d}") for i in range(n)]
         archetypes = [_growth_archetype()]
         cfg = _make_config(
-            metrics=metrics, archetypes=archetypes,
+            metrics=metrics,
+            archetypes=archetypes,
             entity_per_archetype=2,
             correlations=[
-                CorrelationPair(metric_a="m00", metric_b="m01",
-                                coefficient=-0.3),
+                CorrelationPair(metric_a="m00", metric_b="m01", coefficient=-0.3),
             ],
             compensate=True,
-            start="2024-01", end="2024-03",
+            start="2024-01",
+            end="2024-03",
         )
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             tables, state = generate_tables_with_state(cfg)
         cap_warnings = [
-            w for w in caught
-            if "compensate_correlations=true but config has" in str(w.message)
+            w for w in caught if "compensate_correlations=true but config has" in str(w.message)
         ]
         assert not cap_warnings
         manifest = build_manifest(cfg, state.trajectories, tables)
@@ -797,9 +893,7 @@ class TestInfeasibility:
 
         manifest = build_manifest(cfg, state.trajectories, tables)
         assert manifest.correlation_compensations is not None
-        infeasible_records = [
-            r for r in manifest.correlation_compensations if r.infeasible
-        ]
+        infeasible_records = [r for r in manifest.correlation_compensations if r.infeasible]
         assert len(infeasible_records) == 1
         rec = infeasible_records[0]
         assert rec.compensated_target < -1.0

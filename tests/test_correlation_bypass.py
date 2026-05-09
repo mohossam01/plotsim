@@ -29,6 +29,7 @@ Both tests parametrize over multiple seeds and assert on the median
 observed Pearson per pair, so single-seed sampling noise can't flip
 the verdict.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -218,19 +219,25 @@ def _load_inline(yaml_str: str, tmp_path: Path, name: str):
 @pytest.fixture(scope="module")
 def bypass_config(tmp_path_factory):
     return _load_inline(
-        _BYPASS_YAML, tmp_path_factory.mktemp("f2_bypass"), "bypass.yaml",
+        _BYPASS_YAML,
+        tmp_path_factory.mktemp("f2_bypass"),
+        "bypass.yaml",
     )
 
 
 @pytest.fixture(scope="module")
 def no_bypass_config(tmp_path_factory):
     return _load_inline(
-        _NO_BYPASS_YAML, tmp_path_factory.mktemp("f2_no_bypass"), "no_bypass.yaml",
+        _NO_BYPASS_YAML,
+        tmp_path_factory.mktemp("f2_no_bypass"),
+        "no_bypass.yaml",
     )
 
 
 def _generate_observed_pearson(
-    cfg, seeds: Iterable[int], pairs: tuple[tuple[str, str], ...],
+    cfg,
+    seeds: Iterable[int],
+    pairs: tuple[tuple[str, str], ...],
 ) -> tuple[dict, dict]:
     """Generate at each seed; return (early_observed, late_observed) dicts
     keyed by pair, with one observed-Pearson per seed in each list.

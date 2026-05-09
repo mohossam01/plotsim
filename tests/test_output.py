@@ -124,7 +124,9 @@ def test_write_tables_returns_the_output_path(saas_bundle, tmp_path):
 
 
 def test_write_tables_defaults_to_config_output_directory(
-    saas_bundle, tmp_path, monkeypatch,
+    saas_bundle,
+    tmp_path,
+    monkeypatch,
 ):
     cfg, tables, report = saas_bundle
     # Swap cwd so the relative config.output.directory ("out/saas") lands in tmp.
@@ -143,20 +145,22 @@ def test_write_tables_overwrites_existing_files(saas_bundle, tmp_path):
     write_tables(tables, cfg, report, output_dir=tmp_path)
     content = stale.read_text(encoding="utf-8")
     assert "this should be overwritten" not in content
-    assert content.startswith(("\"", "c", "company"))  # real CSV content
+    assert content.startswith(('"', "c", "company"))  # real CSV content
 
 
 def test_write_tables_writes_even_when_report_invalid(saas_bundle, tmp_path):
     cfg, tables, _ = saas_bundle
     # Construct a fake-invalid report so we can verify CSVs are still written.
-    bad = ValidationReport(issues=(
-        ValidationIssue(
-            check="fk_integrity",
-            severity="error",
-            table="fct_engagement",
-            message="synthetic failure for test",
-        ),
-    ))
+    bad = ValidationReport(
+        issues=(
+            ValidationIssue(
+                check="fk_integrity",
+                severity="error",
+                table="fct_engagement",
+                message="synthetic failure for test",
+            ),
+        )
+    )
     write_tables(tables, cfg, bad, output_dir=tmp_path)
     for name in tables:
         assert (tmp_path / f"{name}.csv").exists()
@@ -206,12 +210,14 @@ def test_csv_float_precision_four_decimal_places(saas_bundle, tmp_path):
 
 def test_csv_nan_renders_as_empty_string(saas_cfg, tmp_path):
     # Build a synthetic table with an explicit NaN in a metric column.
-    rows = pd.DataFrame({
-        "date_key": [202301, 202302],
-        "company_id": ["c-001", "c-001"],
-        "engagement_score": [0.5, np.nan],
-        "feature_adoption": [0.3, 0.6],
-    })
+    rows = pd.DataFrame(
+        {
+            "date_key": [202301, 202302],
+            "company_id": ["c-001", "c-001"],
+            "engagement_score": [0.5, np.nan],
+            "feature_adoption": [0.3, 0.6],
+        }
+    )
     write_single_table("fct_engagement", rows, tmp_path, config=saas_cfg)
     text = (tmp_path / "fct_engagement.csv").read_text(encoding="utf-8").splitlines()
     header = text[0].replace('"', "").split(",")
@@ -219,9 +225,7 @@ def test_csv_nan_renders_as_empty_string(saas_cfg, tmp_path):
     row2 = text[2].split(",")
     # QUOTE_NONNUMERIC wraps the empty na_rep in quotes; both "" and bare
     # empty parse back to empty on read_csv. "nan"/"NaN" is the real failure.
-    assert row2[eng_idx] in ("", '""'), (
-        f"expected empty cell for NaN, got {row2[eng_idx]!r}"
-    )
+    assert row2[eng_idx] in ("", '""'), f"expected empty cell for NaN, got {row2[eng_idx]!r}"
     # And round-tripping through read_csv must restore the null.
     reloaded = pd.read_csv(tmp_path / "fct_engagement.csv")
     assert pd.isna(reloaded.loc[1, "engagement_score"])
@@ -230,6 +234,7 @@ def test_csv_nan_renders_as_empty_string(saas_cfg, tmp_path):
 def test_csv_integer_column_has_no_dot_zero_suffix(tmp_path):
     # Build a minimal int-column scenario: poisson counts with one NaN.
     from plotsim.config import Column, Table
+
     tbl = Table(
         name="fct_counts",
         type="fact",
@@ -245,17 +250,17 @@ def test_csv_integer_column_has_no_dot_zero_suffix(tmp_path):
     class _StubConfig:
         tables = [tbl]
 
-    df = pd.DataFrame({
-        "date_key": [202301, 202302, 202303],
-        "entity_id": ["c-001", "c-001", "c-001"],
-        "tickets": [5, float("nan"), 12],  # promoted to float by NaN
-    })
+    df = pd.DataFrame(
+        {
+            "date_key": [202301, 202302, 202303],
+            "entity_id": ["c-001", "c-001", "c-001"],
+            "tickets": [5, float("nan"), 12],  # promoted to float by NaN
+        }
+    )
     write_single_table("fct_counts", df, tmp_path, config=_StubConfig())
 
     raw = (tmp_path / "fct_counts.csv").read_text(encoding="utf-8")
-    assert "5.0" not in raw and "12.0" not in raw, (
-        f"integer column leaked .0 suffix:\n{raw}"
-    )
+    assert "5.0" not in raw and "12.0" not in raw, f"integer column leaked .0 suffix:\n{raw}"
     assert ",5," in raw or raw.find(",5,") != -1 or ",5\n" in raw or '"5"' in raw
 
 
@@ -291,9 +296,9 @@ def test_column_order_stage_column_appended_last(saas_bundle, tmp_path):
         if "stage" in df.columns:
             write_tables(tables, cfg, report, output_dir=tmp_path)
             loaded = pd.read_csv(tmp_path / f"{name}.csv")
-            assert list(loaded.columns)[-1] == "stage", (
-                f"expected 'stage' last in {name}, got {list(loaded.columns)}"
-            )
+            assert (
+                list(loaded.columns)[-1] == "stage"
+            ), f"expected 'stage' last in {name}, got {list(loaded.columns)}"
             return
     pytest.skip("no table carries a stage column under the current config")
 
@@ -345,21 +350,23 @@ def test_validation_report_header_has_counts_and_status(saas_bundle, tmp_path):
 
 
 def test_validation_report_lists_each_issue(tmp_path):
-    report = ValidationReport(issues=(
-        ValidationIssue(
-            check="fk_integrity",
-            severity="error",
-            table="fct_engagement",
-            message="orphan FK value",
-            details={"column": "company_id", "orphan_count": 3},
-        ),
-        ValidationIssue(
-            check="null_policy",
-            severity="warning",
-            table="dim_company",
-            message="nulls detected",
-        ),
-    ))
+    report = ValidationReport(
+        issues=(
+            ValidationIssue(
+                check="fk_integrity",
+                severity="error",
+                table="fct_engagement",
+                message="orphan FK value",
+                details={"column": "company_id", "orphan_count": 3},
+            ),
+            ValidationIssue(
+                check="null_policy",
+                severity="warning",
+                table="dim_company",
+                message="nulls detected",
+            ),
+        )
+    )
     write_validation_report(report, tmp_path)
     text = (tmp_path / REPORT_FILENAME).read_text(encoding="utf-8")
     assert "[ERROR]" in text
@@ -415,8 +422,11 @@ def test_base_dir_set_allows_subdirectory(saas_bundle, tmp_path):
     cfg, tables, report = saas_bundle
     sandbox = tmp_path / "sandbox"
     out = write_tables(
-        tables, cfg, report,
-        output_dir="runs/first", base_dir=sandbox,
+        tables,
+        cfg,
+        report,
+        output_dir="runs/first",
+        base_dir=sandbox,
     )
     assert out == (sandbox / "runs" / "first").resolve()
     assert any(out.glob("*.csv"))
@@ -430,8 +440,11 @@ def test_base_dir_rejects_parent_traversal(saas_bundle, tmp_path):
     sibling = tmp_path / "sibling"
     with pytest.raises(ValueError, match="escapes base_dir"):
         write_tables(
-            tables, cfg, report,
-            output_dir="../sibling", base_dir=sandbox,
+            tables,
+            cfg,
+            report,
+            output_dir="../sibling",
+            base_dir=sandbox,
         )
     # No CSVs leaked into the sibling directory.
     assert not sibling.exists() or not any(sibling.glob("*.csv"))
@@ -445,8 +458,11 @@ def test_base_dir_rejects_absolute_path_override(saas_bundle, tmp_path):
     rogue = tmp_path / "rogue"
     with pytest.raises(ValueError, match="absolute path"):
         write_tables(
-            tables, cfg, report,
-            output_dir=str(rogue), base_dir=sandbox,
+            tables,
+            cfg,
+            report,
+            output_dir=str(rogue),
+            base_dir=sandbox,
         )
 
 
@@ -455,8 +471,11 @@ def test_base_dir_allows_nested_subdirectory(saas_bundle, tmp_path):
     cfg, tables, report = saas_bundle
     sandbox = tmp_path / "sandbox"
     out = write_tables(
-        tables, cfg, report,
-        output_dir="2026/04/run-01", base_dir=sandbox,
+        tables,
+        cfg,
+        report,
+        output_dir="2026/04/run-01",
+        base_dir=sandbox,
     )
     assert out == (sandbox / "2026" / "04" / "run-01").resolve()
     assert any(out.glob("*.csv"))
@@ -508,8 +527,11 @@ def test_coerce_integer_columns_does_not_deep_copy():
     """
     from plotsim.config import Column, Table
     from plotsim.output import _coerce_integer_columns
+
     tbl = Table(
-        name="fct_t", type="fact", grain="per_entity_per_period",
+        name="fct_t",
+        type="fact",
+        grain="per_entity_per_period",
         columns=[
             Column(name="date_key", dtype="id", source="fk:dim_date.date_key"),
             Column(name="count_m", dtype="int", source="metric:m"),
@@ -517,10 +539,12 @@ def test_coerce_integer_columns_does_not_deep_copy():
         primary_key=["date_key"],
         foreign_keys=["dim_date.date_key"],
     )
-    df = pd.DataFrame({
-        "date_key": ["d1", "d2", "d3"],
-        "count_m": np.array([3.0, np.nan, 7.0], dtype=np.float64),
-    })
+    df = pd.DataFrame(
+        {
+            "date_key": ["d1", "d2", "d3"],
+            "count_m": np.array([3.0, np.nan, 7.0], dtype=np.float64),
+        }
+    )
     out = _coerce_integer_columns(tbl, df)
     assert out is df
     assert str(out["count_m"].dtype) == "Int64"

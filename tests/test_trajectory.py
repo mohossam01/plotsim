@@ -48,31 +48,41 @@ def _arch(segments: list[CurveSegment], name: str = "test_arch") -> Archetype:
 
 
 def _one_segment_plateau(level: float = 0.5) -> Archetype:
-    return _arch([
-        CurveSegment(curve="plateau", params={"level": level},
-                     start_pct=0.0, end_pct=1.0),
-    ])
+    return _arch(
+        [
+            CurveSegment(curve="plateau", params={"level": level}, start_pct=0.0, end_pct=1.0),
+        ]
+    )
 
 
 def _two_segment_step() -> Archetype:
-    return _arch([
-        CurveSegment(curve="plateau", params={"level": 0.9},
-                     start_pct=0.0, end_pct=0.5),
-        CurveSegment(curve="plateau", params={"level": 0.1},
-                     start_pct=0.5, end_pct=1.0),
-    ])
+    return _arch(
+        [
+            CurveSegment(curve="plateau", params={"level": 0.9}, start_pct=0.0, end_pct=0.5),
+            CurveSegment(curve="plateau", params={"level": 0.1}, start_pct=0.5, end_pct=1.0),
+        ]
+    )
 
 
 def _three_segment_rocket() -> Archetype:
     """Matches sample_saas rocket_then_cliff structure."""
-    return _arch([
-        CurveSegment(curve="sigmoid", params={"midpoint": 0.3, "steepness": 10.0},
-                     start_pct=0.0, end_pct=0.55),
-        CurveSegment(curve="step", params={"threshold": 0.5, "before": 1.0, "after": 0.2},
-                     start_pct=0.55, end_pct=0.65),
-        CurveSegment(curve="plateau", params={"level": 0.2},
-                     start_pct=0.65, end_pct=1.0),
-    ])
+    return _arch(
+        [
+            CurveSegment(
+                curve="sigmoid",
+                params={"midpoint": 0.3, "steepness": 10.0},
+                start_pct=0.0,
+                end_pct=0.55,
+            ),
+            CurveSegment(
+                curve="step",
+                params={"threshold": 0.5, "before": 1.0, "after": 0.2},
+                start_pct=0.55,
+                end_pct=0.65,
+            ),
+            CurveSegment(curve="plateau", params={"level": 0.2}, start_pct=0.65, end_pct=1.0),
+        ]
+    )
 
 
 def _six_segment_arch() -> Archetype:
@@ -283,9 +293,7 @@ def test_six_segment_archetype():
     assert out.shape == (100,)
     # Values should all be one of the defined plateau levels
     expected_levels = {0.9, 0.75, 0.6, 0.45, 0.3, 0.15}
-    assert set(np.round(out, 4).tolist()).issubset(
-        {round(v, 4) for v in expected_levels}
-    )
+    assert set(np.round(out, 4).tolist()).issubset({round(v, 4) for v in expected_levels})
     # Should be monotonically non-increasing (each plateau lower than prev)
     assert np.all(np.diff(out) <= EPS)
 
@@ -330,9 +338,11 @@ def test_all_trajectories_raises_on_missing_archetype():
     # model_copy with update= creates a new frozen instance; cross-ref
     # validation only fires on initial construction, so this works for the
     # defensive-code path we want to exercise.
-    hacked = config.model_copy(update={
-        "entities": list(config.entities) + [bad_entity],
-    })
+    hacked = config.model_copy(
+        update={
+            "entities": list(config.entities) + [bad_entity],
+        }
+    )
     with pytest.raises(KeyError):
         compute_all_trajectories(hacked, 12)
 

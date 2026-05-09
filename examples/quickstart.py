@@ -12,6 +12,7 @@ the CLI instead:
     plotsim template saas -o my_config.yaml
     plotsim run my_config.yaml -o ./output --validate
 """
+
 from pathlib import Path
 
 from plotsim import create, generate_tables, validate, write_tables
@@ -28,10 +29,10 @@ def main() -> None:
         window=("2024-01", "2024-12", "monthly"),
         metrics=[
             {"name": "engagement", "type": "score", "polarity": "positive"},
-            {"name": "payments",   "type": "count", "polarity": "positive"},
+            {"name": "payments", "type": "count", "polarity": "positive"},
         ],
         segments=[
-            {"name": "active",   "count": 50, "archetype": "growth"},
+            {"name": "active", "count": 50, "archetype": "growth"},
             {"name": "inactive", "count": 30, "archetype": "decline"},
         ],
     )

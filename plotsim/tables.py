@@ -96,10 +96,7 @@ from plotsim.trajectory import compute_all_trajectories
 
 
 def _per_entity_dim_names(config: PlotsimConfig) -> set[str]:
-    return {
-        t.name for t in config.tables
-        if t.type == "dim" and t.grain == "per_entity"
-    }
+    return {t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"}
 
 
 def _find_entity_fk_column(
@@ -182,7 +179,8 @@ def _coerce_array_for_dtype(arr: np.ndarray, dtype: str):
 
 
 def _build_seasonal_factors(
-    config: PlotsimConfig, n_periods: int,
+    config: PlotsimConfig,
+    n_periods: int,
 ) -> Optional[np.ndarray]:
     """Pre-compute the per-period summed seasonal strength.
 
@@ -471,9 +469,8 @@ def iter_fact_chunks(
     # discontiguous row sets.
     for arch in archetype_order:
         ent_indices = indices_by_arch[arch]
-        is_contiguous = (
-            len(ent_indices) > 0
-            and ent_indices[-1] - ent_indices[0] + 1 == len(ent_indices)
+        is_contiguous = len(ent_indices) > 0 and ent_indices[-1] - ent_indices[0] + 1 == len(
+            ent_indices
         )
         chunk: dict[str, pd.DataFrame] = {}
         for fact_name in per_arch_facts:
@@ -532,7 +529,11 @@ def build_fact_tables(
 
     if entity_metrics is None:
         entity_metrics = _compute_entity_metrics(
-            config, trajectories, n_periods, rng, cholesky_L=cholesky_L,
+            config,
+            trajectories,
+            n_periods,
+            rng,
+            cholesky_L=cholesky_L,
         )
 
     # Category B Layer 4: materialize metric series as a dense (E, P, M) float64
@@ -559,12 +560,24 @@ def build_fact_tables(
             continue
         if tbl.grain == "per_entity_per_period":
             fact_out[tbl.name] = _build_per_entity_per_period_fact(
-                tbl, config, entity_metrics, dim_tables, per_entity_dims,
-                fake, rng, metrics_3d, trajectories_2d,
+                tbl,
+                config,
+                entity_metrics,
+                dim_tables,
+                per_entity_dims,
+                fake,
+                rng,
+                metrics_3d,
+                trajectories_2d,
             )
         elif tbl.grain == "per_period":
             fact_out[tbl.name] = _build_per_period_fact(
-                tbl, config, entity_metrics, dim_tables, fake, metrics_3d,
+                tbl,
+                config,
+                entity_metrics,
+                dim_tables,
+                fake,
+                metrics_3d,
             )
         else:
             raise ValueError(
@@ -675,7 +688,8 @@ def _build_per_entity_per_period_fact(
     # ``expand_scd_dims`` iterates entities in ``config.entities`` order, so
     # the deduplicated frame preserves config-entity ordering.
     parent_entity_dim = parent_entity_dim.drop_duplicates(
-        subset=[parent_entity_pk], keep="first",
+        subset=[parent_entity_pk],
+        keep="first",
     ).reset_index(drop=True)
     if len(parent_entity_dim) != len(config.entities):
         raise ValueError(
@@ -731,7 +745,11 @@ def _build_per_entity_per_period_fact(
                     f"{parent_table!r} PKs {parent_pks}"
                 )
             per_entity_assignments[col_name] = sample_fk_values(
-                col_cfg, parent_pks, 1, rng, anchored_value=anchored,
+                col_cfg,
+                parent_pks,
+                1,
+                rng,
+                anchored_value=anchored,
             )[0]
         entity_cross_fks[entity.name] = per_entity_assignments
 
@@ -744,18 +762,35 @@ def _build_per_entity_per_period_fact(
     has_faker = any(isinstance(p, FakerSource) for _, p in parsed_cols)
     if has_faker or metrics_3d is None:
         return _scalar_per_entity_per_period_fact(
-            tbl, config, entity_metrics, dim_date, n_periods,
-            parent_entity_dim, parent_entity_pk,
-            local_entity_col, local_date_col, parent_date_pk,
-            entity_cross_fks, fake, parsed_cols,
+            tbl,
+            config,
+            entity_metrics,
+            dim_date,
+            n_periods,
+            parent_entity_dim,
+            parent_entity_pk,
+            local_entity_col,
+            local_date_col,
+            parent_date_pk,
+            entity_cross_fks,
+            fake,
+            parsed_cols,
             trajectories_2d=trajectories_2d,
         )
 
     return _vectorized_per_entity_per_period_fact(
-        tbl, config, dim_date, n_periods,
-        parent_entity_dim, parent_entity_pk,
-        local_entity_col, local_date_col, parent_date_pk,
-        entity_cross_fks, parsed_cols, metrics_3d,
+        tbl,
+        config,
+        dim_date,
+        n_periods,
+        parent_entity_dim,
+        parent_entity_pk,
+        local_entity_col,
+        local_date_col,
+        parent_date_pk,
+        entity_cross_fks,
+        parsed_cols,
+        metrics_3d,
         trajectories_2d=trajectories_2d,
     )
 
@@ -792,16 +827,21 @@ def _scalar_per_entity_per_period_fact(
         entity_pk_value = parent_entity_dim.iloc[entity_idx][parent_entity_pk]
         metric_series = entity_metrics[entity.name]
         cross_fks_for_entity = entity_cross_fks[entity.name]
-        traj_for_entity = (
-            trajectories_2d[entity_idx] if trajectories_2d is not None else None
-        )
+        traj_for_entity = trajectories_2d[entity_idx] if trajectories_2d is not None else None
         for period_idx in range(n_periods):
             row: dict = {}
             for col in tbl.columns:
                 row[col.name] = _resolve_fact_cell(
-                    col, period_idx, entity_pk_value,
-                    local_entity_col, local_date_col, parent_date_pk,
-                    metric_series, dim_date, cross_fks_for_entity, fake,
+                    col,
+                    period_idx,
+                    entity_pk_value,
+                    local_entity_col,
+                    local_date_col,
+                    parent_date_pk,
+                    metric_series,
+                    dim_date,
+                    cross_fks_for_entity,
+                    fake,
                     trajectory_for_entity=traj_for_entity,
                 )
             rows.append(row)
@@ -872,13 +912,16 @@ def _vectorized_per_entity_per_period_fact(
         ctx = dict(base_ctx)
         ctx["col"] = col
         col_arrays[col.name] = COLUMN_DISPATCH.dispatch(
-            BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, parsed, ctx,
+            BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+            parsed,
+            ctx,
         )
 
     return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
 
 
 # --- Vectorized fact-cell dispatch handlers ----------------------------------
+
 
 def _fact_vec_fk(parsed: FKSource, ctx: dict):
     col = ctx["col"]
@@ -887,8 +930,7 @@ def _fact_vec_fk(parsed: FKSource, ctx: dict):
     if col.name == ctx["local_date_col"]:
         return ctx["date_key_tiled"]
     cross_vals = np.asarray(
-        [ctx["entity_cross_fks"][e.name].get(col.name)
-         for e in ctx["config"].entities],
+        [ctx["entity_cross_fks"][e.name].get(col.name) for e in ctx["config"].entities],
         dtype=object,
     )
     return np.repeat(cross_vals, ctx["n_periods"])
@@ -912,7 +954,8 @@ def _fact_vec_lag(parsed: LagSource, ctx: dict):
     metric_name_to_idx = ctx["metric_name_to_idx"]
     if parsed.metric not in metric_name_to_idx:
         return _coerce_array_for_dtype(
-            np.full(ctx["total_rows"], np.nan, dtype=np.float64), col.dtype,
+            np.full(ctx["total_rows"], np.nan, dtype=np.float64),
+            col.dtype,
         )
     m_idx = metric_name_to_idx[parsed.metric]
     n = parsed.periods
@@ -923,7 +966,8 @@ def _fact_vec_lag(parsed: LagSource, ctx: dict):
     target_idx = np.where(target_idx < 0, base, target_idx)
     sliced = ctx["metrics_3d"][:, target_idx, m_idx]  # (E, P)
     return _coerce_array_for_dtype(
-        sliced.ravel(order="C").copy(), col.dtype,
+        sliced.ravel(order="C").copy(),
+        col.dtype,
     )
 
 
@@ -933,9 +977,7 @@ def _fact_vec_pk(parsed: PKSource, ctx: dict):
     n_entities = ctx["n_entities"]
     n_periods = ctx["n_periods"]
     pk_rows = [
-        f"{col.name}-{p:04d}-{entity_pks[i]}"
-        for i in range(n_entities)
-        for p in range(n_periods)
+        f"{col.name}-{p:04d}-{entity_pks[i]}" for i in range(n_entities) for p in range(n_periods)
     ]
     return np.asarray(pk_rows, dtype=object)
 
@@ -958,9 +1000,7 @@ def _fact_vec_generated(parsed: GeneratedSource, ctx: dict):
         return np.tile(dim_date["date_key"].to_numpy(), n_entities)
     if provider == "period_label":
         return np.tile(dim_date["period_label"].to_numpy(), n_entities)
-    raise ValueError(
-        f"unsupported generated provider {provider!r} on fact/event tables"
-    )
+    raise ValueError(f"unsupported generated provider {provider!r} on fact/event tables")
 
 
 def _fact_vec_static(parsed: StaticSource, ctx: dict):
@@ -973,10 +1013,7 @@ def _fact_vec_derived(parsed: DerivedSource, ctx: dict):
         return ctx["period_idx_col"].copy()
     if parsed.field == "entity_id":
         return ctx["entity_pk_repeated"]
-    raise ValueError(
-        f"fact column {col.name!r} derived field "
-        f"{parsed.field!r} not supported"
-    )
+    raise ValueError(f"fact column {col.name!r} derived field " f"{parsed.field!r} not supported")
 
 
 def _fact_vec_text_bucket(parsed: TextBucketSource, ctx: dict):
@@ -1023,36 +1060,48 @@ def _fact_vec_unsupported(parsed: Any, ctx: dict):
 # vectorized site: reaching the dispatcher with a FakerSource is itself
 # an internal wiring bug.
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, FKSource, _fact_vec_fk,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    FKSource,
+    _fact_vec_fk,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, MetricSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    MetricSource,
     _fact_vec_metric,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, LagSource, _fact_vec_lag,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    LagSource,
+    _fact_vec_lag,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, PKSource, _fact_vec_pk,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    PKSource,
+    _fact_vec_pk,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, GeneratedSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    GeneratedSource,
     _fact_vec_generated,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, StaticSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    StaticSource,
     _fact_vec_static,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, DerivedSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    DerivedSource,
     _fact_vec_derived,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, TextBucketSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    TextBucketSource,
     _fact_vec_text_bucket,
 )
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED, _fact_vec_unsupported,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    _fact_vec_unsupported,
 )
 
 
@@ -1091,7 +1140,9 @@ def _resolve_fact_cell(
         "trajectory_for_entity": trajectory_for_entity,
     }
     return COLUMN_DISPATCH.dispatch(
-        BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, parsed, ctx,
+        BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+        parsed,
+        ctx,
     )
 
 
@@ -1147,7 +1198,10 @@ def _fact_scalar_pk(parsed: PKSource, ctx: dict):
 
 def _fact_scalar_generated(parsed: GeneratedSource, ctx: dict):
     return _resolve_generated(
-        parsed.provider, ctx["period_idx"], ctx["dim_date"], ctx["fake"],
+        parsed.provider,
+        ctx["period_idx"],
+        ctx["dim_date"],
+        ctx["fake"],
     )
 
 
@@ -1165,9 +1219,7 @@ def _fact_scalar_derived(parsed: DerivedSource, ctx: dict):
         return ctx["period_idx"]
     if parsed.field == "entity_id":
         return ctx["entity_pk_value"]
-    raise ValueError(
-        f"fact column {col.name!r} derived field {parsed.field!r} not supported"
-    )
+    raise ValueError(f"fact column {col.name!r} derived field {parsed.field!r} not supported")
 
 
 def _fact_scalar_text_bucket(parsed: TextBucketSource, ctx: dict):
@@ -1202,40 +1254,53 @@ def _fact_scalar_unsupported(parsed: Any, ctx: dict):
 # a new source type to per_entity_per_period fact scalar columns means
 # adding one ``register(...)`` call here.
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, FKSource, _fact_scalar_fk,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    FKSource,
+    _fact_scalar_fk,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, MetricSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    MetricSource,
     _fact_scalar_metric,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, LagSource, _fact_scalar_lag,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    LagSource,
+    _fact_scalar_lag,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, PKSource, _fact_scalar_pk,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    PKSource,
+    _fact_scalar_pk,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, GeneratedSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    GeneratedSource,
     _fact_scalar_generated,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, FakerSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    FakerSource,
     _fact_scalar_faker,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, StaticSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    StaticSource,
     _fact_scalar_static,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, DerivedSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    DerivedSource,
     _fact_scalar_derived,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, TextBucketSource,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    TextBucketSource,
     _fact_scalar_text_bucket,
 )
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR, _fact_scalar_unsupported,
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    _fact_scalar_unsupported,
 )
 
 
@@ -1284,13 +1349,16 @@ def _build_per_period_fact(
             parsed = parse_source(col.source)
             ctx["col"] = col
             row[col.name] = COLUMN_DISPATCH.dispatch(
-                BuilderKind.PER_PERIOD_FACT, parsed, ctx,
+                BuilderKind.PER_PERIOD_FACT,
+                parsed,
+                ctx,
             )
         rows.append(row)
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
 
 
 # --- Per-period fact dispatch handlers ---------------------------------------
+
 
 def _per_period_fk(parsed: FKSource, ctx: dict):
     col = ctx["col"]
@@ -1318,7 +1386,10 @@ def _per_period_pk(parsed: PKSource, ctx: dict):
 
 def _per_period_generated(parsed: GeneratedSource, ctx: dict):
     return _resolve_generated(
-        parsed.provider, ctx["period_idx"], ctx["dim_date"], ctx["fake"],
+        parsed.provider,
+        ctx["period_idx"],
+        ctx["dim_date"],
+        ctx["fake"],
     )
 
 
@@ -1375,9 +1446,7 @@ def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, f
         return dim_date.iloc[period_idx]["date_key"]
     if provider == "period_label":
         return dim_date.iloc[period_idx]["period_label"]
-    raise ValueError(
-        f"unsupported generated provider {provider!r} on fact/event tables"
-    )
+    raise ValueError(f"unsupported generated provider {provider!r} on fact/event tables")
 
 
 # --- Event tables ------------------------------------------------------------
@@ -1415,15 +1484,27 @@ def build_event_tables(
             parsed_rc = parse_source(tbl.row_count_source)
             if isinstance(parsed_rc, ProportionalSource):
                 out[tbl.name] = _build_proportional_event(
-                    tbl, parsed_rc, config, fact_tables, dim_tables,
-                    per_entity_dims, fake, rng,
+                    tbl,
+                    parsed_rc,
+                    config,
+                    fact_tables,
+                    dim_tables,
+                    per_entity_dims,
+                    fake,
+                    rng,
                 )
                 continue
         threshold_col = _find_threshold_column(tbl)
         if threshold_col is not None:
             out[tbl.name] = _build_threshold_event(
-                tbl, threshold_col, config, fact_tables, dim_tables,
-                per_entity_dims, fake, rng,
+                tbl,
+                threshold_col,
+                config,
+                fact_tables,
+                dim_tables,
+                per_entity_dims,
+                fake,
+                rng,
             )
             continue
         out[tbl.name] = pd.DataFrame(columns=[c.name for c in tbl.columns])
@@ -1440,7 +1521,9 @@ def _find_threshold_column(tbl: Table) -> Optional[tuple[Column, ThresholdSource
 
 
 def _find_metric_column_in_facts(
-    metric: str, fact_tables: dict[str, pd.DataFrame], config: PlotsimConfig,
+    metric: str,
+    fact_tables: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
 ) -> Optional[tuple[str, str]]:
     """Return (fact_table_name, column_name) for the metric's first appearance."""
     for tbl in config.tables:
@@ -1517,16 +1600,12 @@ def _build_proportional_event(
 
     fact_entity_fk = _find_entity_fk_column(fact_table_cfg, per_entity_dims)
     if fact_entity_fk is None:
-        raise ValueError(
-            f"fact {fact_name!r} has no per_entity FK; cannot group events"
-        )
+        raise ValueError(f"fact {fact_name!r} has no per_entity FK; cannot group events")
     fact_entity_col_name = fact_entity_fk[0]
 
     fact_date_col = _find_date_fk_column(fact_table_cfg)
     if fact_date_col is None:
-        raise ValueError(
-            f"fact {fact_name!r} has no dim_date FK; cannot derive event dates"
-        )
+        raise ValueError(f"fact {fact_name!r} has no dim_date FK; cannot derive event dates")
     fact_date_col_name = fact_date_col[0]
 
     dim_date = dim_tables["dim_date"]
@@ -1544,9 +1623,7 @@ def _build_proportional_event(
     # the metric column is integer-typed (count drivers, poisson-distributed
     # metrics). Without the cast, ``np.isnan`` raises
     # ``TypeError: ufunc 'isnan' not supported for input types`` on int dtype.
-    values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy(
-        dtype=np.float64
-    )
+    values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy(dtype=np.float64)
 
     # NaN-as-null cells contribute zero rows. Replace NaN before the cast so
     # np.int64 doesn't emit a garbage-value RuntimeWarning on the NaN lane.
@@ -1567,7 +1644,8 @@ def _build_proportional_event(
     date_key_idx = {k: i for i, k in enumerate(dim_date["date_key"].tolist())}
     event_date_idx = np.fromiter(
         (date_key_idx.get(k, 0) for k in event_date_keys),
-        dtype=np.int64, count=total_rows,
+        dtype=np.int64,
+        count=total_rows,
     )
 
     # PK serial: scalar path writes pk_counter+1 starting from 0 → 1..total_rows.
@@ -1584,9 +1662,7 @@ def _build_proportional_event(
             return parsed.table not in per_entity_dims and parsed.table != "dim_date"
         return False
 
-    stochastic_cols = {
-        col.name for col, parsed in parsed_cols if _is_stochastic(col, parsed)
-    }
+    stochastic_cols = {col.name for col, parsed in parsed_cols if _is_stochastic(col, parsed)}
 
     col_arrays: dict[str, np.ndarray] = {}
     base_ctx = {
@@ -1607,7 +1683,9 @@ def _build_proportional_event(
         ctx = dict(base_ctx)
         ctx["col"] = col
         col_arrays[col.name] = COLUMN_DISPATCH.dispatch(
-            BuilderKind.PROPORTIONAL_EVENT, parsed, ctx,
+            BuilderKind.PROPORTIONAL_EVENT,
+            parsed,
+            ctx,
         )
 
     # Stochastic columns: iterate per (cell, row) exactly as the scalar path
@@ -1618,8 +1696,7 @@ def _build_proportional_event(
         n_cells = len(counts)
         cell_entity_ids = entity_ids_arr
         stochastic_parsed = [
-            (col, parsed) for col, parsed in parsed_cols
-            if col.name in stochastic_cols
+            (col, parsed) for col, parsed in parsed_cols if col.name in stochastic_cols
         ]
         for cell_idx in range(n_cells):
             c = int(counts[cell_idx])
@@ -1630,7 +1707,9 @@ def _build_proportional_event(
                 for col, parsed in stochastic_parsed:
                     if isinstance(parsed, FakerSource):
                         col_arrays[col.name][row_idx] = _call_faker(
-                            fake, parsed.method, parsed.kwargs,
+                            fake,
+                            parsed.method,
+                            parsed.kwargs,
                         )
                     elif isinstance(parsed, FKSource):
                         parent = dim_tables.get(parsed.table)
@@ -1638,7 +1717,9 @@ def _build_proportional_event(
                             col_arrays[col.name][row_idx] = None
                             continue
                         back_link = _find_entity_link_in_subentity(
-                            parsed.table, config, per_entity_dims,
+                            parsed.table,
+                            config,
+                            per_entity_dims,
                         )
                         if back_link is not None:
                             candidates = parent[parent[back_link] == entity_pk_value]
@@ -1647,9 +1728,7 @@ def _build_proportional_event(
                                     pick = int(rng.integers(0, len(candidates)))
                                 else:
                                     pick = 0
-                                col_arrays[col.name][row_idx] = (
-                                    candidates.iloc[pick][parsed.column]
-                                )
+                                col_arrays[col.name][row_idx] = candidates.iloc[pick][parsed.column]
                                 continue
                         col_arrays[col.name][row_idx] = parent.iloc[0][parsed.column]
                 row_idx += 1
@@ -1659,11 +1738,12 @@ def _build_proportional_event(
 
 # --- Proportional event deterministic-column dispatch ------------------------
 
+
 def _prop_evt_pk(parsed: PKSource, ctx: dict):
-    return np.asarray([
-        f"{ctx['pk_first_char']}-{i + 1:0{ctx['pk_width']}d}"
-        for i in range(ctx["total_rows"])
-    ], dtype=object)
+    return np.asarray(
+        [f"{ctx['pk_first_char']}-{i + 1:0{ctx['pk_width']}d}" for i in range(ctx["total_rows"])],
+        dtype=object,
+    )
 
 
 def _prop_evt_fk(parsed: FKSource, ctx: dict):
@@ -1709,9 +1789,7 @@ def _prop_evt_generated(parsed: GeneratedSource, ctx: dict):
     if provider == "period_label":
         pl = dim_date["period_label"].tolist()
         return np.asarray([pl[i] for i in event_date_idx], dtype=object)
-    raise ValueError(
-        f"unsupported generated provider {provider!r} on fact/event tables"
-    )
+    raise ValueError(f"unsupported generated provider {provider!r} on fact/event tables")
 
 
 def _prop_evt_static(parsed: StaticSource, ctx: dict):
@@ -1747,19 +1825,28 @@ def _prop_evt_unsupported(parsed: Any, ctx: dict):
 COLUMN_DISPATCH.register(BuilderKind.PROPORTIONAL_EVENT, PKSource, _prop_evt_pk)
 COLUMN_DISPATCH.register(BuilderKind.PROPORTIONAL_EVENT, FKSource, _prop_evt_fk)
 COLUMN_DISPATCH.register(
-    BuilderKind.PROPORTIONAL_EVENT, ThresholdSource, _prop_evt_threshold,
+    BuilderKind.PROPORTIONAL_EVENT,
+    ThresholdSource,
+    _prop_evt_threshold,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PROPORTIONAL_EVENT, GeneratedSource, _prop_evt_generated,
+    BuilderKind.PROPORTIONAL_EVENT,
+    GeneratedSource,
+    _prop_evt_generated,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PROPORTIONAL_EVENT, StaticSource, _prop_evt_static,
+    BuilderKind.PROPORTIONAL_EVENT,
+    StaticSource,
+    _prop_evt_static,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.PROPORTIONAL_EVENT, DerivedSource, _prop_evt_derived,
+    BuilderKind.PROPORTIONAL_EVENT,
+    DerivedSource,
+    _prop_evt_derived,
 )
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.PROPORTIONAL_EVENT, _prop_evt_unsupported,
+    BuilderKind.PROPORTIONAL_EVENT,
+    _prop_evt_unsupported,
 )
 
 
@@ -1809,9 +1896,17 @@ def _build_threshold_event(
                 if streak >= ts.consecutive:
                     date_key_value = fact_row[fact_date_col_name]
                     row = _resolve_event_row(
-                        tbl, pk_counter, date_key_value, entity_pk_value,
-                        threshold_col_cfg.name, True,
-                        dim_date, dim_tables, config, fake, rng=rng,
+                        tbl,
+                        pk_counter,
+                        date_key_value,
+                        entity_pk_value,
+                        threshold_col_cfg.name,
+                        True,
+                        dim_date,
+                        dim_tables,
+                        config,
+                        fake,
+                        rng=rng,
                     )
                     rows.append(row)
                     pk_counter += 1
@@ -1867,12 +1962,15 @@ def _resolve_event_row(
         ctx = dict(base_ctx)
         ctx["col"] = col
         row[col.name] = COLUMN_DISPATCH.dispatch(
-            BuilderKind.THRESHOLD_EVENT_ROW, parsed, ctx,
+            BuilderKind.THRESHOLD_EVENT_ROW,
+            parsed,
+            ctx,
         )
     return row
 
 
 # --- Threshold-event row dispatch handlers -----------------------------------
+
 
 def _evt_row_pk(parsed: PKSource, ctx: dict):
     tbl = ctx["tbl"]
@@ -1895,7 +1993,9 @@ def _evt_row_fk(parsed: FKSource, ctx: dict):
     if parent is None or parent.empty:
         return None
     back_link = _find_entity_link_in_subentity(
-        parsed.table, ctx["config"], ctx["per_entity_dims"],
+        parsed.table,
+        ctx["config"],
+        ctx["per_entity_dims"],
     )
     if back_link is not None:
         candidates = parent[parent[back_link] == ctx["entity_pk_value"]]
@@ -1919,8 +2019,10 @@ def _evt_row_threshold(parsed: ThresholdSource, ctx: dict):
 def _evt_row_generated(parsed: GeneratedSource, ctx: dict):
     date_idx = ctx["date_idx"]
     return _resolve_generated(
-        parsed.provider, date_idx if date_idx is not None else 0,
-        ctx["dim_date"], ctx["fake"],
+        parsed.provider,
+        date_idx if date_idx is not None else 0,
+        ctx["dim_date"],
+        ctx["fake"],
     )
 
 
@@ -1949,22 +2051,33 @@ def _evt_row_unsupported(parsed: Any, ctx: dict):
 COLUMN_DISPATCH.register(BuilderKind.THRESHOLD_EVENT_ROW, PKSource, _evt_row_pk)
 COLUMN_DISPATCH.register(BuilderKind.THRESHOLD_EVENT_ROW, FKSource, _evt_row_fk)
 COLUMN_DISPATCH.register(
-    BuilderKind.THRESHOLD_EVENT_ROW, ThresholdSource, _evt_row_threshold,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    ThresholdSource,
+    _evt_row_threshold,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.THRESHOLD_EVENT_ROW, GeneratedSource, _evt_row_generated,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    GeneratedSource,
+    _evt_row_generated,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.THRESHOLD_EVENT_ROW, FakerSource, _evt_row_faker,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    FakerSource,
+    _evt_row_faker,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.THRESHOLD_EVENT_ROW, StaticSource, _evt_row_static,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    StaticSource,
+    _evt_row_static,
 )
 COLUMN_DISPATCH.register(
-    BuilderKind.THRESHOLD_EVENT_ROW, DerivedSource, _evt_row_derived,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    DerivedSource,
+    _evt_row_derived,
 )
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.THRESHOLD_EVENT_ROW, _evt_row_unsupported,
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    _evt_row_unsupported,
 )
 
 
@@ -2157,7 +2270,8 @@ def assign_stages(
     n = len(df)
 
     thresholds = np.asarray(
-        [s.threshold_enter for s in seq], dtype=float,
+        [s.threshold_enter for s in seq],
+        dtype=float,
     )
     stage_names = np.asarray([s.name for s in seq], dtype=object)
 
@@ -2171,11 +2285,7 @@ def assign_stages(
     exit_thresholds: Optional[np.ndarray] = None
     if enforce and config.stages.mode == "hysteresis":
         exit_thresholds = np.asarray(
-            [
-                s.threshold_exit if s.threshold_exit is not None
-                else s.threshold_enter
-                for s in seq
-            ],
+            [s.threshold_exit if s.threshold_exit is not None else s.threshold_enter for s in seq],
             dtype=float,
         )
 
@@ -2195,11 +2305,14 @@ def assign_stages(
         # Per-entity walk — groupby.indices gives row positions per group,
         # preserving first-appearance order.
         for _eid, positions in df.groupby(
-            entity_col, sort=False,
+            entity_col,
+            sort=False,
         ).indices.items():
             pos_arr = np.asarray(positions, dtype=np.int64)
             stage_idx[pos_arr] = _monotonic_stage_walk(
-                values[pos_arr], thresholds, downgrade_delay,
+                values[pos_arr],
+                thresholds,
+                downgrade_delay,
                 exit_thresholds=exit_thresholds,
             )
 
@@ -2260,6 +2373,7 @@ class SCDVersion:
     (see tests/test_dead_schema.py) regex doesn't treat reads on this
     dataclass as reads of those allowlisted display fields.
     """
+
     band: int
     band_label: str
     valid_from: int
@@ -2281,6 +2395,7 @@ class SCDDimState:
     through so the manifest can name what drove each crossing without
     re-reading the config.
     """
+
     versions: dict[str, list[SCDVersion]]
     scd_column: str
     entity_pk_column: str
@@ -2290,6 +2405,7 @@ class SCDDimState:
 @dataclass(frozen=True)
 class SCDState:
     """Cross-table SCD state. Maps dim-table name → SCDDimState."""
+
     dims: dict[str, SCDDimState]
 
     @property
@@ -2361,10 +2477,7 @@ def _compute_scd_versions(
     versions: list[SCDVersion] = []
     next_dim_row_id = starting_dim_row_id
     for seg_idx, start_period in enumerate(transitions):
-        end_period = (
-            transitions[seg_idx + 1] if seg_idx + 1 < len(transitions)
-            else n_periods
-        )
+        end_period = transitions[seg_idx + 1] if seg_idx + 1 < len(transitions) else n_periods
         is_current = seg_idx == len(transitions) - 1
         valid_from = int(date_keys[start_period])
         if is_current:
@@ -2374,19 +2487,19 @@ def _compute_scd_versions(
             valid_to = int(date_keys[end_period])
             valid_to_period = end_period
         band = int(cum_bands[start_period])
-        versions.append(SCDVersion(
-            band=band,
-            band_label=labels[band],
-            valid_from=valid_from,
-            valid_to=valid_to,
-            valid_from_period=start_period,
-            valid_to_period=valid_to_period,
-            is_current=is_current,
-            dim_row_id=next_dim_row_id,
-            crossing_position=(
-                None if seg_idx == 0 else float(trajectory[start_period])
-            ),
-        ))
+        versions.append(
+            SCDVersion(
+                band=band,
+                band_label=labels[band],
+                valid_from=valid_from,
+                valid_to=valid_to,
+                valid_from_period=start_period,
+                valid_to_period=valid_to_period,
+                is_current=is_current,
+                dim_row_id=next_dim_row_id,
+                crossing_position=(None if seg_idx == 0 else float(trajectory[start_period])),
+            )
+        )
         next_dim_row_id += 1
     return versions
 
@@ -2410,9 +2523,7 @@ def _expand_scd_dim(
     """
     scd_pair = _scd_column_for_table(tbl)
     if scd_pair is None:  # defensive: caller filters
-        raise RuntimeError(
-            f"_expand_scd_dim called on {tbl.name!r} which has no SCD column"
-        )
+        raise RuntimeError(f"_expand_scd_dim called on {tbl.name!r} which has no SCD column")
     scd_col, scd_cfg = scd_pair
     pk_col = _entity_pk_column(tbl)
     if pk_col is None:
@@ -2434,7 +2545,10 @@ def _expand_scd_dim(
     expanded_rows: list[dict[str, Any]] = []
     next_id = 1
     column_order = list(df.columns) + [
-        "dim_row_id", "valid_from", "valid_to", "is_current",
+        "dim_row_id",
+        "valid_from",
+        "valid_to",
+        "is_current",
     ]
 
     for entity_idx, entity in enumerate(config.entities):
@@ -2445,7 +2559,10 @@ def _expand_scd_dim(
                 f"or wrong-length trajectory (expected {n_periods})"
             )
         entity_versions = _compute_scd_versions(
-            traj, scd_cfg, date_keys, starting_dim_row_id=next_id,
+            traj,
+            scd_cfg,
+            date_keys,
+            starting_dim_row_id=next_id,
         )
         next_id += len(entity_versions)
         versions_by_entity[entity.name] = entity_versions
@@ -2486,9 +2603,7 @@ def expand_scd_dims(
     if dim_date is None:
         # Without dim_date we have no date_key spine to anchor validity
         # windows; safer to fail loudly than emit misaligned versions.
-        raise RuntimeError(
-            "expand_scd_dims requires dim_date to be present in dim_tables"
-        )
+        raise RuntimeError("expand_scd_dims requires dim_date to be present in dim_tables")
 
     out = dict(dim_tables)
     states: dict[str, SCDDimState] = {}
@@ -2504,7 +2619,11 @@ def expand_scd_dims(
                 f"no DataFrame was built upstream by build_all_dimensions"
             )
         expanded, state = _expand_scd_dim(
-            tbl, df, config, trajectories, dim_date,
+            tbl,
+            df,
+            config,
+            trajectories,
+            dim_date,
         )
         out[tbl.name] = expanded
         states[tbl.name] = state
@@ -2512,7 +2631,8 @@ def expand_scd_dims(
 
 
 def _facts_referencing_scd_dim(
-    config: PlotsimConfig, scd_dim: str,
+    config: PlotsimConfig,
+    scd_dim: str,
 ) -> list[Table]:
     """Tables (fact or event) whose any FK column points at ``scd_dim``."""
     out: list[Table] = []
@@ -2613,9 +2733,7 @@ def attach_dim_row_id_to_facts(
             if not versions:
                 continue
             # Find the row for the entity's first version to extract its PK.
-            sub = scd_dim_df[
-                scd_dim_df["dim_row_id"] == versions[0].dim_row_id
-            ]
+            sub = scd_dim_df[scd_dim_df["dim_row_id"] == versions[0].dim_row_id]
             if sub.empty:
                 continue
             entity_pk_by_name[entity_name] = sub.iloc[0][dim_state.entity_pk_column]
@@ -2645,8 +2763,10 @@ def attach_dim_row_id_to_facts(
             entity_keys = df[local_entity_col].to_numpy()
             date_keys = df[local_date_col].to_numpy()
             dim_row_ids = _resolve_dim_row_id_per_row(
-                entity_keys, date_keys,
-                versions_by_entity_pk, period_index_by_date_key,
+                entity_keys,
+                date_keys,
+                versions_by_entity_pk,
+                period_index_by_date_key,
             )
             # Defensive: a -1 sentinel means we couldn't resolve a row.
             # That would surface as an FK orphan downstream — fail loud
@@ -2681,6 +2801,7 @@ class BridgeAssociation:
     surfaced as a separate field so manifest consumers can iterate stats
     without re-counting.
     """
+
     entity: str
     targets: list[Any]
     cardinality: int
@@ -2696,6 +2817,7 @@ class BridgeAssociations:
     ``GenerationState`` so the manifest can record ground-truth M:M
     associations without re-deriving them from the bridge DataFrames.
     """
+
     bridges: dict[str, list[BridgeAssociation]]
 
     @property
@@ -2753,7 +2875,8 @@ def _bridge_first_dim_fk_by_entity(
         return out
     first_pk_col = first_dim_tbl.primary_key_cols[0]
     deduped = first_dim_df.drop_duplicates(
-        subset=[first_pk_col], keep="first",
+        subset=[first_pk_col],
+        keep="first",
     ).reset_index(drop=True)
     if len(deduped) != len(config.entities):
         raise RuntimeError(
@@ -2762,10 +2885,7 @@ def _bridge_first_dim_fk_by_entity(
             f"{len(config.entities)} entities; the dim builder is expected "
             f"to keep dims 1:1 with config.entities"
         )
-    return {
-        entity.name: deduped.iloc[i][first_pk_col]
-        for i, entity in enumerate(config.entities)
-    }
+    return {entity.name: deduped.iloc[i][first_pk_col] for i, entity in enumerate(config.entities)}
 
 
 def _bridge_second_dim_fk_pool(
@@ -2795,7 +2915,8 @@ def _bridge_second_dim_fk_pool(
     second_pk_col = second_dim_tbl.primary_key_cols[0]
     if second_dim_tbl.grain == "per_entity":
         deduped = second_dim_df.drop_duplicates(
-            subset=[second_pk_col], keep="first",
+            subset=[second_pk_col],
+            keep="first",
         ).reset_index(drop=True)
         return deduped[second_pk_col].tolist()
     return second_dim_df[second_pk_col].tolist()
@@ -2849,10 +2970,13 @@ def _bridge_metric_value(
         if series is None:
             return None
         if series.dtype == object:
-            arr = np.asarray([
-                np.nan if (v is None or (isinstance(v, float) and np.isnan(v)))
-                else float(v) for v in series
-            ], dtype=np.float64)
+            arr = np.asarray(
+                [
+                    np.nan if (v is None or (isinstance(v, float) and np.isnan(v))) else float(v)
+                    for v in series
+                ],
+                dtype=np.float64,
+            )
         else:
             arr = series.astype(np.float64)
         if np.all(np.isnan(arr)):
@@ -2929,15 +3053,19 @@ def build_bridge_tables(
             )
 
         first_fk_by_entity = _bridge_first_dim_fk_by_entity(
-            config, first_dim_tbl, first_dim_df, scd_state,
+            config,
+            first_dim_tbl,
+            first_dim_df,
+            scd_state,
         )
         second_pool = _bridge_second_dim_fk_pool(
-            second_dim_tbl, second_dim_df, scd_state,
+            second_dim_tbl,
+            second_dim_df,
+            scd_state,
         )
         if not second_pool:
             out[bridge.name] = pd.DataFrame(
-                columns=[first_fk_col, second_fk_col]
-                + [bm.name for bm in bridge.metrics],
+                columns=[first_fk_col, second_fk_col] + [bm.name for bm in bridge.metrics],
             )
             associations[bridge.name] = []
             continue
@@ -2956,18 +3084,24 @@ def build_bridge_tables(
             n = _compute_bridge_cardinality(bridge, mean_position, n_pool, rng)
 
             if n == 0:
-                bridge_assoc_list.append(BridgeAssociation(
-                    entity=entity.name, targets=[], cardinality=0,
-                ))
+                bridge_assoc_list.append(
+                    BridgeAssociation(
+                        entity=entity.name,
+                        targets=[],
+                        cardinality=0,
+                    )
+                )
                 continue
 
             picked_idx = rng.choice(n_pool, size=n, replace=False)
             picked_targets = [second_pool[int(i)] for i in picked_idx]
-            bridge_assoc_list.append(BridgeAssociation(
-                entity=entity.name,
-                targets=list(picked_targets),
-                cardinality=n,
-            ))
+            bridge_assoc_list.append(
+                BridgeAssociation(
+                    entity=entity.name,
+                    targets=list(picked_targets),
+                    cardinality=n,
+                )
+            )
 
             first_fk_val = first_fk_by_entity[entity.name]
             for target in picked_targets:
@@ -2977,12 +3111,17 @@ def build_bridge_tables(
                 }
                 for bm in bridge.metrics:
                     row[bm.name] = _bridge_metric_value(
-                        bm, entity.name, entity_metrics, fake,
+                        bm,
+                        entity.name,
+                        entity_metrics,
+                        fake,
                     )
                 rows.append(row)
 
         column_order = [first_fk_col, second_fk_col] + [bm.name for bm in bridge.metrics]
-        df = pd.DataFrame(rows, columns=column_order) if rows else pd.DataFrame(columns=column_order)
+        df = (
+            pd.DataFrame(rows, columns=column_order) if rows else pd.DataFrame(columns=column_order)
+        )
         out[bridge.name] = df
         associations[bridge.name] = bridge_assoc_list
 
@@ -3019,6 +3158,7 @@ class GenerationState:
     destructure ``(tables, state)`` keep working because Python
     dataclass fields are accessed by name.
     """
+
     trajectories: dict[str, np.ndarray]
     scd: SCDState = field(default_factory=lambda: SCDState(dims={}))
     bridges: BridgeAssociations = field(
@@ -3119,7 +3259,8 @@ def generate_tables_with_state(
         compensation_records: Optional[list[dict]] = None
         sorted_metrics = _toposort_metrics(list(config.metrics))
         mat = _build_correlation_matrix(
-            sorted_metrics, list(config.correlations),
+            sorted_metrics,
+            list(config.correlations),
         )
         # M120: when ``compensate_correlations=True`` (builder default), the
         # user-specified matrix is the table-wide target; subtract the
@@ -3150,10 +3291,14 @@ def generate_tables_with_state(
                 )
             else:
                 traj_cov = estimate_trajectory_covariance(
-                    config, metric_order=sorted_metrics,
+                    config,
+                    metric_order=sorted_metrics,
                 )
                 mat, compensation_records = compensate_correlation_matrix(
-                    mat, traj_cov, sorted_metrics, list(config.correlations),
+                    mat,
+                    traj_cov,
+                    sorted_metrics,
+                    list(config.correlations),
                 )
                 warning_text = _format_correlation_compensation_warning(
                     compensation_records,
@@ -3198,14 +3343,21 @@ def generate_tables_with_state(
     # always populated, never ``None``); nothing populates it.
     n_periods = len(dim_tables["dim_date"])
     entity_metrics = _compute_entity_metrics(
-        config, trajectories, n_periods, rng,
+        config,
+        trajectories,
+        n_periods,
+        rng,
         cholesky_L=cholesky_L,
     )
     config._bypass_fallback_counts = {}
 
     fact_tables = build_fact_tables(
-        config, trajectories, dim_tables, rng,
-        cholesky_L=cholesky_L, entity_metrics=entity_metrics,
+        config,
+        trajectories,
+        dim_tables,
+        rng,
+        cholesky_L=cholesky_L,
+        entity_metrics=entity_metrics,
     )
     # M106: append ``dim_row_id`` BEFORE ``assign_stages`` so the output
     # column ordering invariant "stage column appended last" still holds —
@@ -3213,12 +3365,18 @@ def generate_tables_with_state(
     # insertion order, and putting dim_row_id first keeps stage at the
     # tail. The helper is a no-op when ``scd_state.is_empty``.
     fact_tables = attach_dim_row_id_to_facts(
-        config, fact_tables, dim_tables, scd_state,
+        config,
+        fact_tables,
+        dim_tables,
+        scd_state,
     )
     fact_tables = assign_stages(config, fact_tables)
     event_tables = build_event_tables(config, fact_tables, dim_tables, rng)
     event_tables = attach_dim_row_id_to_facts(
-        config, event_tables, dim_tables, scd_state,
+        config,
+        event_tables,
+        dim_tables,
+        scd_state,
     )
 
     # M107: bridge tables run after fact/event construction so they see the
@@ -3228,7 +3386,12 @@ def generate_tables_with_state(
     # rest of the pipeline. Configs without ``bridges`` get an empty dict +
     # empty associations and the helper short-circuits.
     bridge_tables, bridge_associations = build_bridge_tables(
-        config, dim_tables, trajectories, entity_metrics, scd_state, rng,
+        config,
+        dim_tables,
+        trajectories,
+        entity_metrics,
+        scd_state,
+        rng,
     )
 
     out: dict[str, pd.DataFrame] = {}

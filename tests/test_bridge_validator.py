@@ -14,6 +14,7 @@ configs with ``Entity.size > 1`` and a bridge whose second dim is
 ``per_entity`` could declare a ``cardinality.max`` that exceeded the
 dim's actual row count and the validator would silently accept it.
 """
+
 from __future__ import annotations
 
 import copy
@@ -40,17 +41,18 @@ def _config_with_per_entity_second_dim(card_max: int) -> dict:
     accept path.
     """
     cfg = copy.deepcopy(_base_education_dict())
-    cfg["tables"].append({
-        "name": "dim_advisor",
-        "type": "dim",
-        "grain": "per_entity",
-        "columns": [
-            {"name": "advisor_id", "dtype": "id", "source": "pk"},
-            {"name": "advisor_name", "dtype": "string",
-             "source": "generated:faker.name"},
-        ],
-        "primary_key": "advisor_id",
-    })
+    cfg["tables"].append(
+        {
+            "name": "dim_advisor",
+            "type": "dim",
+            "grain": "per_entity",
+            "columns": [
+                {"name": "advisor_id", "dtype": "id", "source": "pk"},
+                {"name": "advisor_name", "dtype": "string", "source": "generated:faker.name"},
+            ],
+            "primary_key": "advisor_id",
+        }
+    )
     cfg["bridges"][0]["connects"] = ["dim_student", "dim_advisor"]
     cfg["bridges"][0]["cardinality"] = {"min": 0, "max": card_max}
     cfg["bridges"][0]["metrics"] = [

@@ -20,6 +20,7 @@ and let the build proceed — they are choices the user can defend, not bugs.
 Errors here name both sides of the problem so the user can act without
 re-reading the spec.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -52,6 +53,7 @@ class WindowInput(BaseModel):
     is normalised by ``UserInput._coerce_window_tuple`` before this model
     sees the data.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     start: str
@@ -82,9 +84,7 @@ class MetricInput(BaseModel):
     @classmethod
     def _name_is_simple(cls, v: str) -> str:
         if not v.replace("_", "").isalnum():
-            raise ValueError(
-                f"metric name {v!r} must be alphanumeric or underscores only"
-            )
+            raise ValueError(f"metric name {v!r} must be alphanumeric or underscores only")
         return v
 
     @model_validator(mode="after")
@@ -117,13 +117,9 @@ class MetricInput(BaseModel):
                 f"delay={self.delay!r}). To remove the lag, omit both."
             )
         if self.delay is not None and self.delay < 1:
-            raise ValueError(
-                f"metric {self.name!r}: `delay` must be >= 1, got {self.delay}"
-            )
+            raise ValueError(f"metric {self.name!r}: `delay` must be >= 1, got {self.delay}")
         if self.follows is not None and self.follows == self.name:
-            raise ValueError(
-                f"metric {self.name!r} cannot follow itself"
-            )
+            raise ValueError(f"metric {self.name!r} cannot follow itself")
         return self
 
 
@@ -153,14 +149,10 @@ class SegmentInput(BaseModel):
         """
         for key, value in v.items():
             if not isinstance(key, str) or not key:
-                raise ValueError(
-                    f"segment attribute key {key!r} must be a non-empty string"
-                )
+                raise ValueError(f"segment attribute key {key!r} must be a non-empty string")
             if isinstance(value, (list, tuple)):
                 if not value:
-                    raise ValueError(
-                        f"attribute {key!r}: list must be non-empty"
-                    )
+                    raise ValueError(f"attribute {key!r}: list must be non-empty")
                 for item in value:
                     if not isinstance(item, (str, int, float, bool)):
                         raise ValueError(
@@ -175,6 +167,7 @@ class SegmentInput(BaseModel):
                     f"{type(value).__name__}"
                 )
         return v
+
     # M119: per-segment seasonal sensitivity. Default ``1.0`` (follow
     # the global ``seasonality`` strength at face value). The interpreter
     # copies this value onto every expanded ``Entity.seasonal_sensitivity``
@@ -187,9 +180,7 @@ class SegmentInput(BaseModel):
     @classmethod
     def _name_is_simple(cls, v: str) -> str:
         if not v.replace("_", "").isalnum():
-            raise ValueError(
-                f"segment name {v!r} must be alphanumeric or underscores only"
-            )
+            raise ValueError(f"segment name {v!r} must be alphanumeric or underscores only")
         return v
 
     @field_validator("baseline")
@@ -223,6 +214,7 @@ class ConnectionInput(BaseModel):
     coefficient in ``[-1.0, 1.0]``. Exactly one of ``relationship`` /
     ``coefficient`` must be set on the canonical model.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     metric_a: str
@@ -245,8 +237,7 @@ class ConnectionInput(BaseModel):
                 f"already implies a coefficient — see "
                 f"RELATIONSHIP_RECIPES for the table"
             )
-        if (self.relationship is not None
-                and self.relationship not in VALID_RELATIONSHIP_WORDS):
+        if self.relationship is not None and self.relationship not in VALID_RELATIONSHIP_WORDS:
             raise ValueError(
                 f"unknown relationship word {self.relationship!r}. Valid: "
                 f"{sorted(VALID_RELATIONSHIP_WORDS)}"
@@ -271,6 +262,7 @@ class ConnectionInput(BaseModel):
 
 class LifecycleStageInput(BaseModel):
     """Single named threshold within a lifecycle ladder."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
@@ -324,15 +316,12 @@ class LifecycleInput(BaseModel):
     def _stages_strictly_ascending_unique_names(self) -> "LifecycleInput":
         names = [s.name for s in self.stages]
         if len(set(names)) != len(names):
-            raise ValueError(
-                f"lifecycle stage names must be unique, got {names}"
-            )
+            raise ValueError(f"lifecycle stage names must be unique, got {names}")
         thresholds = [s.threshold for s in self.stages]
         for prev, curr in zip(thresholds, thresholds[1:]):
             if curr <= prev:
                 raise ValueError(
-                    f"lifecycle stage thresholds must be strictly "
-                    f"ascending, got {thresholds}"
+                    f"lifecycle stage thresholds must be strictly " f"ascending, got {thresholds}"
                 )
         return self
 
@@ -356,6 +345,7 @@ class ColumnInput(BaseModel):
     pass through to ``Column.dtype``; the source is generated from
     ``date_key`` for dim_date columns.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
@@ -382,8 +372,7 @@ class DimInput(BaseModel):
     def _per_or_reference_not_both(self) -> "DimInput":
         if self.reference and self.per is not None:
             raise ValueError(
-                f"dimension {self.name!r}: `reference: true` and `per` are "
-                f"mutually exclusive"
+                f"dimension {self.name!r}: `reference: true` and `per` are " f"mutually exclusive"
             )
         return self
 
@@ -421,29 +410,24 @@ class EventInput(BaseModel):
         if self.trigger == "proportional":
             if self.driver is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'proportional' requires "
-                    f"a `driver` metric"
+                    f"event {self.name!r}: trigger 'proportional' requires " f"a `driver` metric"
                 )
             if self.scale is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'proportional' requires "
-                    f"a numeric `scale`"
+                    f"event {self.name!r}: trigger 'proportional' requires " f"a numeric `scale`"
                 )
         else:  # threshold
             if self.metric is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'threshold' requires a "
-                    f"`metric` to watch"
+                    f"event {self.name!r}: trigger 'threshold' requires a " f"`metric` to watch"
                 )
             if self.above is None and self.below is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'threshold' requires "
-                    f"`above` or `below`"
+                    f"event {self.name!r}: trigger 'threshold' requires " f"`above` or `below`"
                 )
             if self.above is not None and self.below is not None:
                 raise ValueError(
-                    f"event {self.name!r}: pick one of `above` / `below`, "
-                    f"not both"
+                    f"event {self.name!r}: pick one of `above` / `below`, " f"not both"
                 )
         return self
 
@@ -459,6 +443,7 @@ class SeasonalEffectInput(BaseModel):
     Months are 1..12; uniqueness within a single effect is enforced. The
     interpreter translates this 1:1 to ``plotsim.config.SeasonalEffect``.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     months: tuple[int, ...] = Field(min_length=1, max_length=12)
@@ -469,13 +454,10 @@ class SeasonalEffectInput(BaseModel):
     def _months_in_range_unique(cls, v: tuple[int, ...]) -> tuple[int, ...]:
         for m in v:
             if not 1 <= int(m) <= 12:
-                raise ValueError(
-                    f"seasonality month {m} out of range; valid: 1..12"
-                )
+                raise ValueError(f"seasonality month {m} out of range; valid: 1..12")
         if len(set(v)) != len(v):
             raise ValueError(
-                f"seasonality months must be unique within one effect, "
-                f"got {list(v)}"
+                f"seasonality months must be unique within one effect, " f"got {list(v)}"
             )
         return v
 
@@ -495,6 +477,7 @@ class QualityIssueInput(BaseModel):
     table, rate honored against table size) are validated by
     ``PlotsimConfig._quality_gates`` at interpreter exit.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     table: str = Field(min_length=1)
@@ -533,6 +516,7 @@ class HoldoutInput(BaseModel):
     most common error (target not declared) and let the engine catch
     the rest.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     target: str = Field(min_length=1)
@@ -551,6 +535,7 @@ class EntityFeaturesInput(BaseModel):
     references resolve to numeric fact columns) raise at PlotsimConfig
     load.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     metrics: list[str] = Field(default_factory=list, max_length=50)
@@ -565,6 +550,7 @@ class BridgeColumnInput(BaseModel):
     ``faker.{kind}`` types are valid here. The interpreter rejects
     anything else with a context-rich error.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
@@ -586,6 +572,7 @@ class BridgeInput(BaseModel):
     documentary at the builder layer — engine bridge generation
     queries the entity's trajectory directly, not a specific metric.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str = Field(min_length=1)
@@ -599,9 +586,7 @@ class BridgeInput(BaseModel):
     @classmethod
     def _name_is_simple(cls, v: str) -> str:
         if not v.replace("_", "").isalnum():
-            raise ValueError(
-                f"bridge name {v!r} must be alphanumeric or underscores only"
-            )
+            raise ValueError(f"bridge name {v!r} must be alphanumeric or underscores only")
         return v
 
     @field_validator("cardinality")
@@ -609,17 +594,12 @@ class BridgeInput(BaseModel):
     def _cardinality_bounds(cls, v: tuple[int, int]) -> tuple[int, int]:
         lo, hi = v
         if lo < 0:
-            raise ValueError(
-                f"bridge cardinality min ({lo}) must be >= 0"
-            )
+            raise ValueError(f"bridge cardinality min ({lo}) must be >= 0")
         if hi < 1:
-            raise ValueError(
-                f"bridge cardinality max ({hi}) must be >= 1"
-            )
+            raise ValueError(f"bridge cardinality max ({hi}) must be >= 1")
         if lo > hi:
             raise ValueError(
-                f"bridge cardinality [min, max] = [{lo}, {hi}]: "
-                f"min must be <= max"
+                f"bridge cardinality [min, max] = [{lo}, {hi}]: " f"min must be <= max"
             )
         return v
 
@@ -647,6 +627,7 @@ class NoiseInput(BaseModel):
     which is resolved to one of these ``NoiseInput`` values by the
     ``_coerce_noise`` helper before validation.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
@@ -662,6 +643,7 @@ class OutputInput(BaseModel):
     ``OutputInput(format=<word>, directory="output")`` default by
     ``_coerce_output``; pass the dict form to override the directory.
     """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     format: Literal["csv", "parquet"] = "csv"
@@ -677,13 +659,13 @@ class OutputInput(BaseModel):
 # uses lower-snake-case so YAML scalars without quotes round-trip cleanly.
 NOISE_PRESET_PARAMS: dict[str, dict[str, float]] = {
     "perfectly_clean": {"gaussian_sigma": 0.00, "outlier_rate": 0.00, "mcar_rate": 0.000},
-    "slightly_messy":  {"gaussian_sigma": 0.03, "outlier_rate": 0.01, "mcar_rate": 0.005},
-    "realistic":       {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
-    "dirty":           {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
+    "slightly_messy": {"gaussian_sigma": 0.03, "outlier_rate": 0.01, "mcar_rate": 0.005},
+    "realistic": {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
+    "dirty": {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
     # Friendly aliases (user prompt vocabulary)
-    "clean":           {"gaussian_sigma": 0.00, "outlier_rate": 0.00, "mcar_rate": 0.000},
-    "messy":           {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
-    "very_messy":      {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
+    "clean": {"gaussian_sigma": 0.00, "outlier_rate": 0.00, "mcar_rate": 0.000},
+    "messy": {"gaussian_sigma": 0.05, "outlier_rate": 0.02, "mcar_rate": 0.010},
+    "very_messy": {"gaussian_sigma": 0.10, "outlier_rate": 0.05, "mcar_rate": 0.030},
 }
 
 
@@ -752,8 +734,7 @@ def _coerce_window_tuple(value: Any) -> Any:
         if len(value) == 3:
             return {"start": value[0], "end": value[1], "every": value[2]}
         raise ValueError(
-            f"window tuple must have 2 or 3 elements (start, end, [every]), "
-            f"got {len(value)}"
+            f"window tuple must have 2 or 3 elements (start, end, [every]), " f"got {len(value)}"
         )
     return value
 
@@ -810,6 +791,7 @@ class UserInput(BaseModel):
     references, causal-lag cycles, archetype DSL validity) run after
     nested models are constructed.
     """
+
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
@@ -869,13 +851,9 @@ class UserInput(BaseModel):
         if "window" in normalised:
             normalised["window"] = _coerce_window_tuple(normalised["window"])
         if "connections" in normalised and isinstance(normalised["connections"], list):
-            normalised["connections"] = [
-                _coerce_connection(c) for c in normalised["connections"]
-            ]
+            normalised["connections"] = [_coerce_connection(c) for c in normalised["connections"]]
         if "entity_features" in normalised:
-            normalised["entity_features"] = _coerce_entity_features(
-                normalised["entity_features"]
-            )
+            normalised["entity_features"] = _coerce_entity_features(normalised["entity_features"])
         if "noise" in normalised and normalised["noise"] is not None:
             normalised["noise"] = _coerce_noise(normalised["noise"])
         if "output" in normalised and normalised["output"] is not None:
@@ -917,9 +895,7 @@ class UserInput(BaseModel):
     @model_validator(mode="after")
     def _no_causal_lag_cycles(self) -> "UserInput":
         # Build follows graph and check for cycles.
-        graph: dict[str, str] = {
-            m.name: m.follows for m in self.metrics if m.follows is not None
-        }
+        graph: dict[str, str] = {m.name: m.follows for m in self.metrics if m.follows is not None}
         for start in graph:
             seen = {start}
             node = graph[start]
@@ -1022,9 +998,7 @@ class UserInput(BaseModel):
             try:
                 parse_archetype(s.archetype, n_periods=n_periods)
             except ArchetypeParseError as err:
-                raise ValueError(
-                    f"segment {s.name!r} archetype {s.archetype!r}: {err}"
-                ) from err
+                raise ValueError(f"segment {s.name!r} archetype {s.archetype!r}: {err}") from err
         return self
 
     # ── Semantic warnings (do not block construction) ──────────────────────
@@ -1036,9 +1010,7 @@ class UserInput(BaseModel):
         # Short window + seasonal: < 24 monthly periods (or equivalent).
         # We compare the period count, not the calendar window — daily/weekly
         # configs need proportional density to capture two cycles.
-        seasonal_used = any(
-            "seasonal" in s.archetype for s in self.segments
-        )
+        seasonal_used = any("seasonal" in s.archetype for s in self.segments)
         if seasonal_used and n_periods < 24:
             warnings.warn(
                 f"seasonal pattern declared but the {n_periods}-period "

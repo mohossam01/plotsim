@@ -13,6 +13,7 @@ These tests are tagged ``integration`` — the marker is not registered
 in pyproject so pytest emits a ``PytestUnknownMarkWarning``, but
 ``pytest -m "not integration"`` still filters them out for fast loops.
 """
+
 from __future__ import annotations
 
 import io
@@ -137,9 +138,9 @@ def test_e2e_template(domain: str, path: Path, tmp_path: Path):
     for tbl in config.tables:
         reloaded = pd.read_csv(tmp_path / f"{tbl.name}.csv")
         if tbl.type != "event":
-            assert len(reloaded) == len(tables[tbl.name]), (
-                f"{domain}: row count drift on {tbl.name}"
-            )
+            assert len(reloaded) == len(
+                tables[tbl.name]
+            ), f"{domain}: row count drift on {tbl.name}"
 
     # Config roundtrip: reload the written config.yaml and regenerate.
     reloaded_config = load_config(tmp_path / "config.yaml")
@@ -238,9 +239,11 @@ def test_revenue_follows_trajectory_for_steady_grower():
     globex_ids = dim_company[dim_company["cohort_size"] == 30]["company_id"].tolist()
     assert globex_ids, "expected a globex_cohort in dim_company"
 
-    fct_revenue = tables["fct_revenue"].merge(
-        tables["dim_date"][["date_key", "date"]], on="date_key"
-    ).sort_values(["company_id", "date"])
+    fct_revenue = (
+        tables["fct_revenue"]
+        .merge(tables["dim_date"][["date_key", "date"]], on="date_key")
+        .sort_values(["company_id", "date"])
+    )
 
     checked = 0
     for cid in globex_ids:
@@ -257,9 +260,9 @@ def test_revenue_follows_trajectory_for_steady_grower():
         yc = series - series.mean()
         slope = float((xc * yc).sum() / (xc * xc).sum())
         assert slope > 0, f"steady_grower entity {cid} has non-positive MRR slope"
-        assert series[-3:].mean() > series[:3].mean(), (
-            f"steady_grower entity {cid} ends lower than it starts"
-        )
+        assert (
+            series[-3:].mean() > series[:3].mean()
+        ), f"steady_grower entity {cid} ends lower than it starts"
         checked += 1
     assert checked >= 1, "expected at least one steady_grower entity to test"
 
@@ -271,9 +274,11 @@ def test_rocket_then_cliff_ends_below_peak():
     acme_ids = dim_company[dim_company["cohort_size"] == 50]["company_id"].tolist()
     assert acme_ids, "expected an acme_corp_cohort in dim_company"
 
-    fct_eng = tables["fct_engagement"].merge(
-        tables["dim_date"][["date_key", "date"]], on="date_key"
-    ).sort_values(["company_id", "date"])
+    fct_eng = (
+        tables["fct_engagement"]
+        .merge(tables["dim_date"][["date_key", "date"]], on="date_key")
+        .sort_values(["company_id", "date"])
+    )
 
     checked = 0
     for cid in acme_ids:
@@ -284,9 +289,9 @@ def test_rocket_then_cliff_ends_below_peak():
             continue
         peak = series.max()
         tail_avg = series[-3:].mean()
-        assert tail_avg < peak, (
-            f"rocket_then_cliff entity {cid}: tail avg {tail_avg:.3f} >= peak {peak:.3f}"
-        )
+        assert (
+            tail_avg < peak
+        ), f"rocket_then_cliff entity {cid}: tail avg {tail_avg:.3f} >= peak {peak:.3f}"
         checked += 1
     assert checked >= 1, "expected at least one rocket_then_cliff entity to test"
 
@@ -298,10 +303,7 @@ def test_event_counts_correlate_with_driving_metric():
     """
     config, tables = _saas_tables()
     counts = (
-        tables["evt_login"]
-        .groupby(["company_id", "date_key"])
-        .size()
-        .reset_index(name="n_events")
+        tables["evt_login"].groupby(["company_id", "date_key"]).size().reset_index(name="n_events")
     )
     joined = counts.merge(
         tables["fct_engagement"][["company_id", "date_key", "engagement_score"]],
@@ -329,9 +331,11 @@ def test_lagged_metric_correlates_better_when_shifted():
     tables = generate(config)
     eng = tables["fct_engagement"][["company_id", "date_key", "engagement_score"]]
     tix = tables["fct_support_tickets"][["company_id", "date_key", "ticket_count"]]
-    merged = eng.merge(tix, on=["company_id", "date_key"]).merge(
-        tables["dim_date"][["date_key", "date"]], on="date_key"
-    ).sort_values(["company_id", "date"])
+    merged = (
+        eng.merge(tix, on=["company_id", "date_key"])
+        .merge(tables["dim_date"][["date_key", "date"]], on="date_key")
+        .sort_values(["company_id", "date"])
+    )
 
     stronger = 0
     total = 0
@@ -341,10 +345,12 @@ def test_lagged_metric_correlates_better_when_shifted():
         # which np.isnan can't handle. Force float + np.nan up front so the
         # mask works regardless of upstream nullable-int promotion.
         e = pd.to_numeric(grp["engagement_score"], errors="coerce").to_numpy(
-            dtype=float, na_value=np.nan,
+            dtype=float,
+            na_value=np.nan,
         )
         t = pd.to_numeric(grp["ticket_count"], errors="coerce").to_numpy(
-            dtype=float, na_value=np.nan,
+            dtype=float,
+            na_value=np.nan,
         )
         mask = ~(np.isnan(e) | np.isnan(t))
         e, t = e[mask], t[mask]
@@ -363,9 +369,9 @@ def test_lagged_metric_correlates_better_when_shifted():
     # a handful of testable entities (one per cohort). Require a majority
     # among whatever entities have sufficient variance.
     assert total >= 2, f"only {total} entities were testable for lag alignment"
-    assert stronger >= (total + 1) // 2, (
-        f"lagged correlation stronger in only {stronger}/{total} entities"
-    )
+    assert (
+        stronger >= (total + 1) // 2
+    ), f"lagged correlation stronger in only {stronger}/{total} entities"
 
 
 def test_churn_events_align_with_engagement_decline():
@@ -377,9 +383,11 @@ def test_churn_events_align_with_engagement_decline():
     if churn.empty:
         pytest.skip("no churn events generated for this seed")
 
-    eng = tables["fct_engagement"].merge(
-        tables["dim_date"][["date_key", "date"]], on="date_key"
-    ).sort_values(["company_id", "date"])
+    eng = (
+        tables["fct_engagement"]
+        .merge(tables["dim_date"][["date_key", "date"]], on="date_key")
+        .sort_values(["company_id", "date"])
+    )
 
     declines = 0
     total = 0
@@ -394,7 +402,8 @@ def test_churn_events_align_with_engagement_decline():
         end = int(idx[0])
         start = max(0, end - 2)
         window = pd.to_numeric(
-            entity.loc[start:end, "engagement_score"], errors="coerce",
+            entity.loc[start:end, "engagement_score"],
+            errors="coerce",
         ).dropna()
         overall = pd.to_numeric(entity["engagement_score"], errors="coerce").dropna()
         if window.empty or overall.empty:
@@ -408,8 +417,7 @@ def test_churn_events_align_with_engagement_decline():
     # Require at least one event to trace back to an engagement decline.
     if total > 0:
         assert declines >= 1, (
-            f"no churn event followed an engagement decline "
-            f"(0 declines across {total} events)"
+            f"no churn event followed an engagement decline " f"(0 declines across {total} events)"
         )
 
 
@@ -429,9 +437,7 @@ def test_stages_never_go_backward_saas():
     assert stage_table is not None, "no generated table has a 'stage' column"
     name, df = stage_table
 
-    merged = df.merge(
-        tables["dim_date"][["date_key", "date"]], on="date_key"
-    )
+    merged = df.merge(tables["dim_date"][["date_key", "date"]], on="date_key")
     # Pick the per-entity FK (company_id) for the saas fact tables.
     entity_col = "company_id"
     assert entity_col in merged.columns
@@ -451,12 +457,16 @@ def test_stages_never_go_backward_saas():
 
 def test_single_entity(tmp_path: Path):
     """Config collapsed to one entity with size=1 still generates valid tables."""
+
     def shrink(data):
-        data["entities"] = [{
-            "name": "solo",
-            "archetype": "steady_grower",
-            "size": 1,
-        }]
+        data["entities"] = [
+            {
+                "name": "solo",
+                "archetype": "steady_grower",
+                "size": 1,
+            }
+        ]
+
     cfg = mutate_saas(tmp_path, shrink)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -470,9 +480,11 @@ def test_shortest_window(tmp_path: Path):
     """Two-month window — the shortest the TimeWindow validator permits
     (strict start<end blocks a true 1-month configuration; see state.md).
     """
+
     def shrink(data):
         data["time_window"]["start"] = "2024-01"
         data["time_window"]["end"] = "2024-02"
+
     cfg = mutate_saas(tmp_path, shrink)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -492,11 +504,12 @@ def test_all_same_archetype(tmp_path: Path):
     trajectory inflection to distinguish a lagged driver from an unshifted
     one — a strictly-rising curve produces degenerate lag correlations.
     """
+
     def flatten(data):
         data["entities"] = [
-            {"name": f"cohort_{i}", "archetype": "rocket_then_cliff", "size": 5}
-            for i in range(5)
+            {"name": f"cohort_{i}", "archetype": "rocket_then_cliff", "size": 5} for i in range(5)
         ]
+
     cfg = mutate_saas(tmp_path, flatten)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -513,6 +526,7 @@ def test_zero_noise_produces_no_metric_nulls(tmp_path: Path):
             "outlier_rate": 0.0,
             "mcar_rate": 0.0,
         }
+
     cfg = mutate_saas(tmp_path, zero_noise)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -529,19 +543,19 @@ def test_maximum_noise_preserves_structural_checks(tmp_path: Path):
     """Cranking noise high should not break PK uniqueness, FK integrity,
     or the date spine. Metric null_policy may warn — allowed here.
     """
+
     def crank(data):
         data["noise"] = {
             "gaussian_sigma": 0.2,
             "outlier_rate": 0.1,
             "mcar_rate": 0.1,
         }
+
     cfg = mutate_saas(tmp_path, crank)
     tables = generate(cfg)
     report = validate(cfg, tables)
     structural_checks = {"pk_uniqueness", "fk_integrity", "date_spine"}
-    structural_errors = [
-        i for i in report.errors if i.check in structural_checks
-    ]
+    structural_errors = [i for i in report.errors if i.check in structural_checks]
     assert not structural_errors, (
         f"max-noise broke structural checks: "
         f"{[(i.check, i.message) for i in structural_errors]}"
@@ -551,6 +565,7 @@ def test_maximum_noise_preserves_structural_checks(tmp_path: Path):
 def test_no_correlations(tmp_path: Path):
     def drop_corrs(data):
         data.pop("correlations", None)
+
     cfg = mutate_saas(tmp_path, drop_corrs)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -561,20 +576,23 @@ def test_no_correlations(tmp_path: Path):
 def test_no_stages_omits_stage_column(tmp_path: Path):
     def drop_stages(data):
         data.pop("stages", None)
+
     cfg = mutate_saas(tmp_path, drop_stages)
     tables = generate(cfg)
     report = validate(cfg, tables)
     assert report.ok, f"no-stages failed: {report.errors[:2]}"
     for name, df in tables.items():
-        assert "stage" not in df.columns, (
-            f"{name} still has a stage column after stages were dropped"
-        )
+        assert (
+            "stage" not in df.columns
+        ), f"{name} still has a stage column after stages were dropped"
 
 
 def test_no_event_tables(tmp_path: Path):
     """Config with dims + facts only; no events, no threshold/proportional logic."""
+
     def drop_events(data):
         data["tables"] = [t for t in data["tables"] if t["type"] != "event"]
+
     cfg = mutate_saas(tmp_path, drop_events)
     tables = generate(cfg)
     report = validate(cfg, tables)
@@ -593,12 +611,16 @@ def test_no_event_tables(tmp_path: Path):
 
 def test_cli_subprocess_run(tmp_path: Path):
     result = run_cli_subprocess(
-        "run", str(SAAS_YAML), "-o", str(tmp_path), "--seed", "42", "-q",
+        "run",
+        str(SAAS_YAML),
+        "-o",
+        str(tmp_path),
+        "--seed",
+        "42",
+        "-q",
         "--allow-absolute-output",
     )
-    assert result.returncode == 0, (
-        f"exit={result.returncode}; stderr={result.stderr!r}"
-    )
+    assert result.returncode == 0, f"exit={result.returncode}; stderr={result.stderr!r}"
     assert (tmp_path / "dim_date.csv").exists()
     assert (tmp_path / "config.yaml").exists()
 
@@ -654,6 +676,7 @@ try:
     from sklearn.cluster import KMeans
     from sklearn.metrics import adjusted_rand_score
     from sklearn.preprocessing import StandardScaler
+
     _HAS_SKLEARN = True
 except ImportError:  # pragma: no cover — optional test dep
     _HAS_SKLEARN = False
@@ -672,11 +695,11 @@ needs_sklearn = pytest.mark.skipif(
 # range) to discriminate trajectory shape with only 24 periods. The
 # continuous siblings on the same fact table preserve archetype signal.
 DISTINGUISHABILITY_SPEC: dict[str, tuple[Path, str, str, str]] = {
-    "saas":      (SAAS_YAML,      "fct_engagement",  "company_id",  "engagement_score"),
-    "hr":        (HR_YAML,        "fct_performance", "employee_id", "performance_score"),
-    "education": (EDUCATION_YAML, "fct_grades",      "student_id",  "assignment_score"),
-    "retail":    (RETAIL_YAML,    "fct_sessions",    "segment_id",  "conversion_rate"),
-    "marketing": (MARKETING_YAML, "fct_traffic",     "customer_id", "bounce_rate"),
+    "saas": (SAAS_YAML, "fct_engagement", "company_id", "engagement_score"),
+    "hr": (HR_YAML, "fct_performance", "employee_id", "performance_score"),
+    "education": (EDUCATION_YAML, "fct_grades", "student_id", "assignment_score"),
+    "retail": (RETAIL_YAML, "fct_sessions", "segment_id", "conversion_rate"),
+    "marketing": (MARKETING_YAML, "fct_traffic", "customer_id", "bounce_rate"),
 }
 
 
@@ -718,16 +741,14 @@ def _distinguishability_ari(
     compare to ground-truth archetype labels, return adjusted_rand_score.
     """
     entity_dim_name = next(
-        t.name for t in config.tables
+        t.name
+        for t in config.tables
         if t.grain == "per_entity" and any(c.name == entity_col for c in t.columns)
     )
     entity_dim = tables_dict[entity_dim_name]
     # M106: dedupe SCD-versioned per_entity dims to one row per entity PK
     # (first-version-wins) so positional indexing matches config.entities.
-    entity_dim = (
-        entity_dim.drop_duplicates(subset=entity_col, keep="first")
-        .reset_index(drop=True)
-    )
+    entity_dim = entity_dim.drop_duplicates(subset=entity_col, keep="first").reset_index(drop=True)
     fact = tables_dict[fact_name].sort_values(["date_key"]).reset_index(drop=True)
 
     n_entities = len(config.entities)
@@ -766,7 +787,8 @@ def _assert_distinguishable(domain: str, tmp_path: Path) -> None:
     """
     yaml_path, fact_name, entity_col, metric_col = DISTINGUISHABILITY_SPEC[domain]
     cfg = _mutate_template(
-        tmp_path, yaml_path,
+        tmp_path,
+        yaml_path,
         lambda d: _expand_entities_per_archetype(d, n_per_archetype=5),
     )
     tables = generate(cfg)
@@ -823,7 +845,9 @@ def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
          assertion is noise-sensitive and not a vacuous pass.
     """
     fact_name, entity_col, metric_col = (
-        "fct_traffic", "customer_id", "bounce_rate",
+        "fct_traffic",
+        "customer_id",
+        "bounce_rate",
     )
 
     def low_noise(data):
@@ -845,15 +869,21 @@ def test_high_noise_degrades_distinguishability_gracefully(tmp_path: Path):
     low_cfg = _mutate_template(tmp_path, MARKETING_YAML, low_noise, "low.yaml")
     high_cfg = _mutate_template(tmp_path, MARKETING_YAML, high_noise, "high.yaml")
     low_ari = _distinguishability_ari(
-        low_cfg, generate(low_cfg), fact_name, entity_col, metric_col,
+        low_cfg,
+        generate(low_cfg),
+        fact_name,
+        entity_col,
+        metric_col,
     )
     high_ari = _distinguishability_ari(
-        high_cfg, generate(high_cfg), fact_name, entity_col, metric_col,
+        high_cfg,
+        generate(high_cfg),
+        fact_name,
+        entity_col,
+        metric_col,
     )
 
-    assert low_ari > 0.5, (
-        f"control: low-noise ARI {low_ari:.3f} below 0.5 — test setup is broken"
-    )
+    assert low_ari > 0.5, f"control: low-noise ARI {low_ari:.3f} below 0.5 — test setup is broken"
     assert np.isfinite(high_ari), f"high-noise ARI non-finite: {high_ari}"
     assert high_ari < low_ari, (
         f"noise did not reduce ARI (low={low_ari:.3f}, high={high_ari:.3f}) — "
@@ -875,6 +905,7 @@ def test_public_api_surface_matches_readme():
     # the file directly catches drift that importlib.metadata would miss
     # on a stale editable install.
     import re
+
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     m = re.search(r'\[project\][^\[]*?\nversion\s*=\s*"([^"]+)"', pyproject, re.DOTALL)
     assert m, "could not find [project].version in pyproject.toml"

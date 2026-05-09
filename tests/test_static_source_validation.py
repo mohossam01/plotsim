@@ -38,6 +38,7 @@ Tests:
 * ``test_coerce_static_raises_on_malformed_date`` — direct unit on
   ``dimensions._coerce_static``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -71,22 +72,29 @@ def _config_with_static_column(
     given dtype and value. Lives in dim_reference (a per-period dim with
     a single static column drives the row count via _split_static)."""
     metric = Metric(
-        name="m", label="m",
-        distribution="normal", params={"mu": 1.0, "sigma": 0.1},
+        name="m",
+        label="m",
+        distribution="normal",
+        params={"mu": 1.0, "sigma": 0.1},
         polarity="positive",
     )
     arch = Archetype(
-        name="flat", label="flat",
+        name="flat",
+        label="flat",
         description="constant 0.5 plateau",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
     fct = Table(
-        name="fct_m", type="fact", grain="per_entity_per_period",
+        name="fct_m",
+        type="fact",
+        grain="per_entity_per_period",
         primary_key=["date_key", "entity_id"],
         foreign_keys=["dim_date.date_key", "dim_entity.entity_id"],
         columns=[
@@ -96,7 +104,9 @@ def _config_with_static_column(
         ],
     )
     dim_date = Table(
-        name="dim_date", type="dim", grain="per_period",
+        name="dim_date",
+        type="dim",
+        grain="per_period",
         primary_key="date_key",
         columns=[
             Column(name="date_key", dtype="id", source="pk"),
@@ -104,7 +114,9 @@ def _config_with_static_column(
         ],
     )
     dim_entity = Table(
-        name="dim_entity", type="dim", grain="per_entity",
+        name="dim_entity",
+        type="dim",
+        grain="per_entity",
         primary_key="entity_id",
         columns=[
             Column(name="entity_id", dtype="id", source="pk"),
@@ -112,7 +124,9 @@ def _config_with_static_column(
     )
     # The static column under test lives in a reference dim.
     dim_ref = Table(
-        name="dim_ref", type="dim", grain="variable",
+        name="dim_ref",
+        type="dim",
+        grain="variable",
         primary_key="ref_id",
         columns=[
             Column(name="ref_id", dtype="id", source="pk"),
@@ -127,11 +141,15 @@ def _config_with_static_column(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="entity", entity_label="Entities",
+                name="t",
+                description="t",
+                entity_type="entity",
+                entity_label="Entities",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2024-03", granularity="monthly",
+                start="2024-01",
+                end="2024-03",
+                granularity="monthly",
             ),
             seed=0,
             metrics=[metric],
@@ -151,26 +169,24 @@ def test_static_date_with_invalid_format_rejected():
         _config_with_static_column(static_value="not-a-date", dtype="date")
     msg = str(exc_info.value)
     assert "not-a-date" in msg, f"bad value not in message: {msg}"
-    assert "iso" in msg.lower() or "yyyy-mm-dd" in msg.lower(), (
-        f"format hint missing from message: {msg}"
-    )
+    assert (
+        "iso" in msg.lower() or "yyyy-mm-dd" in msg.lower()
+    ), f"format hint missing from message: {msg}"
     assert "static_field" in msg
 
 
 def test_static_date_with_valid_iso_date_loads():
     """A single ISO-format date loads."""
     cfg = _config_with_static_column(static_value="2024-06-15", dtype="date")
-    assert any(
-        any(c.name == "static_field" for c in tbl.columns)
-        for tbl in cfg.tables
-    )
+    assert any(any(c.name == "static_field" for c in tbl.columns) for tbl in cfg.tables)
 
 
 def test_static_date_csv_with_one_invalid_member_rejected():
     """Multi-value statics with ANY invalid member raise."""
     with pytest.raises(ValidationError) as exc_info:
         _config_with_static_column(
-            static_value="2024-01-01,bogus,2024-03-01", dtype="date",
+            static_value="2024-01-01,bogus,2024-03-01",
+            dtype="date",
         )
     assert "bogus" in str(exc_info.value)
 
@@ -178,7 +194,8 @@ def test_static_date_csv_with_one_invalid_member_rejected():
 def test_static_date_csv_all_valid_loads():
     """Multi-value of three valid ISO dates loads."""
     cfg = _config_with_static_column(
-        static_value="2024-01-01,2024-02-01,2024-03-01", dtype="date",
+        static_value="2024-01-01,2024-02-01,2024-03-01",
+        dtype="date",
     )
     assert cfg is not None
 

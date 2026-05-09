@@ -14,6 +14,7 @@ One test per acceptance-criterion bullet:
 These tests live alongside the fix; they fail loudly if a future change
 re-introduces any of the friction items.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -126,21 +127,25 @@ def test_explicit_dims_without_dim_date_does_not_raise():
     """
     cfg = create(
         **_two_segment_kwargs(
-            facts=[{
-                "name": "fct_company",
-                "columns": [
-                    {"name": "date_key", "type": "ref.dim_date"},
-                    {"name": "company_id", "type": "ref.dim_company"},
-                    {"name": "engagement", "type": "metric.engagement"},
-                ],
-            }],
-            dimensions=[{
-                "name": "dim_company",
-                "columns": [
-                    {"name": "company_id", "type": "id"},
-                    {"name": "name", "type": "faker.company"},
-                ],
-            }],
+            facts=[
+                {
+                    "name": "fct_company",
+                    "columns": [
+                        {"name": "date_key", "type": "ref.dim_date"},
+                        {"name": "company_id", "type": "ref.dim_company"},
+                        {"name": "engagement", "type": "metric.engagement"},
+                    ],
+                }
+            ],
+            dimensions=[
+                {
+                    "name": "dim_company",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                        {"name": "name", "type": "faker.company"},
+                    ],
+                }
+            ],
         )
     )
     table_names = [t.name for t in cfg.tables]
@@ -161,14 +166,16 @@ def test_explicit_dim_date_is_not_clobbered():
     }
     cfg = create(
         **_two_segment_kwargs(
-            facts=[{
-                "name": "fct_company",
-                "columns": [
-                    {"name": "date_key", "type": "ref.dim_date"},
-                    {"name": "company_id", "type": "ref.dim_company"},
-                    {"name": "engagement", "type": "metric.engagement"},
-                ],
-            }],
+            facts=[
+                {
+                    "name": "fct_company",
+                    "columns": [
+                        {"name": "date_key", "type": "ref.dim_date"},
+                        {"name": "company_id", "type": "ref.dim_company"},
+                        {"name": "engagement", "type": "metric.engagement"},
+                    ],
+                }
+            ],
             dimensions=[
                 user_dim_date,
                 {
@@ -196,19 +203,23 @@ def test_bridge_referencing_auto_unit_dim_validates_end_to_end():
     """
     cfg = create(
         **_two_segment_kwargs(
-            dimensions=[{
-                "name": "dim_user",
-                "columns": [
-                    {"name": "user_id", "type": "id"},
-                    {"name": "name", "type": "faker.name"},
-                ],
-            }],
-            bridges=[{
-                "name": "bridge_user_company",
-                "left": "dim_user",
-                "right": "dim_company",
-                "cardinality": [1, 2],
-            }],
+            dimensions=[
+                {
+                    "name": "dim_user",
+                    "columns": [
+                        {"name": "user_id", "type": "id"},
+                        {"name": "name", "type": "faker.name"},
+                    ],
+                }
+            ],
+            bridges=[
+                {
+                    "name": "bridge_user_company",
+                    "left": "dim_user",
+                    "right": "dim_company",
+                    "cardinality": [1, 2],
+                }
+            ],
         )
     )
     table_names = {t.name for t in cfg.tables}
@@ -240,12 +251,14 @@ def test_bridge_no_unit_reference_skips_auto_unit_dim():
                     ],
                 },
             ],
-            bridges=[{
-                "name": "bridge_user_team",
-                "left": "dim_user",
-                "right": "dim_team",
-                "cardinality": [1, 2],
-            }],
+            bridges=[
+                {
+                    "name": "bridge_user_team",
+                    "left": "dim_user",
+                    "right": "dim_team",
+                    "cardinality": [1, 2],
+                }
+            ],
         )
     )
     table_names = {t.name for t in cfg.tables}
@@ -271,33 +284,39 @@ def test_proportional_event_count_driver_does_not_raise():
             {"name": "winners", "count": 3, "archetype": "growth"},
             {"name": "losers", "count": 3, "archetype": "decline"},
         ],
-        facts=[{
-            "name": "fct_company",
-            "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement", "type": "metric.engagement"},
-                {"name": "tickets", "type": "metric.tickets"},
-            ],
-        }],
-        dimensions=[{
-            "name": "dim_company",
-            "columns": [
-                {"name": "company_id", "type": "id"},
-                {"name": "name", "type": "faker.company"},
-            ],
-        }],
-        events=[{
-            "name": "evt_actions",
-            "trigger": "proportional",
-            "driver": "tickets",
-            "scale": 1.0,
-            "columns": [
-                {"name": "event_id", "type": "id"},
-                {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "company_id", "type": "ref.dim_company"},
-            ],
-        }],
+        facts=[
+            {
+                "name": "fct_company",
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                    {"name": "engagement", "type": "metric.engagement"},
+                    {"name": "tickets", "type": "metric.tickets"},
+                ],
+            }
+        ],
+        dimensions=[
+            {
+                "name": "dim_company",
+                "columns": [
+                    {"name": "company_id", "type": "id"},
+                    {"name": "name", "type": "faker.company"},
+                ],
+            }
+        ],
+        events=[
+            {
+                "name": "evt_actions",
+                "trigger": "proportional",
+                "driver": "tickets",
+                "scale": 1.0,
+                "columns": [
+                    {"name": "event_id", "type": "id"},
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "company_id", "type": "ref.dim_company"},
+                ],
+            }
+        ],
         seed=42,
     )
     rng = np.random.default_rng(cfg.seed)

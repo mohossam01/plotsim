@@ -91,43 +91,46 @@ def _basic_cfg(
     """
     metrics: list[Metric] = []
     for j in range(n_metrics):
-        metrics.append(Metric(
-            name=f"m_{j}",
-            label=f"Metric {j}",
-            distribution="normal",
-            params={"mu": 1.0, "sigma": 0.05},
-            polarity="positive",
-            value_range=ValueRange(min=0.0, max=10.0),
-        ))
+        metrics.append(
+            Metric(
+                name=f"m_{j}",
+                label=f"Metric {j}",
+                distribution="normal",
+                params={"mu": 1.0, "sigma": 0.05},
+                polarity="positive",
+                value_range=ValueRange(min=0.0, max=10.0),
+            )
+        )
     archetype = Archetype(
         name="growth",
         label="Growth",
         description="rising sigmoid",
-        curve_segments=[CurveSegment(
-            curve="sigmoid",
-            start_pct=0.0,
-            end_pct=1.0,
-            params={"midpoint": 0.5, "steepness": 6.0, "rising": True},
-        )],
+        curve_segments=[
+            CurveSegment(
+                curve="sigmoid",
+                start_pct=0.0,
+                end_pct=1.0,
+                params={"midpoint": 0.5, "steepness": 6.0, "rising": True},
+            )
+        ],
         metric_overrides={},
     )
-    entities = [
-        Entity(name=f"e_{i:03d}", archetype="growth", size=1)
-        for i in range(n_entities)
-    ]
+    entities = [Entity(name=f"e_{i:03d}", archetype="growth", size=1) for i in range(n_entities)]
     fact_columns = [
         Column(name="date_key", source="fk:dim_date.date_key", dtype="int"),
         Column(name="entity_id", source="fk:dim_entity.entity_id", dtype="id"),
     ]
     for m in metrics:
-        fact_columns.append(
-            Column(name=m.name, source=f"metric:{m.name}", dtype="float")
-        )
+        fact_columns.append(Column(name=m.name, source=f"metric:{m.name}", dtype="float"))
     cors = []
     if correlations and n_metrics >= 2:
-        cors.append(CorrelationPair(
-            metric_a="m_0", metric_b="m_1", coefficient=0.6,
-        ))
+        cors.append(
+            CorrelationPair(
+                metric_a="m_0",
+                metric_b="m_1",
+                coefficient=0.6,
+            )
+        )
     # Scale the time window to ``period_count`` months. Monthly
     # granularity expects YYYY-MM bounds inclusive on both ends, so
     # P months means start=2024-01, end=2024-01 + (P-1) months.
@@ -143,19 +146,25 @@ def _basic_cfg(
         entities=entities,
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 primary_key="date_key",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
             ),
             Table(
-                name="dim_entity", type="dim", grain="per_entity",
+                name="dim_entity",
+                type="dim",
+                grain="per_entity",
                 primary_key="entity_id",
                 columns=[
                     Column(name="entity_id", dtype="id", source="pk"),
                 ],
             ),
             Table(
-                name="fct_m", type="fact", grain="per_entity_per_period",
+                name="fct_m",
+                type="fact",
+                grain="per_entity_per_period",
                 primary_key=["entity_id", "date_key"],
                 columns=fact_columns,
             ),
@@ -182,13 +191,15 @@ class TestModeSelection:
 
     def test_auto_below_threshold_resolves_serial(self):
         cfg = _basic_cfg(
-            n_entities=_VECTORIZED_AUTO_THRESHOLD - 1, mode="auto",
+            n_entities=_VECTORIZED_AUTO_THRESHOLD - 1,
+            mode="auto",
         )
         assert _resolve_generation_mode(cfg) == "serial"
 
     def test_auto_at_threshold_resolves_vectorized(self):
         cfg = _basic_cfg(
-            n_entities=_VECTORIZED_AUTO_THRESHOLD, mode="auto",
+            n_entities=_VECTORIZED_AUTO_THRESHOLD,
+            mode="auto",
         )
         assert _resolve_generation_mode(cfg) == "vectorized"
 
@@ -222,8 +233,7 @@ class TestModeSelection:
             window=("2024-01", "2024-12", "monthly"),
             metrics=[
                 MetricInput(name="engagement", type="score", polarity="positive"),
-                MetricInput(name="revenue", type="amount",
-                            polarity="positive", range=(0.0, 100.0)),
+                MetricInput(name="revenue", type="amount", polarity="positive", range=(0.0, 100.0)),
             ],
             segments=[
                 SegmentInput(name="primary", archetype="growth", count=10),
@@ -319,10 +329,16 @@ class TestCrossModeEquivalence:
         between paths within a tight bound — vectorization is a
         sampling-order rearrangement, not a semantic change."""
         cfg_s = _basic_cfg(
-            n_entities=120, mode="serial", n_metrics=3, period_count=24,
+            n_entities=120,
+            mode="serial",
+            n_metrics=3,
+            period_count=24,
         )
         cfg_v = _basic_cfg(
-            n_entities=120, mode="vectorized", n_metrics=3, period_count=24,
+            n_entities=120,
+            mode="vectorized",
+            n_metrics=3,
+            period_count=24,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -336,16 +352,22 @@ class TestCrossModeEquivalence:
             # under independent normal draws averages out within ~1σ/√N.
             # 0.05 absolute is generous and keeps the test stable on
             # a small-but-realistic config.
-            assert abs(s_mean - v_mean) < 0.05, (
-                f"{col}: serial mean {s_mean:.4f} vs vectorized {v_mean:.4f}"
-            )
+            assert (
+                abs(s_mean - v_mean) < 0.05
+            ), f"{col}: serial mean {s_mean:.4f} vs vectorized {v_mean:.4f}"
 
     def test_correlation_sign_preserved(self):
         cfg_s = _basic_cfg(
-            n_entities=120, mode="serial", n_metrics=3, period_count=24,
+            n_entities=120,
+            mode="serial",
+            n_metrics=3,
+            period_count=24,
         )
         cfg_v = _basic_cfg(
-            n_entities=120, mode="vectorized", n_metrics=3, period_count=24,
+            n_entities=120,
+            mode="vectorized",
+            n_metrics=3,
+            period_count=24,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -373,9 +395,11 @@ class TestOverrideFallback:
         # Replace one entity's overrides with a non-default
         # inflection_month so its trajectory differs from the cohort.
         ents = list(cfg.entities)
-        ents[5] = ents[5].model_copy(update={
-            "overrides": EntityOverrides(inflection_month=2),
-        })
+        ents[5] = ents[5].model_copy(
+            update={
+                "overrides": EntityOverrides(inflection_month=2),
+            }
+        )
         cfg = cfg.model_copy(update={"entities": ents})
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -388,9 +412,11 @@ class TestOverrideFallback:
         cfg = _basic_cfg(n_entities=100, mode="vectorized", period_count=6)
         ents = list(cfg.entities)
         for i in (10, 20, 30, 40, 50):
-            ents[i] = ents[i].model_copy(update={
-                "overrides": EntityOverrides(inflection_month=3),
-            })
+            ents[i] = ents[i].model_copy(
+                update={
+                    "overrides": EntityOverrides(inflection_month=3),
+                }
+            )
         cfg = cfg.model_copy(update={"entities": ents})
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -410,16 +436,23 @@ class TestCausalLagBatched:
         from plotsim.config import CausalLag
 
         cfg = _basic_cfg(
-            n_entities=60, mode="vectorized", period_count=24, n_metrics=3,
+            n_entities=60,
+            mode="vectorized",
+            period_count=24,
+            n_metrics=3,
             correlations=False,
         )
         # Wire m_1 as a 2-period lag of m_0.
         m0 = cfg.metrics[0]
-        m1 = cfg.metrics[1].model_copy(update={
-            "causal_lag": CausalLag(
-                driver="m_0", lag_periods=2, blend_weight=1.0,
-            ),
-        })
+        m1 = cfg.metrics[1].model_copy(
+            update={
+                "causal_lag": CausalLag(
+                    driver="m_0",
+                    lag_periods=2,
+                    blend_weight=1.0,
+                ),
+            }
+        )
         m2 = cfg.metrics[2]
         cfg = cfg.model_copy(update={"metrics": [m0, m1, m2]})
         with warnings.catch_warnings():
@@ -435,12 +468,13 @@ class TestCausalLagBatched:
         n = len(mean_m0)
         m0_centered = mean_m0 - mean_m0.mean()
         m1_centered = mean_m1 - mean_m1.mean()
-        denom = np.sqrt((m0_centered ** 2).sum() * (m1_centered ** 2).sum())
+        denom = np.sqrt((m0_centered**2).sum() * (m1_centered**2).sum())
         # Correlation of m1[2:] vs m0[:n-2] — m1 lagging m0 by 2.
         if denom > 0:
-            r_lag2 = float((m1_centered[2:] * m0_centered[:n - 2]).sum()
-                           / np.sqrt((m1_centered[2:] ** 2).sum()
-                                     * (m0_centered[:n - 2] ** 2).sum()))
+            r_lag2 = float(
+                (m1_centered[2:] * m0_centered[: n - 2]).sum()
+                / np.sqrt((m1_centered[2:] ** 2).sum() * (m0_centered[: n - 2] ** 2).sum())
+            )
         else:
             r_lag2 = 0.0
         # Loose floor — the exact peak shape varies with noise. A
@@ -467,9 +501,11 @@ class TestVectorizedParquet:
         from plotsim.output import write_tables
 
         cfg = _basic_cfg(n_entities=80, mode="vectorized")
-        cfg = cfg.model_copy(update={
-            "output": OutputConfig(format="parquet", directory="output"),
-        })
+        cfg = cfg.model_copy(
+            update={
+                "output": OutputConfig(format="parquet", directory="output"),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
@@ -488,7 +524,8 @@ class TestVectorizedParquet:
 
 
 @pytest.mark.parametrize(
-    "stem", ["saas", "hr", "education", "retail", "marketing"],
+    "stem",
+    ["saas", "hr", "education", "retail", "marketing"],
 )
 def test_bundled_templates_use_default_generation_mode(stem):
     """Bundled engine-direct templates must leave ``generation_mode``
@@ -518,7 +555,9 @@ class TestBatchHelpers:
     def test_sample_single_metric_batch_normal(self):
         rng = np.random.default_rng(1)
         m = Metric(
-            name="x", label="X", distribution="normal",
+            name="x",
+            label="X",
+            distribution="normal",
             params={"mu": 1.0, "sigma": 0.1},
             polarity="positive",
         )
@@ -531,7 +570,9 @@ class TestBatchHelpers:
     def test_sample_single_metric_batch_lognorm(self):
         rng = np.random.default_rng(1)
         m = Metric(
-            name="x", label="X", distribution="lognorm",
+            name="x",
+            label="X",
+            distribution="lognorm",
             params={"s": 0.5, "scale": 1.0},
             polarity="positive",
         )
@@ -569,8 +610,13 @@ class TestBatchHelpers:
         archetype = cfg.archetypes[0]
         rng = np.random.default_rng(0)
         result = generate_archetype_batch(
-            archetype, [], list(cfg.metrics), [], cfg.noise,
-            n_periods=12, rng=rng,
+            archetype,
+            [],
+            list(cfg.metrics),
+            [],
+            cfg.noise,
+            n_periods=12,
+            rng=rng,
         )
         assert result == {}
 
@@ -579,10 +625,16 @@ class TestBatchHelpers:
         within a tight bound — the trajectory is shared, only RNG
         order differs."""
         cfg_s = _basic_cfg(
-            n_entities=120, mode="serial", n_metrics=2, period_count=24,
+            n_entities=120,
+            mode="serial",
+            n_metrics=2,
+            period_count=24,
         )
         cfg_v = _basic_cfg(
-            n_entities=120, mode="vectorized", n_metrics=2, period_count=24,
+            n_entities=120,
+            mode="vectorized",
+            n_metrics=2,
+            period_count=24,
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -596,7 +648,7 @@ class TestBatchHelpers:
         v_mean = df_v.groupby("date_key")["m_0"].mean().to_numpy()
         s_centered = s_mean - s_mean.mean()
         v_centered = v_mean - v_mean.mean()
-        denom = np.sqrt((s_centered ** 2).sum() * (v_centered ** 2).sum())
+        denom = np.sqrt((s_centered**2).sum() * (v_centered**2).sum())
         r = float((s_centered * v_centered).sum() / denom) if denom > 0 else 0.0
         assert r > 0.9, (
             f"per-period mean correlation between serial and "

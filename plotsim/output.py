@@ -140,7 +140,8 @@ def _ordered_columns(tbl: Table, df_columns: list[str]) -> list[str]:
 
 
 def _coerce_integer_columns(
-    tbl: Table, df: pd.DataFrame,
+    tbl: Table,
+    df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Ensure columns declared as ``dtype: int`` render without ``.0`` suffix.
 
@@ -190,6 +191,7 @@ def _streaming_parquet_eligible(config: Optional[PlotsimConfig]) -> bool:
     # transitively for non-streaming writes; importing at module
     # scope would create a cycle.
     from plotsim.tables import _resolve_generation_mode
+
     return _resolve_generation_mode(config) == "vectorized"
 
 
@@ -202,10 +204,7 @@ def _streaming_fact_table_names(config: PlotsimConfig) -> set[str]:
     on-disk layout matches the non-streaming output exactly except for
     row group boundaries.
     """
-    return {
-        tbl.name for tbl in config.tables
-        if tbl.type == "fact"
-    }
+    return {tbl.name for tbl in config.tables if tbl.type == "fact"}
 
 
 def _write_streaming_parquet_facts(
@@ -244,9 +243,7 @@ def _write_streaming_parquet_facts(
     from plotsim.tables import iter_fact_chunks
 
     streaming_names = _streaming_fact_table_names(config)
-    streaming_facts = {
-        name: df for name, df in fact_tables.items() if name in streaming_names
-    }
+    streaming_facts = {name: df for name, df in fact_tables.items() if name in streaming_names}
     if not streaming_facts:
         return set()
 
@@ -302,12 +299,15 @@ def _write_streaming_parquet_facts(
                 if fact_name not in paths:
                     continue  # defensive — shouldn't happen given filter
                 pa_table = pa.Table.from_pandas(
-                    df_chunk, preserve_index=False,
+                    df_chunk,
+                    preserve_index=False,
                 )
                 if fact_name not in writers:
                     schema = pa_table.schema
                     writer = pq.ParquetWriter(
-                        paths[fact_name], schema, compression="snappy",
+                        paths[fact_name],
+                        schema,
+                        compression="snappy",
                     )
                     writers[fact_name] = (writer, schema)
                 else:
@@ -607,7 +607,9 @@ def write_tables(
     manifest_to_write = manifest
     if config.quality.quality_issues:
         corrupted, ground_truth = _apply_quality_issues(
-            tables, config, int(config.seed),
+            tables,
+            config,
+            int(config.seed),
         )
         tables_to_write = corrupted
         if manifest_to_write is not None:
@@ -624,7 +626,9 @@ def write_tables(
     streaming_written: set[str] = set()
     if _streaming_parquet_eligible(config):
         streaming_written = _write_streaming_parquet_facts(
-            config, tables_to_write, target,
+            config,
+            tables_to_write,
+            target,
         )
 
     for name, df in tables_to_write.items():
@@ -645,12 +649,18 @@ def write_tables(
         holdout_splits = split_fact_tables(config, tables)
         for name, (train_df, holdout_df) in holdout_splits.items():
             write_single_table(
-                f"{name}_train", train_df, target,
-                config=config, float_format=float_format,
+                f"{name}_train",
+                train_df,
+                target,
+                config=config,
+                float_format=float_format,
             )
             write_single_table(
-                f"{name}_holdout", holdout_df, target,
-                config=config, float_format=float_format,
+                f"{name}_holdout",
+                holdout_df,
+                target,
+                config=config,
+                float_format=float_format,
             )
 
     if manifest_to_write is not None and config.manifest.include:
@@ -731,7 +741,10 @@ def _write_entity_features(
     if output_format == "parquet":
         _check_parquet_engine_available()
         df.to_parquet(
-            path, engine="pyarrow", index=False, compression="snappy",
+            path,
+            engine="pyarrow",
+            index=False,
+            compression="snappy",
         )
     else:
         df.to_csv(

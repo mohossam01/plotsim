@@ -160,8 +160,14 @@ def _saas_entities() -> list[Entity]:
     ]
 
 
-def _table(name: str, grain: str, columns: list[Column], pk: str | list[str],
-           ttype: str = "dim", fks: list[str] | None = None) -> Table:
+def _table(
+    name: str,
+    grain: str,
+    columns: list[Column],
+    pk: str | list[str],
+    ttype: str = "dim",
+    fks: list[str] | None = None,
+) -> Table:
     return Table(
         name=name,
         type=ttype,  # type: ignore[arg-type]
@@ -174,7 +180,8 @@ def _table(name: str, grain: str, columns: list[Column], pk: str | list[str],
 
 def test_dim_entity_one_row_per_entity():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="company_name", dtype="string", source="generated:faker.company"),
@@ -190,9 +197,12 @@ def test_dim_entity_one_row_per_entity():
 
 def test_dim_entity_pk_values_unique_and_prefixed():
     tbl = _table(
-        "dim_company", "per_entity",
-        [Column(name="company_id", dtype="id", source="pk"),
-         Column(name="x", dtype="string", source="static:v")],
+        "dim_company",
+        "per_entity",
+        [
+            Column(name="company_id", dtype="id", source="pk"),
+            Column(name="x", dtype="string", source="static:v"),
+        ],
         "company_id",
     )
     df = build_dim_entity(tbl, _saas_entities(), _rng(0))
@@ -202,7 +212,8 @@ def test_dim_entity_pk_values_unique_and_prefixed():
 
 def test_dim_entity_derived_fields_populated():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="cohort_size", dtype="int", source="derived:size"),
@@ -213,13 +224,16 @@ def test_dim_entity_derived_fields_populated():
     df = build_dim_entity(tbl, _saas_entities(), _rng(0))
     assert df["cohort_size"].tolist() == [50, 30, 10]
     assert df["archetype_name"].tolist() == [
-        "rocket_then_cliff", "steady_grower", "zombie_account",
+        "rocket_then_cliff",
+        "steady_grower",
+        "zombie_account",
     ]
 
 
 def test_dim_entity_entity_name_generator_populated():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="entity_name", dtype="string", source="generated:entity_name"),
@@ -228,13 +242,16 @@ def test_dim_entity_entity_name_generator_populated():
     )
     df = build_dim_entity(tbl, _saas_entities(), _rng(0))
     assert df["entity_name"].tolist() == [
-        "acme_corp_cohort", "globex_cohort", "hooli_cohort",
+        "acme_corp_cohort",
+        "globex_cohort",
+        "hooli_cohort",
     ]
 
 
 def test_dim_entity_faker_values_non_null_non_empty():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="company_name", dtype="string", source="generated:faker.company"),
@@ -248,7 +265,8 @@ def test_dim_entity_faker_values_non_null_non_empty():
 
 def test_dim_entity_unsupported_faker_provider_raises_at_build():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="bogus", dtype="string", source="generated:faker.not_a_method"),
@@ -261,7 +279,8 @@ def test_dim_entity_unsupported_faker_provider_raises_at_build():
 
 def test_dim_entity_unsupported_derived_field_raises():
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="weird", dtype="string", source="derived:nonsense"),
@@ -277,11 +296,13 @@ def test_dim_entity_unsupported_derived_field_raises():
 
 def test_dim_reference_row_count_from_longest_static_column():
     tbl = _table(
-        "dim_plan", "per_reference",
+        "dim_plan",
+        "per_reference",
         [
             Column(name="plan_id", dtype="id", source="pk"),
-            Column(name="plan_name", dtype="string",
-                   source="static:starter,professional,enterprise"),
+            Column(
+                name="plan_name", dtype="string", source="static:starter,professional,enterprise"
+            ),
             Column(name="monthly_price", dtype="float", source="static:99.0"),
         ],
         "plan_id",
@@ -295,7 +316,8 @@ def test_dim_reference_row_count_from_longest_static_column():
 
 def test_dim_reference_single_value_gives_single_row():
     tbl = _table(
-        "dim_plan", "per_reference",
+        "dim_plan",
+        "per_reference",
         [
             Column(name="plan_id", dtype="id", source="pk"),
             Column(name="plan_name", dtype="string", source="static:starter"),
@@ -311,7 +333,8 @@ def test_dim_reference_single_value_gives_single_row():
 
 def test_dim_reference_pk_unique():
     tbl = _table(
-        "dim_plan", "per_reference",
+        "dim_plan",
+        "per_reference",
         [
             Column(name="plan_id", dtype="id", source="pk"),
             Column(name="plan_name", dtype="string", source="static:a,b,c,d"),
@@ -325,7 +348,8 @@ def test_dim_reference_pk_unique():
 
 def test_dim_reference_dtype_coercion():
     tbl = _table(
-        "dim_flags", "per_reference",
+        "dim_flags",
+        "per_reference",
         [
             Column(name="flag_id", dtype="id", source="pk"),
             Column(name="is_on", dtype="boolean", source="static:true,false"),
@@ -343,7 +367,8 @@ def test_dim_reference_dtype_coercion():
 
 def _dim_user_table() -> Table:
     return _table(
-        "dim_user", "variable",
+        "dim_user",
+        "variable",
         [
             Column(name="user_id", dtype="id", source="pk"),
             Column(name="company_id", dtype="id", source="fk:dim_company.company_id"),
@@ -357,7 +382,8 @@ def _dim_user_table() -> Table:
 
 def _dim_company_table() -> Table:
     return _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="company_name", dtype="string", source="generated:faker.company"),
@@ -460,9 +486,7 @@ def test_build_all_dimensions_hr_fk_backfill_to_reference():
     dims = build_all_dimensions(config, _rng(config.seed))
     # dim_employee has FK to dim_department → should be filled, not null.
     assert dims["dim_employee"]["dept_id"].notna().all()
-    assert set(dims["dim_employee"]["dept_id"]).issubset(
-        set(dims["dim_department"]["dept_id"])
-    )
+    assert set(dims["dim_employee"]["dept_id"]).issubset(set(dims["dim_department"]["dept_id"]))
 
 
 # --- Determinism -------------------------------------------------------------
@@ -485,8 +509,7 @@ def test_different_seed_different_faker_same_structure():
         assert list(a[name].columns) == list(b[name].columns)
         assert len(a[name]) == len(b[name])
     # Faker-generated company names should differ at least once across seeds.
-    assert not (a["dim_company"]["company_name"]
-                .eq(b["dim_company"]["company_name"]).all())
+    assert not (a["dim_company"]["company_name"].eq(b["dim_company"]["company_name"]).all())
 
 
 # --- FIX-05: parameterized Faker + locale ------------------------------------
@@ -495,14 +518,15 @@ def test_different_seed_different_faker_same_structure():
 def test_parameterized_faker_date_between_stays_in_range():
     """date_between with start_date/end_date stays inside the declared bounds."""
     tbl = _table(
-        "dim_employee", "per_entity",
+        "dim_employee",
+        "per_entity",
         [
             Column(name="employee_id", dtype="id", source="pk"),
             Column(
-                name="hire_date", dtype="date",
+                name="hire_date",
+                dtype="date",
                 source=(
-                    "generated:faker.date_between:"
-                    "start_date:2022-01-01:end_date:2024-12-31"
+                    "generated:faker.date_between:" "start_date:2022-01-01:end_date:2024-12-31"
                 ),
             ),
         ],
@@ -510,6 +534,7 @@ def test_parameterized_faker_date_between_stays_in_range():
     )
     df = build_dim_entity(tbl, _saas_entities(), _rng(42))
     from datetime import date as _d
+
     lower, upper = _d(2022, 1, 1), _d(2024, 12, 31)
     for value in df["hire_date"]:
         assert isinstance(value, _d), f"expected date, got {type(value).__name__}"
@@ -519,7 +544,8 @@ def test_parameterized_faker_date_between_stays_in_range():
 def test_unparameterized_faker_still_works():
     """Non-parameterized ``generated:faker.X`` remains backward compatible."""
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="company_name", dtype="string", source="generated:faker.company"),
@@ -533,21 +559,22 @@ def test_unparameterized_faker_still_works():
 def test_hr_template_hire_dates_within_window():
     """The shipped HR template's hire_date column falls inside time_window."""
     from datetime import date as _d
+
     cfg = load_config(HR_YAML)
     dims = build_all_dimensions(cfg, _rng(cfg.seed))
     hire_dates = dims["dim_employee"]["hire_date"].tolist()
     lower, upper = _d(2022, 1, 1), _d(2024, 12, 31)
     for value in hire_dates:
         assert lower <= value <= upper, (
-            f"hire_date {value!r} is outside HR time_window "
-            f"[2022-01, 2024-12]"
+            f"hire_date {value!r} is outside HR time_window " f"[2022-01, 2024-12]"
         )
 
 
 def test_locale_defaults_to_en_us_faker_output():
     """Default Faker locale is en_US — names use ASCII letters."""
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="full_name", dtype="string", source="generated:faker.name"),
@@ -562,7 +589,8 @@ def test_locale_defaults_to_en_us_faker_output():
 def test_locale_ja_jp_produces_japanese_names():
     """ja_JP locale yields non-ASCII Japanese characters in Faker names."""
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="full_name", dtype="string", source="generated:faker.name"),
@@ -572,15 +600,16 @@ def test_locale_ja_jp_produces_japanese_names():
     df = build_dim_entity(tbl, _saas_entities(), _rng(3), locale="ja_JP")
     # At least one name should include a non-ASCII character.
     any_non_ascii = any(not name.isascii() for name in df["full_name"])
-    assert any_non_ascii, (
-        f"expected some Japanese characters in names, got {df['full_name'].tolist()}"
-    )
+    assert (
+        any_non_ascii
+    ), f"expected some Japanese characters in names, got {df['full_name'].tolist()}"
 
 
 def test_locale_list_mixes_languages():
     """A list locale instantiates Faker with multiple locales without error."""
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="full_name", dtype="string", source="generated:faker.name"),
@@ -588,7 +617,10 @@ def test_locale_list_mixes_languages():
         "company_id",
     )
     df = build_dim_entity(
-        tbl, _saas_entities(), _rng(3), locale=["en_US", "de_DE"],
+        tbl,
+        _saas_entities(),
+        _rng(3),
+        locale=["en_US", "de_DE"],
     )
     assert len(df) == len(_saas_entities())
     assert (df["full_name"].str.len() > 0).all()
@@ -597,7 +629,8 @@ def test_locale_list_mixes_languages():
 def test_determinism_preserved_with_locale():
     """Same (config, seed, locale) produces byte-identical output."""
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="full_name", dtype="string", source="generated:faker.name"),
@@ -614,7 +647,8 @@ def test_determinism_preserved_with_locale():
 
 def _dim_with_faker_source(source: str) -> Table:
     return _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
             Column(name="x", dtype="string", source=source),
@@ -700,13 +734,12 @@ def test_faker_extended_providers_still_work():
     relies on them.
     """
     tbl = _table(
-        "dim_company", "per_entity",
+        "dim_company",
+        "per_entity",
         [
             Column(name="company_id", dtype="id", source="pk"),
-            Column(name="industry", dtype="string",
-                   source="generated:faker.industry"),
-            Column(name="founded_year", dtype="int",
-                   source="generated:faker.year"),
+            Column(name="industry", dtype="string", source="generated:faker.industry"),
+            Column(name="founded_year", dtype="int", source="generated:faker.year"),
         ],
         "company_id",
     )

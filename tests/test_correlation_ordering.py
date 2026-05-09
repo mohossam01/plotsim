@@ -34,6 +34,7 @@ contributes no per-period dynamics — every metric's center is constant
 across the window — isolating the test signal to the correlation-matrix
 indexing question that F-06 is about.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -71,7 +72,7 @@ def _factor_model_pairs() -> dict[tuple[str, str], float]:
     pairs: dict[tuple[str, str], float] = {}
     names = list(LOADINGS)
     for i, a in enumerate(names):
-        for b in names[i + 1:]:
+        for b in names[i + 1 :]:
             pairs[(a, b)] = LOADINGS[a] * LOADINGS[b]
     return pairs
 
@@ -111,8 +112,10 @@ def _build_test_config(
         description="constant 0.5 plateau — lag chain has no dynamic effect",
         curve_segments=[
             CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
+                curve="plateau",
+                params={"level": 0.5},
+                start_pct=0.0,
+                end_pct=1.0,
             ),
         ],
     )
@@ -128,22 +131,25 @@ def _build_test_config(
         warnings.simplefilter("ignore", SurrogateKeyWarning)
         return PlotsimConfig(
             domain=Domain(
-                name="t", description="t",
-                entity_type="user", entity_label="Users",
+                name="t",
+                description="t",
+                entity_type="user",
+                entity_label="Users",
             ),
             time_window=TimeWindow(
-                start="2024-01", end="2027-12", granularity="monthly",
+                start="2024-01",
+                end="2027-12",
+                granularity="monthly",
             ),
             seed=seed,
             metrics=metrics,
             archetypes=[arch],
-            entities=[
-                Entity(name=f"u{i:02d}", archetype="flat", size=2)
-                for i in range(15)
-            ],
+            entities=[Entity(name=f"u{i:02d}", archetype="flat", size=2) for i in range(15)],
             tables=[
                 Table(
-                    name="dim_date", type="dim", grain="per_period",
+                    name="dim_date",
+                    type="dim",
+                    grain="per_period",
                     primary_key="date_key",
                     columns=[
                         Column(name="date_key", dtype="id", source="pk"),
@@ -151,7 +157,9 @@ def _build_test_config(
                     ],
                 ),
                 Table(
-                    name="dim_user", type="dim", grain="per_entity",
+                    name="dim_user",
+                    type="dim",
+                    grain="per_entity",
                     primary_key="user_id",
                     columns=[
                         Column(name="user_id", dtype="id", source="pk"),
@@ -159,7 +167,9 @@ def _build_test_config(
                     ],
                 ),
                 Table(
-                    name="fct_metrics", type="fact", grain="per_entity_per_period",
+                    name="fct_metrics",
+                    type="fact",
+                    grain="per_entity_per_period",
                     primary_key=["date_key", "user_id"],
                     foreign_keys=["dim_date.date_key", "dim_user.user_id"],
                     columns=fct_columns,
@@ -181,17 +191,12 @@ def _observed_pearson_per_seed(
         tables = generate_tables(cfg, rng)
         fct = tables["fct_metrics"]
         for a, b in observed:
-            observed[(a, b)].append(
-                float(np.corrcoef(fct[a], fct[b])[0, 1])
-            )
+            observed[(a, b)].append(float(np.corrcoef(fct[a], fct[b])[0, 1]))
     return observed
 
 
 def _correlation_pairs(targets: dict[tuple[str, str], float]) -> list[CorrelationPair]:
-    return [
-        CorrelationPair(metric_a=a, metric_b=b, coefficient=c)
-        for (a, b), c in targets.items()
-    ]
+    return [CorrelationPair(metric_a=a, metric_b=b, coefficient=c) for (a, b), c in targets.items()]
 
 
 def test_correlation_ordering_holds_when_toposort_reverses_declaration():

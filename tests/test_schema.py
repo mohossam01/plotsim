@@ -12,12 +12,11 @@ Locks in:
     with what ``generate_schema()`` produces (regenerate-and-commit
     workflow stays consistent).
 """
+
 from __future__ import annotations
 
 import io
 import json
-import os
-import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -91,9 +90,17 @@ def test_generate_schema_includes_nested_model_defs():
     """
     defs = generate_schema().get("$defs", {})
     expected_models = {
-        "Domain", "TimeWindow", "Metric", "Archetype", "Entity",
-        "Table", "Column", "OutputConfig", "NoiseConfig",
-        "CorrelationPair", "CurveSegment",
+        "Domain",
+        "TimeWindow",
+        "Metric",
+        "Archetype",
+        "Entity",
+        "Table",
+        "Column",
+        "OutputConfig",
+        "NoiseConfig",
+        "CorrelationPair",
+        "CurveSegment",
     }
     missing = expected_models - set(defs.keys())
     assert not missing, f"Nested model defs missing: {sorted(missing)}"
@@ -154,7 +161,10 @@ def test_cli_schema_writes_custom_output(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     custom = tmp_path / "subdir" / "custom.json"
     code, _out, _err = run_cli(
-        "schema", "--output", str(custom), "--allow-absolute-output",
+        "schema",
+        "--output",
+        str(custom),
+        "--allow-absolute-output",
     )
     assert code == 0
     assert custom.exists()
@@ -191,9 +201,7 @@ def test_committed_schema_file_matches_generated_output():
     which fields shifted.
     """
     if not COMMITTED_SCHEMA.exists():
-        pytest.skip(
-            f"{SCHEMA_FILENAME} not present at repo root; run `plotsim schema`."
-        )
+        pytest.skip(f"{SCHEMA_FILENAME} not present at repo root; run `plotsim schema`.")
     on_disk = json.loads(COMMITTED_SCHEMA.read_text(encoding="utf-8"))
     fresh = generate_schema()
     if on_disk != fresh:

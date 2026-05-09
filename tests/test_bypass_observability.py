@@ -18,13 +18,13 @@ A complementary field ``vectorized_threshold_used`` records the
 constant ``_VECTORIZED_AUTO_THRESHOLD`` at generation time so old
 manifests stay reproducible if the constant changes.
 """
+
 from __future__ import annotations
 
 import warnings
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from plotsim.builder import create_from_yaml
 from plotsim.config import load_config
@@ -42,8 +42,11 @@ def _build_manifest_for(cfg) -> object:
         warnings.simplefilter("ignore")
         tables, state = generate_tables_with_state(cfg, rng)
         return build_manifest(
-            cfg, state.trajectories, tables,
-            scd_state=state.scd, bridge_state=state.bridges,
+            cfg,
+            state.trajectories,
+            tables,
+            scd_state=state.scd,
+            bridge_state=state.bridges,
         )
 
 
@@ -77,9 +80,7 @@ class TestManifestFieldShape:
         # so the keys-are-archetype-names invariant is vacuously true.
         # Kept as a regression guard against the field gaining un-
         # validated keys in a future change.
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         archetype_names = {e.archetype for e in cfg.entities}
@@ -88,9 +89,7 @@ class TestManifestFieldShape:
     def test_counts_are_nonnegative_ints(self):
         # M127b: vacuously true on an empty dict; kept as a stable shape
         # invariant for any future repopulation.
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         for arch, count in m.bypass_fallback_counts.items():
@@ -130,49 +129,69 @@ class TestCounterIncrement:
         # Trajectory: plateau at 0.0 → polarity-positive lognorm
         # centers stay at ~0 the entire run → every cell trips bypass.
         archetype = Archetype(
-            name="dead", label="Dead", description="zero plateau",
-            curve_segments=[CurveSegment(
-                curve="plateau", params={"level": 0.0},
-                start_pct=0.0, end_pct=1.0,
-            )],
+            name="dead",
+            label="Dead",
+            description="zero plateau",
+            curve_segments=[
+                CurveSegment(
+                    curve="plateau",
+                    params={"level": 0.0},
+                    start_pct=0.0,
+                    end_pct=1.0,
+                )
+            ],
             metric_overrides={},
         )
         m_a = Metric(
-            name="a", label="A", distribution="lognorm",
+            name="a",
+            label="A",
+            distribution="lognorm",
             params={"s": 0.5, "loc": 0.0, "scale": 1.0},
             polarity="positive",
         )
         m_b = Metric(
-            name="b", label="B", distribution="lognorm",
+            name="b",
+            label="B",
+            distribution="lognorm",
             params={"s": 0.5, "loc": 0.0, "scale": 1.0},
             polarity="positive",
         )
         cfg = PlotsimConfig(
-            domain=Domain(name="bypass-trip", description="-",
-                          entity_type="unit", entity_label="Unit"),
-            time_window=TimeWindow(start="2024-01", end="2024-12",
-                                   granularity="monthly"),
+            domain=Domain(
+                name="bypass-trip", description="-", entity_type="unit", entity_label="Unit"
+            ),
+            time_window=TimeWindow(start="2024-01", end="2024-12", granularity="monthly"),
             seed=42,
             metrics=[m_a, m_b],
             archetypes=[archetype],
-            entities=[Entity(name=f"e_{i:03d}", archetype="dead", size=1)
-                      for i in range(60)],
+            entities=[Entity(name=f"e_{i:03d}", archetype="dead", size=1) for i in range(60)],
             tables=[
-                Table(name="dim_date", type="dim", grain="per_period",
-                      primary_key="date_key",
-                      columns=[Column(name="date_key", dtype="id", source="pk")]),
-                Table(name="dim_entity", type="dim", grain="per_entity",
-                      primary_key="entity_id",
-                      columns=[Column(name="entity_id", dtype="id", source="pk")]),
-                Table(name="fct_m", type="fact",
-                      grain="per_entity_per_period",
-                      primary_key=["entity_id", "date_key"],
-                      columns=[
-                          Column(name="date_key", source="fk:dim_date.date_key", dtype="int"),
-                          Column(name="entity_id", source="fk:dim_entity.entity_id", dtype="id"),
-                          Column(name="a", source="metric:a", dtype="float"),
-                          Column(name="b", source="metric:b", dtype="float"),
-                      ]),
+                Table(
+                    name="dim_date",
+                    type="dim",
+                    grain="per_period",
+                    primary_key="date_key",
+                    columns=[Column(name="date_key", dtype="id", source="pk")],
+                ),
+                Table(
+                    name="dim_entity",
+                    type="dim",
+                    grain="per_entity",
+                    primary_key="entity_id",
+                    columns=[Column(name="entity_id", dtype="id", source="pk")],
+                ),
+                Table(
+                    name="fct_m",
+                    type="fact",
+                    grain="per_entity_per_period",
+                    primary_key=["entity_id", "date_key"],
+                    columns=[
+                        Column(name="date_key", source="fk:dim_date.date_key", dtype="int"),
+                        Column(name="entity_id", source="fk:dim_entity.entity_id", dtype="id"),
+                        Column(name="a", source="metric:a", dtype="float"),
+                        Column(name="b", source="metric:b", dtype="float"),
+                    ],
+                ),
             ],
             correlations=[CorrelationPair(metric_a="a", metric_b="b", coefficient=0.6)],
             noise=NoiseConfig(),
@@ -208,53 +227,73 @@ class TestCounterIncrement:
             TimeWindow,
             ValueRange,
         )
+
         archetype = Archetype(
-            name="healthy", label="Healthy",
+            name="healthy",
+            label="Healthy",
             description="midrange normal centers",
-            curve_segments=[CurveSegment(
-                curve="plateau", params={"level": 0.5},
-                start_pct=0.0, end_pct=1.0,
-            )],
+            curve_segments=[
+                CurveSegment(
+                    curve="plateau",
+                    params={"level": 0.5},
+                    start_pct=0.0,
+                    end_pct=1.0,
+                )
+            ],
             metric_overrides={},
         )
         # Normal distribution with non-degenerate sigma + center at
         # mu*0.5 = 0.5; not degenerate.
         m_a = Metric(
-            name="a", label="A", distribution="normal",
+            name="a",
+            label="A",
+            distribution="normal",
             params={"mu": 1.0, "sigma": 0.05},
-            polarity="positive", value_range=ValueRange(min=0.0, max=10.0),
+            polarity="positive",
+            value_range=ValueRange(min=0.0, max=10.0),
         )
         m_b = Metric(
-            name="b", label="B", distribution="normal",
+            name="b",
+            label="B",
+            distribution="normal",
             params={"mu": 1.0, "sigma": 0.05},
-            polarity="positive", value_range=ValueRange(min=0.0, max=10.0),
+            polarity="positive",
+            value_range=ValueRange(min=0.0, max=10.0),
         )
         cfg = PlotsimConfig(
-            domain=Domain(name="healthy", description="-",
-                          entity_type="unit", entity_label="Unit"),
-            time_window=TimeWindow(start="2024-01", end="2024-12",
-                                   granularity="monthly"),
+            domain=Domain(name="healthy", description="-", entity_type="unit", entity_label="Unit"),
+            time_window=TimeWindow(start="2024-01", end="2024-12", granularity="monthly"),
             seed=42,
             metrics=[m_a, m_b],
             archetypes=[archetype],
-            entities=[Entity(name=f"e_{i:03d}", archetype="healthy", size=1)
-                      for i in range(60)],
+            entities=[Entity(name=f"e_{i:03d}", archetype="healthy", size=1) for i in range(60)],
             tables=[
-                Table(name="dim_date", type="dim", grain="per_period",
-                      primary_key="date_key",
-                      columns=[Column(name="date_key", dtype="id", source="pk")]),
-                Table(name="dim_entity", type="dim", grain="per_entity",
-                      primary_key="entity_id",
-                      columns=[Column(name="entity_id", dtype="id", source="pk")]),
-                Table(name="fct_m", type="fact",
-                      grain="per_entity_per_period",
-                      primary_key=["entity_id", "date_key"],
-                      columns=[
-                          Column(name="date_key", source="fk:dim_date.date_key", dtype="int"),
-                          Column(name="entity_id", source="fk:dim_entity.entity_id", dtype="id"),
-                          Column(name="a", source="metric:a", dtype="float"),
-                          Column(name="b", source="metric:b", dtype="float"),
-                      ]),
+                Table(
+                    name="dim_date",
+                    type="dim",
+                    grain="per_period",
+                    primary_key="date_key",
+                    columns=[Column(name="date_key", dtype="id", source="pk")],
+                ),
+                Table(
+                    name="dim_entity",
+                    type="dim",
+                    grain="per_entity",
+                    primary_key="entity_id",
+                    columns=[Column(name="entity_id", dtype="id", source="pk")],
+                ),
+                Table(
+                    name="fct_m",
+                    type="fact",
+                    grain="per_entity_per_period",
+                    primary_key=["entity_id", "date_key"],
+                    columns=[
+                        Column(name="date_key", source="fk:dim_date.date_key", dtype="int"),
+                        Column(name="entity_id", source="fk:dim_entity.entity_id", dtype="id"),
+                        Column(name="a", source="metric:a", dtype="float"),
+                        Column(name="b", source="metric:b", dtype="float"),
+                    ],
+                ),
             ],
             correlations=[CorrelationPair(metric_a="a", metric_b="b", coefficient=0.6)],
             noise=NoiseConfig(),
@@ -263,8 +302,7 @@ class TestCounterIncrement:
         )
         m = _build_manifest_for(cfg)
         assert m.bypass_fallback_counts.get("healthy", 0) == 0, (
-            f"healthy normal centers shouldn't trip bypass; got "
-            f"{m.bypass_fallback_counts}"
+            f"healthy normal centers shouldn't trip bypass; got " f"{m.bypass_fallback_counts}"
         )
 
 
@@ -306,12 +344,11 @@ class TestManifestRoundTrip:
     the new model via the field defaults)."""
 
     def test_round_trip_preserves_bypass_counts(self):
-        cfg = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        )
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         from plotsim.manifest import ManifestSchema
+
         payload = m.model_dump(mode="json")
         m2 = ManifestSchema.model_validate(payload)
         assert m2.bypass_fallback_counts == m.bypass_fallback_counts
@@ -322,6 +359,7 @@ class TestManifestRoundTrip:
         manifest on disk) should load with both fields defaulting
         to ``None``."""
         from plotsim.manifest import ManifestSchema
+
         payload = {
             "schema_version": "1.0",
             "seed": 0,

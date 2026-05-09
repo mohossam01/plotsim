@@ -4,6 +4,7 @@ Mirrors the acceptance criteria in mission-115-builder.md ::Composite
 archetype parser:: section, plus float-contiguity and engine-roundtrip
 checks.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -60,9 +61,7 @@ def test_two_phase_off_centre_period():
 def test_three_phase_with_multi_segment_middle_rescales_correctly():
     # mission acceptance: "growth > spike_then_crash > flat @ 8 @ 16"
     # → 5 segments (1 + 3 + 1) — spike_then_crash rescaled into [1/3, 2/3]
-    segs = parse_archetype(
-        "growth > spike_then_crash > flat @ 8 @ 16", n_periods=24
-    )
+    segs = parse_archetype("growth > spike_then_crash > flat @ 8 @ 16", n_periods=24)
     assert len(segs) == 5
 
     # Phase 1: growth (sigmoid) over [0.0, 1/3]
@@ -94,18 +93,21 @@ def test_three_phase_with_multi_segment_middle_rescales_correctly():
 # ── Engine-roundtrip: parser output passes Archetype validation ─────────────
 
 
-@pytest.mark.parametrize("spec,n_periods", [
-    ("growth", 24),
-    ("decline", 12),
-    ("seasonal", 36),
-    ("flat", 24),
-    ("spike_then_crash", 24),
-    ("accelerating", 24),
-    ("flat > decline @ 12", 24),
-    ("growth > seasonal @ 6", 24),
-    ("decline > flat > growth @ 6 @ 14", 24),
-    ("growth > spike_then_crash > flat @ 8 @ 16", 24),
-])
+@pytest.mark.parametrize(
+    "spec,n_periods",
+    [
+        ("growth", 24),
+        ("decline", 12),
+        ("seasonal", 36),
+        ("flat", 24),
+        ("spike_then_crash", 24),
+        ("accelerating", 24),
+        ("flat > decline @ 12", 24),
+        ("growth > seasonal @ 6", 24),
+        ("decline > flat > growth @ 6 @ 14", 24),
+        ("growth > spike_then_crash > flat @ 8 @ 16", 24),
+    ],
+)
 def test_parser_output_passes_archetype_contiguity_validator(spec, n_periods):
     segments = parse_archetype(spec, n_periods=n_periods)
     # Archetype._segments_cover_full_range raises on gap/overlap or
@@ -124,13 +126,11 @@ def test_parser_output_passes_archetype_contiguity_validator(spec, n_periods):
 def test_three_phase_boundaries_are_bitwise_contiguous():
     # Without the rel_start==0.0 / rel_end==1.0 pinning, ps + 1.0*(pe-ps)
     # would not always equal pe in IEEE 754. Archetype validator uses ==.
-    segs = parse_archetype(
-        "growth > spike_then_crash > flat @ 8 @ 16", n_periods=24
-    )
+    segs = parse_archetype("growth > spike_then_crash > flat @ 8 @ 16", n_periods=24)
     for prev, curr in zip(segs, segs[1:]):
-        assert prev.end_pct == curr.start_pct, (
-            f"non-contiguous boundary: {prev.end_pct!r} vs {curr.start_pct!r}"
-        )
+        assert (
+            prev.end_pct == curr.start_pct
+        ), f"non-contiguous boundary: {prev.end_pct!r} vs {curr.start_pct!r}"
 
 
 def test_phase_boundary_at_non_terminating_fraction_holds():
@@ -189,16 +189,12 @@ def test_period_at_or_beyond_window_end_rejected():
 
 def test_periods_not_strictly_ascending_rejected():
     with pytest.raises(ArchetypeParseError, match="ascending"):
-        parse_archetype(
-            "growth > spike_then_crash > flat @ 16 @ 8", n_periods=24
-        )
+        parse_archetype("growth > spike_then_crash > flat @ 16 @ 8", n_periods=24)
 
 
 def test_duplicate_periods_rejected():
     with pytest.raises(ArchetypeParseError, match="ascending"):
-        parse_archetype(
-            "growth > spike_then_crash > flat @ 8 @ 8", n_periods=24
-        )
+        parse_archetype("growth > spike_then_crash > flat @ 8 @ 8", n_periods=24)
 
 
 # ── Unknown vocabulary ──────────────────────────────────────────────────────

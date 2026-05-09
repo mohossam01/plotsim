@@ -11,6 +11,7 @@ median + IQR, not single-seed point estimates" is enforced in this module
 rather than in each claim driver, so a future claim that grows the harness
 gets the same statistical treatment by default.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -70,7 +71,8 @@ def summarize_grouped(
             primary = measurement_cols[0]
             median = row[f"{primary}_median"]
             row["flag"] = (
-                "" if not np.isfinite(median)
+                ""
+                if not np.isfinite(median)
                 else ("OUT" if abs(median - float(target)) > tolerance else "")
             )
         rows.append(row)
@@ -91,7 +93,7 @@ def render_markdown_table(
     floats, ``str`` for everything else.
     """
     if summary.empty:
-        return f"_(no rows in summary)_"
+        return "_(no rows in summary)_"
 
     cols = columns if columns is not None else list(summary.columns)
     fmt_overrides = fmt_overrides or {}
@@ -120,7 +122,10 @@ def render_markdown_table(
 
 
 def analyze_correlation_csv(
-    csv_path: Path, *, tolerance: float = 0.10, poisson_tolerance: float = 0.15,
+    csv_path: Path,
+    *,
+    tolerance: float = 0.10,
+    poisson_tolerance: float = 0.15,
 ) -> dict[str, str]:
     """Claim 1 analysis. Returns a dict of section markdown blocks.
 
@@ -141,15 +146,26 @@ def analyze_correlation_csv(
     df["effective_tol"] = np.where(df["uses_poisson"], poisson_tolerance, tolerance)
 
     per_pair = summarize_grouped(
-        df, group_keys=["dist_a", "dist_b", "configured"],
+        df,
+        group_keys=["dist_a", "dist_b", "configured"],
         measurement_cols=["observed", "error"],
-        tolerance_col="configured", tolerance=tolerance,
+        tolerance_col="configured",
+        tolerance=tolerance,
     )
     out["per_pair"] = render_markdown_table(
         per_pair,
-        columns=["dist_a", "dist_b", "configured",
-                 "observed_median", "observed_iqr_lo", "observed_iqr_hi",
-                 "error_median", "error_iqr_hi", "observed_n", "flag"],
+        columns=[
+            "dist_a",
+            "dist_b",
+            "configured",
+            "observed_median",
+            "observed_iqr_lo",
+            "observed_iqr_hi",
+            "error_median",
+            "error_iqr_hi",
+            "observed_n",
+            "flag",
+        ],
         title="Correlation fidelity — median observed Pearson per (dist_a, dist_b, configured)",
     )
 
@@ -159,12 +175,15 @@ def analyze_correlation_csv(
     for keys, group in df.groupby(pair_keys, dropna=False):
         if not isinstance(keys, tuple):
             keys = (keys,)
-        rows.append({
-            "dist_a": keys[0], "dist_b": keys[1],
-            "p95_error": float(np.quantile(group["error"], 0.95)),
-            "max_error": float(group["error"].max()),
-            "n_cells": int(len(group)),
-        })
+        rows.append(
+            {
+                "dist_a": keys[0],
+                "dist_b": keys[1],
+                "p95_error": float(np.quantile(group["error"], 0.95)),
+                "max_error": float(group["error"].max()),
+                "n_cells": int(len(group)),
+            }
+        )
     p95 = pd.DataFrame(rows)
     out["p95_error"] = render_markdown_table(
         p95,
@@ -180,22 +199,30 @@ def analyze_correlation_csv(
         median_obs = float(group["observed"].median())
         eff_tol = float(group["effective_tol"].iloc[0])
         if abs(median_obs - float(keys[2])) > eff_tol:
-            breaches.append({
-                "dist_a": keys[0], "dist_b": keys[1],
-                "configured": float(keys[2]),
-                "median_observed": median_obs,
-                "effective_tol": eff_tol,
-                "observed_minus_target": median_obs - float(keys[2]),
-                "p95_error": float(np.quantile(group["error"], 0.95)),
-            })
+            breaches.append(
+                {
+                    "dist_a": keys[0],
+                    "dist_b": keys[1],
+                    "configured": float(keys[2]),
+                    "median_observed": median_obs,
+                    "effective_tol": eff_tol,
+                    "observed_minus_target": median_obs - float(keys[2]),
+                    "p95_error": float(np.quantile(group["error"], 0.95)),
+                }
+            )
     if breaches:
         out["exceeders"] = render_markdown_table(
             pd.DataFrame(breaches),
-            columns=["dist_a", "dist_b", "configured",
-                     "median_observed", "effective_tol",
-                     "observed_minus_target", "p95_error"],
-            title=("Configurations where median observed exceeds the "
-                   "effective tolerance"),
+            columns=[
+                "dist_a",
+                "dist_b",
+                "configured",
+                "median_observed",
+                "effective_tol",
+                "observed_minus_target",
+                "p95_error",
+            ],
+            title=("Configurations where median observed exceeds the " "effective tolerance"),
         )
     else:
         out["exceeders"] = (
@@ -229,24 +256,35 @@ def analyze_lag_csv(csv_path: Path, *, lag_window: int = 1) -> dict[str, str]:
         configured = float(k_vals[0])
         within_window = abs(median_peak - configured) <= lag_window
         beats_unlagged = median_peak_mag > median_unlagged
-        rows.append({
-            "configured_lag": int(configured),
-            "blend_weight": float(k_vals[1]),
-            "archetype": k_vals[2],
-            "metric_dist": k_vals[3],
-            "median_peak_lag": median_peak,
-            "median_peak_mag": median_peak_mag,
-            "median_unlagged_mag": median_unlagged,
-            "verdict": "PASS" if (within_window and beats_unlagged) else "FAIL",
-        })
+        rows.append(
+            {
+                "configured_lag": int(configured),
+                "blend_weight": float(k_vals[1]),
+                "archetype": k_vals[2],
+                "metric_dist": k_vals[3],
+                "median_peak_lag": median_peak,
+                "median_peak_mag": median_peak_mag,
+                "median_unlagged_mag": median_unlagged,
+                "verdict": "PASS" if (within_window and beats_unlagged) else "FAIL",
+            }
+        )
     summary = pd.DataFrame(rows)
-    return {"matrix": render_markdown_table(
-        summary,
-        columns=["configured_lag", "blend_weight", "archetype",
-                 "metric_dist", "median_peak_lag", "median_peak_mag",
-                 "median_unlagged_mag", "verdict"],
-        title="Lag fidelity — recoverable cells (PASS) vs boundary cases (FAIL)",
-    )}
+    return {
+        "matrix": render_markdown_table(
+            summary,
+            columns=[
+                "configured_lag",
+                "blend_weight",
+                "archetype",
+                "metric_dist",
+                "median_peak_lag",
+                "median_peak_mag",
+                "median_unlagged_mag",
+                "verdict",
+            ],
+            title="Lag fidelity — recoverable cells (PASS) vs boundary cases (FAIL)",
+        )
+    }
 
 
 def analyze_trajectory_csv(csv_path: Path) -> dict[str, str]:
@@ -261,22 +299,36 @@ def analyze_trajectory_csv(csv_path: Path) -> dict[str, str]:
         dev = dev[np.isfinite(dev)]
         if dev.size == 0:
             continue
-        rows.append({
-            "template": template, "metric": metric,
-            "median_dev_sigma": float(np.median(dev)),
-            "p99_dev_sigma": float(np.quantile(dev, 0.99)),
-            "max_dev_sigma": float(dev.max()),
-            "cells_over_4sigma": int((dev > 4.0).sum()),
-            "cells_total": int(dev.size),
-        })
+        rows.append(
+            {
+                "template": template,
+                "metric": metric,
+                "median_dev_sigma": float(np.median(dev)),
+                "p99_dev_sigma": float(np.quantile(dev, 0.99)),
+                "max_dev_sigma": float(dev.max()),
+                "cells_over_4sigma": int((dev > 4.0).sum()),
+                "cells_total": int(dev.size),
+            }
+        )
     summary = pd.DataFrame(rows)
-    return {"per_template": render_markdown_table(
-        summary,
-        columns=["template", "metric", "median_dev_sigma", "p99_dev_sigma",
-                 "max_dev_sigma", "cells_over_4sigma", "cells_total"],
-        title=("Trajectory-first cell-level deviation per (template, metric); "
-               "deviation in standard deviations of the configured noise envelope"),
-    )}
+    return {
+        "per_template": render_markdown_table(
+            summary,
+            columns=[
+                "template",
+                "metric",
+                "median_dev_sigma",
+                "p99_dev_sigma",
+                "max_dev_sigma",
+                "cells_over_4sigma",
+                "cells_total",
+            ],
+            title=(
+                "Trajectory-first cell-level deviation per (template, metric); "
+                "deviation in standard deviations of the configured noise envelope"
+            ),
+        )
+    }
 
 
 def analyze_determinism_csv(csv_path: Path) -> dict[str, str]:
@@ -290,10 +342,7 @@ def analyze_determinism_csv(csv_path: Path) -> dict[str, str]:
         # NOT-TESTED rows carry empty hash_a/hash_b sentinels; their identical
         # column is False but the verdict should reflect "we didn't measure",
         # not "we measured and it differs".
-        not_tested = (
-            (group["hash_a"].fillna("") == "")
-            & (group["hash_b"].fillna("") == "")
-        ).all()
+        not_tested = ((group["hash_a"].fillna("") == "") & (group["hash_b"].fillna("") == "")).all()
         n = len(group)
         n_identical = int(group["identical"].astype(int).sum())
         if not_tested:
@@ -304,18 +353,22 @@ def analyze_determinism_csv(csv_path: Path) -> dict[str, str]:
             verdict = "DIFFERS"
         else:
             verdict = "PARTIAL"
-        rows.append({
-            "test_dimension": axis,
-            "n_pairs": n,
-            "n_identical": n_identical,
-            "verdict": verdict,
-        })
+        rows.append(
+            {
+                "test_dimension": axis,
+                "n_pairs": n,
+                "n_identical": n_identical,
+                "verdict": verdict,
+            }
+        )
     summary = pd.DataFrame(rows)
-    return {"contract": render_markdown_table(
-        summary,
-        columns=["test_dimension", "n_pairs", "n_identical", "verdict"],
-        title="Determinism — byte-identical CSV output across each tested axis",
-    )}
+    return {
+        "contract": render_markdown_table(
+            summary,
+            columns=["test_dimension", "n_pairs", "n_identical", "verdict"],
+            title="Determinism — byte-identical CSV output across each tested axis",
+        )
+    }
 
 
 def iter_summary_rows(csv_path: Path, group_keys: Iterable[str], measurement: str):

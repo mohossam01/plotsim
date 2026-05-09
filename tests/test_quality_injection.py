@@ -19,6 +19,7 @@ Tests cover the four layers the mission spec calls out:
      and the on-disk tables hold the corrupted data, while the
      in-memory ``tables`` dict the caller passed in stays clean.
 """
+
 from __future__ import annotations
 
 import json
@@ -61,129 +62,161 @@ def _add_issue(cfg: dict, issue: dict) -> dict:
 
 def test_quality_rejects_dim_target_table():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "dim_company",
-        "target_columns": ["company_name"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "dim_company",
+            "target_columns": ["company_name"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="fact and event tables only"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_bridge_target_table():
     cfg = _saas_dict()
-    cfg["bridges"] = [{
-        "name": "bridge_company_plan",
-        "type": "bridge",
-        "connects": ["dim_company", "dim_plan"],
-        "cardinality": {"min": 1, "max": 1},
-        "trajectory_driven": False,
-        "metrics": [],
-    }]
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "bridge_company_plan",
-        "target_columns": ["plan_id"],
-        "rate": 0.1,
-    })
+    cfg["bridges"] = [
+        {
+            "name": "bridge_company_plan",
+            "type": "bridge",
+            "connects": ["dim_company", "dim_plan"],
+            "cardinality": {"min": 1, "max": 1},
+            "trajectory_driven": False,
+            "metrics": [],
+        }
+    ]
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "bridge_company_plan",
+            "target_columns": ["plan_id"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="bridge table; quality"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_unknown_target_table():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "nonexistent_table",
-        "target_columns": ["x"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "nonexistent_table",
+            "target_columns": ["x"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="not a known table"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_fk_column_target():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["company_id"],  # FK column
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["company_id"],  # FK column
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="FK or period"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_date_key_target():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["date_key"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["date_key"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="FK or period"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_unknown_column():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["does_not_exist"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["does_not_exist"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="not present on table"):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_unknown_issue_type():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "unknown_corruption",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "unknown_corruption",
+            "target_table": "fct_revenue",
+            "target_columns": ["mrr"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_rate_above_one():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 1.5,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["mrr"],
+            "rate": 1.5,
+        },
+    )
     with pytest.raises(ValidationError):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_negative_seed_offset():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-        "seed_offset": -1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["mrr"],
+            "rate": 0.1,
+            "seed_offset": -1,
+        },
+    )
     with pytest.raises(ValidationError):
         PlotsimConfig(**cfg)
 
 
 def test_quality_rejects_star_mixed_with_explicit():
     cfg = _saas_dict()
-    _add_issue(cfg, {
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["*", "mrr"],
-        "rate": 0.1,
-    })
+    _add_issue(
+        cfg,
+        {
+            "type": "null_injection",
+            "target_table": "fct_revenue",
+            "target_columns": ["*", "mrr"],
+            "rate": 0.1,
+        },
+    )
     with pytest.raises(ValidationError, match="mixes the '\\*'"):
         PlotsimConfig(**cfg)
 
@@ -206,12 +239,16 @@ def _saas_with_quality(issues: list[dict]) -> PlotsimConfig:
 
 
 def test_null_injection_sets_expected_count():
-    cfg = _saas_with_quality([{
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.1,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     n_orig = len(tables["fct_revenue"])
     expected_nulls = int(0.1 * n_orig)
@@ -227,12 +264,16 @@ def test_null_injection_sets_expected_count():
 
 def test_apply_issues_does_not_mutate_input():
     """The clean ``tables`` dict the caller passed in stays clean."""
-    cfg = _saas_with_quality([{
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.5,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.5,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     snapshot = tables["fct_revenue"].copy(deep=True)
     apply_issues(tables, cfg, base_seed=cfg.seed)
@@ -240,12 +281,16 @@ def test_apply_issues_does_not_mutate_input():
 
 
 def test_duplicate_rows_grows_table():
-    cfg = _saas_with_quality([{
-        "type": "duplicate_rows",
-        "target_table": "fct_revenue",
-        "target_columns": ["*"],
-        "rate": 0.1,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "duplicate_rows",
+                "target_table": "fct_revenue",
+                "target_columns": ["*"],
+                "rate": 0.1,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     n_orig = len(tables["fct_revenue"])
     corrupted, gt = apply_issues(tables, cfg, base_seed=cfg.seed)
@@ -256,12 +301,16 @@ def test_duplicate_rows_grows_table():
 
 
 def test_type_mismatch_changes_dtype_to_object():
-    cfg = _saas_with_quality([{
-        "type": "type_mismatch",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.05,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "type_mismatch",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.05,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted, gt = apply_issues(tables, cfg, base_seed=cfg.seed)
     assert corrupted["fct_revenue"]["mrr"].dtype == object
@@ -272,12 +321,16 @@ def test_type_mismatch_changes_dtype_to_object():
 
 
 def test_late_arrival_adds_arrival_period_column():
-    cfg = _saas_with_quality([{
-        "type": "late_arrival",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "late_arrival",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.1,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted, gt = apply_issues(tables, cfg, base_seed=cfg.seed)
     assert "_arrival_period" in corrupted["fct_revenue"].columns
@@ -296,12 +349,16 @@ def test_late_arrival_adds_arrival_period_column():
 
 
 def test_schema_drift_adds_v2_column():
-    cfg = _saas_with_quality([{
-        "type": "schema_drift",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "schema_drift",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.1,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted, gt = apply_issues(tables, cfg, base_seed=cfg.seed)
     assert "mrr_v2" in corrupted["fct_revenue"].columns
@@ -315,17 +372,22 @@ def test_schema_drift_adds_v2_column():
 
 
 def test_apply_issues_is_deterministic():
-    cfg = _saas_with_quality([{
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.1,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.1,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted_a, gt_a = apply_issues(tables, cfg, base_seed=cfg.seed)
     corrupted_b, gt_b = apply_issues(tables, cfg, base_seed=cfg.seed)
     pd.testing.assert_frame_equal(
-        corrupted_a["fct_revenue"], corrupted_b["fct_revenue"],
+        corrupted_a["fct_revenue"],
+        corrupted_b["fct_revenue"],
     )
     assert gt_a[0].row_indices == gt_b[0].row_indices
     assert gt_a[0].clean_values == gt_b[0].clean_values
@@ -355,12 +417,16 @@ def test_empty_quality_issues_short_circuits():
 
 
 def test_star_sentinel_excludes_fk_and_period_columns():
-    cfg = _saas_with_quality([{
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["*"],
-        "rate": 0.5,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["*"],
+                "rate": 0.5,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted, gt = apply_issues(tables, cfg, base_seed=cfg.seed)
     affected_cols = {r.column for r in gt}
@@ -381,20 +447,25 @@ def test_write_tables_writes_corrupted_data_and_clean_manifest_truth(tmp_path):
     cfg_dict = _saas_dict()
     cfg_dict["output"]["directory"] = str(tmp_path / "out")
     cfg_dict["quality"] = {
-        "quality_issues": [{
-            "type": "null_injection",
-            "target_table": "fct_revenue",
-            "target_columns": ["mrr"],
-            "rate": 0.1,
-            "seed_offset": 0,
-        }],
+        "quality_issues": [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.1,
+                "seed_offset": 0,
+            }
+        ],
     }
     cfg = PlotsimConfig(**cfg_dict)
     tables, state = generate_tables_with_state(cfg)
     n_orig_nulls = int(tables["fct_revenue"]["mrr"].isna().sum())
     manifest = build_manifest(
-        cfg, state.trajectories, tables,
-        scd_state=state.scd, bridge_state=state.bridges,
+        cfg,
+        state.trajectories,
+        tables,
+        scd_state=state.scd,
+        bridge_state=state.bridges,
     )
     out_dir = write_tables(tables, cfg, manifest=manifest)
 
@@ -425,14 +496,20 @@ def test_write_tables_no_quality_block_produces_baseline(tmp_path):
     out_dir_b = tmp_path / "b"
     tables_a, state_a = generate_tables_with_state(cfg)
     manifest_a = build_manifest(
-        cfg, state_a.trajectories, tables_a,
-        scd_state=state_a.scd, bridge_state=state_a.bridges,
+        cfg,
+        state_a.trajectories,
+        tables_a,
+        scd_state=state_a.scd,
+        bridge_state=state_a.bridges,
     )
     write_tables(tables_a, cfg, manifest=manifest_a, output_dir=out_dir_a)
     tables_b, state_b = generate_tables_with_state(cfg)
     manifest_b = build_manifest(
-        cfg, state_b.trajectories, tables_b,
-        scd_state=state_b.scd, bridge_state=state_b.bridges,
+        cfg,
+        state_b.trajectories,
+        tables_b,
+        scd_state=state_b.scd,
+        bridge_state=state_b.bridges,
     )
     write_tables(tables_b, cfg, manifest=manifest_b, output_dir=out_dir_b)
     # Both manifests should have empty quality_injections.
@@ -441,33 +518,40 @@ def test_write_tables_no_quality_block_produces_baseline(tmp_path):
     assert m_a["quality_injections"] == []
     assert m_b["quality_injections"] == []
     # Two runs at same seed → same output.
-    assert (
-        (out_dir_a / "fct_revenue.csv").read_bytes()
-        == (out_dir_b / "fct_revenue.csv").read_bytes()
-    )
+    assert (out_dir_a / "fct_revenue.csv").read_bytes() == (
+        out_dir_b / "fct_revenue.csv"
+    ).read_bytes()
 
 
 def test_corrupted_output_does_not_break_validate_clean():
     """``validate_tables`` runs on the in-memory clean dict, before
     corruption — so adding quality_issues should not produce errors."""
-    cfg = _saas_with_quality([{
-        "type": "null_injection",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.05,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "null_injection",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.05,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     report = validate_tables(cfg, tables)
     assert report.ok, [issue.message for issue in report.errors]
 
 
 def test_late_arrival_offsets_in_documented_range():
-    cfg = _saas_with_quality([{
-        "type": "late_arrival",
-        "target_table": "fct_revenue",
-        "target_columns": ["mrr"],
-        "rate": 0.2,
-    }])
+    cfg = _saas_with_quality(
+        [
+            {
+                "type": "late_arrival",
+                "target_table": "fct_revenue",
+                "target_columns": ["mrr"],
+                "rate": 0.2,
+            }
+        ]
+    )
     tables, _ = generate_tables_with_state(cfg)
     corrupted, _ = apply_issues(tables, cfg, base_seed=cfg.seed)
     arr = corrupted["fct_revenue"]["_arrival_period"]

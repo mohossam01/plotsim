@@ -173,10 +173,7 @@ def test_pk_uniqueness_flags_single_col_duplicate(saas_cfg, saas_tables):
     evt.loc[evt.index[1], "event_id"] = evt.loc[evt.index[0], "event_id"]
     broken = {**saas_tables, "evt_login": evt}
     issues = validate_pk_uniqueness(saas_cfg, broken)
-    assert any(
-        i.table == "evt_login" and i.severity == "error"
-        for i in issues
-    ), issues
+    assert any(i.table == "evt_login" and i.severity == "error" for i in issues), issues
 
 
 def test_pk_uniqueness_flags_composite_duplicate(saas_cfg, saas_tables):
@@ -211,10 +208,9 @@ def test_fk_integrity_flags_orphan_value(saas_cfg, saas_tables):
     broken = {**saas_tables, "fct_engagement": fct}
     issues = validate_fk_integrity(saas_cfg, broken)
     orphan_errors = [
-        i for i in issues
-        if i.severity == "error"
-        and i.table == "fct_engagement"
-        and "orphan" in i.message
+        i
+        for i in issues
+        if i.severity == "error" and i.table == "fct_engagement" and "orphan" in i.message
     ]
     assert orphan_errors
     assert "ghost-company-999" in orphan_errors[0].details["orphans_sample"]
@@ -227,7 +223,8 @@ def test_fk_integrity_null_fk_is_warning(saas_cfg, saas_tables):
     broken = {**saas_tables, "fct_revenue": fct}
     issues = validate_fk_integrity(saas_cfg, broken)
     warns = [
-        i for i in issues
+        i
+        for i in issues
         if i.severity == "warning"
         and i.table == "fct_revenue"
         and i.details.get("column") == "plan_id"
@@ -249,10 +246,7 @@ def test_date_spine_hr_clean(hr_cfg, hr_tables):
 def test_date_spine_flags_dim_date_missing(saas_cfg, saas_tables):
     broken = {k: v for k, v in saas_tables.items() if k != "dim_date"}
     issues = validate_date_spine(saas_cfg, broken)
-    assert any(
-        i.table == "dim_date" and "missing or empty" in i.message
-        for i in issues
-    )
+    assert any(i.table == "dim_date" and "missing or empty" in i.message for i in issues)
 
 
 def test_date_spine_flags_monthly_gap(saas_cfg, saas_tables):
@@ -260,10 +254,7 @@ def test_date_spine_flags_monthly_gap(saas_cfg, saas_tables):
     dd = saas_tables["dim_date"].drop(index=saas_tables["dim_date"].index[2]).reset_index(drop=True)
     broken = {**saas_tables, "dim_date": dd}
     issues = validate_date_spine(saas_cfg, broken)
-    assert any(
-        i.table == "dim_date" and "month gap" in i.message
-        for i in issues
-    ), issues
+    assert any(i.table == "dim_date" and "month gap" in i.message for i in issues), issues
 
 
 def test_date_spine_flags_fact_date_key_not_in_dim(saas_cfg, saas_tables):
@@ -272,8 +263,7 @@ def test_date_spine_flags_fact_date_key_not_in_dim(saas_cfg, saas_tables):
     broken = {**saas_tables, "fct_engagement": fct}
     issues = validate_date_spine(saas_cfg, broken)
     assert any(
-        i.table == "fct_engagement" and "not present in dim_date" in i.message
-        for i in issues
+        i.table == "fct_engagement" and "not present in dim_date" in i.message for i in issues
     )
 
 
@@ -302,13 +292,17 @@ def test_causal_coherence_flags_fake_threshold_event(saas_cfg, saas_tables):
         # Construct a single-row evt_churn at the earliest fct_support_tickets
         # row so we always have something to invalidate.
         fct = saas_tables["fct_support_tickets"]
-        evt = pd.DataFrame([{
-            "event_id": "e-0001",
-            "date_key": fct.iloc[0]["date_key"],
-            "company_id": fct.iloc[0]["company_id"],
-            "churn_reason": "synthetic",
-            "churn_flag": True,
-        }])
+        evt = pd.DataFrame(
+            [
+                {
+                    "event_id": "e-0001",
+                    "date_key": fct.iloc[0]["date_key"],
+                    "company_id": fct.iloc[0]["company_id"],
+                    "churn_reason": "synthetic",
+                    "churn_flag": True,
+                }
+            ]
+        )
     else:
         fct = saas_tables["fct_support_tickets"]
         evt.loc[evt.index[0], "date_key"] = fct.iloc[0]["date_key"]
@@ -316,9 +310,7 @@ def test_causal_coherence_flags_fake_threshold_event(saas_cfg, saas_tables):
     broken = {**saas_tables, "evt_churn": evt}
     issues = validate_causal_coherence(saas_cfg, broken)
     assert any(
-        i.table == "evt_churn"
-        and i.severity == "error"
-        and "threshold event column" in i.message
+        i.table == "evt_churn" and i.severity == "error" and "threshold event column" in i.message
         for i in issues
     ), issues
 
@@ -343,9 +335,7 @@ def test_null_policy_flags_non_metric_null(saas_cfg, saas_tables):
     broken = {**saas_tables, "dim_company": dc}
     issues = validate_null_policy(saas_cfg, broken)
     assert any(
-        i.table == "dim_company"
-        and i.severity == "error"
-        and "non-metric column" in i.message
+        i.table == "dim_company" and i.severity == "error" and "non-metric column" in i.message
         for i in issues
     ), issues
 
@@ -359,9 +349,9 @@ def test_null_policy_flags_metric_over_bound(saas_cfg, saas_tables):
     broken = {**saas_tables, "fct_engagement": fct}
     issues = validate_null_policy(saas_cfg, broken)
     metric_errors = [
-        i for i in issues
-        if i.table == "fct_engagement"
-        and i.details.get("column") == "engagement_score"
+        i
+        for i in issues
+        if i.table == "fct_engagement" and i.details.get("column") == "engagement_score"
     ]
     assert metric_errors, issues
     # >= 40 because mcar_rate=0.01 may have produced 0-1 nulls in the
@@ -396,8 +386,9 @@ def test_validate_tables_deterministic(saas_cfg):
     t2["fct_engagement"].loc[0, "company_id"] = "orphan-1"
     r1 = validate_tables(saas_cfg, t1)
     r2 = validate_tables(saas_cfg, t2)
-    assert [(i.check, i.table, i.message) for i in r1.issues] == \
-           [(i.check, i.table, i.message) for i in r2.issues]
+    assert [(i.check, i.table, i.message) for i in r1.issues] == [
+        (i.check, i.table, i.message) for i in r2.issues
+    ]
 
 
 def test_validate_tables_report_accessors(saas_cfg, saas_tables):
@@ -436,8 +427,7 @@ def test_validation_warns_on_collapsed_fk(saas_cfg, saas_tables):
     broken = {**saas_tables, "dim_plan": plan, "fct_revenue": fct}
     issues = validate_cross_dim_fk_cardinality(saas_cfg, broken)
     fct_issues = [
-        i for i in issues
-        if i.table == "fct_revenue" and i.details.get("column") == "plan_id"
+        i for i in issues if i.table == "fct_revenue" and i.details.get("column") == "plan_id"
     ]
     assert len(fct_issues) == 1
     assert fct_issues[0].severity == "warning"
@@ -448,10 +438,7 @@ def test_cross_dim_fk_skipped_for_single_row_parent(saas_cfg, saas_tables):
     """FIX-04: shipped SaaS has dim_plan with 1 row; collapse is the only
     correct outcome, so no warning fires."""
     issues = validate_cross_dim_fk_cardinality(saas_cfg, saas_tables)
-    assert all(
-        i.details.get("parent", "").split(".")[0] != "dim_plan"
-        for i in issues
-    )
+    assert all(i.details.get("parent", "").split(".")[0] != "dim_plan" for i in issues)
 
 
 # --- FIX-03 acceptance: empty event tables surface as warnings ---------------
@@ -532,10 +519,7 @@ def _delivered_coefficient(cfg, metric_a: str, metric_b: str) -> float:
         for adj in cfg._correlation_adjustments:
             if {adj["metric_a"], adj["metric_b"]} == pair:
                 return float(adj["achieved"])
-    return float(next(
-        c.coefficient for c in cfg.correlations
-        if {c.metric_a, c.metric_b} == pair
-    ))
+    return float(next(c.coefficient for c in cfg.correlations if {c.metric_a, c.metric_b} == pair))
 
 
 def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
@@ -595,34 +579,45 @@ def _minimal_config(correlations, *, skip_validation: bool = False):
         seed=1,
         metrics=[
             Metric(
-                name="a", label="A", distribution="normal",
+                name="a",
+                label="A",
+                distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
                 polarity="positive",
             ),
             Metric(
-                name="b", label="B", distribution="normal",
+                name="b",
+                label="B",
+                distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
                 polarity="positive",
             ),
             Metric(
-                name="c", label="C", distribution="normal",
+                name="c",
+                label="C",
+                distribution="normal",
                 params={"mu": 0.0, "sigma": 1.0},
                 polarity="positive",
             ),
         ],
         archetypes=[
             Archetype(
-                name="flat", label="Flat", description="-",
+                name="flat",
+                label="Flat",
+                description="-",
                 curve_segments=[
-                    CurveSegment(curve="plateau", params={"level": 0.5},
-                                 start_pct=0.0, end_pct=1.0),
+                    CurveSegment(
+                        curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0
+                    ),
                 ],
             ),
         ],
         entities=[Entity(name="e1", archetype="flat", size=1)],
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
@@ -649,33 +644,44 @@ def _temporal_cfg(
         seed=0,
         metrics=[
             Metric(
-                name="m", label="m", distribution="beta",
-                params={"alpha": 2.0, "beta": 2.0}, polarity="positive",
+                name="m",
+                label="m",
+                distribution="beta",
+                params={"alpha": 2.0, "beta": 2.0},
+                polarity="positive",
                 value_range={"min": 0.0, "max": 1.0},
             ),
         ],
         archetypes=[
             Archetype(
-                name="x", label="x", description="x",
+                name="x",
+                label="x",
+                description="x",
                 curve_segments=[
-                    CurveSegment(curve="plateau", params={"level": 0.5},
-                                 start_pct=0.0, end_pct=1.0),
+                    CurveSegment(
+                        curve="plateau", params={"level": 0.5}, start_pct=0.0, end_pct=1.0
+                    ),
                 ],
             ),
         ],
         entities=[Entity(name="e1", archetype="x", size=1)],
         tables=[
             Table(
-                name="dim_date", type="dim", grain="per_period",
+                name="dim_date",
+                type="dim",
+                grain="per_period",
                 columns=[Column(name="date_key", dtype="id", source="pk")],
                 primary_key="date_key",
             ),
             Table(
-                name="dim_employee", type="dim", grain="per_entity",
+                name="dim_employee",
+                type="dim",
+                grain="per_entity",
                 columns=[
                     Column(name="employee_id", dtype="id", source="pk"),
                     Column(
-                        name="hire_date", dtype="date",
+                        name="hire_date",
+                        dtype="date",
                         source="generated:faker.date",
                         allow_outside_window=allow_outside_window,
                     ),
@@ -691,16 +697,19 @@ def _temporal_cfg(
 def test_temporal_coherence_validator_warns_on_out_of_range():
     """FIX-05 / MF-2: hire dates outside time_window → warning."""
     import datetime as _dt
+
     cfg = _temporal_cfg(allow_outside_window=False)
-    dim_employee = pd.DataFrame({
-        "employee_id": ["e-001", "e-002", "e-003"],
-        # First is inside the 2023 window, others are well outside.
-        "hire_date": [
-            _dt.date(2023, 6, 1),
-            _dt.date(1995, 3, 4),
-            _dt.date(2030, 11, 7),
-        ],
-    })
+    dim_employee = pd.DataFrame(
+        {
+            "employee_id": ["e-001", "e-002", "e-003"],
+            # First is inside the 2023 window, others are well outside.
+            "hire_date": [
+                _dt.date(2023, 6, 1),
+                _dt.date(1995, 3, 4),
+                _dt.date(2030, 11, 7),
+            ],
+        }
+    )
     tables = {"dim_date": pd.DataFrame({"date_key": []}), "dim_employee": dim_employee}
     issues = validate_temporal_coherence(cfg, tables)
     assert len(issues) == 1
@@ -714,11 +723,14 @@ def test_temporal_coherence_validator_warns_on_out_of_range():
 def test_temporal_coherence_allows_outside_window_when_marked():
     """FIX-05 / MF-2: allow_outside_window=true suppresses the warning."""
     import datetime as _dt
+
     cfg = _temporal_cfg(allow_outside_window=True)
-    dim_employee = pd.DataFrame({
-        "employee_id": ["e-001", "e-002"],
-        "hire_date": [_dt.date(1995, 3, 4), _dt.date(2030, 11, 7)],
-    })
+    dim_employee = pd.DataFrame(
+        {
+            "employee_id": ["e-001", "e-002"],
+            "hire_date": [_dt.date(1995, 3, 4), _dt.date(2030, 11, 7)],
+        }
+    )
     tables = {"dim_date": pd.DataFrame({"date_key": []}), "dim_employee": dim_employee}
     assert validate_temporal_coherence(cfg, tables) == []
 

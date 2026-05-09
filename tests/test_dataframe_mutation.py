@@ -32,6 +32,7 @@ This file holds the regression tests for two related Phase 1 fixes:
        proves the most natural user round-trip works without specifying
        ``dtype_backend='numpy_nullable'``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -52,8 +53,8 @@ CONFIGS_DIR = ROOT / "plotsim" / "configs"
 # column on a per-entity-per-period fact table — these are the surface F3
 # operates on.
 TEMPLATES_WITH_INT_METRICS: dict[str, Path] = {
-    "saas":      CONFIGS_DIR / "sample_saas.yaml",       # ticket_count
-    "retail":    CONFIGS_DIR / "sample_retail.yaml",     # session_count
+    "saas": CONFIGS_DIR / "sample_saas.yaml",  # ticket_count
+    "retail": CONFIGS_DIR / "sample_retail.yaml",  # session_count
     "marketing": CONFIGS_DIR / "sample_marketing.yaml",  # session_count, impressions
 }
 
@@ -151,8 +152,7 @@ def test_in_memory_dtype_matches_on_disk_round_trip(template_config, tmp_path):
     # caller's dataframe in place, promoting float64 → Int64 — which would
     # mask the F3 bug by making post-write_tables dtypes already match on-disk.
     in_memory_snapshots = {
-        (tbl_name, col_name): tables[tbl_name][col_name].copy()
-        for tbl_name, col_name in targets
+        (tbl_name, col_name): tables[tbl_name][col_name].copy() for tbl_name, col_name in targets
     }
 
     write_tables(tables, cfg, output_dir=tmp_path)
@@ -216,8 +216,7 @@ def test_write_tables_does_not_mutate_int_column_series_objects(template_config,
     # under CoW: holding a Series reference is no longer sufficient to
     # observe pre-write state if the writer rebinds the column.
     snapshots = {
-        (tbl_name, col_name): tables[tbl_name][col_name].copy()
-        for tbl_name, col_name in targets
+        (tbl_name, col_name): tables[tbl_name][col_name].copy() for tbl_name, col_name in targets
     }
 
     write_tables(tables, cfg, output_dir=tmp_path)

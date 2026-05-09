@@ -22,6 +22,7 @@ Used directly from claim driver scripts (claim1_correlation.py etc) which sit
 alongside this file. Also imported by tests/test_fidelity_smoke.py to assert
 the headline finding of each claim reproduces under the smoke-test budget.
 """
+
 from __future__ import annotations
 
 import csv

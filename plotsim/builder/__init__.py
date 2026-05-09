@@ -16,6 +16,7 @@ recipes, and DSL parser are exposed at module scope for downstream tools
 (linters, schema generators) that need to introspect the contract without
 constructing a config.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,8 +60,7 @@ def create_from_yaml(path: str | Path) -> PlotsimConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(
-            f"YAML at {path!r} must be a mapping at the top level, got "
-            f"{type(raw).__name__}"
+            f"YAML at {path!r} must be a mapping at the top level, got " f"{type(raw).__name__}"
         )
     if "window" in raw and isinstance(raw["window"], dict):
         for k in ("start", "end"):

@@ -73,11 +73,15 @@ def _run_template(yaml_path: Path, output_dir: Path):
     rng = np.random.default_rng(cfg.seed)
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(
-        cfg, state.trajectories, tables,
-        scd_state=state.scd, bridge_state=state.bridges,
+        cfg,
+        state.trajectories,
+        tables,
+        scd_state=state.scd,
+        bridge_state=state.bridges,
     )
     target = write_tables(
-        tables, cfg,
+        tables,
+        cfg,
         output_dir=output_dir,
         manifest=manifest,
     )
@@ -116,9 +120,13 @@ def test_validation_passes_when_disabled():
 
 
 def test_enabled_without_target_metric_raises(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "holdout": {"enabled": True, "holdout_periods": 4},
-    }, tmp_path / "saas.yaml")
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {"enabled": True, "holdout_periods": 4},
+        },
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(
         ValueError,
         match="holdout.enabled=true requires holdout.target_metric",
@@ -127,25 +135,33 @@ def test_enabled_without_target_metric_raises(tmp_path):
 
 
 def test_zero_holdout_periods_raises_when_enabled(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "engagement",
-            "holdout_periods": 0,
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "engagement",
+                "holdout_periods": 0,
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(ValueError, match="holdout_periods must be >= 1"):
         load_config(target)
 
 
 def test_unknown_target_metric_raises(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "does_not_exist",
-            "holdout_periods": 4,
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "does_not_exist",
+                "holdout_periods": 4,
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(ValueError, match="unknown metric 'does_not_exist'"):
         load_config(target)
 
@@ -154,14 +170,16 @@ def test_target_metric_without_numeric_fact_column_raises(tmp_path):
     """A metric defined in ``config.metrics`` but never landed on a numeric
     fact column cannot be a training target."""
     data = yaml.safe_load(SAAS_YAML.read_text(encoding="utf-8"))
-    data["metrics"].append({
-        "name": "phantom_metric",
-        "label": "Phantom Metric",
-        "distribution": "lognorm",
-        "params": {"s": 0.5, "scale": 1.0},
-        "polarity": "positive",
-        "value_range": {"min": 0.0, "max": 1.0},
-    })
+    data["metrics"].append(
+        {
+            "name": "phantom_metric",
+            "label": "Phantom Metric",
+            "distribution": "lognorm",
+            "params": {"s": 0.5, "scale": 1.0},
+            "polarity": "positive",
+            "value_range": {"min": 0.0, "max": 1.0},
+        }
+    )
     data["holdout"] = {
         "enabled": True,
         "target_metric": "phantom_metric",
@@ -176,13 +194,17 @@ def test_target_metric_without_numeric_fact_column_raises(tmp_path):
 def test_min_training_periods_floor_raises(tmp_path):
     """Saas template has 24 monthly periods; holdout=23 leaves 1 training
     period, which falls below the default floor of 3."""
-    target = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "engagement",
-            "holdout_periods": 23,
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "engagement",
+                "holdout_periods": 23,
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(
         ValueError,
         match="holdout split leaves 1 training period",
@@ -191,21 +213,27 @@ def test_min_training_periods_floor_raises(tmp_path):
 
 
 def test_quality_injection_combo_raises_at_load(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "engagement",
-            "holdout_periods": 4,
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "engagement",
+                "holdout_periods": 4,
+            },
+            "quality": {
+                "quality_issues": [
+                    {
+                        "type": "null_injection",
+                        "target_table": "fct_engagement",
+                        "target_columns": ["engagement_score"],
+                        "rate": 0.05,
+                    }
+                ],
+            },
         },
-        "quality": {
-            "quality_issues": [{
-                "type": "null_injection",
-                "target_table": "fct_engagement",
-                "target_columns": ["engagement_score"],
-                "rate": 0.05,
-            }],
-        },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(
         ValueError,
         match="holdout cannot be combined with quality_issues",
@@ -220,7 +248,8 @@ def test_default_disabled_produces_no_split_files(tmp_path):
     """Without ``holdout.enabled``, no ``_train`` / ``_holdout`` companions
     are written."""
     _cfg, _tables, _state, _manifest, target = _run_template(
-        SAAS_YAML, tmp_path,
+        SAAS_YAML,
+        tmp_path,
     )
     for fact in SAAS_FACT_TABLES:
         assert not (target / f"{fact}_train.csv").exists()
@@ -233,13 +262,17 @@ def test_default_disabled_produces_no_split_files(tmp_path):
 @pytest.fixture
 def saas_with_holdout(tmp_path):
     """Saas with 6-period trailing holdout on ``engagement``."""
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "engagement",
-            "holdout_periods": 6,
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "engagement",
+                "holdout_periods": 6,
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     out = tmp_path / "out"
     return _run_template(cfg_path, out)
 
@@ -247,8 +280,7 @@ def saas_with_holdout(tmp_path):
 def test_split_files_emitted_for_every_fact_table(saas_with_holdout):
     _cfg, _tables, _state, _manifest, target = saas_with_holdout
     for fact in SAAS_FACT_TABLES:
-        assert (target / f"{fact}.csv").exists(), \
-            f"{fact}.csv (unsplit) should still be written"
+        assert (target / f"{fact}.csv").exists(), f"{fact}.csv (unsplit) should still be written"
         assert (target / f"{fact}_train.csv").exists()
         assert (target / f"{fact}_holdout.csv").exists()
 
@@ -268,8 +300,9 @@ def test_partition_is_exact_no_loss_no_duplication(saas_with_holdout):
     assert set(splits.keys()) == set(SAAS_FACT_TABLES)
     for fact_name, (train_df, holdout_df) in splits.items():
         original = tables[fact_name]
-        assert len(train_df) + len(holdout_df) == len(original), \
-            f"{fact_name}: row counts don't sum"
+        assert len(train_df) + len(holdout_df) == len(
+            original
+        ), f"{fact_name}: row counts don't sum"
         # No duplicate index across the two halves.
         train_set = set(train_df.index.tolist())
         holdout_set = set(holdout_df.index.tolist())
@@ -282,9 +315,7 @@ def test_training_strictly_before_holdout(saas_with_holdout):
     cutoff = cutoff_period_index(cfg)
     assert cutoff == cfg.time_window.period_count() - cfg.holdout.holdout_periods
     dim_date = tables["dim_date"]
-    period_by_dk = dict(
-        zip(dim_date["date_key"].tolist(), dim_date["period_index"].tolist())
-    )
+    period_by_dk = dict(zip(dim_date["date_key"].tolist(), dim_date["period_index"].tolist()))
     splits = split_fact_tables(cfg, tables)
     for fact_name, (train_df, holdout_df) in splits.items():
         train_periods = {period_by_dk[dk] for dk in train_df["date_key"].tolist()}
@@ -302,8 +333,7 @@ def test_every_entity_in_holdout_is_also_in_training(saas_with_holdout):
         # Every entity in holdout must be present in training (no
         # entity should appear ONLY in holdout).
         leak = holdout_entities - train_entities
-        assert not leak, \
-            f"{fact_name}: entities {leak} appear in holdout but not training"
+        assert not leak, f"{fact_name}: entities {leak} appear in holdout but not training"
 
 
 def test_split_files_sum_to_original_on_disk(saas_with_holdout):
@@ -400,14 +430,18 @@ def test_parquet_format_emits_parquet_split_files(tmp_path):
 
 @pytest.fixture
 def saas_with_holdout_and_features(tmp_path):
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "holdout": {
-            "enabled": True,
-            "target_metric": "engagement",
-            "holdout_periods": 6,
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "holdout": {
+                "enabled": True,
+                "target_metric": "engagement",
+                "holdout_periods": 6,
+            },
+            "entity_features": {"enabled": True},
         },
-        "entity_features": {"enabled": True},
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     out = tmp_path / "out"
     return _run_template(cfg_path, out)
 
@@ -418,12 +452,11 @@ def test_entity_features_excludes_target_metric_columns(
     _cfg, _tables, _state, _manifest, target = saas_with_holdout_and_features
     df = pd.read_csv(target / f"{ENTITY_FEATURES_BASENAME}.csv")
     forbidden = {
-        f"engagement_{suffix}" for suffix in
-        ("mean", "std", "slope", "first", "last", "peak_period")
+        f"engagement_{suffix}"
+        for suffix in ("mean", "std", "slope", "first", "last", "peak_period")
     }
     leaked = forbidden & set(df.columns)
-    assert not leaked, \
-        f"entity_features leaks target-metric columns: {leaked}"
+    assert not leaked, f"entity_features leaks target-metric columns: {leaked}"
 
 
 def test_entity_features_aggregates_match_training_only(
@@ -436,9 +469,7 @@ def test_entity_features_aggregates_match_training_only(
     cfg, tables, _state, _manifest, target = saas_with_holdout_and_features
     cutoff = cutoff_period_index(cfg)
     dim_date = tables["dim_date"]
-    period_by_dk = dict(
-        zip(dim_date["date_key"].tolist(), dim_date["period_index"].tolist())
-    )
+    period_by_dk = dict(zip(dim_date["date_key"].tolist(), dim_date["period_index"].tolist()))
 
     fct_revenue = tables["fct_revenue"].copy()
     fct_revenue["__period"] = fct_revenue["date_key"].map(period_by_dk)
@@ -483,14 +514,12 @@ def test_split_fact_tables_only_returns_composite_grain_facts(saas_with_holdout)
     cfg, tables, _state, _manifest, _ = saas_with_holdout
     splits = split_fact_tables(cfg, tables)
     composite_facts = {
-        t.name for t in cfg.tables
-        if t.type == "fact" and t.grain == "per_entity_per_period"
+        t.name for t in cfg.tables if t.type == "fact" and t.grain == "per_entity_per_period"
     }
     assert set(splits.keys()).issubset(composite_facts)
     # And every composite-grain fact with non-empty data is present.
     expected = {
-        name for name in composite_facts
-        if tables.get(name) is not None and not tables[name].empty
+        name for name in composite_facts if tables.get(name) is not None and not tables[name].empty
     }
     assert set(splits.keys()) == expected
 

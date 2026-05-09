@@ -10,6 +10,7 @@ A fixed seed is passed to ``generate_tables`` directly so the generated
 data is deterministic regardless of the secrets-derived ``cfg.seed`` from
 ``interpret``.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -47,6 +48,7 @@ def _saas_yaml_config() -> PlotsimConfig:
 def _saas_py_config() -> PlotsimConfig:
     """Execute the Python template file and return its `config` global."""
     import runpy
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = runpy.run_path(str(TEMPLATE_PY))
@@ -65,8 +67,7 @@ def test_bare_minimum_create_generates_valid_dataset():
             window=("2023-01", "2024-12"),
             metrics=[
                 {"name": "engagement", "type": "score", "polarity": "positive"},
-                {"name": "mrr", "type": "amount", "polarity": "positive",
-                 "range": [100, 50000]},
+                {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
             ],
             segments=[
                 {"name": "alpha", "count": 10, "archetype": "growth"},
@@ -94,6 +95,7 @@ def test_bare_minimum_create_generates_valid_dataset():
 def test_bare_minimum_writes_csv_files(tmp_path):
     """The bare-minimum config must round-trip to disk via the standard writer."""
     from plotsim.output import write_tables
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         cfg = create(
@@ -108,9 +110,11 @@ def test_bare_minimum_writes_csv_files(tmp_path):
                 {"name": "b", "count": 5, "archetype": "decline"},
             ],
         )
-    cfg = cfg.model_copy(update={
-        "output": cfg.output.model_copy(update={"directory": str(tmp_path)}),
-    })
+    cfg = cfg.model_copy(
+        update={
+            "output": cfg.output.model_copy(update={"directory": str(tmp_path)}),
+        }
+    )
     tables = _generate(cfg)
     report = validate(cfg, tables)
     write_tables(tables, cfg, report)
@@ -134,6 +138,7 @@ def test_saas_template_yaml_loads_and_passes_engine_validation():
 def test_saas_template_py_produces_equivalent_config():
     cfg_py = _saas_py_config()
     cfg_yaml = _saas_yaml_config()
+
     # Compare the load-time shape (modulo seed which is per-construction).
     def shape(c: PlotsimConfig) -> dict:
         return {
@@ -144,6 +149,7 @@ def test_saas_template_py_produces_equivalent_config():
             "correlations": [(p.metric_a, p.metric_b, p.coefficient) for p in c.correlations],
             "stages_field": c.stages.field if c.stages else None,
         }
+
     assert shape(cfg_py) == shape(cfg_yaml)
 
 
@@ -171,9 +177,7 @@ def saas_dataset() -> dict[str, Any]:
     return {"cfg": cfg, "tables": tables, "report": report}
 
 
-def _entity_engagement_series(
-    fact: pd.DataFrame, entity_id_col: str, entity_id: str
-) -> np.ndarray:
+def _entity_engagement_series(fact: pd.DataFrame, entity_id_col: str, entity_id: str) -> np.ndarray:
     rows = fact[fact[entity_id_col] == entity_id].sort_values("date_key")
     return rows["engagement_score"].to_numpy()
 
@@ -217,11 +221,18 @@ def test_correlation_signs_match_configured_connections(saas_dataset):
     # Build a single per-entity-per-period table merging all fact metrics.
     fct_eng = tables["fct_engagement"][["company_id", "date_key", "engagement_score"]]
     fct_rev = tables["fct_revenue"][["company_id", "date_key", "mrr"]]
-    fct_sup = tables["fct_support_tickets"][[
-        "company_id", "date_key", "ticket_count", "churn_risk", "nps",
-    ]]
+    fct_sup = tables["fct_support_tickets"][
+        [
+            "company_id",
+            "date_key",
+            "ticket_count",
+            "churn_risk",
+            "nps",
+        ]
+    ]
     merged = fct_eng.merge(fct_rev, on=["company_id", "date_key"]).merge(
-        fct_sup, on=["company_id", "date_key"],
+        fct_sup,
+        on=["company_id", "date_key"],
     )
 
     # Map config metric name → fact column name carrying it.
@@ -297,9 +308,7 @@ def test_customer_sentiment_labels_monotonic_in_engagement_mean(saas_dataset):
     # Don't require all four labels to be populated — small-N may skip a band.
     # But the labels that do appear must be monotone non-decreasing in mean.
     values = [v for _, v in means]
-    assert values == sorted(values), (
-        f"sentiment label means not monotone: {means}"
-    )
+    assert values == sorted(values), f"sentiment label means not monotone: {means}"
 
 
 def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
@@ -320,7 +329,8 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     fact = saas_dataset["tables"]["fct_revenue"]
 
     n_high = sum(
-        1 for s in cfg.archetypes
+        1
+        for s in cfg.archetypes
         if "mrr" in s.metric_overrides
         and s.metric_overrides["mrr"].value_range is not None
         and s.metric_overrides["mrr"].value_range.min
@@ -334,17 +344,12 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     # table name, zero-padded to width=max(3, len(str(N)))).
     n_entities = len(cfg.entities)
     width = max(3, len(str(n_entities)))
-    company_to_archetype = {
-        f"c-{i+1:0{width}d}": e.archetype
-        for i, e in enumerate(cfg.entities)
-    }
+    company_to_archetype = {f"c-{i+1:0{width}d}": e.archetype for i, e in enumerate(cfg.entities)}
 
     fact_with_arch = fact.assign(
         archetype=fact["company_id"].map(company_to_archetype),
     )
-    archetype_means = (
-        fact_with_arch.groupby("archetype")["mrr"].mean().sort_values()
-    )
+    archetype_means = fact_with_arch.groupby("archetype")["mrr"].mean().sort_values()
     # Two high-baseline + two low-baseline archetypes; bottom-2 vs top-2
     # archetype means should split sharply.
     bottom_2_mean = archetype_means.iloc[:2].mean()
@@ -361,6 +366,7 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
 
 def test_plotsim_top_level_create_re_export_exists():
     import plotsim
+
     assert hasattr(plotsim, "create")
     assert hasattr(plotsim, "create_from_yaml")
     # The mission's __init__.py annotation lists both. Verify __all__.
@@ -372,26 +378,37 @@ def test_existing_engine_imports_still_work():
     """Adding the builder must not break the existing `from plotsim import ...`
     surface."""
     import plotsim
-    for name in ("PlotsimConfig", "load_config", "generate_tables", "validate",
-                 "write_tables", "ManifestSchema"):
+
+    for name in (
+        "PlotsimConfig",
+        "load_config",
+        "generate_tables",
+        "validate",
+        "write_tables",
+        "ManifestSchema",
+    ):
         assert hasattr(plotsim, name), f"existing surface missing: {name}"
 
 
 # ── Regression: bundled engine templates still load and validate ───────────
 
 
-@pytest.mark.parametrize("template", [
-    "sample_education.yaml",
-    "sample_hr.yaml",
-    "sample_saas.yaml",
-    "sample_marketing.yaml",
-    "sample_retail.yaml",
-])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "sample_education.yaml",
+        "sample_hr.yaml",
+        "sample_saas.yaml",
+        "sample_marketing.yaml",
+        "sample_retail.yaml",
+    ],
+)
 def test_bundled_engine_templates_still_load(template):
     """The five bundled templates must continue to load through the engine
     path (load_config, not the new builder). Mission-115 must not regress
     them."""
     from plotsim import load_config
+
     path = REPO_ROOT / "plotsim" / "configs" / template
     if not path.exists():
         pytest.skip(f"{template} not present (M112 deletion)")

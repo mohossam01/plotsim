@@ -75,10 +75,7 @@ def compute_time_steps(time_window: TimeWindow) -> np.ndarray:
     end_ym = _parse_yyyy_mm(time_window.end)
 
     if time_window.granularity == "monthly":
-        labels = [
-            f"{y:04d}-{m:02d}"
-            for y, m in _month_range_inclusive(start_ym, end_ym)
-        ]
+        labels = [f"{y:04d}-{m:02d}" for y, m in _month_range_inclusive(start_ym, end_ym)]
     elif time_window.granularity == "weekly":
         start_d, end_d = _window_date_range(time_window)
         labels = []
@@ -218,11 +215,6 @@ def compute_all_trajectories(
         # F9 / 0.5: Entity.overrides is now Optional[EntityOverrides]
         # rather than a permissive dict. compute_trajectory's interface
         # stays dict-keyed for direct test callers — convert here.
-        overrides_dict = (
-            entity.overrides.model_dump()
-            if entity.overrides is not None else None
-        )
-        out[entity.name] = compute_trajectory(
-            archetype, n_periods, overrides_dict
-        )
+        overrides_dict = entity.overrides.model_dump() if entity.overrides is not None else None
+        out[entity.name] = compute_trajectory(archetype, n_periods, overrides_dict)
     return out

@@ -19,6 +19,7 @@ Tests cover three layers, mirroring the mission's acceptance criteria:
 Determinism: every test that runs ``generate_tables_with_state`` does so
 twice and asserts byte-identical output.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -46,6 +47,7 @@ def _base_education_dict() -> dict:
     failure mode keeps the noise out of the assertion.
     """
     import yaml
+
     with open(EDUCATION_TEMPLATE, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -101,11 +103,13 @@ def test_bridge_table_config_rejects_min_above_max():
 
 def test_bridge_table_config_rejects_period_anchored_metric():
     cfg = _base_education_dict()
-    cfg["bridges"][0]["metrics"].append({
-        "name": "bad_metric",
-        "dtype": "float",
-        "source": "lag:assignment_score:periods:2",
-    })
+    cfg["bridges"][0]["metrics"].append(
+        {
+            "name": "bad_metric",
+            "dtype": "float",
+            "source": "lag:assignment_score:periods:2",
+        }
+    )
     with pytest.raises(ValidationError, match="bridge metric source"):
         PlotsimConfig(**cfg)
 
@@ -180,7 +184,10 @@ def test_education_bridge_runs_and_validates():
     assert "bridge_enrollment" in tables
     df = tables["bridge_enrollment"]
     assert list(df.columns) == [
-        "student_dim_row_id", "course_id", "grade", "enrollment_status",
+        "student_dim_row_id",
+        "course_id",
+        "grade",
+        "enrollment_status",
     ]
     assert len(df) > 0
     assert state.bridges.bridges["bridge_enrollment"]
@@ -204,7 +211,8 @@ def test_bridge_associations_unique_per_entity():
     tables, _ = generate_tables_with_state(cfg)
     df = tables["bridge_enrollment"]
     dup_mask = df.duplicated(
-        subset=["student_dim_row_id", "course_id"], keep=False,
+        subset=["student_dim_row_id", "course_id"],
+        keep=False,
     )
     assert not dup_mask.any()
 
@@ -232,13 +240,17 @@ def test_bridge_metric_value_uses_mean_of_metric_series():
     # the per-period series to its mean. Check at least one entity.
     # SCD: bridge keys on student_dim_row_id, so map back to the natural
     # student_id via dim_student before looking up fct_grades.
-    dim_row_id_to_student_id = dict(zip(
-        dim_student["dim_row_id"], dim_student["student_id"],
-    ))
+    dim_row_id_to_student_id = dict(
+        zip(
+            dim_student["dim_row_id"],
+            dim_student["student_id"],
+        )
+    )
     for student_dim_row_id, group in df.groupby("student_dim_row_id", sort=False):
         student_id = dim_row_id_to_student_id[student_dim_row_id]
         expected_mean = fct_grades.loc[
-            fct_grades["student_id"] == student_id, "assignment_score",
+            fct_grades["student_id"] == student_id,
+            "assignment_score",
         ].mean()
         # All rows for this entity hold the same mean value.
         observed = group["grade"].iloc[0]
@@ -259,7 +271,8 @@ def test_bridge_determinism_same_seed_same_output():
     tables_a, _ = generate_tables_with_state(cfg)
     tables_b, _ = generate_tables_with_state(cfg)
     pd.testing.assert_frame_equal(
-        tables_a["bridge_enrollment"], tables_b["bridge_enrollment"],
+        tables_a["bridge_enrollment"],
+        tables_b["bridge_enrollment"],
     )
 
 
@@ -279,8 +292,7 @@ def test_trajectory_driven_higher_position_more_associations():
             "label": "Always low",
             "description": "Flat at position 0.1",
             "curve_segments": [
-                {"curve": "plateau", "params": {"level": 0.1},
-                 "start_pct": 0.0, "end_pct": 1.0},
+                {"curve": "plateau", "params": {"level": 0.1}, "start_pct": 0.0, "end_pct": 1.0},
             ],
         },
         {
@@ -288,8 +300,7 @@ def test_trajectory_driven_higher_position_more_associations():
             "label": "Always high",
             "description": "Flat at position 0.9",
             "curve_segments": [
-                {"curve": "plateau", "params": {"level": 0.9},
-                 "start_pct": 0.0, "end_pct": 1.0},
+                {"curve": "plateau", "params": {"level": 0.9}, "start_pct": 0.0, "end_pct": 1.0},
             ],
         },
     ]
@@ -336,16 +347,19 @@ def test_zero_min_zero_max_emits_empty_bridge():
 def _saas_with_bridge_dict() -> dict:
     """Return saas YAML with a bridge added to dim_company (SCD-enabled)."""
     import yaml
+
     with open("plotsim/configs/sample_saas.yaml", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    cfg["bridges"] = [{
-        "name": "bridge_company_plan",
-        "type": "bridge",
-        "connects": ["dim_company", "dim_plan"],
-        "cardinality": {"min": 1, "max": 1},
-        "trajectory_driven": False,
-        "metrics": [],
-    }]
+    cfg["bridges"] = [
+        {
+            "name": "bridge_company_plan",
+            "type": "bridge",
+            "connects": ["dim_company", "dim_plan"],
+            "cardinality": {"min": 1, "max": 1},
+            "trajectory_driven": False,
+            "metrics": [],
+        }
+    ]
     return cfg
 
 
@@ -360,9 +374,12 @@ def test_bridge_fk_to_scd_dim_uses_dim_row_id():
     assert "plan_id" in bridge.columns
     # Values must correspond to is_current dim_row_id rows in dim_company.
     current_ids = set(
-        tables["dim_company"].loc[
-            tables["dim_company"]["is_current"].astype(bool), "dim_row_id",
-        ].tolist()
+        tables["dim_company"]
+        .loc[
+            tables["dim_company"]["is_current"].astype(bool),
+            "dim_row_id",
+        ]
+        .tolist()
     )
     assert set(int(v) for v in bridge["company_dim_row_id"]) <= current_ids
 
@@ -376,8 +393,11 @@ def test_bridge_associations_in_manifest():
     cfg = load_config(EDUCATION_TEMPLATE)
     tables, state = generate_tables_with_state(cfg)
     manifest = build_manifest(
-        cfg, state.trajectories, tables,
-        scd_state=state.scd, bridge_state=state.bridges,
+        cfg,
+        state.trajectories,
+        tables,
+        scd_state=state.scd,
+        bridge_state=state.bridges,
     )
     records = [r for r in manifest.bridge_associations if r.bridge == "bridge_enrollment"]
     assert len(records) == len(cfg.entities)

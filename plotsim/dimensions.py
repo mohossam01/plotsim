@@ -129,11 +129,22 @@ def _split_static(raw: str) -> list[str]:
 # tiny shim here. Lookup order in ``_call_faker`` is: extended provider first,
 # then stock Faker's getattr.
 _EXTENDED_PROVIDERS = {
-    "industry": lambda fake: fake.random_element((
-        "Technology", "Healthcare", "Finance", "Retail", "Manufacturing",
-        "Education", "Energy", "Media", "Transportation", "Hospitality",
-        "Consulting", "Real Estate",
-    )),
+    "industry": lambda fake: fake.random_element(
+        (
+            "Technology",
+            "Healthcare",
+            "Finance",
+            "Retail",
+            "Manufacturing",
+            "Education",
+            "Energy",
+            "Media",
+            "Transportation",
+            "Hospitality",
+            "Consulting",
+            "Real Estate",
+        )
+    ),
     "year": lambda fake: fake.random_int(min=1950, max=2020),
 }
 
@@ -143,52 +154,116 @@ _EXTENDED_PROVIDERS = {
 # common portfolio/persona/geo/date/text/net fakers. Anything outside this
 # list is rejected with a clear error pointing the user at the contribution
 # path — new additions go through review rather than ``getattr(fake, ...)``.
-ALLOWED_FAKER_METHODS: frozenset[str] = frozenset({
-    # Person / identity
-    "name", "first_name", "last_name", "email", "phone_number",
-    "user_name", "job",
-    # Company / business
-    "company", "bs", "catch_phrase",
-    # Address / geo
-    "address", "street_address", "city", "state", "country",
-    "country_code", "zipcode", "postcode", "latitude", "longitude",
-    # Date / time
-    "date", "date_between", "date_this_decade", "date_of_birth",
-    "date_time", "iso8601", "unix_time",
-    # Text
-    "sentence", "paragraph", "text", "word", "words",
-    # Network / identifiers
-    "url", "domain_name", "ipv4", "ipv6", "mac_address",
-    "uuid4", "md5", "sha1", "sha256",
-    # Numeric / primitives
-    "random_int", "random_element", "random_elements",
-    "boolean", "pybool", "pyint", "pyfloat", "pydecimal",
-    # Misc common
-    "currency", "currency_code", "color_name", "hex_color",
-    "file_name", "file_extension", "mime_type",
-    "license_plate", "vin", "ean", "ean13",
-})
+ALLOWED_FAKER_METHODS: frozenset[str] = frozenset(
+    {
+        # Person / identity
+        "name",
+        "first_name",
+        "last_name",
+        "email",
+        "phone_number",
+        "user_name",
+        "job",
+        # Company / business
+        "company",
+        "bs",
+        "catch_phrase",
+        # Address / geo
+        "address",
+        "street_address",
+        "city",
+        "state",
+        "country",
+        "country_code",
+        "zipcode",
+        "postcode",
+        "latitude",
+        "longitude",
+        # Date / time
+        "date",
+        "date_between",
+        "date_this_decade",
+        "date_of_birth",
+        "date_time",
+        "iso8601",
+        "unix_time",
+        # Text
+        "sentence",
+        "paragraph",
+        "text",
+        "word",
+        "words",
+        # Network / identifiers
+        "url",
+        "domain_name",
+        "ipv4",
+        "ipv6",
+        "mac_address",
+        "uuid4",
+        "md5",
+        "sha1",
+        "sha256",
+        # Numeric / primitives
+        "random_int",
+        "random_element",
+        "random_elements",
+        "boolean",
+        "pybool",
+        "pyint",
+        "pyfloat",
+        "pydecimal",
+        # Misc common
+        "currency",
+        "currency_code",
+        "color_name",
+        "hex_color",
+        "file_name",
+        "file_extension",
+        "mime_type",
+        "license_plate",
+        "vin",
+        "ean",
+        "ean13",
+    }
+)
 
 # SEC-04: defense-in-depth denylist. Methods here are rejected even if a
 # future change pulls them into the allowlist, because they either mutate
 # Faker's RNG state (breaking determinism), dispatch dynamically to bypass
 # the allowlist, or amplify memory by orders of magnitude per row.
-DENIED_FAKER_METHODS: frozenset[str] = frozenset({
-    "seed", "seed_instance", "seed_locale",
-    "add_provider", "del_provider",
-    "format", "parse", "pystr_format",
-    "provider", "providers",
-    "binary",
-})
+DENIED_FAKER_METHODS: frozenset[str] = frozenset(
+    {
+        "seed",
+        "seed_instance",
+        "seed_locale",
+        "add_provider",
+        "del_provider",
+        "format",
+        "parse",
+        "pystr_format",
+        "provider",
+        "providers",
+        "binary",
+    }
+)
 
 # SEC-04: cap on length-like kwarg values. 4096 is generous for sentences,
 # paragraphs, and random element counts; anything larger is almost certainly
 # an amplification attempt (``binary:length:1_000_000_000`` style).
 _FAKER_KWARG_LENGTH_CAP = 4096
-_FAKER_LENGTH_KWARGS: frozenset[str] = frozenset({
-    "length", "max_nb_chars", "nb", "min_chars", "max_chars",
-    "nb_elements", "max_value", "nb_words", "nb_sentences",
-})
+_FAKER_LENGTH_KWARGS: frozenset[str] = frozenset(
+    {
+        "length",
+        "max_nb_chars",
+        "nb",
+        "min_chars",
+        "max_chars",
+        "nb_elements",
+        "max_value",
+        "nb_words",
+        "nb_sentences",
+    }
+)
 
 
 def _check_faker_method_allowed(method: str) -> None:
@@ -292,8 +367,7 @@ def _call_faker(
     fn = getattr(fake, method, None)
     if fn is None or not callable(fn):
         raise ValueError(
-            f"Faker has no provider method {method!r} "
-            f"(source 'generated:faker.{method}')"
+            f"Faker has no provider method {method!r} " f"(source 'generated:faker.{method}')"
         )
     coerced = {k: _coerce_faker_kwarg(v) for k, v in kwargs.items()}
     _check_faker_kwarg_caps(method, coerced)
@@ -363,8 +437,15 @@ def build_dim_date(time_window: TimeWindow) -> pd.DataFrame:
     # Enforce the column order the acceptance tests expect regardless of
     # insertion ordering quirks.
     base_cols = [
-        "date_key", "date", "year", "quarter", "month", "month_name",
-        "week", "period_label", "period_index",
+        "date_key",
+        "date",
+        "year",
+        "quarter",
+        "month",
+        "month_name",
+        "week",
+        "period_label",
+        "period_index",
     ]
     daily_cols = ["day_of_week", "day_of_month", "is_weekend"]
     ordered = base_cols + (daily_cols if granularity == "daily" else [])
@@ -372,6 +453,7 @@ def build_dim_date(time_window: TimeWindow) -> pd.DataFrame:
 
 
 # --- dim_entity --------------------------------------------------------------
+
 
 def _resolve_derived(field: str, entity: Entity) -> Any:
     if field == "size":
@@ -381,8 +463,7 @@ def _resolve_derived(field: str, entity: Entity) -> Any:
     if field == "name" or field == "entity_name":
         return entity.name
     raise ValueError(
-        f"unsupported derived field {field!r}: expected one of "
-        f"'size', 'archetype', 'name'"
+        f"unsupported derived field {field!r}: expected one of " f"'size', 'archetype', 'name'"
     )
 
 
@@ -500,14 +581,17 @@ COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PKSource, _per_entity_pk)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, StaticSource, _per_entity_static)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, DerivedSource, _per_entity_derived)
 COLUMN_DISPATCH.register(
-    BuilderKind.PER_ENTITY_DIM, GeneratedSource, _per_entity_generated,
+    BuilderKind.PER_ENTITY_DIM,
+    GeneratedSource,
+    _per_entity_generated,
 )
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FakerSource, _per_entity_faker)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FKSource, _per_entity_fk)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, SCDType2Source, _per_entity_scd2)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PoolSource, _per_entity_pool)
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.PER_ENTITY_DIM, _per_entity_unsupported,
+    BuilderKind.PER_ENTITY_DIM,
+    _per_entity_unsupported,
 )
 
 
@@ -591,8 +675,10 @@ def _backfill_fks(
                 f"{parsed.table}.{parsed.column}, but that column does not exist"
             )
         parent_pks = parent[parsed.column].tolist()
-        if entities is not None and len(entities) == n_rows and any(
-            col.name in e.cross_dim_fks for e in entities
+        if (
+            entities is not None
+            and len(entities) == n_rows
+            and any(col.name in e.cross_dim_fks for e in entities)
         ):
             # Per-row dispatch so each entity can pin its own value or fall
             # back to distribution sampling. Single rng draw per uncolumned
@@ -638,6 +724,7 @@ def build_dim_entity(
 
 
 # --- dim_subentity -----------------------------------------------------------
+
 
 def _identify_parent_fk(
     table_config: Table,
@@ -692,9 +779,11 @@ def build_dim_subentity(
         # Single-parent auto-detection: whichever column FKs into a table
         # whose name matches the sole parent we know about.
         found = next(
-            ((col.name, parse_source(col.source))
-             for col in table_config.columns
-             if isinstance(parse_source(col.source), FKSource)),
+            (
+                (col.name, parse_source(col.source))
+                for col in table_config.columns
+                if isinstance(parse_source(col.source), FKSource)
+            ),
             None,
         )
         if found is None:
@@ -733,7 +822,9 @@ def build_dim_subentity(
                 ctx = dict(base_ctx)
                 ctx["col"] = col
                 row[col.name] = COLUMN_DISPATCH.dispatch(
-                    BuilderKind.SUB_ENTITY_DIM, parsed, ctx,
+                    BuilderKind.SUB_ENTITY_DIM,
+                    parsed,
+                    ctx,
                 )
             rows.append(row)
             cursor += 1
@@ -743,6 +834,7 @@ def build_dim_subentity(
 
 
 # --- Sub-entity dim dispatchers ----------------------------------------------
+
 
 def _sub_pk(parsed: PKSource, ctx: dict):
     return ctx["local_pk"]
@@ -797,11 +889,13 @@ COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, FakerSource, _sub_faker)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, StaticSource, _sub_static)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, DerivedSource, _sub_derived)
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.SUB_ENTITY_DIM, _sub_unsupported,
+    BuilderKind.SUB_ENTITY_DIM,
+    _sub_unsupported,
 )
 
 
 # --- dim_reference -----------------------------------------------------------
+
 
 def build_dim_reference(
     table_config: Table,
@@ -833,7 +927,9 @@ def build_dim_reference(
             ctx = dict(base_ctx)
             ctx["col"] = col
             row[col.name] = COLUMN_DISPATCH.dispatch(
-                BuilderKind.REFERENCE_DIM, parsed, ctx,
+                BuilderKind.REFERENCE_DIM,
+                parsed,
+                ctx,
             )
         rows.append(row)
 
@@ -841,6 +937,7 @@ def build_dim_reference(
 
 
 # --- Reference dim dispatchers -----------------------------------------------
+
 
 def _ref_pk(parsed: PKSource, ctx: dict):
     return ctx["ids"][ctx["i"]]
@@ -885,11 +982,13 @@ COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FakerSource, _ref_faker)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, GeneratedSource, _ref_generated)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FKSource, _ref_fk)
 COLUMN_DISPATCH.register_unsupported(
-    BuilderKind.REFERENCE_DIM, _ref_unsupported,
+    BuilderKind.REFERENCE_DIM,
+    _ref_unsupported,
 )
 
 
 # --- Orchestrator ------------------------------------------------------------
+
 
 def _is_subentity_table(table: Table, per_entity_names: set[str]) -> bool:
     """Heuristic routing: dim + variable + FK into a per_entity dim."""
@@ -915,8 +1014,7 @@ def build_all_dimensions(
         4. sub-entity dims      (FK to per_entity dim)
     """
     per_entity_names = {
-        t.name for t in config.tables
-        if t.type == "dim" and t.grain == "per_entity"
+        t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"
     }
 
     dims: dict[str, pd.DataFrame] = {}
@@ -938,10 +1036,17 @@ def build_all_dimensions(
     for tbl in config.tables:
         if tbl.type == "dim" and tbl.grain == "per_entity":
             df = build_dim_entity(
-                tbl, list(config.entities), rng, locale=config.locale,
+                tbl,
+                list(config.entities),
+                rng,
+                locale=config.locale,
             )
             dims[tbl.name] = _backfill_fks(
-                df, tbl, dims, rng, entities=list(config.entities),
+                df,
+                tbl,
+                dims,
+                rng,
+                entities=list(config.entities),
             )
 
     # 4. sub-entity dims.

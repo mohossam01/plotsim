@@ -16,6 +16,7 @@ The README references this asset via raw.githubusercontent.com.
 Re-run after any change that affects engine output:
     python examples/render_trajectory_plot.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,7 +28,9 @@ from plotsim import create
 from plotsim.tables import generate_tables_with_state
 
 
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "docs" / "site" / "assets" / "trajectory-first.png"
+OUTPUT_PATH = (
+    Path(__file__).resolve().parent.parent / "docs" / "site" / "assets" / "trajectory-first.png"
+)
 
 # Picked so the curve has clear early/middle/late phases at README width.
 # Seed 11 / entity 1 produces the cleanest "all four metrics track the
@@ -44,8 +47,7 @@ def main() -> None:
         window=("2023-01", "2024-12", "monthly"),
         metrics=[
             {"name": "engagement", "type": "score", "polarity": "positive"},
-            {"name": "mrr", "type": "amount", "polarity": "positive",
-             "range": [200, 5000]},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [200, 5000]},
             {"name": "support_tickets", "type": "count", "polarity": "negative"},
             {"name": "churn_risk", "type": "score", "polarity": "negative"},
         ],
@@ -64,17 +66,12 @@ def main() -> None:
     fct = tables["fct_customer"]
     customer_col = "customer_id"
     target_customer = sorted(fct[customer_col].unique())[ENTITY_INDEX]
-    rows = (
-        fct[fct[customer_col] == target_customer]
-        .sort_values("date_key")
-        .reset_index(drop=True)
-    )
-    period_labels = [
-        f"{str(k)[:4]}-{str(k)[4:6]}" for k in rows["date_key"].tolist()
-    ]
+    rows = fct[fct[customer_col] == target_customer].sort_values("date_key").reset_index(drop=True)
+    period_labels = [f"{str(k)[:4]}-{str(k)[4:6]}" for k in rows["date_key"].tolist()]
 
     fig, (ax_top, ax_bot) = plt.subplots(
-        nrows=2, ncols=1,
+        nrows=2,
+        ncols=1,
         figsize=(11, 5.6),
         gridspec_kw={"height_ratios": [1, 2]},
         sharex=True,
@@ -84,12 +81,19 @@ def main() -> None:
 
     # --- Top panel: the trajectory itself --------------------------------
     ax_top.plot(
-        period_labels, trajectory,
-        color="#1f2a44", linewidth=2.2, marker="o", markersize=4,
+        period_labels,
+        trajectory,
+        color="#1f2a44",
+        linewidth=2.2,
+        marker="o",
+        markersize=4,
     )
     ax_top.fill_between(
-        period_labels, 0, trajectory,
-        color="#1f2a44", alpha=0.08,
+        period_labels,
+        0,
+        trajectory,
+        color="#1f2a44",
+        alpha=0.08,
     )
     ax_top.set_ylabel("Trajectory\nposition", fontsize=10)
     ax_top.set_ylim(-0.05, 1.05)
@@ -97,23 +101,29 @@ def main() -> None:
     ax_top.grid(axis="y", linestyle=":", alpha=0.4)
     ax_top.set_title(
         "One trajectory drives every metric",
-        fontsize=13, fontweight="semibold", pad=12,
+        fontsize=13,
+        fontweight="semibold",
+        pad=12,
     )
 
     # --- Bottom panel: four metrics, normalized for shape comparison ----
     metric_colors = {
-        "engagement":      ("#2e7dd7", "engagement (positive)"),
-        "mrr":             ("#27a59b", "mrr (positive)"),
+        "engagement": ("#2e7dd7", "engagement (positive)"),
+        "mrr": ("#27a59b", "mrr (positive)"),
         "support_tickets": ("#e0833b", "support_tickets (negative)"),
-        "churn_risk":      ("#c9466b", "churn_risk (negative)"),
+        "churn_risk": ("#c9466b", "churn_risk (negative)"),
     }
     for metric, (color, label) in metric_colors.items():
         values = rows[metric].to_numpy(dtype=float)
         vmin, vmax = values.min(), values.max()
         normalized = (values - vmin) / (vmax - vmin) if vmax > vmin else values * 0
         ax_bot.plot(
-            period_labels, normalized,
-            color=color, linewidth=1.8, marker="o", markersize=3.5,
+            period_labels,
+            normalized,
+            color=color,
+            linewidth=1.8,
+            marker="o",
+            markersize=3.5,
             label=label,
         )
 

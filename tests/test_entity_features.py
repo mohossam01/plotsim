@@ -74,11 +74,15 @@ def _run_template(yaml_path: Path, output_dir: Path):
     rng = np.random.default_rng(cfg.seed)
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(
-        cfg, state.trajectories, tables,
-        scd_state=state.scd, bridge_state=state.bridges,
+        cfg,
+        state.trajectories,
+        tables,
+        scd_state=state.scd,
+        bridge_state=state.bridges,
     )
     target = write_tables(
-        tables, cfg,
+        tables,
+        cfg,
         output_dir=output_dir,
         manifest=manifest,
     )
@@ -116,26 +120,36 @@ def test_validation_passes_when_disabled():
 
 
 def test_no_manifest_raises_at_load(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-        "manifest": {"include": False},
-    }, tmp_path / "saas.yaml")
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+            "manifest": {"include": False},
+        },
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(ValueError, match="manifest.include=true"):
         load_config(target)
 
 
 def test_quality_injection_combo_raises_at_load(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-        "quality": {
-            "quality_issues": [{
-                "type": "null_injection",
-                "target_table": "fct_engagement",
-                "target_columns": ["engagement_score"],
-                "rate": 0.05,
-            }],
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+            "quality": {
+                "quality_issues": [
+                    {
+                        "type": "null_injection",
+                        "target_table": "fct_engagement",
+                        "target_columns": ["engagement_score"],
+                        "rate": 0.05,
+                    }
+                ],
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(
         ValueError,
         match="entity_features cannot be combined with quality_issues",
@@ -144,12 +158,16 @@ def test_quality_injection_combo_raises_at_load(tmp_path):
 
 
 def test_unknown_metric_in_metrics_raises(tmp_path):
-    target = _patched_yaml(SAAS_YAML, {
-        "entity_features": {
-            "enabled": True,
-            "metrics": ["does_not_exist"],
+    target = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {
+                "enabled": True,
+                "metrics": ["does_not_exist"],
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     with pytest.raises(ValueError, match="unknown metric 'does_not_exist'"):
         load_config(target)
 
@@ -161,14 +179,16 @@ def test_metric_without_numeric_fact_column_raises(tmp_path):
     ``entity_features.metrics``.
     """
     data = yaml.safe_load(SAAS_YAML.read_text(encoding="utf-8"))
-    data["metrics"].append({
-        "name": "phantom_metric",
-        "label": "Phantom Metric",
-        "distribution": "lognorm",
-        "params": {"s": 0.5, "scale": 1.0},
-        "polarity": "positive",
-        "value_range": {"min": 0.0, "max": 1.0},
-    })
+    data["metrics"].append(
+        {
+            "name": "phantom_metric",
+            "label": "Phantom Metric",
+            "distribution": "lognorm",
+            "params": {"s": 0.5, "scale": 1.0},
+            "polarity": "positive",
+            "value_range": {"min": 0.0, "max": 1.0},
+        }
+    )
     data["entity_features"] = {
         "enabled": True,
         "metrics": ["phantom_metric"],
@@ -197,9 +217,13 @@ def test_default_disabled_produces_no_file(tmp_path):
 @pytest.fixture
 def saas_with_features(tmp_path):
     """Run the saas template with ``entity_features.enabled=true``."""
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-    }, tmp_path / "saas.yaml")
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+        },
+        tmp_path / "saas.yaml",
+    )
     return _run_template(cfg_path, tmp_path / "out")
 
 
@@ -220,14 +244,10 @@ def test_six_aggregate_columns_per_metric(saas_with_features):
     suffixes = ("mean", "std", "slope", "first", "last", "peak_period")
     for metric in cfg.metrics:
         # Some metrics may not be exposed on a fact column; skip those.
-        if not any(
-            f"{metric.name}_{s}" in df.columns for s in suffixes
-        ):
+        if not any(f"{metric.name}_{s}" in df.columns for s in suffixes):
             continue
         for s in suffixes:
-            assert f"{metric.name}_{s}" in df.columns, (
-                f"missing {metric.name}_{s}"
-            )
+            assert f"{metric.name}_{s}" in df.columns, f"missing {metric.name}_{s}"
 
 
 def test_label_columns_present_when_include_labels_true(saas_with_features):
@@ -240,11 +260,16 @@ def test_label_columns_present_when_include_labels_true(saas_with_features):
 
 
 def test_label_columns_omitted_when_include_labels_false(tmp_path):
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True, "include_labels": False},
-    }, tmp_path / "saas.yaml")
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True, "include_labels": False},
+        },
+        tmp_path / "saas.yaml",
+    )
     _cfg, _tables, _state, _manifest, target = _run_template(
-        cfg_path, tmp_path / "out",
+        cfg_path,
+        tmp_path / "out",
     )
     df = pd.read_csv(target / f"{ENTITY_FEATURES_BASENAME}.csv")
     assert "archetype" not in df.columns
@@ -252,22 +277,24 @@ def test_label_columns_omitted_when_include_labels_false(tmp_path):
 
 
 def test_metrics_filter_emits_subset_only(tmp_path):
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "entity_features": {
-            "enabled": True,
-            "metrics": ["mrr"],
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {
+                "enabled": True,
+                "metrics": ["mrr"],
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     _cfg, _tables, _state, _manifest, target = _run_template(
-        cfg_path, tmp_path / "out",
+        cfg_path,
+        tmp_path / "out",
     )
     df = pd.read_csv(target / f"{ENTITY_FEATURES_BASENAME}.csv")
     assert "mrr_mean" in df.columns
     # No other metric should have aggregates.
-    assert not any(
-        c.startswith("engagement_") or c.startswith("churn_risk_")
-        for c in df.columns
-    )
+    assert not any(c.startswith("engagement_") or c.startswith("churn_risk_") for c in df.columns)
 
 
 def test_default_metrics_aggregates_every_numeric_fact_metric(saas_with_features):
@@ -276,16 +303,14 @@ def test_default_metrics_aggregates_every_numeric_fact_metric(saas_with_features
     # Every metric whose name appears as a metric:column on some fact
     # table must have ``{name}_mean`` in the output.
     from plotsim.config import MetricSource, parse_source
+
     expected: set[str] = set()
     for tbl in cfg.tables:
         if tbl.type != "fact":
             continue
         for col in tbl.columns:
             parsed = parse_source(col.source)
-            if (
-                isinstance(parsed, MetricSource)
-                and col.dtype in ("int", "float")
-            ):
+            if isinstance(parsed, MetricSource) and col.dtype in ("int", "float"):
                 expected.add(parsed.metric)
     for name in expected:
         assert f"{name}_mean" in df.columns, f"missing {name}_mean"
@@ -295,11 +320,16 @@ def test_bridge_metrics_excluded(tmp_path):
     """Education template ships a bridge table; its bridge-only metrics
     must not appear as aggregate columns in the entity features file.
     """
-    cfg_path = _patched_yaml(EDUCATION_YAML, {
-        "entity_features": {"enabled": True},
-    }, tmp_path / "education.yaml")
+    cfg_path = _patched_yaml(
+        EDUCATION_YAML,
+        {
+            "entity_features": {"enabled": True},
+        },
+        tmp_path / "education.yaml",
+    )
     cfg, _tables, _state, _manifest, target = _run_template(
-        cfg_path, tmp_path / "out",
+        cfg_path,
+        tmp_path / "out",
     )
     if not cfg.bridges:
         pytest.skip("template has no bridges")
@@ -308,22 +338,27 @@ def test_bridge_metrics_excluded(tmp_path):
         for bm in bridge.metrics:
             for suffix in ("mean", "std", "slope", "first", "last", "peak_period"):
                 col = f"{bm.name}_{suffix}"
-                assert col not in df.columns, (
-                    f"bridge metric {bm.name!r} leaked into entity_features"
-                )
+                assert (
+                    col not in df.columns
+                ), f"bridge metric {bm.name!r} leaked into entity_features"
 
 
 def test_parquet_format_follows_output_format(tmp_path):
     pytest.importorskip("pyarrow")
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-        "output": {
-            "format": "parquet",
-            "directory": str(tmp_path / "out"),
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+            "output": {
+                "format": "parquet",
+                "directory": str(tmp_path / "out"),
+            },
         },
-    }, tmp_path / "saas.yaml")
+        tmp_path / "saas.yaml",
+    )
     _cfg, _tables, _state, _manifest, target = _run_template(
-        cfg_path, tmp_path / "out",
+        cfg_path,
+        tmp_path / "out",
     )
     assert (target / f"{ENTITY_FEATURES_BASENAME}.parquet").is_file()
     assert not (target / f"{ENTITY_FEATURES_BASENAME}.csv").exists()
@@ -333,12 +368,20 @@ def test_parquet_format_follows_output_format(tmp_path):
 
 
 def test_byte_identical_across_runs(tmp_path):
-    cfg_path_a = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-    }, tmp_path / "saas_a.yaml")
-    cfg_path_b = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-    }, tmp_path / "saas_b.yaml")
+    cfg_path_a = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+        },
+        tmp_path / "saas_a.yaml",
+    )
+    cfg_path_b = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+        },
+        tmp_path / "saas_b.yaml",
+    )
     _, _, _, _, ta = _run_template(cfg_path_a, tmp_path / "out_a")
     _, _, _, _, tb = _run_template(cfg_path_b, tmp_path / "out_b")
     bytes_a = (ta / f"{ENTITY_FEATURES_BASENAME}.csv").read_bytes()
@@ -431,12 +474,17 @@ def test_high_mcar_noise_does_not_crash(tmp_path):
     metric columns; entity features must still produce valid (possibly
     NaN) aggregates instead of raising.
     """
-    cfg_path = _patched_yaml(SAAS_YAML, {
-        "entity_features": {"enabled": True},
-        "noise": {"gaussian_sigma": 0.05, "outlier_rate": 0.0, "mcar_rate": 0.1},
-    }, tmp_path / "saas.yaml")
+    cfg_path = _patched_yaml(
+        SAAS_YAML,
+        {
+            "entity_features": {"enabled": True},
+            "noise": {"gaussian_sigma": 0.05, "outlier_rate": 0.0, "mcar_rate": 0.1},
+        },
+        tmp_path / "saas.yaml",
+    )
     _cfg, _tables, _state, _manifest, target = _run_template(
-        cfg_path, tmp_path / "out",
+        cfg_path,
+        tmp_path / "out",
     )
     df = pd.read_csv(target / f"{ENTITY_FEATURES_BASENAME}.csv")
     # File must exist and have the right row count; some cells may be NaN.

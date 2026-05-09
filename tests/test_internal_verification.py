@@ -15,6 +15,7 @@ Eight categories, one per pipeline stage or cross-stage interaction:
     7. Validation layer correctness         (PSD / FK / date / causal checks)
     8. Scipy distribution mapping           (_get_scipy_dist ↔ sample_single_metric)
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -139,14 +140,16 @@ class TestTrajectoryEngine:
 
         # sigmoid rising — min-max normalization forces endpoints to {0, 1}
         traj = compute_trajectory(
-            _single_segment_archetype("sigmoid", {"rising": True, "steepness": 10.0}), 100,
+            _single_segment_archetype("sigmoid", {"rising": True, "steepness": 10.0}),
+            100,
         )
         assert traj[0] == pytest.approx(0.0, abs=1e-12)
         assert traj[-1] == pytest.approx(1.0, abs=1e-12)
 
         # step — threshold=0.5, before=1.0, after=0.0
         traj = compute_trajectory(
-            _single_segment_archetype("step", {"threshold": 0.5, "before": 1.0, "after": 0.0}), 100,
+            _single_segment_archetype("step", {"threshold": 0.5, "before": 1.0, "after": 0.0}),
+            100,
         )
         t_local = np.linspace(0.0, 1.0, 100)
         expected = np.where(t_local < 0.5, 1.0, 0.0)
@@ -157,7 +160,8 @@ class TestTrajectoryEngine:
         center = 0.5
         traj = compute_trajectory(
             _single_segment_archetype(
-                "oscillating", {"period": 2.0, "amplitude": amp, "center": center},
+                "oscillating",
+                {"period": 2.0, "amplitude": amp, "center": center},
             ),
             200,
         )
@@ -168,18 +172,19 @@ class TestTrajectoryEngine:
         """Every registered curve produces values in [0, 1]."""
         # Sensible default params per curve type.
         defaults: dict[str, dict] = {
-            "sigmoid":     {"rising": True, "steepness": 8.0, "midpoint": 0.5},
-            "exp_decay":   {"rate": 2.0},
-            "step":        {"threshold": 0.3, "before": 1.0, "after": 0.0},
-            "logistic":    {"k": 8.0, "midpoint": 0.5, "ceiling": 1.0},
-            "plateau":     {"level": 0.6},
+            "sigmoid": {"rising": True, "steepness": 8.0, "midpoint": 0.5},
+            "exp_decay": {"rate": 2.0},
+            "step": {"threshold": 0.3, "before": 1.0, "after": 0.0},
+            "logistic": {"k": 8.0, "midpoint": 0.5, "ceiling": 1.0},
+            "plateau": {"level": 0.6},
             "oscillating": {"period": 3.0, "amplitude": 0.3, "center": 0.5},
-            "compound":    {"base_rate": 0.05, "acceleration": 0.02},
-            "sawtooth":    {"period": 2.0, "amplitude": 0.8, "base": 0.1},
+            "compound": {"base_rate": 0.05, "acceleration": 0.02},
+            "sawtooth": {"period": 2.0, "amplitude": 0.8, "base": 0.1},
         }
         for curve in CURVE_REGISTRY:
             traj = compute_trajectory(
-                _single_segment_archetype(curve, defaults[curve]), 150,
+                _single_segment_archetype(curve, defaults[curve]),
+                150,
             )
             assert traj.min() >= 0.0 - 1e-12, curve
             assert traj.max() <= 1.0 + 1e-12, curve
@@ -187,7 +192,8 @@ class TestTrajectoryEngine:
     def test_1c_trajectory_monotonicity_where_expected(self):
         """Rising sigmoid is non-decreasing; exp_decay is non-increasing."""
         traj = compute_trajectory(
-            _single_segment_archetype("sigmoid", {"rising": True, "steepness": 8.0}), 100,
+            _single_segment_archetype("sigmoid", {"rising": True, "steepness": 8.0}),
+            100,
         )
         diffs = np.diff(traj)
         assert (diffs >= -1e-12).all()
@@ -246,9 +252,7 @@ class TestPositionToCenter:
         m_pos = _metric(distribution="lognorm", params=params, polarity="positive")
         m_neg = _metric(distribution="lognorm", params=params, polarity="negative")
         for p in (0.0, 0.2, 0.5, 0.8, 1.0):
-            assert position_to_center(p, m_neg) == pytest.approx(
-                position_to_center(1.0 - p, m_pos)
-            )
+            assert position_to_center(p, m_neg) == pytest.approx(position_to_center(1.0 - p, m_pos))
 
 
 # ============================================================================
@@ -260,7 +264,8 @@ class TestGaussianCopula:
     def _two_metrics(self, dist_a: str = "lognorm", dist_b: str = "beta") -> tuple[Metric, Metric]:
         ma = _metric("a", distribution=dist_a, params={"s": 0.3, "loc": 0.0, "scale": 50.0})
         mb = _metric(
-            "b", distribution=dist_b,
+            "b",
+            distribution=dist_b,
             params={"alpha": 2.0, "beta": 5.0},
             value_range=ValueRange(min=0.0, max=10.0),
         )
@@ -275,6 +280,7 @@ class TestGaussianCopula:
         independent draws.
         """
         from scipy import stats as sp_stats
+
         ma, mb = self._two_metrics()
         ca, cb = 50.0, 5.0
         # Correlation coefficient=0 ⇒ identity off-diagonal ⇒ Cholesky = I.
@@ -287,8 +293,12 @@ class TestGaussianCopula:
             ia = sample_single_metric(ca, ma, rng)
             ib = sample_single_metric(cb, mb, rng)
             out = apply_correlations(
-                {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
-                cholesky_L=np.eye(2), rng=rng,
+                {"a": ia, "b": ib},
+                {"a": ca, "b": cb},
+                corrs,
+                [ma, mb],
+                cholesky_L=np.eye(2),
+                rng=rng,
             )
             out_a.append(out["a"])
             out_b.append(out["b"])
@@ -301,6 +311,7 @@ class TestGaussianCopula:
         # n=1000; threshold 0.001 keeps the test as a regression guard
         # while accepting the new-copula's documented tail-clip behavior.
         from plotsim.metrics import _get_scipy_dist
+
         dist_a = _get_scipy_dist(ma, ca)
         dist_b = _get_scipy_dist(mb, cb)
         ks_a = sp_stats.kstest(out_a, dist_a.cdf)
@@ -311,12 +322,21 @@ class TestGaussianCopula:
     def test_3b_cdf_round_trip_per_distribution(self):
         """ppf(cdf(x)) == x within tolerance for every continuous family."""
         cases = [
-            (_metric(distribution="lognorm", params={"s": 0.5, "loc": 0.0, "scale": 50.0}), 50.0, 30.0),
+            (
+                _metric(distribution="lognorm", params={"s": 0.5, "loc": 0.0, "scale": 50.0}),
+                50.0,
+                30.0,
+            ),
             (_metric(distribution="gamma", params={"shape": 2.0, "scale": 1.0}), 4.0, 3.5),
-            (_metric(
-                distribution="beta", params={"alpha": 2.0, "beta": 5.0},
-                value_range=ValueRange(min=0.0, max=10.0),
-             ), 3.0, 2.5),
+            (
+                _metric(
+                    distribution="beta",
+                    params={"alpha": 2.0, "beta": 5.0},
+                    value_range=ValueRange(min=0.0, max=10.0),
+                ),
+                3.0,
+                2.5,
+            ),
             (_metric(distribution="normal", params={"mu": 10.0, "sigma": 2.0}), 5.0, 4.3),
             (_metric(distribution="weibull", params={"shape": 1.5, "scale": 1.0}), 5.0, 3.2),
         ]
@@ -349,7 +369,10 @@ class TestGaussianCopula:
             ia = sample_single_metric(ca, ma, rng)
             ib = sample_single_metric(cb, mb, rng)
             adj = apply_correlations(
-                {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                {"a": ia, "b": ib},
+                {"a": ca, "b": cb},
+                corrs,
+                [ma, mb],
                 rng=rng,
             )
             out_a.append(adj["a"])
@@ -376,7 +399,10 @@ class TestGaussianCopula:
             ia = sample_single_metric(ca, ma, rng)
             ib = sample_single_metric(cb, mb, rng)
             adj = apply_correlations(
-                {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                {"a": ia, "b": ib},
+                {"a": ca, "b": cb},
+                corrs,
+                [ma, mb],
                 rng=rng,
             )
             out_a.append(adj["a"])
@@ -396,7 +422,9 @@ class TestGaussianCopula:
         ma, mb = self._two_metrics(dist_a="beta", dist_b="beta")
         # Very tight-tail beta at center ≈ 0 — more likely to produce cdf≈0.
         ma = _metric(
-            "a", distribution="beta", params={"alpha": 2.0, "beta": 5.0},
+            "a",
+            distribution="beta",
+            params={"alpha": 2.0, "beta": 5.0},
             value_range=ValueRange(min=0.0, max=10.0),
         )
         corrs = [CorrelationPair(metric_a="a", metric_b="b", coefficient=0.9)]
@@ -409,7 +437,10 @@ class TestGaussianCopula:
             ia = sample_single_metric(ca, ma, rng)
             ib = sample_single_metric(cb, mb, rng)
             out = apply_correlations(
-                {"a": ia, "b": ib}, {"a": ca, "b": cb}, corrs, [ma, mb],
+                {"a": ia, "b": ib},
+                {"a": ca, "b": cb},
+                corrs,
+                [ma, mb],
                 rng=rng,
             )
             va, vb = out["a"], out["b"]
@@ -542,16 +573,28 @@ class TestNoiseOutlierMCAROrdering:
 
         rng_clean = _rng(0)
         vals_clean = generate_entity_metrics(
-            traj, metrics, corrs, None, rng_clean,
+            traj,
+            metrics,
+            corrs,
+            None,
+            rng_clean,
         )
         rng_noisy = _rng(0)
         noise = NoiseConfig(gaussian_sigma=0.1, outlier_rate=0.0, mcar_rate=0.0)
         vals_noisy = generate_entity_metrics(
-            traj, metrics, corrs, noise, rng_noisy,
+            traj,
+            metrics,
+            corrs,
+            noise,
+            rng_noisy,
         )
 
-        delta_a = np.asarray(vals_noisy["a"], dtype=float) - np.asarray(vals_clean["a"], dtype=float)
-        delta_b = np.asarray(vals_noisy["b"], dtype=float) - np.asarray(vals_clean["b"], dtype=float)
+        delta_a = np.asarray(vals_noisy["a"], dtype=float) - np.asarray(
+            vals_clean["a"], dtype=float
+        )
+        delta_b = np.asarray(vals_noisy["b"], dtype=float) - np.asarray(
+            vals_clean["b"], dtype=float
+        )
         # Deltas are the independent per-metric Gaussian draws; their
         # cross-correlation must be near zero (not the 0.9 of the samples).
         r = float(np.corrcoef(delta_a, delta_b)[0, 1])
@@ -580,7 +623,13 @@ class TestNoiseOutlierMCAROrdering:
         noise = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=1.0)
         rng = _rng(5)
         out = generate_metrics_for_period(
-            0.5, metrics, corrs, noise, None, 0, rng,
+            0.5,
+            metrics,
+            corrs,
+            noise,
+            None,
+            0,
+            rng,
         )
         assert out["a"] is None
         assert out["b"] is None
@@ -591,10 +640,14 @@ class TestNoiseOutlierMCAROrdering:
         # survivors — a plateau + sigma=0 normal collapses everyone to one
         # point and the correlation would be undefined (zero variance).
         ma = _metric(
-            "a", distribution="lognorm", params={"s": 0.3, "loc": 0.0, "scale": 50.0},
+            "a",
+            distribution="lognorm",
+            params={"s": 0.3, "loc": 0.0, "scale": 50.0},
         )
         mb = _metric(
-            "b", distribution="lognorm", params={"s": 0.3, "loc": 0.0, "scale": 50.0},
+            "b",
+            distribution="lognorm",
+            params={"s": 0.3, "loc": 0.0, "scale": 50.0},
         )
         corrs = [CorrelationPair(metric_a="a", metric_b="b", coefficient=0.8)]
         noise = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.3)
@@ -654,8 +707,7 @@ class TestDimensionConstruction:
         plan_tbl = _dim_reference_table()
         company_tbl = _dim_entity_table_with_fk()
         entities = [
-            Entity(name=f"cohort_{i}", archetype="plateau_arch", size=1)
-            for i in range(100)
+            Entity(name=f"cohort_{i}", archetype="plateau_arch", size=1) for i in range(100)
         ]
         cfg = PlotsimConfig(
             domain=Domain(name="t", description="t", entity_type="e", entity_label="E"),
@@ -687,18 +739,15 @@ class TestDimensionConstruction:
             columns=[
                 Column(name="company_id", dtype="id", source="pk"),
                 Column(
-                    name="founded_date", dtype="date",
+                    name="founded_date",
+                    dtype="date",
                     source=(
-                        "generated:faker.date_between:"
-                        "start_date:2022-01-01:end_date:2024-12-31"
+                        "generated:faker.date_between:" "start_date:2022-01-01:end_date:2024-12-31"
                     ),
                 ),
             ],
         )
-        entities = [
-            Entity(name=f"cohort_{i}", archetype="plateau_arch", size=1)
-            for i in range(50)
-        ]
+        entities = [Entity(name=f"cohort_{i}", archetype="plateau_arch", size=1) for i in range(50)]
         cfg = PlotsimConfig(
             domain=Domain(name="t", description="t", entity_type="e", entity_label="E"),
             time_window=TimeWindow(start="2022-01", end="2024-12", granularity="monthly"),
@@ -777,9 +826,11 @@ class TestValidationLayer:
         assert validate_correlation_psd(cfg_empty) == []
 
         # Single moderate pair ⇒ PD 2×2 matrix.
-        cfg_mild = _bare_psd_config([
-            CorrelationPair(metric_a="a", metric_b="b", coefficient=0.5),
-        ])
+        cfg_mild = _bare_psd_config(
+            [
+                CorrelationPair(metric_a="a", metric_b="b", coefficient=0.5),
+            ]
+        )
         assert validate_correlation_psd(cfg_mild) == []
 
     def test_7c_fk_validator_catches_orphans(self):
@@ -857,10 +908,12 @@ class TestValidationLayer:
             output=OutputConfig(format="csv", directory="out"),
         )
         # 2024-02 missing — gap between Jan and Mar.
-        dim_date = pd.DataFrame({
-            "date_key": [20240101, 20240301, 20240401],
-            "date": [date(2024, 1, 1), date(2024, 3, 1), date(2024, 4, 1)],
-        })
+        dim_date = pd.DataFrame(
+            {
+                "date_key": [20240101, 20240301, 20240401],
+                "date": [date(2024, 1, 1), date(2024, 3, 1), date(2024, 4, 1)],
+            }
+        )
         issues = validate_date_spine(cfg, {"dim_date": dim_date})
         assert any("gap" in i.message for i in issues)
 
@@ -895,10 +948,14 @@ class TestScipyDistMapping:
             (_metric(distribution="gamma", params={"shape": 3.0, "scale": 1.0}), 4.5),
             (_metric(distribution="normal", params={"mu": 10.0, "sigma": 2.0}), 5.0),
             (_metric(distribution="weibull", params={"shape": 1.5, "scale": 1.0}), 5.0),
-            (_metric(
-                distribution="beta", params={"alpha": 2.0, "beta": 5.0},
-                value_range=ValueRange(min=0.0, max=10.0),
-             ), 3.0),
+            (
+                _metric(
+                    distribution="beta",
+                    params={"alpha": 2.0, "beta": 5.0},
+                    value_range=ValueRange(min=0.0, max=10.0),
+                ),
+                3.0,
+            ),
         ]
         for m, center in cases:
             rng = _rng(123)
