@@ -124,7 +124,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "plotsim.builder.interpreter",
-    "plotsim.validation",
     "plotsim.builder.parser",
     "plotsim.config",
     "plotsim.metrics",
