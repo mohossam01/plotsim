@@ -46,7 +46,7 @@ from __future__ import annotations
 import datetime as _dt
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -963,7 +963,7 @@ def _fact_vec_lag(parsed: LagSource, ctx: dict):
     target_idx = base - n
     # "If history too short, fall back to current period" — scalar
     # semantics preserved by mapping out-of-range to the current period.
-    target_idx = np.where(target_idx < 0, base, target_idx)
+    target_idx = cast(np.ndarray, np.where(target_idx < 0, base, target_idx))
     sliced = ctx["metrics_3d"][:, target_idx, m_idx]  # (E, P)
     return _coerce_array_for_dtype(
         sliced.ravel(order="C").copy(),
@@ -1873,6 +1873,7 @@ def _build_threshold_event(
 
     _, groups = _entity_groups(fact_df, fact_table_cfg, per_entity_dims)
     fact_date_col = _find_date_fk_column(fact_table_cfg)
+    assert fact_date_col is not None  # fact tables always FK to dim_date
     fact_date_col_name = fact_date_col[0]
 
     dim_date = dim_tables["dim_date"]
@@ -2257,7 +2258,7 @@ def assign_stages(
             target_name = tbl.name
             target_tbl = tbl
             break
-    if target_name is None:
+    if target_name is None or target_tbl is None:
         return fact_tables
 
     per_entity_dims = _per_entity_dim_names(config)
@@ -2918,8 +2919,10 @@ def _bridge_second_dim_fk_pool(
             subset=[second_pk_col],
             keep="first",
         ).reset_index(drop=True)
-        return deduped[second_pk_col].tolist()
-    return second_dim_df[second_pk_col].tolist()
+        deduped_list: list[Any] = deduped[second_pk_col].tolist()
+        return deduped_list
+    full_list: list[Any] = second_dim_df[second_pk_col].tolist()
+    return full_list
 
 
 def _compute_bridge_cardinality(

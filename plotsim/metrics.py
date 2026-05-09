@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import warnings
 from graphlib import CycleError, TopologicalSorter
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import numpy as np
 from scipy.stats import norm as sp_norm
@@ -350,7 +350,7 @@ def _ensure_pd_margin(Y: np.ndarray, tol: float = 1e-10) -> np.ndarray:
     diag = np.sqrt(np.maximum(np.diag(X), floor))
     X = X / np.outer(diag, diag)
     np.fill_diagonal(X, 1.0)
-    return X
+    return cast(np.ndarray, X)
 
 
 def _eigvalue_clip_to_pd(A: np.ndarray, tol: float = 1e-10) -> np.ndarray:
@@ -371,7 +371,7 @@ def _eigvalue_clip_to_pd(A: np.ndarray, tol: float = 1e-10) -> np.ndarray:
     diag = np.sqrt(np.maximum(np.diag(X), tol))
     X = X / np.outer(diag, diag)
     np.fill_diagonal(X, 1.0)
-    return X
+    return cast(np.ndarray, X)
 
 
 def project_correlation_matrix(
@@ -458,7 +458,8 @@ def _correlation_adjustment_records(
     for pair in correlations:
         if pair.metric_a not in idx or pair.metric_b not in idx:
             continue
-        key = tuple(sorted((pair.metric_a, pair.metric_b)))
+        a, b = sorted((pair.metric_a, pair.metric_b))
+        key: tuple[str, str] = (a, b)
         if key in seen:
             continue
         seen.add(key)
@@ -822,7 +823,7 @@ def estimate_trajectory_covariance(
     np.fill_diagonal(accumulator, 1.0)
     # Numerical hygiene — Pearson within ±1 by definition, but float-mean
     # accumulation can drift by an ULP.
-    accumulator = np.clip(accumulator, -1.0, 1.0)
+    accumulator = cast(np.ndarray, np.clip(accumulator, -1.0, 1.0))
     np.fill_diagonal(accumulator, 1.0)
     return accumulator
 
@@ -885,7 +886,8 @@ def compensate_correlation_matrix(
     for pair in correlations:
         if pair.metric_a not in idx or pair.metric_b not in idx:
             continue
-        key = tuple(sorted((pair.metric_a, pair.metric_b)))
+        a, b = sorted((pair.metric_a, pair.metric_b))
+        key: tuple[str, str] = (a, b)
         if key in seen:
             continue
         seen.add(key)
@@ -1178,6 +1180,7 @@ def generate_metrics_for_period(
             independent[em.name] = None  # placeholder; populated below
 
     if correlations_active:
+        assert correlations is not None  # correlations_active = bool(correlations)
         correlated = apply_correlations(
             independent,
             centers,
@@ -1370,11 +1373,11 @@ def _draw_correlated_gaussians_batch(
     family-grouped transforms use these correlated Gaussians as input.
     """
     z = rng.standard_normal((n, M))
-    return z @ cholesky_L.T
+    return cast(np.ndarray, z @ cholesky_L.T)
 
 
 def _apply_correlations_batch(
-    independent: np.ndarray,
+    independent: Optional[np.ndarray],
     centers: np.ndarray,
     metrics: list[Metric],
     correlations: list[CorrelationPair],
@@ -1661,7 +1664,7 @@ def generate_archetype_batch(
                 centers[:, j] = _position_to_center_batch(eff_pos[:, j], em)
             seasonal_t = float(seasonal_factors[t])
             mult = 1.0 + seasonal_t * em_sens[None, :] * ent_sens[:, None]
-            centers = centers * mult
+            centers = cast(np.ndarray, centers * mult)
             # Clamp to value_range column-by-column (each metric may
             # have different bounds).
             for j, em in enumerate(effective):

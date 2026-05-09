@@ -31,7 +31,7 @@ import sys
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -403,11 +403,11 @@ def parse_source(source: str) -> ParsedSource:
         ("derived:", ("field", DerivedSource)),
     ):
         if source.startswith(prefix):
-            value = source[len(prefix) :]
-            if not value:
+            payload = source[len(prefix) :]
+            if not payload:
                 raise ValueError(f"source {source!r}: prefix {prefix!r} requires a value")
             kw, ctor = ctor_kw
-            return ctor(**{kw: value})
+            return ctor(**{kw: payload})
 
     if source.startswith("threshold:"):
         parts = source.split(":")
@@ -436,7 +436,7 @@ def parse_source(source: str) -> ParsedSource:
             ) from e
         return ThresholdSource(
             metric=metric,
-            direction=direction,
+            direction=cast(Literal["above", "below"], direction),
             value=value,
             consecutive=consecutive,
         )
@@ -1154,7 +1154,7 @@ class Column(_Frozen):
                 f"{self.source!r}; pool sampling replaces the column value, "
                 f"so set source to 'pool:<name>' or remove value_pool"
             )
-        if has_pool_cfg:
+        if self.value_pool is not None:
             for entity_name, values in self.value_pool.items():
                 if not entity_name:
                     raise ValueError(

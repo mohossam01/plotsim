@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -188,7 +188,7 @@ def compute_trajectory(
 
     # evaluate_segment already clamps, but a belt-and-braces clip keeps the
     # output contract explicit at the module boundary.
-    return np.clip(out, 0.0, 1.0)
+    return cast(np.ndarray, np.clip(out, 0.0, 1.0))
 
 
 def compute_all_trajectories(

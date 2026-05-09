@@ -26,7 +26,7 @@ ran inside ``UserInput.model_validate``.
 from __future__ import annotations
 
 import secrets
-from typing import Optional
+from typing import Optional, cast
 
 from plotsim.config import (
     Archetype,
@@ -36,9 +36,12 @@ from plotsim.config import (
     CausalLag,
     Column,
     CorrelationPair,
+    Distribution,
     Domain,
+    Dtype,
     Entity,
     EntityFeaturesConfig,
+    Grain,
     HoldoutConfig,
     Metric,
     MetricOverride,
@@ -277,7 +280,7 @@ def _metric_from_input(m: MetricInput) -> Metric:
     )
 
 
-def _pick_distribution(m: MetricInput) -> tuple[str, dict[str, float]]:
+def _pick_distribution(m: MetricInput) -> tuple[Distribution, dict[str, float]]:
     """Pick distribution + params for a metric, applying range-conditional
     rules for ``amount`` and ``index``.
     """
@@ -292,7 +295,7 @@ def _pick_distribution(m: MetricInput) -> tuple[str, dict[str, float]]:
         lo, hi = m.range
         mu = (lo + hi) / 2.0
         sigma = (hi - lo) * INDEX_SIGMA_FRACTION
-        return INDEX_DISTRIBUTION, {"mu": mu, "sigma": sigma}
+        return cast(Distribution, INDEX_DISTRIBUTION), {"mu": mu, "sigma": sigma}
 
     if m.type == "amount":
         assert m.range is not None
@@ -443,6 +446,7 @@ def _build_correlations(user_input: UserInput) -> list[CorrelationPair]:
         if c.coefficient is not None:
             coef = c.coefficient
         else:
+            assert c.relationship is not None  # input model: exactly one of coef/relationship
             coef = RELATIONSHIP_RECIPES[c.relationship]
         if coef == 0.0:
             continue
@@ -655,7 +659,7 @@ def _translate_dim(
     )
 
 
-def _dim_grain(d: DimInput) -> str:
+def _dim_grain(d: DimInput) -> Grain:
     if d.reference:
         return "per_reference"
     if d.per == "period":
@@ -865,7 +869,7 @@ def _translate_column(
     # ─── metric.<name> ──────────────────────────────────────────────────
     if t.startswith("metric."):
         metric_name = t.split(".", 1)[1]
-        dtype = "int"
+        dtype: Dtype = "int"
         if metric_by_name is not None:
             metric = metric_by_name.get(metric_name)
             if metric is not None:
@@ -877,10 +881,10 @@ def _translate_column(
     # ─── faker.<kind> ───────────────────────────────────────────────────
     if t.startswith("faker."):
         kind = t.split(".", 1)[1]
-        dtype = "int" if kind == "year" else "string"
+        faker_dtype: Dtype = "int" if kind == "year" else "string"
         return Column(
             name=col.name,
-            dtype=dtype,
+            dtype=faker_dtype,
             source=f"generated:faker.{kind}",
         )
 
@@ -888,12 +892,13 @@ def _translate_column(
     if t.startswith("static."):
         value = t.split(".", 1)[1]
         # Numeric static value → float; everything else → string.
+        static_dtype: Dtype
         try:
             float(value)
-            dtype = "float"
+            static_dtype = "float"
         except ValueError:
-            dtype = "string"
-        return Column(name=col.name, dtype=dtype, source=f"static:{value}")
+            static_dtype = "string"
+        return Column(name=col.name, dtype=static_dtype, source=f"static:{value}")
 
     # ─── pool.{attr} → pool:{attr} + value_pool keyed by entity ─────────
     if t.startswith("pool."):
@@ -958,7 +963,7 @@ def _translate_column(
             )
         return Column(
             name=col.name,
-            dtype=t,
+            dtype=cast(Dtype, t),
             source="generated:date_key",
         )
 
@@ -1098,11 +1103,11 @@ def _auto_generate_schema(
     ]
     for m in user_input.metrics:
         engine_metric = metric_by_name[m.name]
-        dtype = "int" if engine_metric.distribution == "poisson" else "float"
+        m_dtype: Dtype = "int" if engine_metric.distribution == "poisson" else "float"
         fact_columns.append(
             Column(
                 name=m.name,
-                dtype=dtype,
+                dtype=m_dtype,
                 source=f"metric:{m.name}",
             )
         )
@@ -1220,32 +1225,33 @@ def _translate_bridge_column(
     if t.startswith("metric."):
         metric_name = t.split(".", 1)[1]
         metric = metric_by_name.get(metric_name)
-        dtype = "float"
+        metric_dtype: Dtype = "float"
         if metric is not None and metric.distribution == "poisson":
-            dtype = "int"
+            metric_dtype = "int"
         return BridgeMetric(
             name=col.name,
-            dtype=dtype,
+            dtype=metric_dtype,
             source=f"metric:{metric_name}",
         )
     if t.startswith("static."):
         value = t.split(".", 1)[1]
+        static_dtype: Dtype
         try:
             float(value)
-            dtype = "float"
+            static_dtype = "float"
         except ValueError:
-            dtype = "string"
+            static_dtype = "string"
         return BridgeMetric(
             name=col.name,
-            dtype=dtype,
+            dtype=static_dtype,
             source=f"static:{value}",
         )
     if t.startswith("faker."):
         kind = t.split(".", 1)[1]
-        dtype = "int" if kind == "year" else "string"
+        faker_dtype: Dtype = "int" if kind == "year" else "string"
         return BridgeMetric(
             name=col.name,
-            dtype=dtype,
+            dtype=faker_dtype,
             source=f"generated:faker.{kind}",
         )
     raise ValueError(

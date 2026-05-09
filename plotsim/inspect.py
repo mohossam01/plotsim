@@ -44,7 +44,8 @@ Future enhancement (deferred):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from collections.abc import Mapping
+from typing import Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -456,6 +457,8 @@ def trace_metric_cell(
         metric_name,
     )
 
+    assert target_independent_draw is not None  # set above for the target metric
+    assert target_correlated_draw is not None
     return TraceResult(
         entity_name=entity_name,
         archetype_name=archetype_name,
@@ -537,7 +540,7 @@ def _hoist_cholesky(config: PlotsimConfig) -> Optional[np.ndarray]:
 def _detect_noise_branches(
     value: float,
     noise,
-    rng_state_snapshot: dict,
+    rng_state_snapshot: Mapping[str, Any],
 ) -> tuple[bool, bool]:
     """Replay apply_noise's RNG draws to detect which branches fired.
 

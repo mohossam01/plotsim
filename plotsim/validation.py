@@ -1999,10 +1999,10 @@ def validate_correlations(config: PlotsimConfig) -> list[str]:
         seen_pairs[pair] = corr.coefficient
 
     for corr in config.correlations:
-        for m in (corr.metric_a, corr.metric_b):
-            if m not in metric_names:
+        for endpoint in (corr.metric_a, corr.metric_b):
+            if endpoint not in metric_names:
                 errors.append(
-                    f"correlation references unknown metric {m!r}; "
+                    f"correlation references unknown metric {endpoint!r}; "
                     f"known: {sorted(metric_names)}"
                 )
         # Flag explicit zero-coefficient entries (advisory warning).
