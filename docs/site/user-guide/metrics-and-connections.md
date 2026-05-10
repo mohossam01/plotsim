@@ -8,7 +8,7 @@
 
 ## Metric anatomy
 
-A metric declaration has up to seven fields. Two are required:
+A metric declaration has up to nine fields. Two are required:
 
 ```yaml
 metrics:
@@ -17,7 +17,7 @@ metrics:
     polarity: positive
 ```
 
-The other five are optional:
+The other seven are optional:
 
 | Field | Purpose |
 |---|---|
@@ -26,6 +26,8 @@ The other five are optional:
 | `follows` | Name of another metric this one trails (causal lag) |
 | `delay` | Lag in periods (must pair with `follows`) |
 | `seasonal_sensitivity` | How strongly this metric responds to seasonality |
+| `distribution` | Pin the distribution family explicitly (overrides auto-pick) |
+| `distribution_params` | Per-family parameters that go with `distribution` |
 
 ---
 
@@ -91,25 +93,74 @@ Use when the *average* matters more than the tail.
 - { name: nps, type: index, polarity: positive, range: [-100, 100] }
 ```
 
-### `amount` with weibull (engine-direct)
+---
 
-For lifetime / time-to-event style metrics — session duration,
-days-to-renewal, contract length — set the engine-direct
-`distribution: weibull` on a `Metric`. The shape parameter controls
-the tail: `shape < 1` produces an aging-out distribution
-(many short, few long), `shape = 1` is exponential, `shape > 1` skews
-toward the mean. The trajectory position scales the realized value, so
-trajectory and shape compose in the usual way. Not exposed in the
-builder DSL — set it on `cfg.metrics[i]` after `create_from_yaml(...)`:
+## Pinning the distribution explicitly
+
+When the auto-pick from `type` + `range` doesn't match the signal you
+have in mind — e.g. you want a Weibull tail for p99 latency, or a
+narrower Beta for an error rate — declare `distribution` and
+`distribution_params` directly. The interpreter short-circuits the
+auto-pick when both are set.
+
+```yaml
+metrics:
+  - name: p99_latency_ms
+    type: amount
+    polarity: negative
+    range: [50, 5000]
+    distribution: weibull
+    distribution_params:
+      shape: 1.5
+```
+
+### The six families
+
+| Family | Required params | Optional | Use for |
+|---|---|---|---|
+| `lognorm` | `s` | — | Heavy right tail — revenue, request size |
+| `gamma` | `shape` | — | Right-skewed central tendency — p50 latency, wait time |
+| `weibull` | `shape` | — | Lifetime / time-to-failure — p99 latency, contract length (`shape > 1` mode away from 0; `shape < 1` aging-out) |
+| `beta` | `alpha`, `beta` | `scale` | Bounded rate or proportion with custom skew — error rate, utilization |
+| `normal` | `sigma` | — | Bounded indicator centered on the trajectory position — CPU usage, NPS |
+| `poisson` | *(none — λ is the metric center)* | — | Discrete event counts |
+
+### Precedence
+
+When choosing what shape a metric gets, the interpreter resolves in
+this order:
+
+1. **Explicit** — `distribution` + `distribution_params` from the metric
+   declaration. Wins over everything else.
+2. **Range-inferred** — for `amount`, lognorm vs beta picked from the
+   declared `range`; for `index`, normal centered on the midpoint.
+3. **Type default** — `score` → beta(2, 5), `count` → poisson.
+
+Validation rules:
+
+- Unknown family name (e.g. `exponential`) is rejected at build time
+  with the list of valid families.
+- Missing required params for the family is rejected, naming the keys.
+- Extra params the family doesn't accept are rejected, naming the
+  accepted set.
+- `distribution_params` set without `distribution` is rejected — pick a
+  family or remove both.
+- `poisson` accepts no params; `distribution_params` may be omitted.
 
 ```python
-cfg = create_from_yaml("config.yaml")
-cfg.metrics[0] = cfg.metrics[0].model_copy(update={
-    "distribution": "weibull",
-    "params": {"shape": 1.5},
-    "value_range": {"min": 1.0, "max": 365.0},
-})
+# Python form
+create(metrics=[{
+    "name": "latency",
+    "type": "amount",
+    "polarity": "negative",
+    "range": [10, 800],
+    "distribution": "gamma",
+    "distribution_params": {"shape": 4.0},
+}])
 ```
+
+The bundled `latency_skew` template (`plotsim template latency_skew`)
+showcases all six families on a single config.
 
 ---
 

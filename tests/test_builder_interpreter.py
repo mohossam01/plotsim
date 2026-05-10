@@ -207,6 +207,209 @@ def test_amount_with_low_ratio_picks_beta():
     assert m.params == AMOUNT_BETA_PARAMS
 
 
+# ── 0.6-M6: explicit per-metric distribution choice ────────────────────────
+
+
+def test_explicit_distribution_passes_through_to_metric():
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {
+                "name": "latency",
+                "type": "amount",
+                "polarity": "negative",
+                "range": [10, 800],
+                "distribution": "gamma",
+                "distribution_params": {"shape": 4.0},
+            },
+        ]
+    )
+    cfg = interpret(ui)
+    m = next(m for m in cfg.metrics if m.name == "latency")
+    assert m.distribution == "gamma"
+    assert m.params == {"shape": 4.0}
+
+
+def test_explicit_distribution_short_circuits_amount_auto_pick():
+    """``amount`` with ratio=500 normally picks lognorm; explicit weibull wins."""
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {
+                "name": "mrr",
+                "type": "amount",
+                "polarity": "positive",
+                "range": [100, 50000],
+                "distribution": "weibull",
+                "distribution_params": {"shape": 1.5},
+            },
+        ]
+    )
+    cfg = interpret(ui)
+    m = next(m for m in cfg.metrics if m.name == "mrr")
+    assert m.distribution == "weibull"
+    assert m.params == {"shape": 1.5}
+
+
+def test_explicit_distribution_short_circuits_score_default():
+    """``score`` defaults to beta(2, 5); explicit normal wins."""
+    ui = _minimal_input(
+        metrics=[
+            {
+                "name": "engagement",
+                "type": "score",
+                "polarity": "positive",
+                "distribution": "normal",
+                "distribution_params": {"sigma": 0.1},
+            },
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
+        ]
+    )
+    cfg = interpret(ui)
+    m = next(m for m in cfg.metrics if m.name == "engagement")
+    assert m.distribution == "normal"
+    assert m.params == {"sigma": 0.1}
+    # Range is still inferred from type=score → [0, 1]
+    assert m.value_range is not None
+    assert m.value_range.min == 0.0
+    assert m.value_range.max == 1.0
+
+
+def test_explicit_poisson_accepts_no_params():
+    """Poisson's lambda is the metric's center — no params dict needed."""
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {
+                "name": "tickets",
+                "type": "count",
+                "polarity": "negative",
+                "distribution": "poisson",
+            },
+        ]
+    )
+    cfg = interpret(ui)
+    m = next(m for m in cfg.metrics if m.name == "tickets")
+    assert m.distribution == "poisson"
+    assert m.params == {}
+
+
+def test_omitting_distribution_preserves_auto_pick():
+    """No explicit distribution → existing auto-pick behaviour, byte-identical."""
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {"name": "mrr", "type": "amount", "polarity": "positive", "range": [100, 50000]},
+        ]
+    )
+    cfg = interpret(ui)
+    engagement = next(m for m in cfg.metrics if m.name == "engagement")
+    mrr = next(m for m in cfg.metrics if m.name == "mrr")
+    assert engagement.distribution == "beta"
+    assert engagement.params == METRIC_RECIPES["score"]["params"]
+    assert mrr.distribution == "lognorm"
+
+
+def test_unknown_distribution_name_raises_with_family_list():
+    with pytest.raises(ValueError, match=r"lognorm.*gamma|gamma.*lognorm"):
+        _minimal_input(
+            metrics=[
+                {"name": "engagement", "type": "score", "polarity": "positive"},
+                {
+                    "name": "x",
+                    "type": "score",
+                    "polarity": "positive",
+                    "distribution": "exponential",  # not in the registry
+                },
+            ]
+        )
+
+
+def test_missing_required_param_for_family_raises():
+    with pytest.raises(ValueError, match=r"requires params \['shape'\].*missing \['shape'\]"):
+        _minimal_input(
+            metrics=[
+                {"name": "engagement", "type": "score", "polarity": "positive"},
+                {
+                    "name": "x",
+                    "type": "amount",
+                    "polarity": "positive",
+                    "range": [10, 100],
+                    "distribution": "gamma",
+                    "distribution_params": {},
+                },
+            ]
+        )
+
+
+def test_extra_param_for_family_raises_with_accepted_keys():
+    with pytest.raises(ValueError, match=r"does not accept params \['rate'\].*Accepted: \['s'\]"):
+        _minimal_input(
+            metrics=[
+                {"name": "engagement", "type": "score", "polarity": "positive"},
+                {
+                    "name": "x",
+                    "type": "amount",
+                    "polarity": "positive",
+                    "range": [10, 100],
+                    "distribution": "lognorm",
+                    "distribution_params": {"s": 0.5, "rate": 0.3},
+                },
+            ]
+        )
+
+
+def test_poisson_rejects_non_empty_params():
+    with pytest.raises(ValueError, match=r"does not accept params \['lambda'\]"):
+        _minimal_input(
+            metrics=[
+                {"name": "engagement", "type": "score", "polarity": "positive"},
+                {
+                    "name": "tickets",
+                    "type": "count",
+                    "polarity": "negative",
+                    "distribution": "poisson",
+                    "distribution_params": {"lambda": 5.0},
+                },
+            ]
+        )
+
+
+def test_orphan_distribution_params_without_distribution_raises():
+    with pytest.raises(ValueError, match=r"`distribution_params` is set but `distribution` is not"):
+        _minimal_input(
+            metrics=[
+                {"name": "engagement", "type": "score", "polarity": "positive"},
+                {
+                    "name": "x",
+                    "type": "score",
+                    "polarity": "positive",
+                    "distribution_params": {"s": 0.5},
+                },
+            ]
+        )
+
+
+def test_beta_optional_scale_param_accepted():
+    """beta accepts an optional ``scale`` alongside required alpha/beta."""
+    ui = _minimal_input(
+        metrics=[
+            {"name": "engagement", "type": "score", "polarity": "positive"},
+            {
+                "name": "rate",
+                "type": "score",
+                "polarity": "negative",
+                "distribution": "beta",
+                "distribution_params": {"alpha": 2.0, "beta": 25.0, "scale": 1.0},
+            },
+        ]
+    )
+    cfg = interpret(ui)
+    m = next(m for m in cfg.metrics if m.name == "rate")
+    assert m.distribution == "beta"
+    assert m.params == {"alpha": 2.0, "beta": 25.0, "scale": 1.0}
+
+
 # ── Causal lag threading ────────────────────────────────────────────────────
 
 

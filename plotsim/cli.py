@@ -405,6 +405,7 @@ def cmd_list_templates(_args: argparse.Namespace) -> int:
         "education": "Builder shape: University course enrollment",
         "retail": "Builder shape: Retail transactions / loyalty",
         "marketing": "Builder shape: Marketing campaigns / attribution",
+        "lakehouse": "Builder shape: lakehouse-scale daily device telemetry",
     }
 
     all_names = [n for n, _ in engine_templates] + [n for n, _ in builder_templates]

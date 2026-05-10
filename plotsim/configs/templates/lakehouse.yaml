@@ -1,0 +1,127 @@
+# ═══════════════════════════════════════════════════════
+#  plotsim — Lakehouse-scale device telemetry
+# ═══════════════════════════════════════════════════════
+#
+#  Showcase template for the M7 large-scale generation
+#  surface. Demonstrates the engine's vectorized lane on a
+#  daily-grain fact table that lakehouse / data-warehouse
+#  exercises (partitioning, query optimization, ELT
+#  performance) need to hit realistic row counts.
+#
+#  Default shape: 1,500 devices × ~1,004 daily periods ≈
+#  1.5M fact-table cells — under the 2M soft budget so
+#  ``plotsim run`` succeeds without flags. Stderr will print
+#  the >500k advisory, which is the intended signal: this
+#  is a large-by-design template.
+#
+#  ── Scaling up to 10M+ cells ─────────────────────────────
+#
+#  To raise the soft cap from the YAML itself (no env vars,
+#  no CLI flags), uncomment the ``output.cell_budget`` block
+#  below and bump the segment counts and/or window. Pair
+#  with ``output.format: parquet`` for memory bounds and
+#  ``generation_mode: auto`` for the vectorized lane.
+#
+#    output:
+#      directory: out
+#      format: parquet
+#      cell_budget: 15000000
+#
+#  ``cell_budget: 0`` disables the soft gate entirely (the
+#  50M-cell hard ceiling still applies).
+
+about: "Lakehouse-scale device telemetry"
+unit: device
+
+# Pin determinism — same seed in, byte-identical CSVs out.
+seed: 8675309
+
+window:
+  start: 2022-01
+  end: 2024-09
+  every: daily
+
+
+# ── what we measure ─────────────────────────────────────
+#
+#  Five telemetry metrics — bounded scores plus an
+#  unbounded count — chosen to populate a realistic
+#  fct_telemetry fact at daily grain. Ranges and
+#  distributions are pinned for reproducibility.
+
+metrics:
+
+  - name: cpu_load
+    label: CPU load (0-1)
+    type: score
+    polarity: negative
+    distribution: beta
+    distribution_params:
+      alpha: 2.0
+      beta: 5.0
+
+  - name: memory_pressure
+    label: Memory pressure (0-1)
+    type: score
+    polarity: negative
+    distribution: beta
+    distribution_params:
+      alpha: 2.5
+      beta: 6.0
+
+  - name: disk_throughput_mb
+    label: Disk throughput (MB/s)
+    type: amount
+    polarity: positive
+    range: [1, 500]
+    distribution: lognorm
+    distribution_params:
+      s: 0.7
+
+  - name: error_rate
+    label: Per-period error rate
+    type: score
+    polarity: negative
+    distribution: beta
+    distribution_params:
+      alpha: 2.0
+      beta: 30.0
+
+  - name: packet_count
+    label: Network packets per period
+    type: count
+    polarity: positive
+    distribution: poisson
+
+
+# ── how metrics connect ─────────────────────────────────
+
+connections:
+  - cpu_load related memory_pressure
+  - error_rate driven_by cpu_load
+  - disk_throughput_mb related packet_count
+
+
+# ── who we're simulating ────────────────────────────────
+#
+#  Three fleet archetypes × 500 devices each = 1,500
+#  devices total. Each fleet exhibits a different load
+#  trajectory, mirroring the real-world mix lakehouse
+#  partitioning benchmarks tend to assume.
+
+segments:
+
+  - name: stable_fleet
+    count: 500
+    archetype: flat
+    label: "Mature production fleet — steady baseline load"
+
+  - name: scaling_fleet
+    count: 500
+    archetype: growth
+    label: "Newly-deployed fleet — load ramps over the window"
+
+  - name: degrading_fleet
+    count: 500
+    archetype: decline > spike_then_crash @ 600
+    label: "Aging hardware — load fades, then a final failure spike"

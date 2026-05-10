@@ -157,6 +157,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         output_cfg = OutputConfig(
             format=user_input.output.format,
             directory=user_input.output.directory,
+            cell_budget=user_input.output.cell_budget,
         )
     else:
         output_cfg = OutputConfig(format="csv", directory="output")
@@ -282,9 +283,21 @@ def _metric_from_input(m: MetricInput) -> Metric:
 
 
 def _pick_distribution(m: MetricInput) -> tuple[Distribution, dict[str, float]]:
-    """Pick distribution + params for a metric, applying range-conditional
-    rules for ``amount`` and ``index``.
+    """Pick distribution + params for a metric.
+
+    Precedence (mission 0.6-M6):
+
+      1. **Explicit** — ``MetricInput.distribution`` + ``distribution_params``.
+         When set, bypass auto-pick entirely. Per-family param validation
+         already ran on ``MetricInput`` construction.
+      2. **Range-inferred** — ``amount`` picks lognorm vs beta from the
+         declared range; ``index`` picks normal centered on the midpoint.
+      3. **Type-default** — ``METRIC_RECIPES`` for ``score`` and ``count``.
     """
+    if m.distribution is not None:
+        params = dict(m.distribution_params) if m.distribution_params else {}
+        return m.distribution, params
+
     if m.type in METRIC_RECIPES:
         recipe = METRIC_RECIPES[m.type]
         # Cast to ``dict[str, float]`` — Metric.params is typed that way and

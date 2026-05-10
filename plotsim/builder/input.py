@@ -35,11 +35,35 @@ from pydantic import (
     model_validator,
 )
 
+from plotsim._types import Distribution
+
 from .parser import ArchetypeParseError, parse_archetype
 from .recipes import (
     VALID_BASELINE_WORDS,
     VALID_RELATIONSHIP_WORDS,
 )
+
+
+# Per-family params spec for the explicit-distribution path on
+# ``MetricInput`` (mission 0.6-M6). Keep in sync with
+# ``plotsim._distribution_registry`` — adding a family there means
+# adding its required/optional keys here so the builder layer can
+# validate the params dict before it reaches the engine.
+#
+# ``poisson`` has no parameters; the metric's center IS lambda.
+# ``beta`` accepts an optional ``scale`` (used when no value_range is
+# pinned, see ``_distribution_registry._beta_sample_*``).
+_DISTRIBUTION_REQUIRED_KEYS: dict[str, set[str]] = {
+    "lognorm": {"s"},
+    "gamma": {"shape"},
+    "poisson": set(),
+    "beta": {"alpha", "beta"},
+    "normal": {"sigma"},
+    "weibull": {"shape"},
+}
+_DISTRIBUTION_OPTIONAL_KEYS: dict[str, set[str]] = {
+    "beta": {"scale"},
+}
 
 
 # ── Window ──────────────────────────────────────────────────────────────────
@@ -79,6 +103,15 @@ class MetricInput(BaseModel):
     # inverts; ``0.0`` makes the metric immune. Translated unchanged onto
     # ``Metric.seasonal_sensitivity`` by the interpreter.
     seasonal_sensitivity: float = 1.0
+    # 0.6-M6: explicit per-metric distribution choice. When set, bypasses
+    # the interpreter's auto-pick (type/range → distribution) entirely.
+    # ``Distribution`` is a Literal of the six implemented families, so
+    # pydantic surfaces the valid name list on a typo. ``distribution_params``
+    # is validated below against ``_DISTRIBUTION_REQUIRED_KEYS`` /
+    # ``_DISTRIBUTION_OPTIONAL_KEYS`` to ensure each family gets exactly
+    # the params it can use.
+    distribution: Optional[Distribution] = None
+    distribution_params: Optional[dict[str, float]] = None
 
     @field_validator("name")
     @classmethod
@@ -106,6 +139,44 @@ class MetricInput(BaseModel):
                     f"metric {self.name!r} range [{lo}, {hi}] is invalid: "
                     f"min must be strictly less than max"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _distribution_params_match_family(self) -> "MetricInput":
+        """0.6-M6: validate ``distribution_params`` against the chosen family.
+
+        - ``distribution_params`` set without ``distribution`` is rejected
+          (orphan params have no family to belong to).
+        - When ``distribution`` is set, every key in
+          ``_DISTRIBUTION_REQUIRED_KEYS[distribution]`` must be present;
+          extra keys (not required, not optional) are rejected with a
+          message naming both required and optional keys for the family.
+        - ``poisson`` requires no params; ``distribution_params`` may be
+          omitted or an empty dict. A non-empty dict is rejected.
+        """
+        if self.distribution is None:
+            if self.distribution_params is not None:
+                raise ValueError(
+                    f"metric {self.name!r}: `distribution_params` is set "
+                    f"but `distribution` is not — pick a family or remove both"
+                )
+            return self
+        required = _DISTRIBUTION_REQUIRED_KEYS[self.distribution]
+        optional = _DISTRIBUTION_OPTIONAL_KEYS.get(self.distribution, set())
+        params = self.distribution_params or {}
+        missing = required - params.keys()
+        if missing:
+            raise ValueError(
+                f"metric {self.name!r}: distribution {self.distribution!r} "
+                f"requires params {sorted(required)}, missing {sorted(missing)}"
+            )
+        extra = params.keys() - (required | optional)
+        if extra:
+            allowed = sorted(required | optional) or ["<none>"]
+            raise ValueError(
+                f"metric {self.name!r}: distribution {self.distribution!r} "
+                f"does not accept params {sorted(extra)}. Accepted: {allowed}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -642,12 +713,21 @@ class OutputInput(BaseModel):
     ``output: parquet`` / ``output: csv`` resolves to the
     ``OutputInput(format=<word>, directory="output")`` default by
     ``_coerce_output``; pass the dict form to override the directory.
+
+    ``cell_budget`` (M7) mirrors ``OutputConfig.cell_budget`` — the
+    soft cap consumed by the load-time scale estimator. ``None``
+    falls through to ``PLOTSIM_CELL_BUDGET`` env var, then the
+    2,000,000-cell default; ``0`` disables the soft gate; positive
+    integers raise (or lower) the cap to that value. Promoting the
+    field through the builder lets ``create(output={'cell_budget':
+    N})`` override the cap without env vars.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     format: Literal["csv", "parquet"] = "csv"
     directory: str = "output"
+    cell_budget: Optional[int] = Field(default=None, ge=0)
 
 
 # Mapping from short, lower-cased preset names to the engine's

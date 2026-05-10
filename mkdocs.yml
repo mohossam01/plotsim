@@ -96,6 +96,7 @@ nav:
       - For data engineers: cookbook/data-engineering.md
       - For data scientists: cookbook/data-science.md
   - Reference:
+      - Feature catalog: feature-reference.md
       - API: api-reference.md
       - CLI: cli-reference.md
       - Config fields: config-reference.md

@@ -17,6 +17,8 @@ EXPECTED_TEMPLATES = {
     "bare_minimum",
     "education",
     "hr",
+    "lakehouse",
+    "latency_skew",
     "marketing",
     "retail",
     "saas",

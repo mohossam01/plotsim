@@ -2017,6 +2017,89 @@ def test_estimator_hard_ceiling_rejects_even_with_opt_in(monkeypatch):
         PlotsimConfig(**raw)
 
 
+# ── 0.6-M7: output.cell_budget config field ────────────────────────────────
+
+
+def test_cell_budget_config_field_overrides_default(capsys):
+    # 2,100,000 cells > default 2M but < explicit 5M field → no opt-in needed.
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    raw["output"]["cell_budget"] = 5_000_000
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Config summary" in err
+    assert "Advisory" in err
+    assert "exceeds the soft budget" not in err
+
+
+def test_cell_budget_config_field_zero_disables_soft_gate(capsys):
+    # 2,100,000 cells with the field set to 0 → soft gate disabled, no opt-in.
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    raw["output"]["cell_budget"] = 0
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Advisory" in err
+    assert "Large dataset" not in err
+    assert "exceeds the soft budget" not in err
+
+
+def test_cell_budget_config_field_lowers_cap_below_default():
+    # Field can lower the cap, not just raise it. 1.6M cells with a 1M
+    # field-budget should reject (no env var, no opt-in).
+    raw = _cells(n_entities_total=16_000, n_periods=100)
+    raw["output"]["cell_budget"] = 1_000_000
+    with pytest.raises(ValidationError, match="exceeds the soft budget of 1,000,000"):
+        PlotsimConfig(**raw)
+
+
+def test_cell_budget_config_field_takes_precedence_over_env(monkeypatch, capsys):
+    # Field=5M wins over env=1M; 2.1M cells should pass.
+    monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "1000000")
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    raw["output"]["cell_budget"] = 5_000_000
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Advisory" in err
+    assert "exceeds the soft budget" not in err
+
+
+def test_cell_budget_config_field_none_falls_through_to_env(monkeypatch, capsys):
+    # Field omitted → env var still wins. Pre-M7 behavior must be preserved.
+    monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "5000000")
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    # No raw["output"]["cell_budget"] set → field defaults to None.
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Advisory" in err
+    assert "exceeds the soft budget" not in err
+
+
+def test_cell_budget_config_field_negative_rejected_by_pydantic():
+    # ge=0 means negative integers are rejected at field validation.
+    raw = _cells(n_entities_total=10, n_periods=2)
+    raw["output"]["cell_budget"] = -1
+    with pytest.raises(ValidationError, match="cell_budget"):
+        PlotsimConfig(**raw)
+
+
+def test_cell_budget_config_field_default_is_none():
+    # Default OutputConfig (no cell_budget specified) must leave the field
+    # None so the env-var fallback path runs unchanged.
+    raw = _cells(n_entities_total=10, n_periods=2)
+    cfg = PlotsimConfig(**raw)
+    assert cfg.output.cell_budget is None
+
+
+def test_cell_budget_error_message_names_field_first():
+    # The reject message must mention output.cell_budget so users land on
+    # the YAML-only path before reading about env vars / CLI flags.
+    raw = _cells(n_entities_total=21_000, n_periods=100)
+    with pytest.raises(ValidationError) as exc:
+        PlotsimConfig(**raw)
+    msg = str(exc.value)
+    assert "output.cell_budget" in msg
+    assert "PLOTSIM_CELL_BUDGET" in msg  # env-var path still mentioned
+
+
 def test_estimator_event_upper_bound_prints_when_derivable(capsys):
     # Sample SaaS declares a proportional event with a ValueRange-bearing
     # driver; its summary line should include an event-row estimate.
