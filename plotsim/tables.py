@@ -62,11 +62,13 @@ from plotsim.config import (
     BridgeTableConfig,
     Column,
     DerivedSource,
+    Entity,
     FKSource,
     FakerSource,
     GeneratedSource,
     LagSource,
     MetricSource,
+    NarrativeSource,
     PlotsimConfig,
     PKSource,
     ProportionalSource,
@@ -832,12 +834,13 @@ def _build_per_entity_per_period_fact(
 
     # Fallback path: any column whose resolution consumes RNG at fact-build
     # time forces the scalar per-row loop so call order is preserved. No
-    # shipped template exercises this branch.
+    # shipped template exercises this branch via FakerSource alone, but the
+    # `narrative_reviews` template lands here via NarrativeSource.
     # F3 (M102): boolean MetricSource / LagSource columns no longer force the
     # scalar fallback — `_coerce_array_for_dtype` handles them correctly in
     # the vectorized path.
-    has_faker = any(isinstance(p, FakerSource) for _, p in parsed_cols)
-    if has_faker or metrics_3d is None:
+    forces_scalar = any(isinstance(p, (FakerSource, NarrativeSource)) for _, p in parsed_cols)
+    if forces_scalar or metrics_3d is None:
         return _scalar_per_entity_per_period_fact(
             tbl,
             config,
@@ -851,6 +854,7 @@ def _build_per_entity_per_period_fact(
             parent_date_pk,
             entity_cross_fks,
             fake,
+            rng,
             parsed_cols,
             trajectories_2d=trajectories_2d,
         )
@@ -885,18 +889,23 @@ def _scalar_per_entity_per_period_fact(
     parent_date_pk: str,
     entity_cross_fks: dict[str, dict[str, Any]],
     fake: Faker,
+    rng: np.random.Generator,
     parsed_cols: list[tuple[Column, Any]],
     trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
     """Row-by-row builder, kept as a fallback for fact tables that use
-    ``FakerSource`` or ``boolean``-typed metric columns (paths where
-    vectorization would reorder RNG draws or drop a Python coercion).
+    ``FakerSource`` / ``NarrativeSource`` or ``boolean``-typed metric columns
+    (paths where vectorization would reorder RNG draws or drop a Python
+    coercion).
 
-    ``trajectories_2d`` (E, P) is forwarded to ``_resolve_fact_cell``
-    one entity-row at a time so ``TextBucketSource`` columns can read the
-    position. ``_resolve_fact_cell`` only consults the array when it
-    dispatches on a ``TextBucketSource``, so non-bucket fact tables can
-    pass ``None``.
+    ``trajectories_2d`` (E, P) is forwarded to ``_resolve_fact_cell`` one
+    entity-row at a time so ``TextBucketSource`` and ``NarrativeSource``
+    columns can read the position. ``rng`` and the current ``entity`` are
+    threaded for the same reason: ``NarrativeSource`` consumes one RNG
+    draw per slot per row and looks up the entity's archetype to pick the
+    lexicon. Non-narrative / non-bucket facts can ignore the extra ctx
+    keys (``_resolve_fact_cell`` only consults what its dispatched
+    handler reads).
     """
     del parsed_cols  # not used here; scalar path walks tbl.columns directly
     rows: list[dict] = []
@@ -920,6 +929,8 @@ def _scalar_per_entity_per_period_fact(
                     cross_fks_for_entity,
                     fake,
                     trajectory_for_entity=traj_for_entity,
+                    entity=entity,
+                    rng=rng,
                 )
             rows.append(row)
     return pd.DataFrame(rows, columns=[c.name for c in tbl.columns])
@@ -1194,6 +1205,8 @@ def _resolve_fact_cell(
     cross_fks_for_entity: dict[str, Any],
     fake: Faker,
     trajectory_for_entity: Optional[np.ndarray] = None,
+    entity: Optional[Entity] = None,
+    rng: Optional[np.random.Generator] = None,
 ):
     """Scalar per_entity_per_period fact cell resolver.
 
@@ -1201,6 +1214,11 @@ def _resolve_fact_cell(
     ``PER_ENTITY_PER_PERIOD_FACT_SCALAR`` builder kind. The handler bodies
     below are unchanged from the pre-M127b inline ladder; the registry
     just collapses the ``isinstance`` chain into a dict lookup.
+
+    ``entity`` and ``rng`` are present for the ``NarrativeSource`` handler
+    only; other handlers ignore them. Callers from inside the engine pass
+    both; tests that call this directly with positional args (pre-M10) keep
+    working because the new kwargs default to ``None``.
     """
     parsed = parse_source(col.source)
     ctx = {
@@ -1215,6 +1233,8 @@ def _resolve_fact_cell(
         "cross_fks_for_entity": cross_fks_for_entity,
         "fake": fake,
         "trajectory_for_entity": trajectory_for_entity,
+        "entity": entity,
+        "rng": rng,
     }
     return COLUMN_DISPATCH.dispatch(
         BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
@@ -1299,6 +1319,86 @@ def _fact_scalar_derived(parsed: DerivedSource, ctx: dict):
     raise ValueError(f"fact column {col.name!r} derived field {parsed.field!r} not supported")
 
 
+def _fact_scalar_narrative(parsed: NarrativeSource, ctx: dict):
+    """Build one trajectory- and archetype-driven text cell.
+
+    Resolution mirrors ``_fact_scalar_text_bucket`` for the band index,
+    then layers per-slot phrase sampling on top:
+
+      1. Read trajectory position ``p`` for this (entity, period).
+      2. Compute band index via ``min(int(p * N), N - 1)`` so ``p == 1.0``
+         lands in the last band.
+      3. Look up the per-archetype lexicon — the lexicons dict's keys are
+         validated at config-load to cover every assigned archetype, so
+         a missing key here would be an internal wiring bug.
+      4. For each ``{slot}`` placeholder in template scan order, draw one
+         phrase index uniformly from the band's pool via the seeded RNG.
+      5. ``template.format(**slot_values)`` → final cell.
+
+    RNG-byte-parity: the per-slot draws use ``rng.integers(0, len(pool))``
+    which advances the seeded engine RNG by one draw per slot per row.
+    The fact builder iterates ``config.entities`` × ``range(n_periods)``
+    in entity-major order; same-seed runs draw in the same order →
+    byte-identical text columns.
+    """
+    # ``parsed.key`` is a marker key only; the lexicon + template live on
+    # ``Column.narrative`` (paired field, validated at load).
+    del parsed
+    col = ctx["col"]
+    cfg = col.narrative
+    if cfg is None:
+        # ``Column._narrative_pairing`` already rejects this combination at
+        # config load; reaching the dispatcher with a missing config is an
+        # internal wiring bug.
+        raise ValueError(
+            f"fact column {col.name!r} declares narrative source "
+            f"{col.source!r} but Column.narrative is None; this is an "
+            f"internal wiring bug, not a config error"
+        )
+    trajectory_for_entity = ctx["trajectory_for_entity"]
+    if trajectory_for_entity is None:
+        raise ValueError(
+            f"fact column {col.name!r} declares narrative source "
+            f"{col.source!r} but trajectory_for_entity was not threaded "
+            f"into the scalar fact builder; this is an internal wiring "
+            f"bug, not a config error"
+        )
+    entity = ctx["entity"]
+    rng = ctx["rng"]
+    if entity is None or rng is None:
+        raise ValueError(
+            f"fact column {col.name!r} narrative source needs both "
+            f"`entity` and `rng` in ctx (got entity={entity!r}, "
+            f"rng={'set' if rng is not None else 'None'}); this is an "
+            f"internal wiring bug, not a config error"
+        )
+    archetype_lexicon = cfg.lexicons.get(entity.archetype)
+    if archetype_lexicon is None:
+        raise ValueError(
+            f"fact column {col.name!r} narrative lexicon has no entry "
+            f"for archetype {entity.archetype!r}; cross-config validator "
+            f"`validate_narrative_columns` should have caught this at "
+            f"load time — this is an internal wiring bug"
+        )
+
+    position = float(trajectory_for_entity[ctx["period_idx"]])
+    n_bands = len(cfg.bands)
+    band_idx = min(int(position * n_bands), n_bands - 1)
+    band_idx = max(band_idx, 0)
+    band_name = cfg.bands[band_idx]
+
+    slot_values: dict[str, str] = {}
+    for slot_name in cfg.template_slots():
+        if slot_name in slot_values:
+            # Duplicate placeholders are rejected at config load; defensive
+            # skip keeps the loop O(unique slots) rather than O(template length).
+            continue
+        phrase_pool = archetype_lexicon[slot_name][band_name]
+        choice_idx = int(rng.integers(0, len(phrase_pool)))
+        slot_values[slot_name] = phrase_pool[choice_idx]
+    return cfg.template.format(**slot_values)
+
+
 def _fact_scalar_text_bucket(parsed: TextBucketSource, ctx: dict):
     # M105: scalar-fallback bucket lookup. Same index arithmetic as the
     # vectorized branch — ``min(int(p * N), N - 1)`` so p == 1.0 lands
@@ -1374,6 +1474,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
     TextBucketSource,
     _fact_scalar_text_bucket,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    NarrativeSource,
+    _fact_scalar_narrative,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,

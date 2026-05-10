@@ -229,7 +229,9 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
 - **Faker text is non-semantic.** `generated:faker.sentence` and
   similar are independent draws — no access to entity, archetype, or
   trajectory position. Text-classification / sentiment lessons score
-  to chance. (Tracked: narrative-text-source mission.)
+  to chance. For trajectory- and archetype-driven text on fact tables,
+  use the `narrative` column type instead — see
+  [Narrative text source](./user-guide/narrative-source.md).
 - **Single source per config.** No multi-system overlap, no CDC change
   log on facts (SCD2 covers dim CDC only), no schema-evolution
   emission. (Tracked: multi-source mode mission.)

@@ -80,6 +80,7 @@ nav:
       - Schema guide: user-guide/schema-guide.md
       - Geo hierarchy: user-guide/geo-hierarchy.md
       - CDC fact-side: user-guide/cdc-facts.md
+      - Narrative text: user-guide/narrative-source.md
       - Output formats: user-guide/output-formats.md
   - Tutorials:
       - Getting started: tutorial-notebooks/getting_started.ipynb

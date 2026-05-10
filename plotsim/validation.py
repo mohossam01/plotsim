@@ -42,6 +42,7 @@ from plotsim.config import (
     GeneratedSource,
     LagSource,
     MetricSource,
+    NarrativeSource,
     PKSource,
     PlotsimConfig,
     PoolSource,
@@ -473,6 +474,84 @@ def validate_holdout_config(config: PlotsimConfig) -> list[str]:
 
     if config.quality.quality_issues:
         errors.append("holdout cannot be combined with quality_issues in this version")
+
+    return errors
+
+
+# --- Pre-generation: NarrativeSource cross-config gates ---------------------
+
+
+def validate_narrative_columns(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for ``NarrativeSource`` columns.
+
+    Mirrors ``validate_value_pool_coverage`` and the other ``validate_*``
+    pure-config gates: no DataFrame inputs, called from a Pydantic
+    ``model_validator`` on ``PlotsimConfig`` so a misconfigured YAML
+    fails at load instead of mid-generation.
+
+    Gates (in order):
+
+      1. The owning table must be ``type == "fact"`` with grain
+         ``per_entity_per_period``. Dim tables are static and have no
+         trajectory axis; per_period facts have no entity axis to look
+         up an archetype against; event tables aren't wired for
+         per-row trajectory threading. M10 ships fact-only.
+      2. Every archetype name in ``narrative.lexicons`` must resolve to
+         a declared archetype in ``config.archetypes``. Stale or
+         misspelled archetype names would silently produce KeyErrors at
+         generation time; surface them at load with the candidate set.
+      3. Every entity assigned to this fact table (i.e. every
+         ``Entity.archetype`` value, since fct rows are entity-major)
+         must have a lexicon. Missing lexicons → the cell builder has
+         no phrase pool for that entity-row and would raise mid-build.
+
+    Returns an empty list when no column declares a ``narrative:``
+    source or when every gate is satisfied.
+    """
+    errors: list[str] = []
+    archetype_names = {a.name for a in config.archetypes}
+    entity_archetypes = {e.archetype for e in config.entities}
+    fact_per_entity_per_period = {
+        t.name for t in config.tables if t.type == "fact" and t.grain == "per_entity_per_period"
+    }
+
+    for tbl in config.tables:
+        for col in tbl.columns:
+            parsed = parse_source(col.source)
+            if not isinstance(parsed, NarrativeSource):
+                continue
+            if tbl.name not in fact_per_entity_per_period:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} declares a "
+                    f"'narrative:' source but the table is not a "
+                    f"per_entity_per_period fact (type={tbl.type!r}, "
+                    f"grain={tbl.grain!r}); narrative sources are only "
+                    f"supported on per_entity_per_period fact tables in "
+                    f"this version"
+                )
+                continue
+            if col.narrative is None:
+                # _narrative_pairing on Column already rejects this; the
+                # guard keeps this cross-ref pass independent of column
+                # validator ordering.
+                continue
+            lexicon_archetypes = set(col.narrative.lexicons.keys())
+            unknown = sorted(lexicon_archetypes - archetype_names)
+            if unknown:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} narrative "
+                    f"lexicons declare unknown archetypes {unknown}; "
+                    f"declared archetypes: {sorted(archetype_names)}"
+                )
+            missing = sorted(entity_archetypes - lexicon_archetypes)
+            if missing:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} narrative "
+                    f"lexicons are missing entries for archetypes "
+                    f"{missing}; every archetype assigned to an entity "
+                    f"must have a lexicon (assigned archetypes: "
+                    f"{sorted(entity_archetypes)})"
+                )
 
     return errors
 
@@ -2027,21 +2106,24 @@ def validate_table_schema(config: PlotsimConfig) -> list[str]:
                         f"{parsed.metric!r}; known: {sorted(metric_names)}"
                     )
             # Reject ``dtype: boolean`` on MetricSource / LagSource /
-            # TextBucketSource columns. ``bool(continuous_metric_value)``
-            # is near-constant True for any positive-skewed distribution
-            # (poisson with λ > 0, lognorm, gamma, weibull), and
-            # ``bool("delighted")`` is always True for text-bucket
-            # cells. ThresholdSource produces booleans by design and is
+            # TextBucketSource / NarrativeSource columns.
+            # ``bool(continuous_metric_value)`` is near-constant True for
+            # any positive-skewed distribution (poisson with λ > 0,
+            # lognorm, gamma, weibull), and ``bool("any text")`` is
+            # always True for text-bucket / narrative cells.
+            # ThresholdSource produces booleans by design and is
             # correctly typed ``dtype: boolean``.
             if col.dtype == "boolean" and isinstance(
-                parsed, (MetricSource, LagSource, TextBucketSource)
+                parsed, (MetricSource, LagSource, TextBucketSource, NarrativeSource)
             ):
                 if isinstance(parsed, MetricSource):
                     source_kind = "metric"
                 elif isinstance(parsed, LagSource):
                     source_kind = "lag"
-                else:
+                elif isinstance(parsed, TextBucketSource):
                     source_kind = "text-bucket"
+                else:
+                    source_kind = "narrative"
                 errors.append(
                     f"table {tbl.name!r} column {col.name!r} declares "
                     f"dtype: boolean with {source_kind}-source "

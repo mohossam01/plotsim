@@ -23,6 +23,7 @@ EXPECTED_TEMPLATES = {
     "lakehouse",
     "latency_skew",
     "marketing",
+    "narrative_reviews",
     "retail",
     "saas",
 }

@@ -36,6 +36,7 @@ Some types take additional fields (`labels` for `bucket`, `tracks` /
 | `timestamp` | — | — | yes | — |
 | `flag` | — | — | yes (threshold trigger only) | — |
 | `bucket` | yes | yes | yes | — |
+| `narrative` | — | yes (per_entity_per_period only) | — | — |
 | `scd` | yes (per-entity dim only) | — | — | — |
 | `date` / `int` / `string` / `float` | yes (`dim_date` only) | — | — | — |
 
@@ -141,6 +142,45 @@ for everything else. `geo.<field>` is dim-only; on facts and
 events the engine raises `unsupported generated provider`. See
 [Geo hierarchy](./user-guide/geo-hierarchy.md) for the underlying
 dataset, determinism, and the bundled `geo_retail` template.
+
+---
+
+## `narrative`
+
+Trajectory- and archetype-driven sentence text on a fact column.
+Each row's text is built by sampling per-slot phrases from a
+per-archetype lexicon, banded by the row's trajectory position.
+
+```yaml
+- name: review_text
+  type: narrative
+  template: "{opener} {object}. {comment}"
+  lexicons:
+    promoters:
+      opener:
+        low:  ["I tried"]
+        mid:  ["I am using"]
+        high: ["I love"]
+      object:
+        low:  ["the app"]
+        mid:  ["this product"]
+        high: ["this product"]
+      comment:
+        low:  ["Decent start."]
+        mid:  ["Glad we picked it."]
+        high: ["Highly recommend."]
+    detractors:
+      # ... one entry per assigned segment ...
+```
+
+Output dtype is `string`. Lexicon archetype keys must match the
+**segment names** (which equal the engine archetype names in the
+builder API). `narrative` is fact-only and per_entity_per_period;
+the cell builder forces the scalar fact path because it consumes one
+RNG draw per slot per row. See
+[Narrative text source](./user-guide/narrative-source.md) for the
+lexicon-design playbook, validation gates, and the bundled
+`narrative_reviews` template.
 
 ---
 
