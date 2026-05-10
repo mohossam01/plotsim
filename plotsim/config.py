@@ -2153,6 +2153,28 @@ class PlotsimConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _cold_start_active_periods_gate(self) -> "PlotsimConfig":
+        """0.6-M8b: load-time gate for cold-start ``Entity.start_period``.
+
+        Every entity must have at least ``MIN_ACTIVE_PERIODS`` periods
+        active (``start_period + MIN_ACTIVE_PERIODS <= n_periods``).
+        Catches both engine-direct configs that set ``start_period``
+        past the deadline AND builder configs whose segment arrival
+        distributions drew start_periods past it. The check function
+        lives in ``plotsim.validation`` so the same gate applies to
+        any caller (CLI, builder, programmatic) that round-trips
+        through PlotsimConfig.
+        """
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import validate_cold_start_active_periods
+
+        errors = validate_cold_start_active_periods(self)
+        if errors:
+            raise ValueError(errors[0])
+        return self
+
+    @model_validator(mode="after")
     def _value_pool_gates(self) -> "PlotsimConfig":
         """Load-time gates for ``PoolSource`` columns.
 
