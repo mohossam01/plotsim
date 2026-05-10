@@ -3246,6 +3246,70 @@ class GenerationState:
     )
 
 
+def _date_key_to_period_label(dim_date: pd.DataFrame) -> dict[int, str]:
+    """date_key (int) → ``period_label`` string from ``dim_date``.
+
+    The ``period_label`` column carries the human-readable period
+    timestamp (``"2024-01"`` for monthly, ``"2024-01-15"`` for daily).
+    Used by ``_apply_cdc_audit_columns`` to populate ``_inserted_at`` /
+    ``_updated_at``.
+    """
+    return {
+        int(k): str(lbl)
+        for k, lbl in zip(dim_date["date_key"].tolist(), dim_date["period_label"].tolist())
+    }
+
+
+def _apply_cdc_audit_columns(
+    config: PlotsimConfig,
+    fact_tables: dict[str, pd.DataFrame],
+    dim_tables: dict[str, pd.DataFrame],
+) -> dict[str, pd.DataFrame]:
+    """0.6-M9c: emit ``_inserted_at`` / ``_updated_at`` / ``_op`` audit
+    columns on every fact table whose ``Table.cdc`` is True.
+
+    Resolves the ISO period string for each row via the row's
+    ``date_key`` against ``dim_date``'s ``period_label`` column. Both
+    timestamps initialise to that value; the ``_op`` flag initialises
+    to ``"I"`` (insert). The U-flip (rows mutated by column-level
+    quality issues) happens later in ``output.write_tables`` once the
+    quality layer has produced its ground-truth records — this helper
+    only owns the columns' presence and initial state.
+
+    Configs without any CDC-enabled facts are a no-op (the input dict
+    is returned unchanged); the ``dim_date`` lookup runs once and is
+    reused across every CDC fact in the same generation.
+    """
+    cdc_facts = {t.name for t in config.tables if t.type == "fact" and t.cdc}
+    if not cdc_facts:
+        return fact_tables
+    dim_date = dim_tables.get("dim_date")
+    if dim_date is None or "period_label" not in dim_date.columns:
+        return fact_tables
+    period_label_by_dkey = _date_key_to_period_label(dim_date)
+
+    out = dict(fact_tables)
+    for name, df in fact_tables.items():
+        if name not in cdc_facts:
+            continue
+        if "date_key" not in df.columns:
+            # Defensive: a fact without date_key has no period anchor for
+            # the audit timestamps. Skip the augmentation rather than
+            # emitting nonsense — the load-time validator could be
+            # tightened later, but for now we silently no-op.
+            continue
+        df = df.copy(deep=True)
+        period_strs = [
+            period_label_by_dkey.get(int(d), "") if pd.notna(d) else ""
+            for d in df["date_key"].tolist()
+        ]
+        df["_inserted_at"] = period_strs
+        df["_updated_at"] = list(period_strs)
+        df["_op"] = ["I"] * len(df)
+        out[name] = df
+    return out
+
+
 def generate_tables(
     config: PlotsimConfig,
     rng: Optional[np.random.Generator] = None,
@@ -3461,6 +3525,11 @@ def generate_tables_with_state(
         scd_state,
     )
     fact_tables = assign_stages(config, fact_tables)
+    # 0.6-M9c: emit CDC audit columns on every ``cdc=True`` fact table.
+    # Runs AFTER ``assign_stages`` so the audit columns sit at the tail
+    # of the column order (matches the existing append-at-end convention
+    # for engine-added columns like ``stage`` and ``dim_row_id``).
+    fact_tables = _apply_cdc_audit_columns(config, fact_tables, dim_tables)
     event_tables = build_event_tables(config, fact_tables, dim_tables, rng)
     event_tables = attach_dim_row_id_to_facts(
         config,

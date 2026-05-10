@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════
+#  plotsim — CDC fact-side demo
+# ═══════════════════════════════════════════════════════
+#
+#  Subscription-billing fact table with `cdc: true`. The
+#  generated `fct_billing.csv` carries three audit columns:
+#
+#    _inserted_at   — ISO period string (e.g. "2024-03"),
+#                     derived from each row's date_key.
+#    _updated_at    — same as _inserted_at on insert; bumped
+#                     to the last period's label on rows that
+#                     a column-level quality issue mutated.
+#    _op            — "I" for insert, "U" for the rows the
+#                     quality issue touched.
+#
+#  The `quality:` block runs a 5% null injection on `mrr`.
+#  Those rows flip to `_op: U` after generation, mirroring
+#  what a real CDC-aware ETL pipeline would log when its
+#  upstream system corrected bad values mid-month.
+#
+#  Run:
+#    >>> from plotsim import create_from_yaml, generate_tables, write_tables
+#    >>> cfg = create_from_yaml(
+#    ...     "plotsim/configs/templates/cdc_demo.yaml"
+#    ... )
+#    >>> tables = generate_tables(cfg)
+#    >>> write_tables(tables, cfg, output_dir="./cdc_demo_output")
+#
+#  Inspect: `head cdc_demo_output/fct_billing.csv` — the last
+#  three columns are the audit trail, and the on-disk rows
+#  whose `mrr` is NaN carry `_op: U`.
+# ═══════════════════════════════════════════════════════
+
+about: "Subscription billing — CDC fact-side audit columns"
+unit: customer
+seed: 42
+
+window:
+  start: 2024-01
+  end: 2024-12
+  every: monthly
+
+metrics:
+  - { name: mrr,      type: amount, polarity: positive, range: [10, 5000] }
+  - { name: payments, type: count,  polarity: positive }
+
+segments:
+  - { name: growers,   count: 30, archetype: growth }
+  - { name: decliners, count: 20, archetype: decline }
+
+dimensions:
+  - name: dim_date
+    per: period
+    columns:
+      - { name: date_key, type: id }
+      - { name: date,     type: date }
+  - name: dim_customer
+    per: unit
+    columns:
+      - { name: customer_id,   type: id }
+      - { name: customer_name, type: faker.name }
+
+facts:
+  - name: fct_billing
+    metrics: [mrr, payments]
+    cdc: true
+    columns:
+      - { name: date_key,    type: ref.dim_date }
+      - { name: customer_id, type: ref.dim_customer }
+      - { name: mrr,         type: metric.mrr }
+      - { name: payments,    type: metric.payments }
+
+quality:
+  - { table: fct_billing, issue: null_injection, rate: 0.05, column: mrr }

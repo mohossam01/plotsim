@@ -541,6 +541,59 @@ def write_validation_report(
     return path
 
 
+# --- 0.6-M9c CDC quality-update flip ----------------------------------------
+
+
+_CDC_COLUMN_LEVEL_ISSUES = frozenset({"null_injection", "type_mismatch", "schema_drift"})
+
+
+def _mark_cdc_quality_updates(
+    corrupted: dict[str, pd.DataFrame],
+    ground_truth: list,
+    cdc_facts: set[str],
+) -> dict[str, pd.DataFrame]:
+    """Set ``_op="U"`` and bump ``_updated_at`` for rows on CDC-enabled
+    fact tables that a column-level quality issue mutated.
+
+    Only column-level issues (``null_injection`` / ``type_mismatch`` /
+    ``schema_drift``) are marked: their ground-truth row_indices line
+    up cleanly with the post-corruption frame because those issues
+    don't change row count. Row-level issues (``duplicate_rows`` /
+    ``late_arrival``) shift indices on the corrupted frame relative to
+    the source, so the helper intentionally skips them — the
+    ``_op="I"`` initial state survives, and the discovered limitation
+    is documented in the M9c notes.
+
+    ``_updated_at`` is bumped to the LAST period's ``_inserted_at`` on
+    the same table — semantic: "the row was inserted at its date_key
+    period and touched again at end-of-window when the quality issue
+    was applied".
+    """
+    out = dict(corrupted)
+    rows_per_table: dict[str, set[int]] = {}
+    for record in ground_truth:
+        if record.table not in cdc_facts:
+            continue
+        if record.issue_type not in _CDC_COLUMN_LEVEL_ISSUES:
+            continue
+        rows_per_table.setdefault(record.table, set()).update(record.row_indices)
+
+    for table_name, idx_set in rows_per_table.items():
+        df = corrupted.get(table_name)
+        if df is None or "_op" not in df.columns or "_inserted_at" not in df.columns:
+            continue
+        bumped = ""
+        if len(df) > 0:
+            bumped = str(df["_inserted_at"].iloc[-1])
+        df = df.copy(deep=True)
+        valid_idxs = [i for i in idx_set if 0 <= i < len(df)]
+        if valid_idxs:
+            df.loc[df.index[valid_idxs], "_op"] = "U"
+            df.loc[df.index[valid_idxs], "_updated_at"] = bumped
+        out[table_name] = df
+    return out
+
+
 # --- Top-level orchestrator --------------------------------------------------
 
 
@@ -605,6 +658,7 @@ def write_tables(
     # circuit and behavior is byte-identical to pre-M107.
     tables_to_write = tables
     manifest_to_write = manifest
+    ground_truth: list = []
     if config.quality.quality_issues:
         corrupted, ground_truth = _apply_quality_issues(
             tables,
@@ -616,6 +670,23 @@ def write_tables(
             manifest_to_write = manifest_to_write.model_copy(
                 update={"quality_injections": ground_truth},
             )
+
+    # 0.6-M9c: flip ``_op`` to ``"U"`` on rows that column-level quality
+    # issues mutated. Row-level issues (``duplicate_rows`` /
+    # ``late_arrival``) shift indices on the corrupted frame relative to
+    # the source, so this pass intentionally only marks the column-level
+    # mutations (``null_injection``, ``type_mismatch``, ``schema_drift``)
+    # whose ground-truth row_indices align cleanly with the post-
+    # corruption frame. ``_updated_at`` is bumped to the LAST period's
+    # label — semantic: "the row was inserted at its date_key period and
+    # touched again at end-of-window when the quality issue was applied".
+    cdc_facts = {t.name for t in config.tables if t.type == "fact" and t.cdc}
+    if cdc_facts and ground_truth:
+        tables_to_write = _mark_cdc_quality_updates(
+            tables_to_write,
+            ground_truth,
+            cdc_facts,
+        )
 
     # M121b: streaming Parquet path. When format=parquet AND the
     # resolved generation_mode is vectorized, fact tables are written

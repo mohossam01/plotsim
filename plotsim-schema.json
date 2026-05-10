@@ -1132,6 +1132,11 @@
           "minimum": 1,
           "title": "Count",
           "type": "integer"
+        },
+        "cdc": {
+          "default": false,
+          "title": "Cdc",
+          "type": "boolean"
         }
       },
       "required": [

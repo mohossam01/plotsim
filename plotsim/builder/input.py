@@ -709,6 +709,11 @@ class FactInput(BaseModel):
     name: str = Field(min_length=1)
     columns: list[ColumnInput] = Field(min_length=1)
     metrics: list[str] = Field(default_factory=list)
+    # 0.6-M9c: opt-in fact-side CDC. Routes to engine ``Table.cdc``;
+    # adds ``_inserted_at`` / ``_updated_at`` / ``_op`` audit columns
+    # to the fact at generation time. Default False preserves pre-M9c
+    # output byte-for-byte.
+    cdc: bool = False
 
 
 class EventInput(BaseModel):
