@@ -213,7 +213,7 @@ metrics:
 The five builder metric types (`score`, `amount`, `count`, `index`)
 cover most cases; `weibull` is for the time-to-event shape
 specifically and uses the engine-direct path. See
-[`metrics-and-connections.md` §weibull](../user-guide/metrics-and-connections.md#amount-with-weibull-engine-direct).
+[`metrics-and-connections.md` §weibull](../user-guide/metrics-and-connections.md#the-six-families).
 
 ---
 
