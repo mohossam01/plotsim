@@ -10,7 +10,7 @@ What it does:
     ground-truth label the manifest builder needs to recover what was
     corrupted.
 
-    Five issue types are supported. Each is applied independently with its
+    Six issue types are supported. Each is applied independently with its
     own seeded RNG (``base_seed + seed_offset``) so reordering issues in
     the config never perturbs a different issue's affected row set:
 
@@ -30,6 +30,12 @@ What it does:
         copy the value into a new ``{column}_v2`` column and null the
         original at those rows. Unaffected rows retain the original and
         get null in ``_v2``.
+      * ``volume_anomaly`` — at one or more target periods,
+        ``mode="spike"`` appends duplicates of ``rate`` of the matching
+        rows; ``mode="drop"`` removes ``rate`` of them. ``rate`` is
+        scaled per-period (relative to row count at that period), not
+        whole-table. Manifest record uses ``column="_rows"`` and lists
+        the source-frame indices of the affected rows.
 
 Architectural constraints (mission spec):
     1. Pure: no filesystem access, no logging, no time / wall-clock reads.
@@ -63,6 +69,7 @@ import pandas as pd
 from plotsim.config import (
     FKSource,
     PlotsimConfig,
+    QualityIssue,
     Table,
     parse_source,
 )
@@ -409,6 +416,98 @@ def _apply_schema_drift(
     return out, records
 
 
+def _apply_volume_anomaly(
+    df: pd.DataFrame,
+    issue: QualityIssue,
+    rng: np.random.Generator,
+    issue_idx: int,
+    table_name: str,
+    tbl: Table,
+    dim_date: pd.DataFrame | None,
+) -> tuple[pd.DataFrame, list[QualityInjection]]:
+    """Spike or drop rows at one or more target periods.
+
+    ``target_period`` (or ``target_periods``) is a 0-based index into
+    ``dim_date``. The handler maps the index to ``date_key`` via
+    ``dim_date.iloc[period_index]["date_key"]``, finds matching rows in
+    the fact / event table by integer-equality on the period FK column,
+    and either appends ``floor(rate * N)`` duplicates (``mode="spike"``)
+    or drops the same count (``mode="drop"``). ``N`` is the row count
+    AT the target period — ``rate`` is scaled per-period, not whole-
+    table. A target period that falls outside ``[0, n_periods)`` is
+    silently skipped, and an empty period (no rows match) is a no-op
+    so configs can declare anomalies before deciding the final time
+    window. Duplicate target_periods are deduplicated up front; if you
+    want a 2× spike, use one entry per occurrence and accept that
+    sampling without replacement at the same period draws the same
+    candidate set with different random offsets — a wash for spike,
+    idempotent for drop.
+
+    Manifest record carries ``column="_rows"``, ``row_indices=`` the
+    source-frame positions of the affected rows (the rows the
+    duplication or removal acted on), and an empty ``clean_values``.
+    """
+    out = df
+    period_col = _find_period_column(tbl, out)
+    if period_col is None or len(out) == 0 or dim_date is None:
+        return out, []
+
+    if issue.target_period is not None:
+        target_periods: list[int] = [issue.target_period]
+    elif issue.target_periods is not None:
+        target_periods = sorted(set(issue.target_periods))
+    else:
+        return out, []
+
+    n_periods = len(dim_date)
+    date_key_by_period: dict[int, int] = {
+        i: int(dkey) for i, dkey in enumerate(dim_date["date_key"].tolist())
+    }
+
+    period_numeric = pd.to_numeric(out[period_col], errors="coerce")
+    affected: list[int] = []
+    for target_period in target_periods:
+        if target_period < 0 or target_period >= n_periods:
+            continue
+        target_dkey = date_key_by_period[target_period]
+        mask = (period_numeric == target_dkey).fillna(False).to_numpy()
+        match_idx = np.where(mask)[0]
+        if len(match_idx) == 0:
+            continue
+        n_pick = int(np.floor(issue.rate * len(match_idx)))
+        if n_pick == 0:
+            continue
+        offsets = np.sort(rng.choice(len(match_idx), size=n_pick, replace=False))
+        affected.extend(int(match_idx[o]) for o in offsets)
+
+    if not affected:
+        return out, []
+
+    affected_arr = np.array(sorted(set(affected)), dtype=np.int64)
+
+    if issue.mode == "spike":
+        duplicated = out.iloc[affected_arr].copy()
+        out = pd.concat([out, duplicated], ignore_index=True)
+    elif issue.mode == "drop":
+        keep = np.ones(len(out), dtype=bool)
+        keep[affected_arr] = False
+        out = out.loc[keep].reset_index(drop=True)
+    else:
+        return out, []
+
+    records = [
+        QualityInjection(
+            issue_index=issue_idx,
+            issue_type="volume_anomaly",
+            table=table_name,
+            column="_rows",
+            row_indices=[int(i) for i in affected_arr.tolist()],
+            clean_values=[],
+        )
+    ]
+    return out, records
+
+
 def apply_issues(
     tables: dict[str, pd.DataFrame],
     config: PlotsimConfig,
@@ -438,6 +537,7 @@ def apply_issues(
     ground_truth: list[QualityInjection] = []
 
     table_by_name = {t.name: t for t in config.tables}
+    dim_date_df = tables.get("dim_date")
 
     for issue_idx, issue in enumerate(config.quality.quality_issues):
         rng = np.random.default_rng(int(base_seed) + int(issue.seed_offset))
@@ -495,6 +595,16 @@ def apply_issues(
                 rng,
                 issue_idx,
                 target_table,
+            )
+        elif issue.type == "volume_anomaly":
+            df, records = _apply_volume_anomaly(
+                df,
+                issue,
+                rng,
+                issue_idx,
+                target_table,
+                tbl,
+                dim_date_df,
             )
         else:
             raise ValueError(

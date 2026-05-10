@@ -1459,7 +1459,7 @@ class BridgeTableConfig(_Frozen):
 class QualityIssue(_Frozen):
     """One configured data-quality corruption to apply post-generation.
 
-    Five issue types are supported, each producing a distinct corruption
+    Six issue types are supported, each producing a distinct corruption
     pattern but sharing the same config shape:
 
       * ``null_injection`` — set ``rate`` of cells in each target column to
@@ -1475,6 +1475,13 @@ class QualityIssue(_Frozen):
         copy the cell value to a new ``{column}_v2`` column and set the
         original to null; unaffected rows retain the original and have
         null in ``_v2``.
+      * ``volume_anomaly`` — at ``target_period`` (or every period in
+        ``target_periods``), either ``mode="spike"`` duplicates
+        ``rate`` of the rows whose period matches, or ``mode="drop"``
+        removes ``rate`` of them. Row-level like ``duplicate_rows``;
+        ``target_columns`` must be ``["*"]`` (the corruption is not
+        per-column). Manifest record uses the ``column="_rows"``
+        sentinel.
 
     Determinism: each issue draws from a dedicated
     ``np.random.default_rng(global_seed + seed_offset)`` so reordering
@@ -1495,11 +1502,25 @@ class QualityIssue(_Frozen):
         "type_mismatch",
         "late_arrival",
         "schema_drift",
+        "volume_anomaly",
     ]
     target_table: str
     target_columns: list[str] = Field(min_length=1, max_length=100)
     rate: float = Field(ge=0.0, le=1.0)
     seed_offset: int = Field(default=0, ge=0, le=2**31 - 1)
+    # 0.6-M9a: volume_anomaly extras. ``mode`` picks spike (duplicate
+    # rows whose period matches) vs drop (remove them). Either
+    # ``target_period`` (single int) or ``target_periods`` (list) names
+    # the period(s) to corrupt — exactly one of the two must be set
+    # when ``type == "volume_anomaly"``. All three fields default to
+    # None and are required-only on volume_anomaly; a load-time
+    # validator enforces the conditional contract. Period values are
+    # 0-based indices into ``dim_date`` — the handler maps them to
+    # date_key at apply time so the period spec stays granularity-
+    # agnostic.
+    mode: Optional[Literal["spike", "drop"]] = None
+    target_period: Optional[int] = Field(default=None, ge=0)
+    target_periods: Optional[list[int]] = Field(default=None, max_length=10_000)
 
     @field_validator("target_columns")
     @classmethod
@@ -1512,6 +1533,65 @@ class QualityIssue(_Frozen):
                     f"sentinel"
                 )
         return v
+
+    @field_validator("target_periods")
+    @classmethod
+    def _target_periods_non_negative(cls, v: Optional[list[int]]) -> Optional[list[int]]:
+        if v is None:
+            return v
+        if len(v) == 0:
+            raise ValueError(
+                "quality_issues.target_periods must be a non-empty list "
+                "when set; omit the field or use target_period for the "
+                "single-period case"
+            )
+        for entry in v:
+            if not isinstance(entry, int) or entry < 0:
+                raise ValueError(
+                    f"quality_issues.target_periods entries must be "
+                    f"non-negative integers (got {entry!r})"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def _volume_anomaly_required_fields(self) -> "QualityIssue":
+        is_va = self.type == "volume_anomaly"
+        has_period = self.target_period is not None
+        has_periods = self.target_periods is not None
+        has_mode = self.mode is not None
+        if is_va:
+            if not has_mode:
+                raise ValueError(
+                    "quality_issues.type='volume_anomaly' requires "
+                    "`mode` to be set to 'spike' or 'drop'"
+                )
+            if has_period == has_periods:
+                # both set or both unset
+                if has_period and has_periods:
+                    raise ValueError(
+                        "quality_issues.type='volume_anomaly' accepts "
+                        "exactly one of `target_period` or "
+                        "`target_periods`, not both"
+                    )
+                raise ValueError(
+                    "quality_issues.type='volume_anomaly' requires "
+                    "`target_period` (single int) or `target_periods` "
+                    "(list of ints) — neither was set"
+                )
+        else:
+            extras = []
+            if has_mode:
+                extras.append("mode")
+            if has_period:
+                extras.append("target_period")
+            if has_periods:
+                extras.append("target_periods")
+            if extras:
+                raise ValueError(
+                    f"quality_issues fields {extras!r} are only valid "
+                    f"when type='volume_anomaly'; got type={self.type!r}"
+                )
+        return self
 
 
 class QualityConfig(_Frozen):

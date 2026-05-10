@@ -40,7 +40,7 @@ Three surfaces today:
 | Connections (correlations) | Cholesky-induced cross-metric correlation, applied per period | YAML `connections[]` |
 | Lifecycle stages | Per-entity stage sequence with stage-specific archetype overrides | YAML `lifecycle:` |
 | Seasonality | Period-of-year multipliers on metrics (`oscillating` curve + `seasonal_effects:`) | YAML `metrics[].seasonal_effects` |
-| Quality issues | Targeted MCAR nulls, outliers, and value-injection at configurable rates | YAML `quality_issues[]` |
+| Quality issues | Targeted MCAR nulls, duplicates, type mismatches, late arrivals, schema drift, and per-period volume anomalies (spike / drop) | YAML `quality_issues[]` |
 | Noise presets | `PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY` numeric bundles | constants on `plotsim`; YAML `noise:` numeric form |
 | Determinism | Single seeded `numpy.random.Generator` flows through every random draw | YAML `seed:` (integer) |
 

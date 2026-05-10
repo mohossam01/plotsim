@@ -2417,6 +2417,13 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
                 f"use either '*' alone or an explicit list, not both"
             )
             continue
+        if issue.type == "volume_anomaly" and issue.target_columns != ["*"]:
+            errors.append(
+                f"quality_issues[{issue_idx}].type='volume_anomaly' is a "
+                f"row-level corruption; target_columns must be ['*'] "
+                f"(got {issue.target_columns!r})"
+            )
+            continue
         if issue.target_columns != ["*"]:
             for col_name in issue.target_columns:
                 if col_name not in target_col_names:

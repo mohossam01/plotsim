@@ -493,7 +493,7 @@ Limit: 20 bridges per config.
 ## `quality`
 
 Post-generation data corruption — null injection, duplicates, type
-mismatches, late arrivals, schema drift.
+mismatches, late arrivals, schema drift, volume anomalies.
 
 ### How to enable
 
@@ -514,14 +514,19 @@ quality:
 quality:
   - { table: fct_engagement, issue: null_injection,  rate: 0.02, column: engagement }
   - { table: fct_engagement, issue: duplicate_rows, rate: 0.01 }
+  - { table: fct_engagement, issue: volume_anomaly, rate: 1.0, mode: spike, period: 5 }
+  - { table: fct_engagement, issue: volume_anomaly, rate: 0.5, mode: drop,  periods: [11, 17] }
 ```
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `table` | `str` | yes | — | Target table |
-| `issue` | enum | yes | — | `null_injection`, `duplicate_rows`, `type_mismatch`, `late_arrival`, `schema_drift` |
-| `rate` | `float` | yes | — | `0.0 ≤ rate ≤ 1.0` |
-| `column` | `str` | conditional | `None` | Required for `null_injection`, `type_mismatch`, `schema_drift`; optional otherwise |
+| `issue` | enum | yes | — | `null_injection`, `duplicate_rows`, `type_mismatch`, `late_arrival`, `schema_drift`, `volume_anomaly` |
+| `rate` | `float` | yes | — | `0.0 ≤ rate ≤ 1.0`. For `volume_anomaly` it scales per-period (rows at the target period), not whole-table |
+| `column` | `str` | conditional | `None` | Required for `null_injection`, `type_mismatch`, `schema_drift`. Forbidden on `volume_anomaly` (row-level) |
+| `mode` | enum | conditional | `None` | `volume_anomaly` only. `spike` appends duplicate rows; `drop` removes rows |
+| `period` | `int` | conditional | `None` | `volume_anomaly` only. 0-based period index. Exactly one of `period` / `periods` |
+| `periods` | `list[int]` | conditional | `None` | `volume_anomaly` only. List form for multiple target periods |
 | `seed_offset` | `int` | no | `0` | Sub-seed offset to vary which rows are corrupted under the same config seed |
 
 Limit: 50 quality issues per config. The clean copy of the data is
