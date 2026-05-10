@@ -62,6 +62,7 @@ Three surfaces today:
 |---|---|
 | SCD Type 2 | `dim_<entity>` expanded to N×versions with `valid_from_period` and band-crossing events surfaced in the manifest |
 | SCD Type 1 | default (no-op) |
+| Fact-side CDC | `facts[].cdc: true` emits `_inserted_at` / `_updated_at` / `_op` audit columns; column-level quality issues flip `_op` to `"U"` on affected rows |
 
 ### Geo hierarchy
 
