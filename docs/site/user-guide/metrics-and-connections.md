@@ -25,6 +25,8 @@ The other seven are optional:
 | `label` | Display name; defaults to `name` |
 | `follows` | Name of another metric this one trails (causal lag) |
 | `delay` | Lag in periods (must pair with `follows`) |
+| `decay_window` | Spread the lagged effect over `N` periods (adstock) |
+| `decay_kernel` | `geometric` (default) or `linear` weight shape for `decay_window` |
 | `seasonal_sensitivity` | How strongly this metric responds to seasonality |
 | `distribution` | Pin the distribution family explicitly (overrides auto-pick) |
 | `distribution_params` | Per-family parameters that go with `distribution` |
@@ -275,6 +277,54 @@ moves by 2 periods.
 - A metric can't follow itself.
 - The chain must be acyclic — a `follows` graph can't loop back on
   itself.
+
+---
+
+## Spreading the lag — `decay_window` (adstock)
+
+A discrete lag (`delay: 2`) reads the driver from *exactly* two
+periods ago. Real-world causes carry over: a marketing burst this
+week influences conversions over several weeks, not a single point.
+Add `decay_window` to spread the lagged read across a window of past
+periods:
+
+```yaml
+metrics:
+  - name: spend
+    type: amount
+    polarity: positive
+    range: [0, 1000]
+  - name: conversions
+    type: count
+    polarity: positive
+    follows: spend
+    delay: 1
+    decay_window: 4         # spread over 4 periods ending at t-1
+    decay_kernel: geometric # default — half-life of one period
+```
+
+At period `t`, `conversions` reads the driver as a normalised
+weighted sum over `[t - delay - decay_window + 1, t - delay]`
+instead of the single cell `t - delay`.
+
+| `decay_kernel` | Weight shape (most-recent → oldest) | Use for |
+|---|---|---|
+| `geometric` (default) | `0.5^s`, normalised | Recency-dominated effects (marketing carryover, recent-week dominates) |
+| `linear` | `(W - s)`, normalised | Flatter spread where contribution fades gradually |
+
+**Rules**:
+
+- `decay_window` requires `follows` / `delay` — decay only applies on
+  top of a base lag.
+- `decay_window >= 1`. With `decay_window: 1`, both kernels collapse
+  to the discrete-lag single-cell read (no spread).
+- Cold-start interaction: NaN cells in the window are dropped and the
+  surviving weights renormalise. An all-NaN slice falls through to
+  the metric's own current trajectory position — same fallback the
+  discrete lag uses.
+- `xcorr` validation: peak correlation can land anywhere in
+  `[delay, delay + decay_window - 1]`; the validator searches that
+  window when `decay_window` is set.
 
 ---
 

@@ -145,7 +145,7 @@
     },
     "CausalLag": {
       "additionalProperties": false,
-      "description": "A metric whose value trails another metric by N periods.\n\nsupport_tickets.causal_lag = {driver: engagement, lag_periods: 2} means\nsupport_tickets at period T reads engagement at period T-2, not T.\nCross-reference integrity enforces: driver exists in metrics; driver is\nnot the metric itself; the induced lag graph has no cycles.\n\n``blend_weight`` controls how strongly the driver's past position\noverrides the metric's own current trajectory position. Blend formula:\n``current_position * (1 - w) + driver_past * w``. The 0.4.0 default of\n``1.0`` means \"full override\" — metric at T equals driver at T-N, and\ncross-correlation peaks at exactly N. Values below 1.0 soften the lag\n(xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded\nbehavior is recovered with ``blend_weight: 0.6``.",
+      "description": "A metric whose value trails another metric by N periods.\n\nsupport_tickets.causal_lag = {driver: engagement, lag_periods: 2} means\nsupport_tickets at period T reads engagement at period T-2, not T.\nCross-reference integrity enforces: driver exists in metrics; driver is\nnot the metric itself; the induced lag graph has no cycles.\n\n``blend_weight`` controls how strongly the driver's past position\noverrides the metric's own current trajectory position. Blend formula:\n``current_position * (1 - w) + driver_past * w``. The 0.4.0 default of\n``1.0`` means \"full override\" — metric at T equals driver at T-N, and\ncross-correlation peaks at exactly N. Values below 1.0 soften the lag\n(xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded\nbehavior is recovered with ``blend_weight: 0.6``.\n\nAdstock-style decay (opt-in): set ``decay=True`` plus\n``decay_window=W`` to read the driver's past as a normalized weighted\nsum over W periods ``[T-N-W+1, T-N]`` instead of a single ``T-N``\ncell. Weights are determined by ``decay_kernel`` and normalize to\nsum to 1, so the blend-weight semantic is unchanged. ``decay=False``\n(default) preserves the single-cell read byte-for-byte.\n\n  * ``geometric`` (default) — weights ∝ ``0.5^s`` for offset\n    ``s = 0, 1, ..., W-1`` (most-recent first). Gives a half-life of\n    one period — the most recent driver value dominates and\n    contribution halves with each additional period back. Models the\n    \"marketing carryover\" intuition where last week mattered most.\n  * ``linear`` — weights ∝ ``W - s``, dropping linearly from\n    ``W`` at the most-recent cell to ``1`` at the oldest. A flatter\n    spread; appropriate when the contribution should fade more\n    gradually.\n\nCold-start NaN handling under decay: NaN cells in the buffer slice\nare dropped and the surviving weights renormalised. If every cell\nin the slice is NaN, the lag falls through to the unmodified\ncurrent position — matching the discrete-lag fallback contract.",
       "properties": {
         "driver": {
           "title": "Driver",
@@ -163,6 +163,34 @@
           "minimum": 0.0,
           "title": "Blend Weight",
           "type": "number"
+        },
+        "decay": {
+          "default": false,
+          "title": "Decay",
+          "type": "boolean"
+        },
+        "decay_window": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decay Window"
+        },
+        "decay_kernel": {
+          "default": "geometric",
+          "enum": [
+            "geometric",
+            "linear"
+          ],
+          "title": "Decay Kernel",
+          "type": "string"
         }
       },
       "required": [

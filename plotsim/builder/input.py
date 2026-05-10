@@ -112,6 +112,15 @@ class MetricInput(BaseModel):
     # the params it can use.
     distribution: Optional[Distribution] = None
     distribution_params: Optional[dict[str, float]] = None
+    # 0.6-M9b: opt-in adstock-style decay on the causal lag. Setting
+    # ``decay_window`` (>= 1) flips ``CausalLag.decay`` to True; the
+    # presence of the field IS the opt-in (no separate boolean — keeps
+    # the builder surface flat). ``decay_kernel`` defaults to
+    # ``"geometric"`` (half-life of one period) and is ignored when
+    # ``decay_window`` is None. Both fields require ``follows`` /
+    # ``delay`` to be set — decay without a base lag is meaningless.
+    decay_window: Optional[int] = Field(default=None, ge=1, le=10_000)
+    decay_kernel: Literal["geometric", "linear"] = "geometric"
 
     @field_validator("name")
     @classmethod
@@ -191,6 +200,22 @@ class MetricInput(BaseModel):
             raise ValueError(f"metric {self.name!r}: `delay` must be >= 1, got {self.delay}")
         if self.follows is not None and self.follows == self.name:
             raise ValueError(f"metric {self.name!r} cannot follow itself")
+        return self
+
+    @model_validator(mode="after")
+    def _decay_requires_follows(self) -> "MetricInput":
+        """0.6-M9b: ``decay_window`` requires ``follows`` / ``delay``.
+
+        Decay spreads the driver's effect over a window of past periods,
+        which is only meaningful when there's a base lag to spread. Set
+        without ``follows``/``delay``, the field is nonsense — fail fast.
+        """
+        if self.decay_window is not None and self.follows is None:
+            raise ValueError(
+                f"metric {self.name!r}: `decay_window` is set but "
+                f"`follows`/`delay` are not — decay only applies on top "
+                f"of a base lag. Add `follows: <driver>` and `delay: <N>`."
+            )
         return self
 
 

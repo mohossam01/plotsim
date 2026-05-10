@@ -1018,6 +1018,7 @@ def _lag_alignment_better_for_entity(
     metric_series: np.ndarray,
     driver_series: np.ndarray,
     lag: int,
+    decay_window: Optional[int] = None,
 ) -> Optional[bool]:
     """True if the lag-shifted correlation is strong relative to the
     unshifted one.
@@ -1047,21 +1048,39 @@ def _lag_alignment_better_for_entity(
     broken lags (where the shift drops the correlation magnitude toward
     zero) without flagging the IC/smooth-trajectory interaction above.
 
+    0.6-M9b: when ``decay_window`` is set, the decay kernel smears the
+    response over ``[lag, lag + decay_window - 1]`` periods, so the peak
+    xcorr can sit anywhere in that window. Take the strongest |Pearson|
+    over the candidate range and compare to ``|unlagged|`` with the same
+    0.5 ratio rule — broken decay still drops the magnitude across all
+    candidates while a correctly-implemented decay clears the bar at
+    least at one offset.
+
     Returns ``None`` if either correlation is undefined.
     """
-    if len(metric_series) <= 2 * lag + 2:
+    max_lookahead = lag + (decay_window - 1 if decay_window is not None else 0)
+    if len(metric_series) <= 2 * max_lookahead + 2:
         return None
     unlagged = _pearson(metric_series, driver_series)
-    lagged = _pearson(metric_series[lag:], driver_series[:-lag])
-    if unlagged is None or lagged is None:
+    candidate_lags = range(lag, lag + decay_window) if decay_window is not None else (lag,)
+    best_lagged: Optional[float] = None
+    for k in candidate_lags:
+        if k <= 0 or k >= len(metric_series):
+            continue
+        c = _pearson(metric_series[k:], driver_series[:-k])
+        if c is None:
+            continue
+        if best_lagged is None or abs(c) > abs(best_lagged):
+            best_lagged = c
+    if unlagged is None or best_lagged is None:
         return None
     if abs(unlagged) < 1e-9:
         # No measurable same-period signal — any lagged correlation
         # indicates the lag is implemented. Flipping the test to
         # "abs(lagged) > 0" would false-positive on pure noise, so fall
         # back to the strict original inequality here.
-        return abs(lagged) > abs(unlagged)
-    return abs(lagged) >= abs(unlagged) * 0.5
+        return abs(best_lagged) > abs(unlagged)
+    return abs(best_lagged) >= abs(unlagged) * 0.5
 
 
 def validate_causal_coherence(
@@ -1119,6 +1138,11 @@ def validate_causal_coherence(
                 metric_arr[:n],
                 driver_arr[:n],
                 lag,
+                decay_window=(
+                    m.causal_lag.decay_window
+                    if (m.causal_lag is not None and m.causal_lag.decay)
+                    else None
+                ),
             )
             if result is None:
                 continue

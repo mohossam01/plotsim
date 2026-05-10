@@ -978,6 +978,30 @@ def _apply_logit_shift(p: float, log_odds_shift: float) -> float:
     return e / (1.0 + e)
 
 
+def _decay_weights(window: int, kernel: str) -> np.ndarray:
+    """Adstock weights for ``window`` periods, indexed s=0 (most recent)
+    to s=window-1 (oldest), normalised to sum to 1.
+
+    ``geometric`` — weights ∝ ``0.5**s``. Half-life of one period; the
+    most recent cell carries the largest share. Sum-normalised so the
+    blend-weight semantic on top is unchanged from the discrete case.
+    ``linear`` — weights ∝ ``window - s``, dropping linearly from
+    ``window`` at s=0 to ``1`` at s=window-1, then sum-normalised.
+    """
+    if window < 1:
+        raise ValueError(f"_decay_weights: window must be >= 1, got {window}")
+    s = np.arange(window, dtype=np.float64)
+    raw: np.ndarray
+    if kernel == "geometric":
+        raw = np.power(0.5, s)
+    elif kernel == "linear":
+        raw = (window - s).astype(np.float64)
+    else:  # pragma: no cover — validator rejects unknown kernels
+        raise ValueError(f"_decay_weights: unknown kernel {kernel!r}")
+    normalised: np.ndarray = raw / float(raw.sum())
+    return normalised
+
+
 def _compute_effective_position(
     current_position: float,
     metric: Metric,
@@ -1007,6 +1031,15 @@ def _compute_effective_position(
     output. The caller (``generate_metrics_for_period``) decides whether
     treatment is active for the (entity, period) pair and passes either
     ``entity.treatment_lift_log_odds`` (when active) or ``0.0``.
+
+    0.6-M9b: when ``causal_lag.decay`` is True, ``driver_past`` becomes a
+    NaN-tolerant weighted sum over the buffer slice
+    ``[period_index - lag - decay_window + 1, period_index - lag]`` with
+    weights from ``_decay_weights(decay_window, decay_kernel)``. NaN
+    cells (cold-start fallback) drop out and the surviving weights are
+    renormalised; an all-NaN slice falls through to the unmodified
+    current position, matching the single-read fallback. ``decay=False``
+    is byte-identical to the pre-M9b single-read path.
     """
     eff = current_position
     if metric.causal_lag is not None:
@@ -1015,15 +1048,47 @@ def _compute_effective_position(
             driver = metric.causal_lag.driver
             driver_history = lag_buffer.get(driver)
             if driver_history is not None and len(driver_history) >= period_index - lag + 1:
-                driver_past = driver_history[period_index - lag]
-                # 0.6-M8a: cold-start periods append NaN to the buffer (so the
-                # buffer stays period-index-aligned for lag lookups); a NaN
-                # driver_past means the driver wasn't yet active at
-                # ``period_index - lag``. Same fallback as "driver not in
-                # buffer" — current position only.
-                if not (isinstance(driver_past, float) and np.isnan(driver_past)):
-                    w = metric.causal_lag.blend_weight
-                    eff = current_position * (1.0 - w) + driver_past * w
+                cl = metric.causal_lag
+                if cl.decay and cl.decay_window is not None:
+                    # 0.6-M9b: NaN-tolerant weighted sum over the buffer
+                    # slice. ``s=0`` is the most-recent cell at
+                    # ``period_index - lag``; ``s=window-1`` is the oldest
+                    # at ``period_index - lag - window + 1`` (clipped at 0).
+                    window = cl.decay_window
+                    end_idx = period_index - lag
+                    start_idx = max(0, end_idx - window + 1)
+                    raw_slice = driver_history[start_idx : end_idx + 1]
+                    raw_arr = np.asarray(raw_slice, dtype=np.float64)
+                    # Right-pad with NaN if start was clipped at 0 (window
+                    # extends past period 0). The pad slot is "oldest",
+                    # i.e. high s.
+                    pad_count = window - len(raw_arr)
+                    if pad_count > 0:
+                        raw_arr = np.concatenate(
+                            [raw_arr, np.full(pad_count, np.nan, dtype=np.float64)]
+                        )
+                    # raw_arr is ordered start_idx..end_idx (oldest first).
+                    # Reverse so index 0 = most recent (matches _decay_weights).
+                    raw_arr = raw_arr[::-1]
+                    weights = _decay_weights(window, cl.decay_kernel)
+                    valid = ~np.isnan(raw_arr)
+                    if valid.any():
+                        w_valid = weights[valid]
+                        w_sum = w_valid.sum()
+                        if w_sum > 0.0:
+                            driver_past_val = float((raw_arr[valid] * w_valid).sum() / w_sum)
+                            w = cl.blend_weight
+                            eff = current_position * (1.0 - w) + driver_past_val * w
+                else:
+                    driver_past = driver_history[period_index - lag]
+                    # 0.6-M8a: cold-start periods append NaN to the buffer (so the
+                    # buffer stays period-index-aligned for lag lookups); a NaN
+                    # driver_past means the driver wasn't yet active at
+                    # ``period_index - lag``. Same fallback as "driver not in
+                    # buffer" — current position only.
+                    if not (isinstance(driver_past, float) and np.isnan(driver_past)):
+                        w = cl.blend_weight
+                        eff = current_position * (1.0 - w) + driver_past * w
     # 0.6-M8c: treatment shift in logit space. The early-return paths
     # above all collapsed into a single ``eff`` so the shift now applies
     # uniformly regardless of which lag fallback fired.
@@ -1730,15 +1795,47 @@ def generate_archetype_batch(
                 eff_pos[:, j] = base_pos
                 lag_buffer[em.name][:, t] = base_pos
                 continue
-            driver_past = driver_buf[:, t - lag]  # shape (n_batch,)
-            # If driver_past has NaN (history not yet populated for that
-            # row — shouldn't happen since topo order resolves drivers
-            # first), fall back to the base position.
-            driver_past = np.where(np.isnan(driver_past), base_pos, driver_past)
-            w = float(em.causal_lag.blend_weight)
-            blended = base_pos * (1.0 - w) + driver_past * w
-            eff_pos[:, j] = blended
-            lag_buffer[em.name][:, t] = blended
+            cl = em.causal_lag
+            if cl.decay and cl.decay_window is not None:
+                # 0.6-M9b: NaN-tolerant weighted sum over the buffer
+                # slice. Mirrors the serial path. Indexing convention:
+                # ``s=0`` is the most-recent cell at column ``t-lag``,
+                # ``s=window-1`` is the oldest at ``t-lag-window+1`` (or
+                # NaN-padded when the window extends past period 0).
+                window = cl.decay_window
+                end_col = t - lag
+                start_col = max(0, end_col - window + 1)
+                slice_arr = driver_buf[:, start_col : end_col + 1]  # (n_batch, taken)
+                taken = slice_arr.shape[1]
+                if taken < window:
+                    pad = np.full((slice_arr.shape[0], window - taken), np.nan, dtype=np.float64)
+                    slice_arr = np.concatenate([slice_arr, pad], axis=1)
+                # Slice currently runs oldest→newest; flip so axis=1
+                # index 0 == most-recent (matches _decay_weights).
+                slice_arr = slice_arr[:, ::-1]
+                weights = _decay_weights(window, cl.decay_kernel)
+                valid = ~np.isnan(slice_arr)
+                w_row = np.where(valid, weights[None, :], 0.0)
+                w_sum = w_row.sum(axis=1)
+                vals = np.where(valid, slice_arr, 0.0)
+                weighted_sum = (vals * w_row).sum(axis=1)
+                driver_past = np.where(
+                    w_sum > 0.0, weighted_sum / np.where(w_sum > 0.0, w_sum, 1.0), base_pos
+                )
+                w = float(cl.blend_weight)
+                blended = base_pos * (1.0 - w) + driver_past * w
+                eff_pos[:, j] = blended
+                lag_buffer[em.name][:, t] = blended
+            else:
+                driver_past = driver_buf[:, t - lag]  # shape (n_batch,)
+                # If driver_past has NaN (history not yet populated for that
+                # row — shouldn't happen since topo order resolves drivers
+                # first), fall back to the base position.
+                driver_past = np.where(np.isnan(driver_past), base_pos, driver_past)
+                w = float(cl.blend_weight)
+                blended = base_pos * (1.0 - w) + driver_past * w
+                eff_pos[:, j] = blended
+                lag_buffer[em.name][:, t] = blended
 
         # 2. Centers per (batch, metric) at this period — apply seasonal
         #    modulation row-wise + clamp to value_range. When seasonal
