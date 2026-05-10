@@ -188,6 +188,59 @@ def _numeric_series(series) -> np.ndarray:
     )
 
 
+# --- Pre-generation: cold-start active-period gate (0.6-M8b) ---------------
+
+
+# 0.6-M8b: minimum active periods per entity. An entity with fewer
+# periods than this generates degenerate output: its archetype curve
+# can't unfold meaningfully, lag pipelines have no warmup, and any
+# downstream cohort/survival analysis loses statistical power. Two
+# periods is the smallest count where a metric still has shape (a
+# single-period entity is just a point estimate). Tuning the floor up
+# stays a one-line change here.
+MIN_ACTIVE_PERIODS = 2
+
+
+def validate_cold_start_active_periods(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for entities born too late.
+
+    Pure config check, no DataFrame inputs. Mirrors the
+    ``validate_correlation_psd`` / ``validate_entity_features_config``
+    pattern so a misconfigured YAML fails at load instead of crashing
+    inside ``compute_trajectory`` (which raises when
+    ``start_period >= n_periods``) or producing a fact table with one
+    or zero rows for the entity.
+
+    Gate: every entity must satisfy
+    ``entity.start_period + MIN_ACTIVE_PERIODS <= n_periods``. The +
+    is closed-end-inclusive: an entity at ``start_period = n_periods - 2``
+    has periods ``n - 2`` and ``n - 1`` active, exactly two — at the
+    floor.
+
+    Returns an empty list when every entity is well-bounded. The first
+    message in a non-empty list is the one the
+    ``PlotsimConfig._cold_start_active_periods_gate`` validator raises;
+    collecting all of them keeps the function reusable from contexts
+    that want a full diagnostic instead of fail-fast.
+    """
+    errors: list[str] = []
+    n_periods = config.time_window.period_count()
+    deadline = n_periods - MIN_ACTIVE_PERIODS
+    for entity in config.entities:
+        sp = entity.start_period
+        if sp > deadline:
+            active = n_periods - sp
+            errors.append(
+                f"entity {entity.name!r}: start_period={sp} leaves "
+                f"{active} active period(s) in a {n_periods}-period window; "
+                f"MIN_ACTIVE_PERIODS={MIN_ACTIVE_PERIODS} requires "
+                f"start_period <= {deadline}. The builder's segment "
+                f"arrival distribution may be configured with an "
+                f"`end` past `n_periods - {MIN_ACTIVE_PERIODS}`."
+            )
+    return errors
+
+
 # --- Pre-generation: entity features config gates (M108) --------------------
 
 

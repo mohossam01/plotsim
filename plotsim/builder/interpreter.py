@@ -28,6 +28,8 @@ from __future__ import annotations
 import secrets
 from typing import Optional
 
+import numpy as np
+
 from plotsim._types import is_dim_date_dtype
 from plotsim.config import (
     Archetype,
@@ -65,10 +67,14 @@ from .input import (
     ColumnInput,
     DimInput,
     EventInput,
+    ExplicitArrival,
     FactInput,
     LifecycleInput,
+    LinearArrival,
     MetricInput,
     SegmentInput,
+    StepArrival,
+    UniformArrival,
     UserInput,
 )
 from .parser import parse_archetype
@@ -112,7 +118,18 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     metrics = _build_metrics(user_input)
     metric_by_name = {m.name: m for m in metrics}
 
-    archetypes, entities = _build_archetypes_and_entities(user_input, n_periods, metric_by_name)
+    # 0.6-M8b: resolve the seed BEFORE entity expansion so segment
+    # arrival distributions can draw deterministic per-entity
+    # ``start_period`` values from a seed-derived RNG. The same integer
+    # is then stored on ``PlotsimConfig.seed`` (line ~167 below) and
+    # consumed by the engine at generation time — both phases see the
+    # same input but instantiate independent RNGs, so the start_period
+    # draws don't pollute the engine's RNG stream.
+    seed = user_input.seed if user_input.seed is not None else secrets.randbelow(2**32)
+
+    archetypes, entities = _build_archetypes_and_entities(
+        user_input, n_periods, metric_by_name, seed
+    )
 
     correlations = _build_correlations(user_input)
     stages = _build_stages(user_input)
@@ -144,11 +161,10 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
 
     seasonal_effects = _build_seasonal_effects(user_input)
 
-    # M124: honor an explicit ``UserInput.seed`` so users can pin determinism
-    # via ``create(seed=N)`` / ``seed: N`` in YAML. Falls back to the prior
-    # ``secrets.randbelow`` draw when no seed is declared, preserving the
-    # non-reproducible default behaviour for callers that didn't ask for one.
-    seed = user_input.seed if user_input.seed is not None else secrets.randbelow(2**32)
+    # M124 / 0.6-M8b: ``seed`` was resolved above (before entity expansion)
+    # so segment arrival distributions could draw deterministic
+    # ``start_period`` values. Same integer flows into the engine config
+    # below.
 
     # Output / noise / locale — three engine knobs the builder now
     # surfaces directly. None defaults preserve historical builder
@@ -349,6 +365,7 @@ def _build_archetypes_and_entities(
     user_input: UserInput,
     n_periods: int,
     metric_by_name: dict[str, Metric],
+    seed: int,
 ) -> tuple[list[Archetype], list[Entity]]:
     """One archetype per segment, ``segment.count`` entities per segment.
 
@@ -361,9 +378,20 @@ def _build_archetypes_and_entities(
     Baselines on the segment translate into per-archetype
     ``MetricOverride.value_range`` — applied once per archetype, shared
     by all expanded entities of that archetype.
+
+    0.6-M8b: when a segment declares ``arrival: <distribution>``, every
+    expanded entity gets a per-entity ``start_period`` drawn from that
+    distribution. Draws are deterministic — a single ``np.random.default_rng(seed)``
+    walks segments in declaration order, so the same ``UserInput`` plus
+    the same seed produces the same per-entity arrival schedule. Step
+    and explicit shapes are deterministic by construction (no RNG draw).
+    Segments without ``arrival`` keep ``start_period=0`` for every
+    entity, preserving pre-M8b output.
     """
     archetypes: list[Archetype] = []
     entities: list[Entity] = []
+
+    arrival_rng = np.random.default_rng(seed)
 
     for s in user_input.segments:
         curve_segments = parse_archetype(s.archetype, n_periods=n_periods)
@@ -377,6 +405,7 @@ def _build_archetypes_and_entities(
                 metric_overrides=metric_overrides,
             )
         )
+        start_periods = _draw_segment_arrivals(s, n_periods, arrival_rng)
         for i in range(s.count):
             entities.append(
                 Entity(
@@ -384,10 +413,116 @@ def _build_archetypes_and_entities(
                     archetype=s.name,
                     size=1,
                     seasonal_sensitivity=s.seasonal_sensitivity,
+                    start_period=start_periods[i],
                 )
             )
 
     return archetypes, entities
+
+
+def _draw_segment_arrivals(
+    s: SegmentInput,
+    n_periods: int,
+    rng: np.random.Generator,
+) -> list[int]:
+    """Return ``s.count`` per-entity ``start_period`` values for one segment.
+
+    Dispatches on ``s.arrival.kind``:
+
+      * ``None`` — every entity at period 0 (pre-M8b behaviour, no RNG draw).
+      * ``uniform`` — ``rng.integers(start, end, size=count)``.
+      * ``linear`` — triangular CDF inversion via ``rng.random(size=count)``;
+        ``increasing`` direction back-loads, ``decreasing`` front-loads.
+      * ``step`` — deterministic block expansion with rounding remainder
+        absorbed by the last block; no RNG draw.
+      * ``explicit`` — pass-through of the user-supplied list; no RNG draw.
+
+    ``end=None`` defaults to ``n_periods - MIN_ACTIVE_PERIODS`` so every
+    drawn entity has at least ``MIN_ACTIVE_PERIODS`` active periods. The
+    config-load validator (``validate_cold_start_active_periods``) is
+    the durable contract — this default just makes the common case
+    "spread arrivals across the window" work without the user computing
+    bounds manually.
+
+    RNG consumption: ``uniform`` and ``linear`` each consume exactly
+    one batched ``size=count`` draw per segment. ``step`` and
+    ``explicit`` consume zero. So a config that adds an ``explicit``
+    segment between two ``uniform`` segments doesn't shift the RNG
+    stream the ``uniform`` segments observe.
+    """
+    arrival = s.arrival
+    if arrival is None:
+        return [0] * s.count
+
+    # MIN_ACTIVE_PERIODS lives on validation.py — local import to dodge
+    # the circular reference (validation.py imports from config which
+    # imports from builder). Same workaround the rest of this module
+    # uses for plotsim.validation.
+    from plotsim.validation import MIN_ACTIVE_PERIODS
+
+    default_end = max(1, n_periods - MIN_ACTIVE_PERIODS)
+
+    if isinstance(arrival, UniformArrival):
+        end = arrival.end if arrival.end is not None else default_end
+        if end <= arrival.start:
+            raise ValueError(
+                f"segment {s.name!r}: uniform arrival end ({end}) must be "
+                f"> start ({arrival.start}); the validator catches the "
+                f"degenerate case where every drawn start_period would "
+                f"violate MIN_ACTIVE_PERIODS"
+            )
+        draws = rng.integers(low=arrival.start, high=end, size=s.count)
+        return [int(x) for x in draws]
+
+    if isinstance(arrival, LinearArrival):
+        end = arrival.end if arrival.end is not None else default_end
+        if end <= arrival.start:
+            raise ValueError(
+                f"segment {s.name!r}: linear arrival end ({end}) must be "
+                f"> start ({arrival.start})"
+            )
+        u = rng.random(size=s.count)
+        span = end - arrival.start
+        if arrival.direction == "increasing":
+            # Back-loaded ramp: density rises with period. CDF^-1 of the
+            # triangular distribution on [start, end) with peak at end is
+            # ``start + span * sqrt(u)``.
+            offsets = np.floor(span * np.sqrt(u)).astype(np.int64)
+        else:
+            # Front-loaded ramp: density falls with period. CDF^-1 with
+            # peak at start is ``start + span * (1 - sqrt(1 - u))``.
+            offsets = np.floor(span * (1.0 - np.sqrt(1.0 - u))).astype(np.int64)
+        # Clamp the rare ``floor`` result of ``span * 1.0`` (when
+        # ``u`` rounds to exactly 1.0 in float64) back into ``[start, end)``.
+        offsets = np.clip(offsets, 0, span - 1)
+        return [int(arrival.start + o) for o in offsets]
+
+    if isinstance(arrival, StepArrival):
+        # Deterministic by construction. Allocate counts via
+        # ``round(fraction * count)`` per block; the last block absorbs
+        # rounding remainder so the total exactly equals ``count``.
+        counts: list[int] = []
+        running = 0
+        for j, block in enumerate(arrival.blocks):
+            if j == len(arrival.blocks) - 1:
+                counts.append(s.count - running)
+            else:
+                c = int(round(block.fraction * s.count))
+                counts.append(c)
+                running += c
+        out: list[int] = []
+        for block, c in zip(arrival.blocks, counts):
+            out.extend([block.period] * c)
+        return out
+
+    if isinstance(arrival, ExplicitArrival):
+        # Length-vs-count match was enforced by the SegmentInput
+        # validator; return a defensive copy so a mutating consumer
+        # can't reach back into the immutable model.
+        return list(arrival.start_periods)
+
+    # mypy reachability: the discriminated union covers all four kinds.
+    raise ValueError(f"segment {s.name!r}: unknown arrival kind {arrival!r}")
 
 
 def _build_segment_count_value_pool(user_input: UserInput) -> dict[str, list[str]]:

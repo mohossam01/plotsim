@@ -24,7 +24,7 @@ re-reading the spec.
 from __future__ import annotations
 
 import warnings
-from typing import Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import (
     AliasChoices,
@@ -194,6 +194,148 @@ class MetricInput(BaseModel):
         return self
 
 
+# ── Segment arrival distributions (0.6-M8b) ─────────────────────────────────
+#
+# Builder-internal models. These describe how the interpreter spreads a
+# segment's `count` entities across the time window via per-entity
+# `Entity.start_period` draws (the M8a cold-start surface). They live
+# here, not in ``plotsim.config``, because:
+#
+#   * ``SegmentInput`` itself is builder-only — engine-direct YAML users
+#     define ``entities`` directly with their own ``Entity.start_period``
+#     values and never touch segments.
+#   * The arrival distribution is *transient input*: the interpreter
+#     consumes it, draws per-entity start_periods, and produces the
+#     fully-expanded ``Entity`` list. Nothing downstream of the
+#     interpreter knows the distribution existed.
+#   * Pattern match: ``ConnectionInput``, ``MetricInput``, ``SegmentInput``
+#     all live here for the same reason. The engine surface stays narrow.
+#
+# Discriminated union by ``kind`` so a downstream reader (and IDE
+# autocomplete) can dispatch the four shapes without dict-typing.
+# Each model is ``frozen=True`` + ``extra="forbid"`` to match the rest
+# of the builder input surface.
+
+
+class _ArrivalBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class UniformArrival(_ArrivalBase):
+    """Entities arrive evenly distributed across ``[start, end)``.
+
+    ``start`` defaults to 0 (entities can arrive from period 0). ``end``
+    defaults to ``None`` — interpreted as ``n_periods - MIN_ACTIVE_PERIODS``
+    by the interpreter, so every entity has at least ``MIN_ACTIVE_PERIODS``
+    active periods. Set ``end`` explicitly to compress arrivals into a
+    sub-window.
+
+    Implementation: ``rng.integers(start, end, size=count)``. Same seed +
+    same segment ordering → identical draws.
+    """
+
+    kind: Literal["uniform"]
+    start: int = Field(default=0, ge=0)
+    end: Optional[int] = Field(default=None, ge=1)
+
+
+class LinearArrival(_ArrivalBase):
+    """Entities arrive at a linearly varying rate across ``[start, end)``.
+
+    ``direction='increasing'`` back-loads arrivals (more entities arrive
+    in later periods — typical of an organic growth cohort).
+    ``direction='decreasing'`` front-loads (more arrivals early — a
+    promotional spike).
+
+    Implementation: triangular CDF inversion. For ``increasing``,
+    ``period = start + floor((end - start) * sqrt(u))`` where
+    ``u ~ Uniform[0, 1)``; for ``decreasing``, ``1 - sqrt(1 - u)``.
+    Same seed + same segment ordering → identical draws.
+    """
+
+    kind: Literal["linear"]
+    start: int = Field(default=0, ge=0)
+    end: Optional[int] = Field(default=None, ge=1)
+    direction: Literal["increasing", "decreasing"] = "increasing"
+
+
+class StepArrivalBlock(_ArrivalBase):
+    """One block in a ``StepArrival`` schedule.
+
+    ``period`` is the arrival period for entities in this block.
+    ``fraction`` is the share of the segment's ``count`` that arrives at
+    this period. Fractions across all blocks must sum to ``1.0`` within
+    a small tolerance (validated on the parent ``StepArrival``).
+    """
+
+    period: int = Field(ge=0)
+    fraction: float = Field(gt=0.0, le=1.0)
+
+
+class StepArrival(_ArrivalBase):
+    """Entities arrive in discrete blocks at specified periods.
+
+    Models cohort cuts: e.g. ``[(0, 0.5), (6, 0.3), (12, 0.2)]`` means
+    50 % of the segment arrives at period 0, 30 % at period 6, 20 % at
+    period 12. Counts are derived by ``round(fraction * count)`` with
+    the last block absorbing rounding remainder so total entities equal
+    ``count`` exactly.
+
+    Same input → same per-entity assignment, no RNG involved (the
+    schedule is deterministic by construction).
+    """
+
+    kind: Literal["step"]
+    blocks: list[StepArrivalBlock] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _fractions_sum_to_one(self) -> "StepArrival":
+        total = sum(b.fraction for b in self.blocks)
+        if not (0.999 <= total <= 1.001):
+            raise ValueError(
+                f"step arrival blocks: fractions must sum to 1.0 "
+                f"(±0.001 tolerance for floating-point); got {total}"
+            )
+        return self
+
+
+class ExplicitArrival(_ArrivalBase):
+    """Per-entity ``start_period`` values, supplied directly.
+
+    ``start_periods`` length must equal the segment's ``count`` (the
+    parent ``SegmentInput`` validator enforces). Useful for
+    reproducibility tests, golden fixtures, or research configs where
+    cohort timing is the experimental variable.
+
+    No RNG draw — the assignment is deterministic by construction.
+    """
+
+    kind: Literal["explicit"]
+    start_periods: list[int] = Field(min_length=1)
+
+    @field_validator("start_periods")
+    @classmethod
+    def _all_non_negative(cls, v: list[int]) -> list[int]:
+        for i, p in enumerate(v):
+            if p < 0:
+                raise ValueError(
+                    f"explicit arrival start_periods[{i}] = {p} "
+                    f"is negative; start_period must be >= 0"
+                )
+        return v
+
+
+# Discriminated union — a downstream reader can dispatch on the ``kind``
+# tag without try/except on each model. Pydantic's discriminator routing
+# also produces locatable error messages ("kind=step requires blocks")
+# when an input dict is malformed, vs the smart-union fallback's noisier
+# multi-error tree.
+ArrivalDistribution = Annotated[
+    Union[UniformArrival, LinearArrival, StepArrival, ExplicitArrival],
+    Field(discriminator="kind"),
+]
+
+
 # ── Segment ─────────────────────────────────────────────────────────────────
 
 
@@ -247,6 +389,15 @@ class SegmentInput(BaseModel):
     # sharing the underlying trajectory shape.
     seasonal_sensitivity: float = 1.0
 
+    # 0.6-M8b: optional cohort-mix-evolution shape. ``None`` (default)
+    # means every entity in the segment starts at period 0 — preserves
+    # pre-M8b output byte-for-byte for existing templates. When set, the
+    # interpreter draws per-entity ``Entity.start_period`` values from
+    # the chosen distribution using a seed-derived RNG; the segment-level
+    # field never reaches the engine config, only the per-entity values
+    # do (via the M8a ``Entity.start_period`` surface).
+    arrival: Optional[ArrivalDistribution] = None
+
     @field_validator("name")
     @classmethod
     def _name_is_simple(cls, v: str) -> str:
@@ -264,6 +415,22 @@ class SegmentInput(BaseModel):
                 f"vocabulary {sorted(VALID_BASELINE_WORDS)}"
             )
         return v
+
+    @model_validator(mode="after")
+    def _arrival_explicit_length_matches_count(self) -> "SegmentInput":
+        """0.6-M8b: ``ExplicitArrival.start_periods`` length must match
+        the segment's ``count``. The check sits on ``SegmentInput`` (not
+        on ``ExplicitArrival``) because count is a sibling field — the
+        sub-model can't see it during its own validation.
+        """
+        if isinstance(self.arrival, ExplicitArrival):
+            if len(self.arrival.start_periods) != self.count:
+                raise ValueError(
+                    f"segment {self.name!r}: explicit arrival has "
+                    f"{len(self.arrival.start_periods)} start_periods but "
+                    f"segment count is {self.count}; lengths must match"
+                )
+        return self
 
 
 # ── Connection ──────────────────────────────────────────────────────────────
