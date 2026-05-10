@@ -361,3 +361,217 @@ def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
     loaded = ManifestSchema(**raw)
     assert loaded.schema_version == MANIFEST_SCHEMA_VERSION
     assert {a.entity for a in loaded.archetype_assignments} == {e.name for e in cfg.entities}
+
+
+# --- 0.6-M5: causal_graph ---------------------------------------------------
+
+
+def test_schema_version_bumped_to_1_1():
+    """0.6-M5 added causal_graph / correlations / outlier_injections.
+
+    The version pin lives in this test rather than just the manifest module
+    so a downstream consumer pinning ``schema_version >= "1.1"`` has a
+    direct on-disk contract test it can reference.
+    """
+    assert MANIFEST_SCHEMA_VERSION == "1.1"
+
+
+def test_causal_graph_emits_one_edge_per_metric_with_lag(saas_run):
+    cfg, _tables, _state, manifest, _target = saas_run
+    expected = {(m.causal_lag.driver, m.name) for m in cfg.metrics if m.causal_lag is not None}
+    actual = {(e.driver, e.target) for e in manifest.causal_graph}
+    assert actual == expected
+    assert len(manifest.causal_graph) >= 1, "saas template has at least one causal_lag"
+
+
+def test_causal_graph_records_lag_periods_and_blend_weight(saas_run):
+    cfg, _tables, _state, manifest, _target = saas_run
+    by_pair = {(e.driver, e.target): e for e in manifest.causal_graph}
+    for m in cfg.metrics:
+        if m.causal_lag is None:
+            continue
+        edge = by_pair[(m.causal_lag.driver, m.name)]
+        assert edge.lag_periods == m.causal_lag.lag_periods
+        assert edge.blend_weight == m.causal_lag.blend_weight
+
+
+def test_causal_graph_sorted_for_byte_determinism(saas_run):
+    _cfg, _tables, _state, manifest, _target = saas_run
+    keys = [(e.driver, e.target) for e in manifest.causal_graph]
+    assert keys == sorted(keys), "causal_graph must be sorted for stable JSON"
+
+
+def test_causal_graph_empty_when_no_metric_has_lag():
+    """Strip ``causal_lag`` off every metric; expect an empty graph."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    new_metrics = [m.model_copy(update={"causal_lag": None}) for m in cfg.metrics]
+    cfg_no_lag = cfg.model_copy(update={"metrics": new_metrics})
+    rng = np.random.default_rng(cfg_no_lag.seed)
+    tables, state = generate_tables_with_state(cfg_no_lag, rng)
+    manifest = build_manifest(cfg_no_lag, state.trajectories, tables)
+    assert manifest.causal_graph == []
+
+
+# --- 0.6-M5: correlations ---------------------------------------------------
+
+
+def test_correlations_one_entry_per_user_declared_pair(saas_run):
+    cfg, _tables, _state, manifest, _target = saas_run
+    assert len(manifest.correlations) == len(cfg.correlations)
+    expected_pairs = {(p.metric_a, p.metric_b) for p in cfg.correlations}
+    actual_pairs = {(c.metric_a, c.metric_b) for c in manifest.correlations}
+    assert actual_pairs == expected_pairs
+
+
+def test_correlations_requested_matches_config(saas_run):
+    cfg, _tables, _state, manifest, _target = saas_run
+    cfg_by_pair = {(p.metric_a, p.metric_b): p.coefficient for p in cfg.correlations}
+    for entry in manifest.correlations:
+        assert entry.requested == cfg_by_pair[(entry.metric_a, entry.metric_b)]
+
+
+def test_correlations_projected_in_unit_interval(saas_run):
+    """Higham projection lands every coefficient in [-1, 1]."""
+    _cfg, _tables, _state, manifest, _target = saas_run
+    for entry in manifest.correlations:
+        assert -1.0 <= entry.projected <= 1.0
+
+
+def test_correlations_projected_differs_from_requested_for_non_pd(saas_run):
+    """saas correlation matrix is not PD — projected values must shift."""
+    _cfg, _tables, _state, manifest, _target = saas_run
+    deltas = [abs(entry.requested - entry.projected) for entry in manifest.correlations]
+    # Saas is the canonical non-PD config (also asserted by M111
+    # correlation_adjustments tests), so at least one pair must move.
+    assert any(
+        d > 1e-9 for d in deltas
+    ), "saas matrix is not PD; expected at least one projected coefficient to shift"
+
+
+def test_correlations_sorted_for_byte_determinism(saas_run):
+    _cfg, _tables, _state, manifest, _target = saas_run
+    keys = [(c.metric_a, c.metric_b) for c in manifest.correlations]
+    assert keys == sorted(keys)
+
+
+def test_correlations_empty_when_no_correlations_configured():
+    """Strip the correlations list; expect an empty manifest section."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    cfg_no_corr = cfg.model_copy(update={"correlations": []})
+    rng = np.random.default_rng(cfg_no_corr.seed)
+    tables, state = generate_tables_with_state(cfg_no_corr, rng)
+    manifest = build_manifest(cfg_no_corr, state.trajectories, tables)
+    assert manifest.correlations == []
+
+
+# --- 0.6-M5: outlier_injections --------------------------------------------
+
+
+@pytest.fixture
+def saas_serial_run():
+    """Run saas pinned to serial mode so outlier replay is enabled."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    cfg = cfg.model_copy(update={"generation_mode": "serial"})
+    rng = np.random.default_rng(cfg.seed)
+    tables, state = generate_tables_with_state(cfg, rng)
+    manifest = build_manifest(cfg, state.trajectories, tables)
+    return cfg, tables, state, manifest
+
+
+def test_outlier_injections_populated_for_serial_with_outlier_rate(saas_serial_run):
+    _cfg, _tables, _state, manifest = saas_serial_run
+    assert manifest.outlier_injections is not None
+    # Serial saas at outlier_rate=0.02 over ~432 cells: a handful of
+    # firings is overwhelmingly likely. Zero would still be valid output
+    # but would also be a strong signal of detector regression — pin a
+    # weak lower bound to fail loudly if the replay short-circuits.
+    assert len(manifest.outlier_injections) >= 1
+
+
+def test_outlier_injection_records_have_valid_coordinates(saas_serial_run):
+    cfg, _tables, _state, manifest = saas_serial_run
+    entity_names = {e.name for e in cfg.entities}
+    metric_names = {m.name for m in cfg.metrics}
+    for record in manifest.outlier_injections or []:
+        assert record.entity in entity_names
+        assert record.metric in metric_names
+        assert record.period_index >= 0
+
+
+def test_outlier_injections_sorted_for_byte_determinism(saas_serial_run):
+    _cfg, _tables, _state, manifest = saas_serial_run
+    records = manifest.outlier_injections or []
+    keys = [(r.entity, r.period_index, r.metric) for r in records]
+    assert keys == sorted(keys)
+
+
+def test_outlier_injections_none_when_outlier_rate_zero():
+    """outlier_rate=0 short-circuits the detector before the replay."""
+    from plotsim.config import NoiseConfig
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    clean_noise = NoiseConfig(
+        gaussian_sigma=cfg.noise.gaussian_sigma,
+        outlier_rate=0.0,
+        mcar_rate=cfg.noise.mcar_rate,
+    )
+    cfg_clean = cfg.model_copy(update={"noise": clean_noise, "generation_mode": "serial"})
+    rng = np.random.default_rng(cfg_clean.seed)
+    tables, state = generate_tables_with_state(cfg_clean, rng)
+    manifest = build_manifest(cfg_clean, state.trajectories, tables)
+    assert manifest.outlier_injections is None
+
+
+def test_outlier_injections_none_when_vectorized_mode():
+    """Vectorized RNG order doesn't match per-cell apply_noise replay."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    cfg_vec = cfg.model_copy(update={"generation_mode": "vectorized"})
+    rng = np.random.default_rng(cfg_vec.seed)
+    tables, state = generate_tables_with_state(cfg_vec, rng)
+    manifest = build_manifest(cfg_vec, state.trajectories, tables)
+    assert manifest.outlier_injections is None
+
+
+def test_outlier_injections_none_above_cell_budget(monkeypatch):
+    """Cost-gate skip when cells exceed OUTLIER_DETECTION_CELL_BUDGET."""
+    import plotsim.outlier_injections as oi_mod
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    cfg_serial = cfg.model_copy(update={"generation_mode": "serial"})
+    # Crank the budget down below saas's actual cell count to exercise the
+    # gate without having to fabricate a large config that runs slow.
+    monkeypatch.setattr(oi_mod, "OUTLIER_DETECTION_CELL_BUDGET", 1)
+    result = oi_mod.detect_outlier_injections(cfg_serial)
+    assert result is None
+
+
+def test_outlier_injections_appears_in_written_manifest_json(tmp_path):
+    """The new section must survive the JSON round-trip on disk."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SurrogateKeyWarning)
+        cfg = load_config(SAAS_YAML)
+    cfg = cfg.model_copy(update={"generation_mode": "serial"})
+    rng = np.random.default_rng(cfg.seed)
+    tables, state = generate_tables_with_state(cfg, rng)
+    manifest = build_manifest(cfg, state.trajectories, tables)
+    target = write_tables(tables, cfg, output_dir=tmp_path, manifest=manifest)
+    raw = json.loads((target / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert "outlier_injections" in raw
+    assert "causal_graph" in raw
+    assert "correlations" in raw
+    loaded = ManifestSchema(**raw)
+    assert loaded.outlier_injections is not None
+    assert loaded.causal_graph
+    assert loaded.correlations

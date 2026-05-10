@@ -31,7 +31,7 @@ import sys
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -1927,6 +1927,18 @@ class PlotsimConfig(_Frozen):
     # pollute the YAML and the config_sha256 fingerprint, same reasoning
     # as the sibling attrs above.
     _bypass_fallback_counts: Optional[dict[str, int]] = PrivateAttr(default=None)
+
+    # 0.6-M5: stashed by ``plotsim.tables.generate_tables_with_state`` at
+    # the Cholesky-build site so ``plotsim.manifest.build_manifest`` can
+    # surface the projected (post-Higham, post-M120 compensation) coefficient
+    # for every user-declared correlation pair. ``None`` for runs without
+    # ``correlations`` configured. The companion ``_metric_correlation_order``
+    # records the toposorted metric order used to assemble the matrix —
+    # needed to translate ``(metric_a, metric_b)`` to row/col indices when
+    # the manifest reads back. PrivateAttr for the same reason as siblings:
+    # engine-derived, not a user input; would pollute config_sha256.
+    _projected_correlation_matrix: Optional[Any] = PrivateAttr(default=None)
+    _metric_correlation_order: Optional[list[str]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":
