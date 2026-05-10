@@ -68,7 +68,11 @@ from plotsim.config import (
 
 
 MANIFEST_FILENAME = "manifest.json"
-MANIFEST_SCHEMA_VERSION = "1.0"
+# 0.6-M5: bumped 1.0 → 1.1 for the additive ``causal_graph`` /
+# ``correlations`` / ``outlier_injections`` sections. All three default to
+# ``[]`` or ``None`` so manifests on disk produced by 1.0 readers parse
+# unchanged; 1.1 readers see the new fields populated.
+MANIFEST_SCHEMA_VERSION = "1.1"
 
 
 class _ManifestBase(BaseModel):
@@ -259,6 +263,79 @@ class CorrelationCompensation(_ManifestBase):
     adjustment: float
 
 
+class CausalEdge(_ManifestBase):
+    """0.6-M5: one driver → target causal-lag edge from ``config.metrics``.
+
+    Emitted once per metric whose ``causal_lag`` field is not None. The
+    pair ``(driver, target)`` is the directed edge; ``lag_periods`` is
+    the period offset the target reads the driver at. ``blend_weight``
+    surfaces how strongly the driver overrides the target's own current
+    trajectory (1.0 = full override, 0.0 = ignored). The downstream
+    consumer reconstructs the run's causal DAG by reading every edge —
+    no need to re-derive it from the configured connections list.
+    """
+
+    driver: str
+    target: str
+    lag_periods: int
+    blend_weight: float
+
+
+class CorrelationEntry(_ManifestBase):
+    """0.6-M5: one user-declared correlation pair with its realized value.
+
+    Emitted once per entry in ``config.correlations`` (the user's
+    declared connections list). ``requested`` is the coefficient the
+    user wrote in YAML; ``projected`` is the value at the matching cell
+    of the matrix the engine actually drove the copula against — i.e.
+    after M120 trajectory-aware compensation (when enabled) and M111
+    Higham nearest-PD projection (when needed). Auto-zero off-diagonals
+    (pairs the user didn't declare) are not recorded.
+
+    Distinct from ``CorrelationAdjustment`` (which only fires when
+    Higham had to project) and ``CorrelationCompensation`` (which only
+    fires when compensation ran). ``CorrelationEntry`` fires on EVERY
+    run that has correlations, so consumers always see the realized
+    value for every declared edge.
+    """
+
+    metric_a: str
+    metric_b: str
+    requested: float
+    projected: float
+
+
+class OutlierInjection(_ManifestBase):
+    """0.6-M5: one cell where ``noise.outlier_rate`` fired during generation.
+
+    Identifies a cell by ``(entity, period_index, metric)`` — the same
+    coordinate space used by ``trajectory_samples`` and ``event_firings``
+    so a downstream consumer can join across sections without bridging
+    through table row indices. The realized cell value is intentionally
+    omitted: a consumer that needs it reads the fact table directly at
+    ``(entity, period)`` row, ``metric`` column.
+
+    Emitted only for serial-mode runs (``generation_mode='serial'`` or
+    ``'auto'`` resolving to serial). Vectorized mode uses
+    ``_apply_noise_batch`` whose RNG consumption order differs from the
+    per-cell ``apply_noise`` path the detector replays — recording
+    outliers there would require a second engine path or an invasive
+    instrumentation hook. Vectorized runs leave
+    ``manifest.outlier_injections = None``.
+
+    Cost-gated: detection re-runs the full metric pipeline once with an
+    inline replay of ``apply_noise``, so the work scales with the cell
+    count. ``manifest.outlier_injections`` is ``None`` (skipped) when
+    total cells exceed the budget. ``[]`` means the detector ran and
+    found no firings; a non-empty list means at least one cell had an
+    outlier draw.
+    """
+
+    entity: str
+    period_index: int
+    metric: str
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -337,6 +414,26 @@ class ManifestSchema(_ManifestBase):
     # comparing this to the current constant. Always populated;
     # default ``None`` is reserved for pre-M121b manifests on disk.
     vectorized_threshold_used: Optional[int] = None
+    # 0.6-M5: the run's causal-lag DAG, derived from ``config.metrics``.
+    # One ``CausalEdge`` per metric with a non-None ``causal_lag``. Empty
+    # list when no metric uses ``causal_lag`` (the bundled-template
+    # default for most domains). Default ``[]`` keeps backwards compat
+    # with pre-0.6-M5 manifests on disk that lacked the field.
+    causal_graph: list[CausalEdge] = []
+    # 0.6-M5: one entry per user-declared correlation in
+    # ``config.correlations``, with the realized (post-compensation,
+    # post-Higham) coefficient surfaced as ``projected``. Empty list when
+    # no correlations are configured. Default ``[]`` keeps backwards compat
+    # with pre-0.6-M5 manifests.
+    correlations: list[CorrelationEntry] = []
+    # 0.6-M5: per-cell outlier injection log. ``None`` when the detector
+    # was skipped (see ``OutlierInjection`` docstring for skip reasons:
+    # ``noise.outlier_rate == 0``, vectorized generation, or cell budget
+    # exceeded). ``[]`` when the detector ran and found no firings. A
+    # non-empty list records each cell whose noise pipeline drew an
+    # outlier multiplier. Default ``None`` keeps backwards compat with
+    # pre-0.6-M5 manifests.
+    outlier_injections: Optional[list[OutlierInjection]] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -666,6 +763,64 @@ def build_manifest(
 
     vectorized_threshold_used = int(_VECTORIZED_AUTO_THRESHOLD)
 
+    # 0.6-M5: causal-lag DAG. One edge per metric with non-None
+    # ``causal_lag`` — sorted by (driver, target) for byte-deterministic
+    # output across runs whose metric declaration order differs.
+    causal_graph: list[CausalEdge] = sorted(
+        [
+            CausalEdge(
+                driver=m.causal_lag.driver,
+                target=m.name,
+                lag_periods=int(m.causal_lag.lag_periods),
+                blend_weight=float(m.causal_lag.blend_weight),
+            )
+            for m in config.metrics
+            if m.causal_lag is not None
+        ],
+        key=lambda e: (e.driver, e.target),
+    )
+
+    # 0.6-M5: realized correlation values. One entry per user-declared
+    # connection in ``config.correlations``, with the projected
+    # coefficient pulled from the matrix tables.py stashed at the
+    # Cholesky-build site. Sorted by (metric_a, metric_b) for stable
+    # output. Skipped when the run had no correlations (the stash
+    # never ran) — empty list rather than None to mirror ``causal_graph``'s
+    # contract: empty means "ran, nothing to record" / no special signal.
+    correlations: list[CorrelationEntry] = []
+    projected_mat = getattr(config, "_projected_correlation_matrix", None)
+    metric_order = getattr(config, "_metric_correlation_order", None)
+    if projected_mat is not None and metric_order is not None and config.correlations:
+        index_by_name = {name: idx for idx, name in enumerate(metric_order)}
+        for pair in config.correlations:
+            row_idx = index_by_name.get(pair.metric_a)
+            col_idx = index_by_name.get(pair.metric_b)
+            if row_idx is None or col_idx is None:
+                # Defensive: a config with a correlations entry naming a
+                # metric not in the toposort order would have failed
+                # cross-reference integrity at load time. Skip rather
+                # than crash if it ever surfaces.
+                continue
+            correlations.append(
+                CorrelationEntry(
+                    metric_a=pair.metric_a,
+                    metric_b=pair.metric_b,
+                    requested=float(pair.coefficient),
+                    projected=float(projected_mat[row_idx, col_idx]),
+                )
+            )
+        correlations.sort(key=lambda e: (e.metric_a, e.metric_b))
+
+    # 0.6-M5: outlier injection log. ``detect_outlier_injections`` returns
+    # ``None`` for the three skip cases (no outlier_rate configured,
+    # vectorized mode, cell budget exceeded) and a list otherwise. The
+    # import is local so the manifest builder stays cheap to call when
+    # ``noise.outlier_rate == 0`` (the common case) — the heavy module
+    # never loads.
+    from plotsim.outlier_injections import detect_outlier_injections
+
+    outlier_injections = detect_outlier_injections(config)
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -680,6 +835,9 @@ def build_manifest(
         correlation_compensations=correlation_compensations,
         bypass_fallback_counts=bypass_fallback_counts,
         vectorized_threshold_used=vectorized_threshold_used,
+        causal_graph=causal_graph,
+        correlations=correlations,
+        outlier_injections=outlier_injections,
     )
 
 
@@ -707,12 +865,15 @@ __all__ = [
     "MANIFEST_FILENAME",
     "MANIFEST_SCHEMA_VERSION",
     "BridgeAssociationRecord",
+    "CausalEdge",
     "CorrelationAdjustment",
     "CorrelationCompensation",
+    "CorrelationEntry",
     "EntityArchetypeAssignment",
     "EventFiring",
     "HoldoutInfo",
     "ManifestSchema",
+    "OutlierInjection",
     "QualityInjection",
     "SCDEvent",
     "TrajectorySample",

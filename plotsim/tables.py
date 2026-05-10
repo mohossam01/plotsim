@@ -3324,6 +3324,16 @@ def generate_tables_with_state(
         projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
         cholesky_L = np.linalg.cholesky(projected_mat)
 
+        # 0.6-M5: stash the projected matrix + the toposorted metric order
+        # used to assemble it so ``plotsim.manifest.build_manifest`` can
+        # surface ``manifest.correlations`` (one entry per user-declared
+        # connection, with the post-Higham, post-compensation coefficient
+        # the engine actually drove the cell against). The two attrs are
+        # paired — without the order, indexing into the matrix is ambiguous
+        # for configs whose toposort permutes declaration order.
+        config._projected_correlation_matrix = projected_mat
+        config._metric_correlation_order = [m.name for m in sorted_metrics]
+
         # Stash compensation records on the (private) config attr so
         # ``plotsim.manifest.build_manifest`` can surface them alongside
         # the Higham records. ``None`` (no compensation, no records) ≠

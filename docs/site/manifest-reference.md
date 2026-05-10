@@ -46,7 +46,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -59,13 +59,16 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
   "correlation_adjustments": [...] | null,
   "correlation_compensations": [...] | null,
   "bypass_fallback_counts": {...} | null,
-  "vectorized_threshold_used": 50 | null
+  "vectorized_threshold_used": 50 | null,
+  "causal_graph": [...],
+  "correlations": [...],
+  "outlier_injections": [...] | null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.0"`. Bumped when the manifest gains a non-additive change |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.1"` (bumped from `"1.0"` in 0.6-M5 for the additive `causal_graph`, `correlations`, `outlier_injections` sections) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -79,6 +82,9 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `correlation_compensations` | array or `null` | Trajectory-aware compensation records. `null` when `compensate_correlations` is False or the metric cap was exceeded |
 | `bypass_fallback_counts` | object or `null` | Per-archetype count of cells that fell back to the scalar copula path. `null` in serial mode |
 | `vectorized_threshold_used` | `int` or `null` | The auto-mode entity-count threshold at generation time. `null` for pre-M121b manifests on disk |
+| `causal_graph` | array | One `CausalEdge` per metric with a non-None `causal_lag`. Empty list when no metric uses `causal_lag` |
+| `correlations` | array | One entry per user-declared `config.correlations` pair, with the realized (post-Higham, post-compensation) coefficient. Empty list when no correlations are configured |
+| `outlier_injections` | array or `null` | Per-cell outlier-fire log. `null` when skipped (no `outlier_rate`, vectorized mode, or cell budget exceeded). `[]` when the detector ran and observed no firings |
 
 ---
 
@@ -448,6 +454,130 @@ Recorded so old manifests stay reproducible if the constant changes in
 a later release — comparing this against the current threshold lets a
 consumer detect that a re-run would land in a different
 `generation_mode`.
+
+---
+
+## `causal_graph`
+
+The run's causal-lag DAG, derived from `config.metrics`.
+
+```json
+{
+  "causal_graph": [
+    {
+      "driver": "engagement",
+      "target": "support_tickets",
+      "lag_periods": 2,
+      "blend_weight": 1.0
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `driver` | `str` | Source metric name. Mirrors `metric.causal_lag.driver` |
+| `target` | `str` | Target metric name (the metric whose `causal_lag` field declared the edge) |
+| `lag_periods` | `int` | Period offset the target reads the driver at. Mirrors `metric.causal_lag.lag_periods` |
+| `blend_weight` | `float` | Blend coefficient — `1.0` is full lag override, `0.0` ignores the lag, intermediate values blend between the lagged driver and the target's own current trajectory position |
+
+One edge per metric whose `causal_lag` field is set. Empty list when no
+metric uses `causal_lag`. Sorted by `(driver, target)` for stable JSON
+output.
+
+**Use case** — reconstruct the run's directed causal graph without
+re-parsing the YAML config. A downstream lineage tool can build "what
+upstream metrics could have caused this metric to move" queries
+directly from this list.
+
+---
+
+## `correlations`
+
+One entry per user-declared correlation pair, with the realized
+coefficient the engine actually drove the copula against.
+
+```json
+{
+  "correlations": [
+    {
+      "metric_a": "engagement",
+      "metric_b": "mrr",
+      "requested": 0.82,
+      "projected": 0.7332
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `metric_a` | `str` | First metric of the user-declared pair |
+| `metric_b` | `str` | Second metric of the pair |
+| `requested` | `float` | The coefficient written in `config.correlations` — what the user asked for |
+| `projected` | `float` | The coefficient at `(metric_a, metric_b)` of the matrix the engine drove the copula against — i.e. after M120 trajectory-aware compensation (when enabled) and M111 Higham nearest-PD projection (when needed). May differ from `requested` when those steps adjusted the matrix |
+
+One entry per pair in `config.correlations`. Auto-zero off-diagonals
+(pairs the user did not declare) are not recorded. Sorted by
+`(metric_a, metric_b)` for stable JSON output.
+
+**Distinct from** `correlation_adjustments` (which only fires when
+Higham had to project) and `correlation_compensations` (which only
+fires when M120 compensation ran). `correlations` fires on every run
+that has correlations, so consumers always see the realized value
+regardless of whether the matrix needed adjustment.
+
+**Use case** — verify that the realized coefficient matches the user's
+intent. A pair where `abs(requested - projected) > tolerance` is a
+signal that the matrix was incompatible with the trajectory's
+structural covariance and the engine had to bend it; a learner can
+rank these by deviation magnitude to flag the configuration choices
+that introduced the most drift.
+
+---
+
+## `outlier_injections`
+
+Per-cell record of which cells had `noise.outlier_rate` fire during
+generation.
+
+```json
+{
+  "outlier_injections": [
+    { "entity": "acme_corp_cohort", "period_index": 8, "metric": "engagement" },
+    { "entity": "acme_corp_cohort", "period_index": 9, "metric": "churn_risk" }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `entity` | `str` | Entity name — matches `config.entities[i].name` |
+| `period_index` | `int` | Zero-based period index. `0` is the first period of `time_window` |
+| `metric` | `str` | Metric name — matches `config.metrics[i].name` |
+
+Sorted by `(entity, period_index, metric)` for stable JSON output.
+
+### When the section is `null`
+
+The detector replays the engine pipeline with an inline noise hook to
+observe outlier firings. It skips three cases, all of which surface as
+`outlier_injections: null`:
+
+| Skip reason | Why |
+|---|---|
+| `noise.outlier_rate == 0.0` | The noise pipeline never consults the outlier branch — re-running the engine to observe zero firings would be wasted work |
+| Vectorized generation mode | `_apply_noise_batch` consumes RNG in a different order than per-cell `apply_noise`. A serial-mode replay would record firings at cells that don't match the vectorized fact tables. Recording vectorized outliers needs a parallel batch detector — out of scope for 0.6-M5 |
+| Cell count exceeds budget | The detector replays the full metric pipeline once. Total cells (`n_entities × n_periods × n_metrics`) above `OUTLIER_DETECTION_CELL_BUDGET` (1,000,000) trigger a skip — the replay cost is not justified for what is effectively a debug aid |
+
+`[]` (empty list) means the detector ran and observed no firings — a
+valid outcome at low `outlier_rate` and small cell counts. Distinct
+from `null` (skipped).
+
+**Use case** — score an anomaly-detection model. Each outlier
+injection is ground truth: the cell got an outlier multiplier from
+`apply_noise`, so a detector that fails to flag it has missed a known
+positive. An empty list means clean data with no anomalies to find.
 
 ---
 
