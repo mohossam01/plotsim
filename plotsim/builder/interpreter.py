@@ -392,6 +392,15 @@ def _build_archetypes_and_entities(
     entities: list[Entity] = []
 
     arrival_rng = np.random.default_rng(seed)
+    # 0.6-M8c: independent RNG for treatment assignments. The salt
+    # decouples treatment_rng from arrival_rng so changing a segment's
+    # ``arrival`` shape (which consumes RNG state on arrival_rng) does
+    # NOT shift which entities land in the treatment arm. Same seed +
+    # same treatment config + arbitrary arrival changes → identical
+    # treatment assignments. Pinned by
+    # ``test_treatment_assignments_independent_of_arrival_shape`` in
+    # ``tests/test_treatment_control.py``.
+    treatment_rng = np.random.default_rng(seed ^ TREATMENT_SALT)
 
     for s in user_input.segments:
         curve_segments = parse_archetype(s.archetype, n_periods=n_periods)
@@ -406,7 +415,9 @@ def _build_archetypes_and_entities(
             )
         )
         start_periods = _draw_segment_arrivals(s, n_periods, arrival_rng)
+        treatment_assignments = _draw_treatment_assignments(s, treatment_rng)
         for i in range(s.count):
+            ta = treatment_assignments[i]
             entities.append(
                 Entity(
                     name=f"{s.name}_{i:04d}",
@@ -414,10 +425,76 @@ def _build_archetypes_and_entities(
                     size=1,
                     seasonal_sensitivity=s.seasonal_sensitivity,
                     start_period=start_periods[i],
+                    treatment_group=ta[0] if ta is not None else None,
+                    treatment_lift_log_odds=ta[1] if ta is not None else None,
+                    treatment_start_period=(
+                        s.treatment.start_period if s.treatment is not None else 0
+                    ),
                 )
             )
 
     return archetypes, entities
+
+
+# 0.6-M8c: salt for the treatment-assignment RNG stream. Decouples
+# treatment draws from arrival draws so changing one feature's shape
+# doesn't shift the other's outputs. The exact value is arbitrary —
+# what matters is that it's distinct from 0 (so ``seed ^ SALT != seed``)
+# and stable across releases (changing the salt shifts every
+# treatment assignment, which would break determinism for users on
+# pinned seeds). Hex digits of "M8C" → 0x4D3843.
+TREATMENT_SALT = 0x4D3843
+
+
+def _draw_treatment_assignments(
+    s: SegmentInput,
+    rng: np.random.Generator,
+) -> list[Optional[tuple[str, Optional[float]]]]:
+    """Return ``s.count`` per-entity ``(label, lift)`` tuples.
+
+    Each entry is either:
+
+      * ``None`` — the segment has no ``treatment`` config; every entity
+        in this segment is treatment-free (pre-M8c behaviour).
+      * ``(treatment_label, lift_log_odds)`` — the entity is in the
+        treatment arm. ``lift_log_odds`` is the segment's configured lift.
+      * ``(control_label, None)`` — the entity is in the control arm.
+        Lift is None (the engine reads this as "no shift").
+
+    Deterministic: ``rng.choice(s.count, size=n_treatment, replace=False)``
+    gives a fixed permutation under the same seed. RNG consumption is
+    one batched draw per segment with ``treatment`` set; segments
+    without ``treatment`` consume zero — so toggling treatment on /
+    off for one segment doesn't shift treatment draws on subsequent
+    segments.
+    """
+    if s.treatment is None:
+        return [None] * s.count
+
+    n_treatment = int(round(s.treatment.fraction * s.count))
+    # Edge cases: fraction=0.0 → empty treated set, every entity is
+    # control. fraction=1.0 → entire segment is treatment. Both flow
+    # through ``rng.choice(N, size=k, replace=False)`` cleanly because
+    # ``size=0`` returns an empty array and ``size=N`` is a full
+    # permutation. We still draw to keep RNG consumption uniform across
+    # the fraction range — guards against a future user passing a
+    # fraction-driven sweep where every cell expects identical RNG
+    # state.
+    if n_treatment == 0:
+        # ``size=0`` would short-circuit; force the draw for RNG state
+        # uniformity across fraction values.
+        treated_indices: set[int] = set()
+        rng.choice(s.count, size=0, replace=False)
+    else:
+        treated_indices = set(int(x) for x in rng.choice(s.count, size=n_treatment, replace=False))
+
+    out: list[Optional[tuple[str, Optional[float]]]] = []
+    for i in range(s.count):
+        if i in treated_indices:
+            out.append((s.treatment.treatment_label, s.treatment.lift_log_odds))
+        else:
+            out.append((s.treatment.control_label, None))
+    return out
 
 
 def _draw_segment_arrivals(

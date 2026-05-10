@@ -942,6 +942,36 @@ class Entity(_Frozen):
     # the entity's own active window. ``dim_<entity>`` always includes
     # the entity regardless of arrival period.
     start_period: int = Field(default=0, ge=0)
+    # 0.6-M8c: treatment / control assignment for A/B test datasets.
+    #
+    # Three independent fields (all defaults reproduce pre-M8c output
+    # byte-for-byte):
+    #
+    #   * ``treatment_group`` — optional string label. Used by the manifest
+    #     for per-cohort grouping (e.g. ``"treatment"`` / ``"control"``).
+    #     Plotsim treats it as opaque metadata; the engine never branches
+    #     on the label string.
+    #   * ``treatment_lift_log_odds`` — optional float. The known effect
+    #     size in log-odds units (logit space). When set, every metric's
+    #     pre-polarity effective position is shifted by this amount via
+    #     ``sigmoid(logit(p) + lift)`` for periods ``>= treatment_start_period``.
+    #     ``None`` = no shift (the control-arm contract).
+    #   * ``treatment_start_period`` — absolute period index at which the
+    #     shift kicks in. ``0`` (default) = treatment from the entity's
+    #     first active period. Setting it ``> entity.start_period`` carves
+    #     out a baseline window where treatment and control entities share
+    #     identical metric distributions (the AC for "pre-treatment baseline
+    #     is identical across groups").
+    #
+    # The label is decoupled from the lift so a "control" entity can carry
+    # a label without applying a shift, AND so the user can opt out of
+    # labelling for debug runs while still applying lift. Cross-field
+    # validation (``_treatment_start_period_within_window``) enforces
+    # ``treatment_start_period < n_periods`` when lift is set, otherwise
+    # the shift would never apply.
+    treatment_group: Optional[str] = None
+    treatment_lift_log_odds: Optional[float] = None
+    treatment_start_period: int = Field(default=0, ge=0)
 
 
 class FKDistribution(_Frozen):
@@ -2170,6 +2200,26 @@ class PlotsimConfig(_Frozen):
         from plotsim.validation import validate_cold_start_active_periods
 
         errors = validate_cold_start_active_periods(self)
+        if errors:
+            raise ValueError(errors[0])
+        return self
+
+    @model_validator(mode="after")
+    def _treatment_assignments_gate(self) -> "PlotsimConfig":
+        """0.6-M8c: load-time gate for treatment / control assignments.
+
+        Catches three malformed shapes: ``treatment_start_period``
+        outside ``[entity.start_period, n_periods)`` and non-finite
+        ``treatment_lift_log_odds``. See
+        ``plotsim.validation.validate_treatment_assignments`` for the
+        full rule list. Same model_validator pattern as
+        ``_cold_start_active_periods_gate``.
+        """
+        # Local import: plotsim.validation imports from plotsim.config,
+        # so a module-level import would create a cycle.
+        from plotsim.validation import validate_treatment_assignments
+
+        errors = validate_treatment_assignments(self)
         if errors:
             raise ValueError(errors[0])
         return self

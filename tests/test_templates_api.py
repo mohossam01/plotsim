@@ -14,6 +14,7 @@ from plotsim.config import PlotsimConfig
 
 
 EXPECTED_TEMPLATES = {
+    "ab_trial",
     "bare_minimum",
     "education",
     "hr",

@@ -241,6 +241,72 @@ def validate_cold_start_active_periods(config: PlotsimConfig) -> list[str]:
     return errors
 
 
+# --- Pre-generation: treatment / control gate (0.6-M8c) ---------------------
+
+
+def validate_treatment_assignments(config: PlotsimConfig) -> list[str]:
+    """Return load-time error messages for malformed treatment configs.
+
+    Pure config check, no DataFrame inputs. Mirrors the M8b
+    ``validate_cold_start_active_periods`` pattern so a misconfigured
+    YAML fails at load instead of producing a dataset where the lift
+    silently never applies.
+
+    Gates (all independently checked):
+
+      1. ``treatment_start_period`` must lie within ``[0, n_periods)``.
+         An entity with ``treatment_lift_log_odds`` set and
+         ``treatment_start_period >= n_periods`` would never apply the
+         shift — the lift becomes silent dead-weight, hiding a config
+         error behind generated output that looks fine.
+      2. ``treatment_lift_log_odds`` must be finite when set. ``inf``
+         or ``nan`` would propagate through the logit shift to NaN cell
+         values for every post-treatment row.
+
+    Note on ``treatment_start_period < entity.start_period``: this is
+    NOT a gate. An entity that arrives at period 6 with
+    ``treatment_start_period=4`` is fine — periods 4 and 5 are dormant
+    (cold-start NaN trajectory, no rows generated), and the shift
+    kicks in naturally at the entity's first active period. The
+    builder uses this slack to assign one segment-level
+    ``TreatmentConfig.start_period`` to entities with arrival-distribution
+    drawn ``start_period`` values that vary per entity. Pinned by
+    ``test_treatment_start_before_entity_start_is_legal`` in
+    ``tests/test_treatment_control.py``.
+
+    Returns an empty list when every entity is well-bounded. Empty
+    config (no treatment fields set anywhere) is the no-op default and
+    passes cleanly.
+    """
+    errors: list[str] = []
+    n_periods = config.time_window.period_count()
+    for entity in config.entities:
+        if (
+            entity.treatment_lift_log_odds is None
+            and entity.treatment_group is None
+            and entity.treatment_start_period == 0
+        ):
+            # No treatment fields set — the no-op default. Skip every
+            # gate so a config that doesn't use the M8c surface is
+            # invisible to this validator.
+            continue
+        if entity.treatment_start_period >= n_periods:
+            errors.append(
+                f"entity {entity.name!r}: treatment_start_period="
+                f"{entity.treatment_start_period} is at or past "
+                f"n_periods={n_periods}; the lift would never apply"
+            )
+        if entity.treatment_lift_log_odds is not None:
+            lift = entity.treatment_lift_log_odds
+            if not np.isfinite(lift):
+                errors.append(
+                    f"entity {entity.name!r}: treatment_lift_log_odds="
+                    f"{lift} is non-finite; the logit shift would "
+                    f"propagate NaN into every post-treatment cell"
+                )
+    return errors
+
+
 # --- Pre-generation: entity features config gates (M108) --------------------
 
 
