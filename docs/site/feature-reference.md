@@ -22,7 +22,7 @@ Three surfaces today:
 |---|---|---|
 | Library | `plotsim.create`, `create_from_yaml`, `generate_tables`, `write_tables` | Python users in an IDE or notebook |
 | CLI | `plotsim run`, `validate`, `info`, `template`, `schema` | Terminal, CI, scripts |
-| YAML | bundled templates: `bare_minimum`, `saas`, `hr`, `education`, `retail`, `marketing` | Anyone who wants to hand-edit a config |
+| YAML | bundled templates: `bare_minimum`, `saas`, `hr`, `education`, `retail`, `marketing`, `geo_retail` | Anyone who wants to hand-edit a config |
 
 ---
 
@@ -62,6 +62,12 @@ Three surfaces today:
 |---|---|
 | SCD Type 2 | `dim_<entity>` expanded to N×versions with `valid_from_period` and band-crossing events surfaced in the manifest |
 | SCD Type 1 | default (no-op) |
+
+### Geo hierarchy
+
+| Feature | Behavior |
+|---|---|
+| Geo bundle provider | `geo.<field>` column types pull country / region / city / postcode / lat-lng from a curated 200-entry, 17-country reference dataset. All fields on the same dim row come from a single bundle, so the city is in the stated country, the postcode looks right for that country, and lat/lng land on the named city. Dim-only; the engine rejects geo on facts/events. See [Geo hierarchy](./user-guide/geo-hierarchy.md). |
 
 ### Holdout splits
 
@@ -229,9 +235,13 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
 - **Flat scalars only.** No struct/array/JSON column types; CSV and
   Parquet writers don't emit nested types.
 - **3NF by construction.** No denormalized "wide" output mode.
-- **Geo providers independent.** Faker `country` / `city` /
-  `postcode` / `lat-lng` are independent draws — no enforced hierarchy
-  on a single row.
+- **Faker geo providers are independent draws.** `generated:faker.city`,
+  `generated:faker.country`, etc. don't agree on a single row — Faker
+  picks each value independently. Use the `geo.<field>` column type
+  (or `generated:geo.<field>` source) for row-coherent
+  country / region / city / postcode / lat-lng bundles drawn from a
+  curated reference dataset; see
+  [Geo hierarchy](./user-guide/geo-hierarchy.md).
 
 These are listed in `project/notes/engine-features-maturity.md`
 (internal) with mission-shaped fixes. They are out of scope for "what

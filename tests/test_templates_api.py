@@ -17,6 +17,7 @@ EXPECTED_TEMPLATES = {
     "ab_trial",
     "bare_minimum",
     "education",
+    "geo_retail",
     "hr",
     "lakehouse",
     "latency_skew",

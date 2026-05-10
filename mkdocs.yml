@@ -78,6 +78,7 @@ nav:
       - Seasonality: user-guide/seasonality.md
       - Experiments & cohorts: user-guide/experiments-and-cohorts.md
       - Schema guide: user-guide/schema-guide.md
+      - Geo hierarchy: user-guide/geo-hierarchy.md
       - Output formats: user-guide/output-formats.md
   - Tutorials:
       - Getting started: tutorial-notebooks/getting_started.ipynb
