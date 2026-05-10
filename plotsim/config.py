@@ -317,6 +317,197 @@ class PoolSource(_Frozen):
     _name_is_identifier = field_validator("name")(_identifier_field_validator("pool name"))
 
 
+# Placeholder pattern for narrative templates. ``{slot}`` literals where
+# ``slot`` is a valid identifier. Used both at config-load to validate
+# that the lexicon's slot keys match the template's placeholders, and at
+# cell-build time to enumerate slots in declaration order.
+_NARRATIVE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+class NarrativeSource(_Frozen):
+    """Marker source for a fact column carrying trajectory- and archetype-driven text.
+
+    Grammar: ``narrative:<key>``. ``<key>`` is a free-form identifier that
+    distinguishes multiple narrative columns on the same row (e.g.
+    ``narrative:review_text`` vs ``narrative:support_ticket``); the
+    actual template + per-archetype lexicons live on
+    ``Column.narrative: NarrativeConfig`` so the dispatcher in
+    ``plotsim.tables`` has structured access without re-parsing strings.
+
+    A column with this source MUST also declare a ``narrative`` config
+    block (validated on ``Column``); a column with a non-narrative source
+    MUST NOT declare ``narrative``. The two are paired or both absent —
+    same discipline as :class:`SCDType2Source` / :class:`PoolSource`.
+
+    Architectural placement: narrative columns are fact-only and force
+    the scalar fact-builder path because phrase sampling consumes one
+    RNG draw per slot per row — vectorizing would re-order draws and
+    break byte-parity for the Layer-4 reference fixtures. The dim layer
+    rejects narrative sources at load time; per-period and event grains
+    are out of scope (no per-row trajectory plumbing wired).
+
+    Trajectory-first invariant: each emitted cell is a deterministic
+    function of ``(trajectory position, archetype, RNG state)``. Same
+    seed → byte-identical text column. The signal a downstream
+    classifier learns is the per-archetype lexicon × per-band vocabulary
+    mapping; the sampling is intentionally non-degenerate (intra-band
+    uniform across the phrase pool, with operator-controlled overlap
+    between archetypes' bands) so the signal is learnable but not a
+    one-to-one phrase→archetype lookup.
+    """
+
+    key: str
+
+    _key_is_identifier = field_validator("key")(_identifier_field_validator("narrative key"))
+
+
+class NarrativeConfig(_Frozen):
+    """Lexicon + template config for a :class:`NarrativeSource` column.
+
+    Each fact-cell is built by:
+
+      1. Reading the entity's trajectory position ``p ∈ [0, 1]`` at the
+         current period.
+      2. Mapping ``p`` to one of ``N = len(bands)`` evenly-spaced bands
+         via ``min(int(p * N), N - 1)`` (same arithmetic
+         :class:`TextBucketSource` uses; ``p == 1.0`` lands in the last
+         band rather than overflowing).
+      3. Looking up the entity's archetype to pick which lexicon applies.
+      4. For each ``{slot}`` placeholder in ``template``, sampling one
+         phrase from ``lexicons[archetype][slot][bands[band_idx]]`` via
+         the seeded engine RNG.
+      5. ``template.format(**slot_values)`` → final cell value.
+
+    Lexicon shape:
+        ``{archetype_name: {slot_name: {band_name: [phrase, ...]}}}``
+
+    Load-time validation gates (this model):
+
+      * ``template`` contains at least one ``{slot}`` placeholder, no
+        duplicate placeholders, slot names are valid identifiers.
+      * ``bands`` has 2–20 entries (mirrors :class:`TextBucketSource`;
+        the bound is for lexicon-authoring ergonomics, not engine math —
+        the band-index arithmetic supports any ``N >= 1``).
+      * ``bands`` entries are non-empty unique strings.
+      * For every archetype, ``lexicons[archetype]`` keys equal the
+        template's ``{slot}`` placeholder set.
+      * For every slot, ``lexicons[archetype][slot]`` keys equal the
+        ``bands`` tuple as a set.
+      * Each band's phrase list is non-empty and contains only non-empty
+        strings.
+
+    Cross-config gates (in ``PlotsimConfig._narrative_gates``):
+
+      * ``lexicons`` keys are a subset of ``config.archetypes[].name``.
+      * The owning column's table has ``type == "fact"`` and
+        ``grain == "per_entity_per_period"``.
+    """
+
+    template: str = Field(min_length=1)
+    lexicons: dict[str, dict[str, dict[str, list[str]]]]
+    bands: tuple[str, ...] = ("low", "mid", "high")
+
+    @field_validator("bands")
+    @classmethod
+    def _bands_shape(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        if len(v) < 2 or len(v) > 20:
+            raise ValueError(
+                f"narrative bands must have between 2 and 20 entries, "
+                f"got {len(v)} ({list(v)!r})"
+            )
+        if any(not isinstance(b, str) or not b for b in v):
+            raise ValueError(f"narrative bands must all be non-empty strings, got {list(v)!r}")
+        if len(set(v)) != len(v):
+            raise ValueError(f"narrative bands must be unique, got {list(v)!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _template_and_lexicons_consistent(self) -> "NarrativeConfig":
+        slots = _NARRATIVE_PLACEHOLDER_RE.findall(self.template)
+        if not slots:
+            raise ValueError(
+                f"narrative template {self.template!r} has no {{slot}} "
+                f"placeholders; a fully static sentence does not need a "
+                f"narrative source — use 'static:<value>' instead"
+            )
+        slot_set = set(slots)
+        if len(slots) != len(slot_set):
+            seen: set[str] = set()
+            dups: list[str] = []
+            for s in slots:
+                if s in seen and s not in dups:
+                    dups.append(s)
+                seen.add(s)
+            raise ValueError(
+                f"narrative template {self.template!r} has duplicate slot "
+                f"placeholders {sorted(dups)}; each {{slot}} must be unique "
+                f"so the per-slot phrase sampling is unambiguous"
+            )
+
+        if not self.lexicons:
+            raise ValueError(
+                "narrative lexicons must declare at least one archetype "
+                "(map archetype name → slot → band → phrase list)"
+            )
+
+        bands_set = set(self.bands)
+        for archetype, by_slot in self.lexicons.items():
+            if not isinstance(archetype, str) or not archetype:
+                raise ValueError(
+                    f"narrative lexicons archetype key must be a non-empty "
+                    f"string, got {archetype!r}"
+                )
+            slots_present = set(by_slot)
+            if slots_present != slot_set:
+                missing = slot_set - slots_present
+                extra = slots_present - slot_set
+                raise ValueError(
+                    f"narrative lexicons[{archetype!r}] slots "
+                    f"{sorted(slots_present)} do not match template "
+                    f"placeholders {sorted(slot_set)}: "
+                    f"missing {sorted(missing)}, unexpected {sorted(extra)}"
+                )
+            for slot, by_band in by_slot.items():
+                if not _IDENTIFIER_RE.fullmatch(slot):
+                    raise ValueError(
+                        f"narrative lexicons[{archetype!r}][{slot!r}]: "
+                        f"slot name is not a valid identifier"
+                    )
+                bands_present = set(by_band)
+                if bands_present != bands_set:
+                    missing = bands_set - bands_present
+                    extra = bands_present - bands_set
+                    raise ValueError(
+                        f"narrative lexicons[{archetype!r}][{slot!r}] bands "
+                        f"{sorted(bands_present)} do not match declared "
+                        f"bands {sorted(bands_set)}: "
+                        f"missing {sorted(missing)}, unexpected {sorted(extra)}"
+                    )
+                for band, phrases in by_band.items():
+                    if not isinstance(phrases, list) or not phrases:
+                        raise ValueError(
+                            f"narrative lexicons[{archetype!r}][{slot!r}]"
+                            f"[{band!r}]: phrase list must be a non-empty list"
+                        )
+                    for phrase in phrases:
+                        if not isinstance(phrase, str) or not phrase:
+                            raise ValueError(
+                                f"narrative lexicons[{archetype!r}][{slot!r}]"
+                                f"[{band!r}]: phrases must be non-empty "
+                                f"strings, got {phrase!r}"
+                            )
+        return self
+
+    def template_slots(self) -> list[str]:
+        """Return the ordered list of ``{slot}`` placeholders in ``template``.
+
+        Order is template scan order (``re.findall`` left-to-right). The
+        cell builder iterates this list to draw one phrase per slot in a
+        deterministic order under the seeded RNG.
+        """
+        return _NARRATIVE_PLACEHOLDER_RE.findall(self.template)
+
+
 ParsedSource = (
     PKSource
     | FKSource
@@ -331,6 +522,7 @@ ParsedSource = (
     | TextBucketSource
     | SCDType2Source
     | PoolSource
+    | NarrativeSource
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -342,7 +534,8 @@ _SOURCE_FORMAT_HELP = (
     "'lag:<metric>:periods:<N>', "
     "'text:bucket:[<label1>, <label2>, ...]', "
     "'scd_type2', "
-    "'pool:<name>'"
+    "'pool:<name>', "
+    "'narrative:<key>'"
 )
 
 
@@ -488,6 +681,24 @@ def parse_source(source: str) -> ParsedSource:
                 f"colons; the actual values live on Column.value_pool"
             )
         return PoolSource(name=body)
+
+    if source.startswith("narrative:"):
+        body = source[len("narrative:") :]
+        if not body:
+            raise ValueError(
+                f"narrative source {source!r}: prefix 'narrative:' requires "
+                f"a key (e.g. 'narrative:review_text')"
+            )
+        if ":" in body:
+            raise ValueError(
+                f"narrative source {source!r} must be 'narrative:<key>' "
+                f"with no extra colons; the actual template + lexicons "
+                f"live on Column.narrative"
+            )
+        # NarrativeSource's own field validator enforces identifier rules
+        # on ``key`` — re-using the same path keeps the error consistent
+        # whether the source is parsed from a string or constructed directly.
+        return NarrativeSource(key=body)
 
     if source.startswith("text:bucket:"):
         body = source[len("text:bucket:") :]
@@ -1173,6 +1384,12 @@ class Column(_Frozen):
     # (validated by ``_pool_pairing``); entity coverage is enforced
     # cross-model in ``plotsim.validation.validate_value_pool_coverage``.
     value_pool: Optional[dict[str, list[str]]] = None
+    # When present, this column emits trajectory- and archetype-driven
+    # text. Must be paired with ``source: "narrative:<key>"`` (validated
+    # by ``_narrative_pairing``); archetype coverage and fact-only
+    # placement are enforced cross-model in
+    # ``plotsim.validation.validate_narrative_columns``.
+    narrative: Optional["NarrativeConfig"] = None
 
     @field_validator("source")
     @classmethod
@@ -1208,6 +1425,39 @@ class Column(_Frozen):
                 f"source {self.source!r}; SCD labels replace the column "
                 f"value, so set source to 'scd_type2' or remove the "
                 f"scd_type2 config"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _narrative_pairing(self) -> "Column":
+        """Source ``narrative:<key>`` and the ``narrative`` config must be paired.
+
+        Mirrors ``_scd_pairing`` / ``_pool_pairing``: either both are
+        present (the column emits trajectory- and archetype-driven text)
+        or both are absent. A column with ``narrative:`` source but no
+        config block has no template / lexicons to draw from; a column
+        with a config block but a non-``narrative:`` source carries
+        silently-ignored data. Both reject at load.
+
+        Cross-model checks — that ``lexicons`` keys cover the config's
+        archetypes and the column's table is a fact table — happen in
+        ``plotsim.validation.validate_narrative_columns`` because they
+        need the full ``PlotsimConfig`` context, not just the column.
+        """
+        is_narrative_source = self.source.startswith("narrative:")
+        has_narrative_cfg = self.narrative is not None
+        if is_narrative_source and not has_narrative_cfg:
+            raise ValueError(
+                f"column {self.name!r} declares source {self.source!r} but "
+                f"no 'narrative' config block; add 'narrative: {{template, "
+                f"lexicons, bands}}' or change the source"
+            )
+        if has_narrative_cfg and not is_narrative_source:
+            raise ValueError(
+                f"column {self.name!r} has a narrative config block but "
+                f"source {self.source!r}; the narrative template replaces "
+                f"the column value, so set source to 'narrative:<key>' or "
+                f"remove the narrative block"
             )
         return self
 
@@ -2368,6 +2618,24 @@ class PlotsimConfig(_Frozen):
         from plotsim.validation import validate_treatment_assignments
 
         errors = validate_treatment_assignments(self)
+        if errors:
+            raise ValueError(errors[0])
+        return self
+
+    @model_validator(mode="after")
+    def _narrative_gates(self) -> "PlotsimConfig":
+        """Load-time gates for ``NarrativeSource`` columns.
+
+        Cross-model: the per-Column structural pairing lives on
+        ``Column._narrative_pairing``; this gate enforces the rules that
+        only make sense with the full config in hand — that the column's
+        table is fact-typed at the per-entity-per-period grain, and that
+        every archetype name in ``narrative.lexicons`` resolves to a
+        declared archetype. Same split as ``_value_pool_gates``.
+        """
+        from plotsim.validation import validate_narrative_columns
+
+        errors = validate_narrative_columns(self)
         if errors:
             raise ValueError(errors[0])
         return self

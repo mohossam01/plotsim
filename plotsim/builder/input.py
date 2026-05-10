@@ -662,9 +662,10 @@ class ColumnInput(BaseModel):
     (``id``, ``ref.{table}``, ``metric.{name}``, ``faker.{which}``,
     ``geo.{field}``, ``static.{value}``, ``segment.count``,
     ``pool.{attr}``, ``timestamp``, ``flag``, ``date``, ``int``,
-    ``string``, ``float``, ``bucket``, ``scd``). Sub-fields are present
-    only for the shape they target: ``tracks``/``tiers``/``at`` for SCD
-    columns, ``labels`` for buckets.
+    ``string``, ``float``, ``bucket``, ``scd``, ``narrative``).
+    Sub-fields are present only for the shape they target:
+    ``tracks``/``tiers``/``at`` for SCD columns, ``labels`` for buckets,
+    ``template`` / ``lexicons`` / ``bands`` for narratives.
 
     The interpreter (Phase 3) translates ``type`` into the engine's
     ``Column.dtype`` + ``Column.source`` pair. Per friction-item #3
@@ -683,6 +684,23 @@ class ColumnInput(BaseModel):
     at: Optional[list[float]] = None
     # Bucket sub-field
     labels: Optional[list[str]] = None
+    # Narrative sub-fields. ``template`` is a sentence with ``{slot}``
+    # placeholders; ``lexicons`` is an ``{archetype: {slot: {band: [phrase, ...]}}}``
+    # nested dict; ``bands`` defaults to ``("low", "mid", "high")`` when omitted.
+    # All three are interpreted into ``Column.narrative: NarrativeConfig`` —
+    # see ``plotsim.config.NarrativeConfig`` for the full validation rules.
+    #
+    # Lexicon-key gotcha: the archetype keys must match the engine-level
+    # archetype names, which in the builder API are the **segment names**
+    # (e.g. ``"risers"``, ``"fallers"``) — NOT the recipe keywords passed
+    # in each segment's ``archetype:`` field (``"growth"``, ``"decline"``).
+    # The builder picks the recipe via ``archetype:`` then names the
+    # resulting archetype after the segment, so per-segment lexicons are
+    # the right granularity (two segments using the same recipe can still
+    # speak with different vocabulary).
+    template: Optional[str] = None
+    lexicons: Optional[dict[str, dict[str, dict[str, list[str]]]]] = None
+    bands: Optional[list[str]] = None
 
 
 class DimInput(BaseModel):

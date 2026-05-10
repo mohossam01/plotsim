@@ -26,7 +26,7 @@ ran inside ``UserInput.model_validate``.
 from __future__ import annotations
 
 import secrets
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -48,6 +48,7 @@ from plotsim.config import (
     HoldoutConfig,
     Metric,
     MetricOverride,
+    NarrativeConfig,
     NoiseConfig,
     OutputConfig,
     PlotsimConfig,
@@ -1263,11 +1264,40 @@ def _translate_column(
             ),
         )
 
+    # ─── narrative ──────────────────────────────────────────────────────
+    if t == "narrative":
+        if col.template is None or col.lexicons is None:
+            raise ValueError(
+                f"column {col.name!r}: type 'narrative' requires "
+                f"`template` and `lexicons` sub-fields (got "
+                f"template={col.template!r}, "
+                f"lexicons={'set' if col.lexicons is not None else 'None'})"
+            )
+        # The source key defaults to the column name — narrative columns are
+        # uniquely identified within a table by name, so reusing it produces
+        # a self-documenting source string and avoids a separate ``key``
+        # input field. ``NarrativeConfig`` runs its own structural
+        # validation (template placeholders, archetype/slot/band coverage)
+        # at construction; cross-config archetype-name checks happen in
+        # ``PlotsimConfig._narrative_gates``.
+        narrative_kwargs: dict[str, Any] = {
+            "template": col.template,
+            "lexicons": col.lexicons,
+        }
+        if col.bands is not None:
+            narrative_kwargs["bands"] = tuple(col.bands)
+        return Column(
+            name=col.name,
+            dtype="string",
+            source=f"narrative:{col.name}",
+            narrative=NarrativeConfig(**narrative_kwargs),
+        )
+
     raise ValueError(
         f"column {col.name!r} in {owning_table!r}: unknown type {t!r}. "
         f"Valid types: id, ref.X, metric.X, faker.X, geo.X, static.X, "
         f"segment.count, pool.X, timestamp, date, int, string, float, "
-        f"bucket, scd"
+        f"bucket, scd, narrative"
     )
 
 
