@@ -72,7 +72,13 @@ MANIFEST_FILENAME = "manifest.json"
 # ``correlations`` / ``outlier_injections`` sections. All three default to
 # ``[]`` or ``None`` so manifests on disk produced by 1.0 readers parse
 # unchanged; 1.1 readers see the new fields populated.
-MANIFEST_SCHEMA_VERSION = "1.1"
+# 0.6-M8a: bumped 1.1 → 1.2 for the additive per-entity
+# ``EntityArchetypeAssignment.active_window`` field. ``None`` default
+# means manifests on disk produced by 1.1 readers parse unchanged; 1.2
+# readers see the new field populated for every entity (the default
+# ``start_period=0`` produces ``ActiveWindow(start=0, end=n_periods)``,
+# which is non-load-bearing but explicit).
+MANIFEST_SCHEMA_VERSION = "1.2"
 
 
 class _ManifestBase(BaseModel):
@@ -87,11 +93,33 @@ class _ManifestBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class ActiveWindow(_ManifestBase):
+    """0.6-M8a: an entity's active period range.
+
+    ``start`` is the first period at which the entity is present (inclusive,
+    matches ``Entity.start_period``). ``end`` is the exclusive upper bound
+    — equal to ``n_periods`` for entities present at the end of the window.
+    The pair ``(start, end)`` is closed-open: the entity has rows in the
+    fact tables for every ``period_index`` in ``[start, end)``. For
+    entities with the default ``start_period=0`` and the engine's normal
+    "active to the end" assumption, this is ``(0, n_periods)``.
+    """
+
+    start: int
+    end: int
+
+
 class EntityArchetypeAssignment(_ManifestBase):
-    """Single (entity, archetype) ground-truth pair."""
+    """Single (entity, archetype) ground-truth pair.
+
+    0.6-M8a: ``active_window`` carries the entity's per-(start, end)
+    period range. ``None`` on manifests written by pre-1.2 readers; new
+    manifests always populate it (default entities get ``(0, n_periods)``).
+    """
 
     entity: str
     archetype: str
+    active_window: Optional[ActiveWindow] = None
 
 
 class TrajectorySample(_ManifestBase):
@@ -639,8 +667,22 @@ def build_manifest(
     """
     rate = sample_rate if sample_rate is not None else config.manifest.trajectory_sample_rate
 
+    # 0.6-M8a: derive n_periods from the trajectories dict (every trajectory
+    # in the dict has the same length — this is enforced upstream in
+    # ``build_fact_tables`` against ``len(dim_date)``). Empty-config edge
+    # case (no entities) cannot reach this branch because the manifest is
+    # only built from realized generation output.
+    n_periods = len(next(iter(trajectories.values()))) if trajectories else 0
+
     archetype_assignments = sorted(
-        [EntityArchetypeAssignment(entity=e.name, archetype=e.archetype) for e in config.entities],
+        [
+            EntityArchetypeAssignment(
+                entity=e.name,
+                archetype=e.archetype,
+                active_window=ActiveWindow(start=e.start_period, end=n_periods),
+            )
+            for e in config.entities
+        ],
         key=lambda a: a.entity,
     )
 
@@ -865,6 +907,7 @@ __all__ = [
     "MANIFEST_FILENAME",
     "MANIFEST_SCHEMA_VERSION",
     "BridgeAssociationRecord",
+    "ActiveWindow",
     "CausalEdge",
     "CorrelationAdjustment",
     "CorrelationCompensation",

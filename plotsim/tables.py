@@ -324,7 +324,14 @@ def _compute_entity_metrics(
             standard_by_arch[entity.archetype] = []
             overridden_by_arch[entity.archetype] = []
             archetype_order.append(entity.archetype)
-        if entity.overrides:
+        # 0.6-M8a: cold-start entities also exit the batch — the
+        # archetype-batched path computes one shared trajectory per
+        # archetype (no per-entity start_period axis), so an entity with
+        # ``start_period > 0`` would silently use the wrong trajectory.
+        # Route them through the serial path (same lane as overridden
+        # entities), where ``compute_all_trajectories`` already passed
+        # the right per-entity trajectory via ``trajectories[entity.name]``.
+        if entity.overrides or entity.start_period > 0:
             overridden_by_arch[entity.archetype].append(entity)
         else:
             standard_by_arch[entity.archetype].append(entity)
@@ -559,7 +566,7 @@ def build_fact_tables(
         if tbl.type != "fact":
             continue
         if tbl.grain == "per_entity_per_period":
-            fact_out[tbl.name] = _build_per_entity_per_period_fact(
+            df = _build_per_entity_per_period_fact(
                 tbl,
                 config,
                 entity_metrics,
@@ -570,7 +577,13 @@ def build_fact_tables(
                 metrics_3d,
                 trajectories_2d,
             )
+            fact_out[tbl.name] = _drop_cold_start_rows(df, config, n_periods)
         elif tbl.grain == "per_period":
+            # Per-period (no entity axis) facts aggregate across all entities;
+            # cold-start filtering at this grain would conflate "no entity yet
+            # exists" with "all-aggregate-NaN" and isn't well-defined. Leave
+            # the rows in place — downstream consumers see NaN-aggregated
+            # cells if every entity is dormant at a period.
             fact_out[tbl.name] = _build_per_period_fact(
                 tbl,
                 config,
@@ -586,6 +599,54 @@ def build_fact_tables(
             )
 
     return fact_out
+
+
+def _drop_cold_start_rows(
+    fact_df: pd.DataFrame,
+    config: PlotsimConfig,
+    n_periods: int,
+) -> pd.DataFrame:
+    """Drop per-(entity, period) rows where ``period_index < entity.start_period``.
+
+    0.6-M8a: cold-start entities NaN-fill their trajectory prefix; the
+    metric pipeline emits ``None`` cells for those periods, but the row
+    itself is still constructed (in entity-major order, ``E * P`` rows
+    total). This helper takes the entity-major fact DataFrame and drops
+    the cold-start prefix rows for each entity, leaving rows for every
+    active period only.
+
+    Fast-path: if every entity has ``start_period == 0`` the function
+    returns the input unchanged — no allocation, no copy. This preserves
+    pre-M8a behaviour byte-for-byte for existing configs.
+
+    Row order assumption: ``_build_per_entity_per_period_fact`` emits
+    rows in ``config.entities`` order, ``n_periods`` rows per entity. The
+    flat index ``i * n_periods + p`` corresponds to entity ``i`` at
+    period ``p``. Both vectorized and scalar paths preserve this order.
+    """
+    if all(e.start_period == 0 for e in config.entities):
+        return fact_df
+    expected_rows = len(config.entities) * n_periods
+    if len(fact_df) != expected_rows:
+        # Defensive: if a future per_entity_per_period builder breaks the
+        # entity-major contract, surface it loudly rather than silently
+        # mangling rows. Cold-start configs simply won't ship until the
+        # contract is restored.
+        raise ValueError(
+            f"cold-start filter expected {expected_rows} rows "
+            f"({len(config.entities)} entities × {n_periods} periods) "
+            f"but fact DataFrame has {len(fact_df)}; the per-entity-per-period "
+            f"builder broke the entity-major row order this filter assumes"
+        )
+    keep = np.ones(expected_rows, dtype=bool)
+    for i, ent in enumerate(config.entities):
+        sp = ent.start_period
+        if sp > 0:
+            base = i * n_periods
+            keep[base : base + min(sp, n_periods)] = False
+    if keep.all():
+        return fact_df
+    return fact_df.loc[keep].reset_index(drop=True)
 
 
 def _build_trajectories_2d(

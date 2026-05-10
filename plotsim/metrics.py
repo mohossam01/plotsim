@@ -979,6 +979,12 @@ def _compute_effective_position(
     if driver_history is None or len(driver_history) < period_index - lag + 1:
         return current_position
     driver_past = driver_history[period_index - lag]
+    # 0.6-M8a: cold-start periods append NaN to the buffer (so the buffer
+    # stays period-index-aligned for lag lookups); a NaN driver_past means
+    # the driver wasn't yet active at ``period_index - lag``. Same fallback
+    # as "driver not in buffer" — current position only.
+    if isinstance(driver_past, float) and np.isnan(driver_past):
+        return current_position
     w = metric.causal_lag.blend_weight
     return current_position * (1.0 - w) + driver_past * w
 
@@ -1252,6 +1258,22 @@ def generate_entity_metrics(
 
     for t in range(n_periods):
         pos = float(trajectory[t])
+        # 0.6-M8a: NaN trajectory position = cold-start period (entity not
+        # yet active). Skip metric generation entirely — emit ``None`` for
+        # every metric. We still append NaN to ``lag_buffer`` for every
+        # metric so the buffer stays period-index-aligned (downstream lag
+        # lookups index by ``period_index - lag``, not by buffer position).
+        # ``_compute_effective_position`` recognises a NaN ``driver_past``
+        # and falls back to ``current_position`` — the same behaviour as
+        # "driver not in buffer" / "history too short". No RNG draws happen
+        # at NaN periods, so a given entity's RNG consumption shrinks by
+        # exactly the size of its cold-start prefix; entities with
+        # ``start_period=0`` consume RNG identically to pre-M8a.
+        if np.isnan(pos):
+            for m in sorted_metrics:
+                collected[m.name].append(None)
+                lag_buffer[m.name].append(float("nan"))
+            continue
         # lag_buffer is now populated inline inside generate_metrics_for_period
         # — no outer-loop append. Effective positions (not raw trajectory) land
         # in the buffer, so chains A→B→C compose.

@@ -47,6 +47,7 @@ from plotsim.config import (
     load_config,
 )
 from plotsim.manifest import (
+    ActiveWindow,
     EntityArchetypeAssignment,
     EventFiring,
     ManifestSchema,
@@ -139,6 +140,7 @@ __all__ = [
     # Manifest
     "ManifestSchema",
     "EntityArchetypeAssignment",
+    "ActiveWindow",
     "TrajectorySample",
     "EventFiring",
     "build_manifest",
