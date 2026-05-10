@@ -240,10 +240,11 @@ class QualityInjection(_ManifestBase):
     the integer row positions in the *output* (corrupted) DataFrame —
     the indices of the rows the corruption applied to. ``clean_values``
     is the original cell values at those rows (one entry per row in
-    the same order). For ``duplicate_rows`` and ``late_arrival`` the
-    column field carries a sentinel ``"_rows"`` / ``"_arrival_period"``
-    name and ``clean_values`` is empty (the corruption isn't a per-cell
-    edit but a row-level operation).
+    the same order). For ``duplicate_rows``, ``late_arrival``, and
+    ``volume_anomaly`` the column field carries a sentinel —
+    ``"_rows"`` for duplicates / volume anomalies, ``"_arrival_period"``
+    for late arrivals — and ``clean_values`` is empty (the corruption
+    isn't a per-cell edit but a row-level operation).
     """
 
     issue_index: int

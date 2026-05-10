@@ -98,7 +98,7 @@ table name — exactly what most test assertions want.
 
 ---
 
-## Inject dirty data — all five quality issue types
+## Inject dirty data — all six quality issue types
 
 The `quality` block runs *after* generation, corrupting rows
 post-hoc. The clean values are recorded in the manifest under
@@ -114,6 +114,8 @@ re-running generation.
       - { table: dim_company,         issue: type_mismatch,   rate: 0.01, column: industry }
       - { table: evt_login,           issue: late_arrival,    rate: 0.03 }
       - { table: fct_support_tickets, issue: schema_drift,    rate: 0.05, column: ticket_count }
+      - { table: fct_engagement,      issue: volume_anomaly,  rate: 1.0, mode: spike, period: 5 }
+      - { table: fct_engagement,      issue: volume_anomaly,  rate: 0.5, mode: drop,  periods: [11, 17] }
     ```
 
 === "Python"
@@ -132,6 +134,10 @@ re-running generation.
             {"table": "evt_login",      "issue": "late_arrival", "rate": 0.03},
             {"table": "fct_support_tickets", "issue": "schema_drift",
              "rate": 0.05, "column": "ticket_count"},
+            {"table": "fct_engagement", "issue": "volume_anomaly",
+             "rate": 1.0, "mode": "spike", "period": 5},
+            {"table": "fct_engagement", "issue": "volume_anomaly",
+             "rate": 0.5, "mode": "drop", "periods": [11, 17]},
         ],
     )
     tables = generate_tables(cfg)
@@ -140,7 +146,9 @@ re-running generation.
 
 `schema_drift` adds a `{col}_v2` companion column and nulls the
 original on the affected rows. `late_arrival` adds an
-`_arrival_period` column. PK / FK / `date_key` columns are skipped
+`_arrival_period` column. `volume_anomaly` is row-level: `mode: spike`
+appends duplicates of `floor(rate × N)` rows at the target period(s);
+`mode: drop` removes them. PK / FK / `date_key` columns are skipped
 automatically — quality never breaks referential integrity.
 
 See the [data_quality.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/data_quality.ipynb)

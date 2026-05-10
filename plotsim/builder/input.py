@@ -769,10 +769,18 @@ class SeasonalEffectInput(BaseModel):
 class QualityIssueInput(BaseModel):
     """One post-generation data-quality corruption.
 
-    Five issue types map 1:1 to the engine's ``QualityIssue.type``. The
+    Six issue types map 1:1 to the engine's ``QualityIssue.type``. The
     builder accepts a single ``column`` name (or omits it for
-    ``duplicate_rows`` / ``late_arrival``); the interpreter expands to
-    ``target_columns=[column]`` or the ``"*"`` sentinel when omitted.
+    ``duplicate_rows`` / ``late_arrival`` / ``volume_anomaly``); the
+    interpreter expands to ``target_columns=[column]`` or the ``"*"``
+    sentinel when omitted.
+
+    ``volume_anomaly`` carries three extra fields: ``mode`` (``"spike"``
+    or ``"drop"``) plus exactly one of ``period`` (single int) or
+    ``periods`` (list of ints) naming the target period(s). The
+    interpreter routes them onto the engine's ``mode`` /
+    ``target_period`` / ``target_periods`` fields. They are rejected
+    when set on any other issue type.
 
     Engine-level cross-references (table exists, column exists on that
     table, rate honored against table size) are validated by
@@ -788,10 +796,18 @@ class QualityIssueInput(BaseModel):
         "type_mismatch",
         "late_arrival",
         "schema_drift",
+        "volume_anomaly",
     ]
     rate: float = Field(ge=0.0, le=1.0)
     column: Optional[str] = None
     seed_offset: int = Field(default=0, ge=0)
+    # 0.6-M9a: volume_anomaly extras. ``mode`` picks spike vs drop;
+    # exactly one of ``period`` / ``periods`` names the 0-based period
+    # index/indices. All three are required only for volume_anomaly
+    # and rejected on any other issue.
+    mode: Optional[Literal["spike", "drop"]] = None
+    period: Optional[int] = Field(default=None, ge=0)
+    periods: Optional[list[int]] = Field(default=None, max_length=10_000)
 
     @model_validator(mode="after")
     def _column_required_for_column_typed_issues(self) -> "QualityIssueInput":
@@ -801,7 +817,70 @@ class QualityIssueInput(BaseModel):
                     f"quality issue {self.issue!r} on table "
                     f"{self.table!r} requires a `column` name (the column "
                     f"to corrupt). `column` is only optional for "
-                    f"`duplicate_rows` and `late_arrival`."
+                    f"`duplicate_rows`, `late_arrival`, and "
+                    f"`volume_anomaly`."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _volume_anomaly_required_fields(self) -> "QualityIssueInput":
+        is_va = self.issue == "volume_anomaly"
+        has_mode = self.mode is not None
+        has_period = self.period is not None
+        has_periods = self.periods is not None
+        if is_va:
+            if self.column is not None:
+                raise ValueError(
+                    f"quality issue 'volume_anomaly' on table "
+                    f"{self.table!r} is row-level and does not accept "
+                    f"`column` (got {self.column!r}); use `period` or "
+                    f"`periods` to name the target period(s)"
+                )
+            if not has_mode:
+                raise ValueError(
+                    f"quality issue 'volume_anomaly' on table "
+                    f"{self.table!r} requires `mode` set to 'spike' or "
+                    f"'drop'"
+                )
+            if has_period == has_periods:
+                if has_period and has_periods:
+                    raise ValueError(
+                        f"quality issue 'volume_anomaly' on table "
+                        f"{self.table!r} accepts exactly one of `period` "
+                        f"or `periods`, not both"
+                    )
+                raise ValueError(
+                    f"quality issue 'volume_anomaly' on table "
+                    f"{self.table!r} requires `period` (single int) or "
+                    f"`periods` (list of ints) — neither was set"
+                )
+            if has_periods and self.periods is not None:
+                if len(self.periods) == 0:
+                    raise ValueError(
+                        f"quality issue 'volume_anomaly' on table "
+                        f"{self.table!r} `periods` must be a non-empty "
+                        f"list when set"
+                    )
+                for entry in self.periods:
+                    if not isinstance(entry, int) or entry < 0:
+                        raise ValueError(
+                            f"quality issue 'volume_anomaly' on table "
+                            f"{self.table!r} `periods` entries must be "
+                            f"non-negative integers (got {entry!r})"
+                        )
+        else:
+            extras = []
+            if has_mode:
+                extras.append("mode")
+            if has_period:
+                extras.append("period")
+            if has_periods:
+                extras.append("periods")
+            if extras:
+                raise ValueError(
+                    f"quality issue {self.issue!r} on table "
+                    f"{self.table!r} does not accept fields {extras!r}; "
+                    f"those are only valid when issue='volume_anomaly'"
                 )
         return self
 

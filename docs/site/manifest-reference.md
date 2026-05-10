@@ -285,11 +285,11 @@ Ground truth for post-generation data corruption.
 | Field | Type | Description |
 |---|---|---|
 | `issue_index` | `int` | Position in `config.quality.quality_issues` — distinguishes multiple issues |
-| `issue_type` | `str` | `null_injection`, `duplicate_rows`, `type_mismatch`, `late_arrival`, or `schema_drift` |
+| `issue_type` | `str` | `null_injection`, `duplicate_rows`, `type_mismatch`, `late_arrival`, `schema_drift`, or `volume_anomaly` |
 | `table` | `str` | Target table |
-| `column` | `str` | Target column. For row-level issues this is a sentinel — `_rows` for duplicates, `_arrival_period` for late arrivals |
+| `column` | `str` | Target column. For row-level issues this is a sentinel — `_rows` for duplicates and volume anomalies, `_arrival_period` for late arrivals |
 | `row_indices` | array of `int` | Row positions in the corrupted DataFrame — the rows that were affected |
-| `clean_values` | array | Original values at those rows. Empty for `duplicate_rows` and `late_arrival` (the corruption is row-level, not per-cell) |
+| `clean_values` | array | Original values at those rows. Empty for `duplicate_rows`, `late_arrival`, and `volume_anomaly` (the corruption is row-level, not per-cell) |
 
 Empty when `config.quality.quality_issues` is empty.
 

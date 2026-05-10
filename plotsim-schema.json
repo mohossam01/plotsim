@@ -796,7 +796,7 @@
     },
     "QualityIssue": {
       "additionalProperties": false,
-      "description": "One configured data-quality corruption to apply post-generation.\n\nFive issue types are supported, each producing a distinct corruption\npattern but sharing the same config shape:\n\n  * ``null_injection`` — set ``rate`` of cells in each target column to\n    null (NaN for numeric, ``None`` for string/object).\n  * ``duplicate_rows`` — insert exact copies of ``rate`` of rows at\n    random positions.\n  * ``type_mismatch`` — convert ``rate`` of values in each target\n    column to the wrong type (numerics rendered as strings, etc.).\n  * ``late_arrival`` — for ``rate`` of rows, append an\n    ``_arrival_period`` column equal to the original period plus a\n    random 1-5 offset; unaffected rows get null in the new column.\n  * ``schema_drift`` — for ``rate`` of rows in each target column,\n    copy the cell value to a new ``{column}_v2`` column and set the\n    original to null; unaffected rows retain the original and have\n    null in ``_v2``.\n\nDeterminism: each issue draws from a dedicated\n``np.random.default_rng(global_seed + seed_offset)`` so reordering\nissues in the config does not perturb earlier issues' draws.\nDefault ``seed_offset=0`` is fine for single-issue configs but\nmulti-issue configs should set distinct offsets to keep the\naffected row sets independent.\n\n``target_columns`` accepts ``\"*\"`` as a sentinel meaning \"all\neligible metric and attribute columns\" (FK and period/date_key\ncolumns are excluded automatically). Explicit lists are validated\nat load against the resolved target_table's columns.",
+      "description": "One configured data-quality corruption to apply post-generation.\n\nSix issue types are supported, each producing a distinct corruption\npattern but sharing the same config shape:\n\n  * ``null_injection`` — set ``rate`` of cells in each target column to\n    null (NaN for numeric, ``None`` for string/object).\n  * ``duplicate_rows`` — insert exact copies of ``rate`` of rows at\n    random positions.\n  * ``type_mismatch`` — convert ``rate`` of values in each target\n    column to the wrong type (numerics rendered as strings, etc.).\n  * ``late_arrival`` — for ``rate`` of rows, append an\n    ``_arrival_period`` column equal to the original period plus a\n    random 1-5 offset; unaffected rows get null in the new column.\n  * ``schema_drift`` — for ``rate`` of rows in each target column,\n    copy the cell value to a new ``{column}_v2`` column and set the\n    original to null; unaffected rows retain the original and have\n    null in ``_v2``.\n  * ``volume_anomaly`` — at ``target_period`` (or every period in\n    ``target_periods``), either ``mode=\"spike\"`` duplicates\n    ``rate`` of the rows whose period matches, or ``mode=\"drop\"``\n    removes ``rate`` of them. Row-level like ``duplicate_rows``;\n    ``target_columns`` must be ``[\"*\"]`` (the corruption is not\n    per-column). Manifest record uses the ``column=\"_rows\"``\n    sentinel.\n\nDeterminism: each issue draws from a dedicated\n``np.random.default_rng(global_seed + seed_offset)`` so reordering\nissues in the config does not perturb earlier issues' draws.\nDefault ``seed_offset=0`` is fine for single-issue configs but\nmulti-issue configs should set distinct offsets to keep the\naffected row sets independent.\n\n``target_columns`` accepts ``\"*\"`` as a sentinel meaning \"all\neligible metric and attribute columns\" (FK and period/date_key\ncolumns are excluded automatically). Explicit lists are validated\nat load against the resolved target_table's columns.",
       "properties": {
         "type": {
           "enum": [
@@ -804,7 +804,8 @@
             "duplicate_rows",
             "type_mismatch",
             "late_arrival",
-            "schema_drift"
+            "schema_drift",
+            "volume_anomaly"
           ],
           "title": "Type",
           "type": "string"
@@ -834,6 +835,51 @@
           "minimum": 0,
           "title": "Seed Offset",
           "type": "integer"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "spike",
+                "drop"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "target_period": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Period"
+        },
+        "target_periods": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 10000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Periods"
         }
       },
       "required": [

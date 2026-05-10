@@ -1493,9 +1493,13 @@ def _translate_quality(user_input: UserInput) -> QualityConfig:
 
     Each input issue maps to one ``QualityIssue``:
       * ``column`` set → ``target_columns=[column]``.
-      * ``column`` omitted (only valid for ``duplicate_rows`` /
-        ``late_arrival``) → ``target_columns=["*"]`` — the engine's
-        sentinel for "every eligible column on the resolved table".
+      * ``column`` omitted (only valid for ``duplicate_rows``,
+        ``late_arrival``, and ``volume_anomaly``) → ``target_columns=["*"]``
+        — the engine's sentinel for "every eligible column on the
+        resolved table".
+      * ``volume_anomaly`` additionally carries ``mode`` plus one of
+        ``period`` / ``periods`` — those route onto the engine's
+        ``mode`` / ``target_period`` / ``target_periods`` fields.
     """
     issues: list[QualityIssue] = []
     for q in user_input.quality:
@@ -1507,6 +1511,9 @@ def _translate_quality(user_input: UserInput) -> QualityConfig:
                 target_columns=target_columns,
                 rate=q.rate,
                 seed_offset=q.seed_offset,
+                mode=q.mode,
+                target_period=q.period,
+                target_periods=q.periods,
             )
         )
     return QualityConfig(quality_issues=issues)
