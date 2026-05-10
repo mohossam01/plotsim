@@ -560,13 +560,22 @@ _CELL_SOFT_BUDGET_DEFAULT = 2_000_000
 _CELL_HARD_CEILING = 50_000_000
 
 
-def _resolve_cell_budget() -> int:
+def _resolve_cell_budget(config_override: Optional[int] = None) -> int:
     """Return the effective soft budget. ``0`` disables the soft gate.
 
-    Reads ``PLOTSIM_CELL_BUDGET`` from the environment. Non-integer
-    values fall back to the default — invalid env config shouldn't
-    silently raise the cap.
+    Precedence (M7):
+
+      1. Explicit ``OutputConfig.cell_budget`` field if not ``None``.
+      2. ``PLOTSIM_CELL_BUDGET`` environment variable.
+      3. ``_CELL_SOFT_BUDGET_DEFAULT`` (2,000,000).
+
+    Non-integer env values fall back to the default — invalid env
+    config shouldn't silently raise the cap. The config-field path
+    is pre-validated by Pydantic (``ge=0``) so no parse step is
+    needed for it.
     """
+    if config_override is not None:
+        return max(config_override, 0)
     raw = os.environ.get("PLOTSIM_CELL_BUDGET")
     if raw is None:
         return _CELL_SOFT_BUDGET_DEFAULT
@@ -1626,10 +1635,22 @@ class OutputConfig(_Frozen):
     ``format: parquet`` is configured, ``write_tables`` raises an
     ``ImportError`` naming the install command — fail-fast at the
     write call rather than mid-iteration.
+
+    ``cell_budget`` (M7) is the per-config override of the soft
+    cell-count gate enforced by ``_combined_scale_estimator``. ``None``
+    (default) falls through to ``PLOTSIM_CELL_BUDGET`` env var, then
+    to ``_CELL_SOFT_BUDGET_DEFAULT`` (2,000,000). ``0`` disables the
+    soft gate entirely (the 50,000,000-cell hard ceiling still
+    applies). A positive integer raises (or lowers) the soft cap to
+    that value. Promoting this knob into the config makes 10M+ cell
+    runs reproducible from the YAML alone — no env vars required —
+    which is the contract the bundled ``lakehouse.yaml`` template
+    documents for large-scale generation.
     """
 
     format: Literal["csv", "parquet"] = "csv"
     directory: str
+    cell_budget: Optional[int] = Field(default=None, ge=0)
 
 
 PERFECTLY_CLEAN = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
@@ -1969,11 +1990,14 @@ class PlotsimConfig(_Frozen):
           * ``cell_count`` > ``_CELL_HARD_CEILING``: ``ValueError``
             regardless of opt-in.
 
-        Soft budget is read from ``PLOTSIM_CELL_BUDGET`` (defaults to
-        ``_CELL_SOFT_BUDGET_DEFAULT``; ``0`` disables the soft gate).
-        Opt-in is read from ``PLOTSIM_ALLOW_LARGE_DATASET`` (set by the
-        CLI ``--allow-large-dataset`` flag, or directly by library
-        callers).
+        Soft budget precedence (M7): explicit ``output.cell_budget``
+        config field > ``PLOTSIM_CELL_BUDGET`` env var >
+        ``_CELL_SOFT_BUDGET_DEFAULT``. ``0`` (via either surface)
+        disables the soft gate. Opt-in is read from
+        ``PLOTSIM_ALLOW_LARGE_DATASET`` (set by the CLI
+        ``--allow-large-dataset`` flag, or directly by library
+        callers); raising ``output.cell_budget`` past the projected
+        cell count is the YAML-only equivalent.
         """
         n_entities = sum(e.size for e in self.entities)
         n_periods = self.time_window.period_count()
@@ -2013,7 +2037,7 @@ class PlotsimConfig(_Frozen):
             summary += f" Expected event rows (upper bound): ~{event_rows_upper:,}."
         sys.stderr.write(summary + "\n")
 
-        soft_budget = _resolve_cell_budget()
+        soft_budget = _resolve_cell_budget(self.output.cell_budget)
         allow_large = _allow_large_dataset()
 
         if cell_count > _CELL_HARD_CEILING:
@@ -2029,9 +2053,11 @@ class PlotsimConfig(_Frozen):
             raise ValueError(
                 f"Config produces {cell_count:,} cells (entities × periods), "
                 f"which exceeds the soft budget of {soft_budget:,}. To "
-                f"proceed, raise the budget with PLOTSIM_CELL_BUDGET=N "
-                f"(or 0 to disable), or pass --allow-large-dataset on the "
-                f"CLI / set PLOTSIM_ALLOW_LARGE_DATASET=1. Recommend "
+                f"proceed, raise the budget in your config "
+                f"(output.cell_budget: N, or 0 to disable), set "
+                f"PLOTSIM_CELL_BUDGET=N in the environment, or pass "
+                f"--allow-large-dataset on the CLI / set "
+                f"PLOTSIM_ALLOW_LARGE_DATASET=1. Recommend "
                 f"output.format=parquet and generation_mode=auto for runs "
                 f"this size — see the 'Limits and performance gates' "
                 f"section of the config reference."

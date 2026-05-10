@@ -707,7 +707,7 @@
     },
     "OutputConfig": {
       "additionalProperties": false,
-      "description": "Output format selector and target directory.\n\n``format`` accepts ``\"parquet\"`` in addition to the default ``\"csv\"``.\nCSV remains the default; configs that omit ``format`` (or set\n``format: csv``) write ``.csv`` files. Parquet output is column-typed\nand typically 5-10x smaller on the bundled templates; the engine path\nis identical, only the on-disk encoding differs.\n\nParquet writes go through ``pyarrow``, declared as the optional\nextra ``plotsim[parquet]``. When pyarrow is not installed and\n``format: parquet`` is configured, ``write_tables`` raises an\n``ImportError`` naming the install command — fail-fast at the\nwrite call rather than mid-iteration.",
+      "description": "Output format selector and target directory.\n\n``format`` accepts ``\"parquet\"`` in addition to the default ``\"csv\"``.\nCSV remains the default; configs that omit ``format`` (or set\n``format: csv``) write ``.csv`` files. Parquet output is column-typed\nand typically 5-10x smaller on the bundled templates; the engine path\nis identical, only the on-disk encoding differs.\n\nParquet writes go through ``pyarrow``, declared as the optional\nextra ``plotsim[parquet]``. When pyarrow is not installed and\n``format: parquet`` is configured, ``write_tables`` raises an\n``ImportError`` naming the install command — fail-fast at the\nwrite call rather than mid-iteration.\n\n``cell_budget`` (M7) is the per-config override of the soft\ncell-count gate enforced by ``_combined_scale_estimator``. ``None``\n(default) falls through to ``PLOTSIM_CELL_BUDGET`` env var, then\nto ``_CELL_SOFT_BUDGET_DEFAULT`` (2,000,000). ``0`` disables the\nsoft gate entirely (the 50,000,000-cell hard ceiling still\napplies). A positive integer raises (or lowers) the soft cap to\nthat value. Promoting this knob into the config makes 10M+ cell\nruns reproducible from the YAML alone — no env vars required —\nwhich is the contract the bundled ``lakehouse.yaml`` template\ndocuments for large-scale generation.",
       "properties": {
         "format": {
           "default": "csv",
@@ -721,6 +721,19 @@
         "directory": {
           "title": "Directory",
           "type": "string"
+        },
+        "cell_budget": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Budget"
         }
       },
       "required": [

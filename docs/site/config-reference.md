@@ -674,6 +674,7 @@ output:
 |---|---|---|---|
 | `format` | `"csv"` / `"parquet"` | `"csv"` | CSV is the default; `parquet` requires `pip install plotsim[parquet]` (pyarrow). Same engine path, ~5–10× smaller on disk |
 | `directory` | `str` | `"output"` | Where `write_tables` writes. Override at call time with `write_tables(..., output_dir=...)` |
+| `cell_budget` | `int ≥ 0` / `null` | `null` | M7 — soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
 
 When `format: parquet` and `pyarrow` is missing, `write_tables` raises
 `ImportError` naming the install command — fail-fast at the write call
@@ -833,11 +834,24 @@ Two ways to opt into above-soft-budget runs:
 2. **Environment variable** — `PLOTSIM_ALLOW_LARGE_DATASET=1` for
    library callers and CI scripts.
 
-Two ways to change the soft-budget threshold itself:
+Three ways to change the soft-budget threshold itself, in
+precedence order (the first one that resolves wins):
 
-- `PLOTSIM_CELL_BUDGET=N` — set the soft cap to `N` cells.
-- `PLOTSIM_CELL_BUDGET=0` — disable the soft cap entirely (only the
-  50,000,000-cell hard ceiling still applies).
+1. **Config field (recommended)** — set `output.cell_budget: N` in
+   the YAML (or pass `output={"cell_budget": N}` to `create()`).
+   Reproducible from the config alone — no env vars or flags
+   required, which is the contract the bundled `lakehouse`
+   template relies on.
+2. **Environment variable** — `PLOTSIM_CELL_BUDGET=N` sets the
+   soft cap to `N` cells when no config field is set.
+3. **Default** — `2,000,000` cells.
+
+`output.cell_budget: 0` (or `PLOTSIM_CELL_BUDGET=0`) disables the
+soft cap entirely; only the 50,000,000-cell hard ceiling still
+applies. Setting `output.cell_budget` past the projected cell
+count is the YAML-only equivalent of `--allow-large-dataset`:
+because the cap is raised, the run no longer "exceeds" it and no
+opt-in is needed.
 
 The hard ceiling is non-configurable. Configs above 50,000,000 cells
 should be split or chunked rather than coerced through a single run.
