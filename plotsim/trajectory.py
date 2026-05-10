@@ -153,6 +153,7 @@ def compute_trajectory(
     archetype: Archetype,
     n_periods: int,
     overrides: dict[str, Any] | None = None,
+    start_period: int = 0,
 ) -> np.ndarray:
     """Stitch archetype.curve_segments into one length-n_periods array.
 
@@ -162,17 +163,33 @@ def compute_trajectory(
         overrides: optional Entity.overrides dict. Recognised keys:
             ``inflection_month`` (int) — shifts segment boundaries so that the
             first-segment end (the archetype's canonical inflection) lands on
-            the specified period index. Shifts are clamped to [0, 1].
+            the specified period index. Shifts are clamped to [0, 1]. For
+            cold-start entities (``start_period > 0``) the inflection is
+            interpreted relative to the entity's own active window.
+        start_period: first period at which the entity is active (0 = present
+            for the full window). Periods ``[0, start_period)`` are NaN-filled;
+            the archetype's full curve plays out across the active window
+            ``[start_period, n_periods)``. Default ``0`` preserves pre-M8a
+            behaviour byte-for-byte.
 
     Returns:
-        np.ndarray of shape (n_periods,), values in [0.0, 1.0].
+        np.ndarray of shape (n_periods,). Active periods are in [0.0, 1.0];
+        cold-start prefix periods are ``np.nan``.
     """
     if n_periods < 1:
         raise ValueError(f"n_periods must be >= 1, got {n_periods}")
+    if start_period < 0:
+        raise ValueError(f"start_period must be >= 0, got {start_period}")
+    if start_period >= n_periods:
+        raise ValueError(
+            f"start_period ({start_period}) must be < n_periods ({n_periods}); "
+            f"a fully-cold entity has no active periods"
+        )
 
-    shift = _resolve_shift(archetype, n_periods, overrides)
-    boundaries = _segment_boundaries(archetype, n_periods, shift)
-    out = np.zeros(n_periods, dtype=float)
+    active_n = n_periods - start_period
+    shift = _resolve_shift(archetype, active_n, overrides)
+    boundaries = _segment_boundaries(archetype, active_n, shift)
+    active = np.zeros(active_n, dtype=float)
 
     for i, seg in enumerate(archetype.curve_segments):
         start_idx = boundaries[i]
@@ -184,11 +201,17 @@ def compute_trajectory(
         # curve's start. Acceptable — segment-length-1 is degenerate anyway.
         t_local = np.linspace(0.0, 1.0, length)
         values = evaluate_segment(t_local, seg.curve, dict(seg.params))
-        out[start_idx:end_idx] = values
+        active[start_idx:end_idx] = values
 
     # evaluate_segment already clamps, but a belt-and-braces clip keeps the
     # output contract explicit at the module boundary.
-    return cast(np.ndarray, np.clip(out, 0.0, 1.0))
+    active = np.clip(active, 0.0, 1.0)
+
+    if start_period == 0:
+        return cast(np.ndarray, active)
+    out = np.full(n_periods, np.nan, dtype=float)
+    out[start_period:] = active
+    return cast(np.ndarray, out)
 
 
 def compute_all_trajectories(
@@ -216,5 +239,10 @@ def compute_all_trajectories(
         # rather than a permissive dict. compute_trajectory's interface
         # stays dict-keyed for direct test callers — convert here.
         overrides_dict = entity.overrides.model_dump() if entity.overrides is not None else None
-        out[entity.name] = compute_trajectory(archetype, n_periods, overrides_dict)
+        out[entity.name] = compute_trajectory(
+            archetype,
+            n_periods,
+            overrides_dict,
+            start_period=entity.start_period,
+        )
     return out

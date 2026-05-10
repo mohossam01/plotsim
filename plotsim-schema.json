@@ -410,6 +410,12 @@
           "default": 1.0,
           "title": "Seasonal Sensitivity",
           "type": "number"
+        },
+        "start_period": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Start Period",
+          "type": "integer"
         }
       },
       "required": [

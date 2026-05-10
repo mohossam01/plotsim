@@ -934,6 +934,14 @@ class Entity(_Frozen):
     # this on a ``SegmentInput``; the interpreter copies the value onto
     # every expanded entity in that segment.
     seasonal_sensitivity: float = 1.0
+    # 0.6-M8a: per-entity arrival period (cold-start). ``0`` (default) =
+    # entity is present for the full window — preserves pre-M8a behaviour
+    # byte-for-byte. ``k > 0`` = entity is dormant for periods ``[0, k)``
+    # (trajectory NaN-filled, fact rows dropped) and active from period
+    # ``k`` onward, with the archetype's full curve playing out across
+    # the entity's own active window. ``dim_<entity>`` always includes
+    # the entity regardless of arrival period.
+    start_period: int = Field(default=0, ge=0)
 
 
 class FKDistribution(_Frozen):
