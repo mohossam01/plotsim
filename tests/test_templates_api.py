@@ -18,6 +18,7 @@ EXPECTED_TEMPLATES = {
     "bare_minimum",
     "cdc_demo",
     "education",
+    "geo_retail",
     "hr",
     "lakehouse",
     "latency_skew",

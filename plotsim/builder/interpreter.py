@@ -1124,6 +1124,29 @@ def _translate_column(
             source=f"generated:faker.{kind}",
         )
 
+    # ─── geo.<field> ────────────────────────────────────────────────────
+    # Row-coherent geo bundle. All ``geo.<field>`` columns on the same dim
+    # row resolve from a single bundle entry drawn from
+    # ``plotsim.data.GEO_LOCATIONS``, so a (country, city) pair in the
+    # output is always a real city in the stated country. ``latitude`` and
+    # ``longitude`` are floats; the rest are strings.
+    if t.startswith("geo."):
+        from plotsim.data import GEO_BUNDLE_FIELDS
+
+        geo_field = t.split(".", 1)[1]
+        if geo_field not in GEO_BUNDLE_FIELDS:
+            raise ValueError(
+                f"column {col.name!r} in {owning_table!r}: unknown geo "
+                f"field {geo_field!r}. Valid fields: "
+                f"{sorted(GEO_BUNDLE_FIELDS)}"
+            )
+        geo_dtype: Dtype = "float" if geo_field in {"latitude", "longitude"} else "string"
+        return Column(
+            name=col.name,
+            dtype=geo_dtype,
+            source=f"generated:geo.{geo_field}",
+        )
+
     # ─── static.<value> ─────────────────────────────────────────────────
     if t.startswith("static."):
         value = t.split(".", 1)[1]
@@ -1242,7 +1265,7 @@ def _translate_column(
 
     raise ValueError(
         f"column {col.name!r} in {owning_table!r}: unknown type {t!r}. "
-        f"Valid types: id, ref.X, metric.X, faker.X, static.X, "
+        f"Valid types: id, ref.X, metric.X, faker.X, geo.X, static.X, "
         f"segment.count, pool.X, timestamp, date, int, string, float, "
         f"bucket, scd"
     )

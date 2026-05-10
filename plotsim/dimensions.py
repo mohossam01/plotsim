@@ -65,6 +65,7 @@ from plotsim.config import (
     TimeWindow,
     parse_source,
 )
+from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS
 
 
 # --- Helpers ----------------------------------------------------------------
@@ -121,6 +122,73 @@ def _coerce_static(value: str, dtype: str) -> Any:
 
 def _split_static(raw: str) -> list[str]:
     return [part.strip() for part in raw.split(",")]
+
+
+# Geo bundle provider (`generated:geo.<field>`) — row-coherent reference data.
+#
+# When ANY column on a dim table declares a ``generated:geo.<field>`` source,
+# the builder pre-allocates one bundle entry per row from
+# ``plotsim.data.GEO_LOCATIONS`` and threads it through ctx. Each
+# ``geo.<field>`` dispatch reads that row's bundle and returns the matching
+# field — so two geo columns on the same row always agree (city ∈ stated
+# country, latitude/longitude on the named city, etc.). The dispatch lives
+# alongside ``_per_entity_generated`` / ``_sub_generated`` /
+# ``_ref_generated`` because geo is a dim-only concern: facts and events
+# already reject unknown ``generated:`` providers in their own dispatchers.
+
+
+def _geo_provider_field(provider: str) -> Optional[str]:
+    """Return the bundle field name for a ``geo.<field>`` provider, or None.
+
+    ``provider`` is the substring after ``generated:`` (e.g.
+    ``geo.country``). Returns ``"country"`` for that, ``None`` if the
+    provider is not a geo bundle reference. Unknown ``geo.foo`` raises so
+    typos surface at first dispatch instead of later as a missing-key
+    KeyError.
+    """
+    if not provider.startswith("geo."):
+        return None
+    field = provider[len("geo.") :]
+    if field not in GEO_BUNDLE_FIELDS:
+        raise ValueError(
+            f"unknown geo bundle field {field!r} (provider 'generated:{provider}'); "
+            f"supported fields: {sorted(GEO_BUNDLE_FIELDS)}"
+        )
+    return field
+
+
+def _table_uses_geo_bundle(columns: list[Column]) -> bool:
+    """True if any column on the table declares a ``generated:geo.<field>`` source."""
+    for col in columns:
+        parsed = parse_source(col.source)
+        if isinstance(parsed, GeneratedSource) and parsed.provider.startswith("geo."):
+            # Validate the field name eagerly — keeps the bundle-allocation
+            # path from silently no-op'ing on a typo'd provider.
+            _geo_provider_field(parsed.provider)
+            return True
+    return False
+
+
+def _assign_geo_bundles(
+    columns: list[Column],
+    n_rows: int,
+    rng: np.random.Generator,
+) -> Optional[list[dict[str, object]]]:
+    """Pre-allocate one geo bundle per row, or None if the table has no geo columns.
+
+    A single ``rng.integers`` call draws ``n_rows`` indices from
+    ``GEO_LOCATIONS``; the dispatcher then reads the row's bundle field-by-
+    field as each ``geo.<field>`` column is resolved. The single rng draw
+    keeps determinism predictable: row K's bundle index depends on row K-1
+    only via the rng's internal state, the same as every other random
+    column on this table.
+    """
+    if not _table_uses_geo_bundle(columns):
+        return None
+    if n_rows <= 0:
+        return []
+    indices = rng.integers(0, len(GEO_LOCATIONS), size=n_rows)
+    return [GEO_LOCATIONS[int(idx)] for idx in indices]
 
 
 # Extended providers that fill gaps in stock Faker. The sample SaaS YAML
@@ -473,12 +541,16 @@ def _column_value_for_entity(
     entity_pk: str,
     fake: Faker,
     rng: Optional[np.random.Generator] = None,
+    geo_bundle: Optional[dict[str, object]] = None,
 ) -> Any:
     """Resolve one cell on a per_entity dim row.
 
     M127b: dispatch handlers live in the shared ``COLUMN_DISPATCH``
     registry so adding a new source type for per_entity dims is a
     single ``register(...)`` call below.
+
+    ``geo_bundle`` is the row-level dict drawn from ``GEO_LOCATIONS`` when
+    the table has any ``generated:geo.<field>`` column; ``None`` otherwise.
     """
     parsed = parse_source(col.source)
     ctx = {
@@ -487,6 +559,7 @@ def _column_value_for_entity(
         "entity_pk": entity_pk,
         "fake": fake,
         "rng": rng,
+        "geo_bundle": geo_bundle,
     }
     return COLUMN_DISPATCH.dispatch(BuilderKind.PER_ENTITY_DIM, parsed, ctx)
 
@@ -510,11 +583,21 @@ def _per_entity_generated(parsed: GeneratedSource, ctx: dict):
     col = ctx["col"]
     if parsed.provider == "entity_name":
         return ctx["entity"].name
+    geo_field = _geo_provider_field(parsed.provider)
+    if geo_field is not None:
+        bundle = ctx.get("geo_bundle")
+        if bundle is None:
+            raise ValueError(
+                f"column {col.name!r} source {col.source!r} requires a row-level "
+                f"geo bundle, but none was assigned; this is an internal wiring "
+                f"bug — _table_uses_geo_bundle should have triggered allocation"
+            )
+        return bundle[geo_field]
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is not supported on "
         f"per_entity dimension tables: non-faker 'generated:' providers "
-        f"other than 'entity_name' (e.g. 'timestamp', 'date_key') only "
-        f"make sense on fact/event tables"
+        f"other than 'entity_name' and 'geo.<field>' (e.g. 'timestamp', "
+        f"'date_key') only make sense on fact/event tables"
     )
 
 
@@ -711,12 +794,14 @@ def build_dim_entity(
     """Build a per_entity dim: one row per Entity, static attributes from Faker/derived."""
     fake = _make_faker(rng, locale)
     ids = _make_ids(table_config.name, len(entities))
+    geo_bundles = _assign_geo_bundles(table_config.columns, len(entities), rng)
 
     rows: list[dict[str, Any]] = []
-    for entity, pk in zip(entities, ids):
+    for row_idx, (entity, pk) in enumerate(zip(entities, ids)):
         row: dict[str, Any] = {}
+        bundle = geo_bundles[row_idx] if geo_bundles is not None else None
         for col in table_config.columns:
-            row[col.name] = _column_value_for_entity(col, entity, pk, fake, rng)
+            row[col.name] = _column_value_for_entity(col, entity, pk, fake, rng, geo_bundle=bundle)
         rows.append(row)
 
     df = pd.DataFrame(rows, columns=[c.name for c in table_config.columns])
@@ -802,6 +887,7 @@ def build_dim_subentity(
     # multiplication handles both paths without branching.
     total_rows = sum(e.size * table_config.count for e in entities)
     ids = _make_ids(table_config.name, total_rows)
+    geo_bundles = _assign_geo_bundles(table_config.columns, total_rows, rng)
 
     rows: list[dict[str, Any]] = []
     cursor = 0
@@ -816,6 +902,7 @@ def build_dim_subentity(
                 "local_fk_column": local_fk_column,
                 "local_pk": local_pk,
                 "fake": fake,
+                "geo_bundle": (geo_bundles[cursor] if geo_bundles is not None else None),
             }
             for col in table_config.columns:
                 parsed = parse_source(col.source)
@@ -853,10 +940,20 @@ def _sub_generated(parsed: GeneratedSource, ctx: dict):
     col = ctx["col"]
     if parsed.provider == "entity_name":
         return ctx["entity"].name
+    geo_field = _geo_provider_field(parsed.provider)
+    if geo_field is not None:
+        bundle = ctx.get("geo_bundle")
+        if bundle is None:
+            raise ValueError(
+                f"column {col.name!r} source {col.source!r} requires a row-level "
+                f"geo bundle, but none was assigned; this is an internal wiring "
+                f"bug — _table_uses_geo_bundle should have triggered allocation"
+            )
+        return bundle[geo_field]
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is "
         f"not supported on sub-entity dimension tables: "
-        f"only 'entity_name' is resolved here"
+        f"only 'entity_name' and 'geo.<field>' are resolved here"
     )
 
 
@@ -913,6 +1010,7 @@ def build_dim_reference(
             n_rows = max(n_rows, len(_split_static(parsed.value)))
 
     ids = _make_ids(table_config.name, n_rows)
+    geo_bundles = _assign_geo_bundles(table_config.columns, n_rows, rng)
 
     rows: list[dict[str, Any]] = []
     for i in range(n_rows):
@@ -921,6 +1019,7 @@ def build_dim_reference(
             "i": i,
             "ids": ids,
             "fake": fake,
+            "geo_bundle": geo_bundles[i] if geo_bundles is not None else None,
         }
         for col in table_config.columns:
             parsed = parse_source(col.source)
@@ -957,10 +1056,21 @@ def _ref_faker(parsed: FakerSource, ctx: dict):
 
 def _ref_generated(parsed: GeneratedSource, ctx: dict):
     col = ctx["col"]
+    geo_field = _geo_provider_field(parsed.provider)
+    if geo_field is not None:
+        bundle = ctx.get("geo_bundle")
+        if bundle is None:
+            raise ValueError(
+                f"column {col.name!r} source {col.source!r} requires a row-level "
+                f"geo bundle, but none was assigned; this is an internal wiring "
+                f"bug — _table_uses_geo_bundle should have triggered allocation"
+            )
+        return bundle[geo_field]
     raise ValueError(
         f"column {col.name!r} source {col.source!r} is not "
         f"supported on reference dimension tables: use "
-        f"'generated:faker.<method>' or 'static:...' instead"
+        f"'generated:faker.<method>', 'generated:geo.<field>', or "
+        f"'static:...' instead"
     )
 
 

@@ -78,6 +78,7 @@ nav:
       - Seasonality: user-guide/seasonality.md
       - Experiments & cohorts: user-guide/experiments-and-cohorts.md
       - Schema guide: user-guide/schema-guide.md
+      - Geo hierarchy: user-guide/geo-hierarchy.md
       - CDC fact-side: user-guide/cdc-facts.md
       - Output formats: user-guide/output-formats.md
   - Tutorials:

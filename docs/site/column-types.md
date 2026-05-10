@@ -29,6 +29,7 @@ Some types take additional fields (`labels` for `bucket`, `tracks` /
 | `ref.{table}` | yes (FK) | yes (FK) | yes (FK) | yes (FK)* |
 | `metric.{name}` | — | yes | — | yes |
 | `faker.{kind}` | yes | yes | yes | yes |
+| `geo.{field}` | yes (dim only) | — | — | — |
 | `static.{value}` | yes | yes | yes | yes |
 | `pool.{attr}` | yes (per-entity dim only) | — | — | — |
 | `segment.count` | yes (per-entity dim only) | — | — | — |
@@ -115,6 +116,31 @@ Output dtype is `string`, except `faker.year` which produces an `int`.
 **Common methods**: `company`, `name`, `industry`, `sentence`, `word`,
 `year`, `address`, `email`, `phone_number`, `city`, `country`. Any
 provider on the installed `faker` package's locale is accepted.
+
+---
+
+## `geo.{field}`
+
+A row-coherent geo bundle drawn from a curated reference dataset.
+Multiple `geo.<field>` columns on the same dim row read from the
+same bundle entry, so country / region / city / postcode /
+latitude / longitude all agree.
+
+```yaml
+- { name: country,      type: geo.country }
+- { name: country_code, type: geo.country_code }
+- { name: region,       type: geo.region }
+- { name: city,         type: geo.city }
+- { name: postcode,     type: geo.postcode }
+- { name: latitude,     type: geo.latitude }
+- { name: longitude,    type: geo.longitude }
+```
+
+Output dtype is `float` for `latitude` / `longitude` and `string`
+for everything else. `geo.<field>` is dim-only; on facts and
+events the engine raises `unsupported generated provider`. See
+[Geo hierarchy](./user-guide/geo-hierarchy.md) for the underlying
+dataset, determinism, and the bundled `geo_retail` template.
 
 ---
 

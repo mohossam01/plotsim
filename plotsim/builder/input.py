@@ -660,10 +660,11 @@ class ColumnInput(BaseModel):
 
     The ``type`` field uses the builder's plain-language vocabulary
     (``id``, ``ref.{table}``, ``metric.{name}``, ``faker.{which}``,
-    ``static.{value}``, ``segment.count``, ``pool.{attr}``, ``timestamp``,
-    ``flag``, ``date``, ``int``, ``string``, ``float``, ``bucket``,
-    ``scd``). Sub-fields are present only for the shape they target:
-    ``tracks``/``tiers``/``at`` for SCD columns, ``labels`` for buckets.
+    ``geo.{field}``, ``static.{value}``, ``segment.count``,
+    ``pool.{attr}``, ``timestamp``, ``flag``, ``date``, ``int``,
+    ``string``, ``float``, ``bucket``, ``scd``). Sub-fields are present
+    only for the shape they target: ``tracks``/``tiers``/``at`` for SCD
+    columns, ``labels`` for buckets.
 
     The interpreter (Phase 3) translates ``type`` into the engine's
     ``Column.dtype`` + ``Column.source`` pair. Per friction-item #3
