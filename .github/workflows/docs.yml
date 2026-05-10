@@ -9,6 +9,11 @@ on:
       - 'mkdocs.yml'
       - 'pyproject.toml'
       - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -43,4 +48,5 @@ jobs:
         run: mkdocs build --strict
 
       - name: Deploy to gh-pages
+        if: github.event_name != 'pull_request'
         run: mkdocs gh-deploy --force --no-history
