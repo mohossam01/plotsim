@@ -152,6 +152,8 @@ metrics:
 | `range` | `[float, float]` | conditional | `None` | Required for `amount` and `index`; forbidden for `count` |
 | `follows` | `str` | no | `None` | Name of another metric this one lags behind. Must pair with `delay` |
 | `delay` | `int` | no | `None` | Lag in periods. Must be `≥ 1` and pair with `follows` |
+| `decay_window` | `int` | no | `None` | Spread the lagged read over `N` periods ending at `t-delay`. Requires `follows` / `delay` |
+| `decay_kernel` | enum | no | `"geometric"` | `geometric` (half-life one period) or `linear` weight shape; ignored without `decay_window` |
 | `seasonal_sensitivity` | `float` | no | `1.0` | Per-metric multiplier on global seasonality. `0.0` immune; `-0.5` halves and inverts |
 
 ### Metric types

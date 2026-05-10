@@ -788,6 +788,28 @@ class CausalLag(_Frozen):
     cross-correlation peaks at exactly N. Values below 1.0 soften the lag
     (xcorr peak shifts toward ``round(w × N)``). The pre-0.4.0 hardcoded
     behavior is recovered with ``blend_weight: 0.6``.
+
+    Adstock-style decay (opt-in): set ``decay=True`` plus
+    ``decay_window=W`` to read the driver's past as a normalized weighted
+    sum over W periods ``[T-N-W+1, T-N]`` instead of a single ``T-N``
+    cell. Weights are determined by ``decay_kernel`` and normalize to
+    sum to 1, so the blend-weight semantic is unchanged. ``decay=False``
+    (default) preserves the single-cell read byte-for-byte.
+
+      * ``geometric`` (default) — weights ∝ ``0.5^s`` for offset
+        ``s = 0, 1, ..., W-1`` (most-recent first). Gives a half-life of
+        one period — the most recent driver value dominates and
+        contribution halves with each additional period back. Models the
+        "marketing carryover" intuition where last week mattered most.
+      * ``linear`` — weights ∝ ``W - s``, dropping linearly from
+        ``W`` at the most-recent cell to ``1`` at the oldest. A flatter
+        spread; appropriate when the contribution should fade more
+        gradually.
+
+    Cold-start NaN handling under decay: NaN cells in the buffer slice
+    are dropped and the surviving weights renormalised. If every cell
+    in the slice is NaN, the lag falls through to the unmodified
+    current position — matching the discrete-lag fallback contract.
     """
 
     driver: str
@@ -801,6 +823,28 @@ class CausalLag(_Frozen):
     # constructed outside a PlotsimConfig.
     lag_periods: int = Field(ge=1, le=10_000)
     blend_weight: float = Field(default=1.0, ge=0.0, le=1.0)
+    # 0.6-M9b: opt-in adstock-style decay over a window.
+    decay: bool = False
+    decay_window: Optional[int] = Field(default=None, ge=1, le=10_000)
+    decay_kernel: Literal["geometric", "linear"] = "geometric"
+
+    @model_validator(mode="after")
+    def _decay_window_paired_with_decay(self) -> "CausalLag":
+        if self.decay:
+            if self.decay_window is None:
+                raise ValueError(
+                    "causal_lag.decay=True requires `decay_window` to be "
+                    "set (the number of periods over which the driver's "
+                    "effect spreads)"
+                )
+        else:
+            if self.decay_window is not None:
+                raise ValueError(
+                    f"causal_lag.decay_window={self.decay_window} is set "
+                    f"but decay=False; either set decay=True or remove "
+                    f"decay_window"
+                )
+        return self
 
 
 class Metric(_Frozen):

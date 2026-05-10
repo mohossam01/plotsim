@@ -284,7 +284,16 @@ def _metric_from_input(m: MetricInput) -> Metric:
 
     causal_lag: Optional[CausalLag] = None
     if m.follows is not None and m.delay is not None:
-        causal_lag = CausalLag(driver=m.follows, lag_periods=m.delay)
+        # 0.6-M9b: presence of ``decay_window`` flips engine ``decay``
+        # to True. ``decay_kernel`` is always passed through; the engine
+        # ignores it when decay is False.
+        causal_lag = CausalLag(
+            driver=m.follows,
+            lag_periods=m.delay,
+            decay=m.decay_window is not None,
+            decay_window=m.decay_window,
+            decay_kernel=m.decay_kernel,
+        )
 
     return Metric(
         name=m.name,
