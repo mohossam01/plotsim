@@ -194,26 +194,44 @@ nearest valid one and records the adjustment in the manifest.
 ## Time-to-event metrics — Weibull
 
 For survival-style metrics (session duration, days-to-renewal,
-contract length), the engine accepts the Weibull distribution
-directly via `load_config()`. The shape parameter controls the
-tail; trajectory still scales the realised value, so a `growth`
-archetype with `weibull` produces *lengthening* sessions over time,
-not just larger ones.
+contract length, p99 latency), pin the Weibull distribution
+explicitly on the metric. The shape parameter controls the tail;
+trajectory still scales the realised value, so a `growth`
+archetype with `weibull` produces *lengthening* sessions over
+time, not just larger ones.
 
-```yaml
-# engine-direct YAML (load with plotsim.load_config — not the builder)
-metrics:
-  - name: session_duration_days
-    distribution: weibull
-    params: { shape: 1.5 }            # >1 → lengthening tail; <1 → aging out
-    polarity: positive
-    value_range: { min: 1.0, max: 365.0 }
-```
+=== "Python (builder)"
 
-The five builder metric types (`score`, `amount`, `count`, `index`)
-cover most cases; `weibull` is for the time-to-event shape
-specifically and uses the engine-direct path. See
-[`metrics-and-connections.md` §weibull](../user-guide/metrics-and-connections.md#the-six-families).
+    ```python
+    create(metrics=[{
+        "name": "session_duration_days",
+        "type": "amount",
+        "polarity": "positive",
+        "range": [1, 365],
+        "distribution": "weibull",
+        "distribution_params": {"shape": 1.5},  # >1 → lengthening tail; <1 → aging out
+    }])
+    ```
+
+=== "YAML (engine-direct)"
+
+    ```yaml
+    # load with plotsim.load_config when you're past the builder surface
+    metrics:
+      - name: session_duration_days
+        label: Session duration (days)
+        distribution: weibull
+        params: { shape: 1.5 }
+        polarity: positive
+        value_range: { min: 1.0, max: 365.0 }
+    ```
+
+All six builder distribution families (`lognorm`, `gamma`,
+`weibull`, `beta`, `normal`, `poisson`) are pinnable the same way
+via `MetricInput.distribution` + `distribution_params`. The bundled
+`latency_skew` template (`plotsim template latency_skew`) exercises
+all six on a single config. Full mechanics:
+[`metrics-and-connections.md` §pinning the distribution explicitly](../user-guide/metrics-and-connections.md#pinning-the-distribution-explicitly).
 
 ---
 
