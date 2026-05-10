@@ -948,6 +948,7 @@ def _translate_fact(
         columns=columns,
         primary_key=pk,
         foreign_keys=foreign_keys,
+        cdc=f.cdc,
     )
 
 

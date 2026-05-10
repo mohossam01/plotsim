@@ -426,6 +426,7 @@ See [`column-types.md`](./column-types.md) for every supported `type`.
 | `name` | `str` | yes | — | Conventionally `fct_<thing>` |
 | `columns` | array | yes | — | At least one column |
 | `metrics` | array of `str` | no | `[]` | Metric names whose `metric.{name}` columns are added automatically |
+| `cdc` | `bool` | no | `false` | Emit `_inserted_at` / `_updated_at` / `_op` audit columns. Column-level quality issues mutate `_op` to `"U"` on affected rows. See [user-guide → CDC fact-side](./user-guide/cdc-facts.md) |
 
 ### Event fields
 

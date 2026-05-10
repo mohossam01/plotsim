@@ -1259,6 +1259,15 @@ class Table(_Frozen):
     # meaningful on variable-grain dim tables — rejected at load on any
     # other type/grain.
     count: int = Field(default=1, ge=1)
+    # 0.6-M9c: opt-in fact-side CDC. When True, the fact picks up three
+    # audit columns at generation time: ``_inserted_at``, ``_updated_at``
+    # (both ISO period strings derived from each row's date_key via
+    # ``dim_date``), and ``_op`` (``"I"`` for the initial insert,
+    # ``"U"`` for rows mutated by a column-level quality issue
+    # post-generation). Only valid on fact tables — rejected at load
+    # on dim/event/bridge by ``_cdc_only_on_fact``. Default False
+    # preserves pre-M9c output byte-for-byte.
+    cdc: bool = False
 
     @property
     def primary_key_cols(self) -> list[str]:
@@ -1329,6 +1338,21 @@ class Table(_Frozen):
                 f"valid on dim tables with grain='variable' (sub-entity dims). "
                 f"Default count=1 produces 'one row per parent' on per_entity "
                 f"dim children."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _cdc_only_on_fact(self) -> "Table":
+        # 0.6-M9c: ``cdc=True`` is fact-side audit columns. Dims have
+        # SCD Type 2 / Type 1 for analogous semantics; events and
+        # bridges are not in scope. Reject at load to flag the
+        # mis-configuration with a clear message.
+        if self.cdc and self.type != "fact":
+            raise ValueError(
+                f"table {self.name!r} has cdc=True but type={self.type!r}; "
+                f"`cdc` is only valid on fact tables (dim tables use "
+                f"SCD Type 2 for an analogous audit trail; event and "
+                f"bridge tables are out of scope)"
             )
         return self
 
