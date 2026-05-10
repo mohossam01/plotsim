@@ -945,14 +945,48 @@ def _format_correlation_compensation_warning(records: list[dict]) -> str:
 # --- Causal lag --------------------------------------------------------------
 
 
+def _apply_logit_shift(p: float, log_odds_shift: float) -> float:
+    """0.6-M8c: shift a position ``p`` in [0, 1] by ``log_odds_shift`` units
+    in logit space.
+
+    Mathematically: ``sigmoid(logit(p) + log_odds_shift)``. A positive
+    shift pushes ``p`` toward 1 (raises the trajectory's effective
+    position — e.g. boosts engagement); a negative shift pushes toward 0.
+    Working in log-odds space gives the right "diminishing returns"
+    behaviour for an A/B lift: a shift of +0.5 moves p=0.5 to ~0.62, but
+    only moves p=0.9 to ~0.94 — the same lift produces less absolute
+    movement near the boundaries.
+
+    Numerical guards:
+      * ``shift == 0.0`` short-circuits to ``p`` (preserves byte-identity
+        for zero-shift entities — the control-arm contract).
+      * ``p`` is clamped to ``[1e-12, 1 - 1e-12]`` before logit so
+        boundary positions don't blow up. An entity that's flatlined at
+        exactly 0 or 1 stays flatlined post-treatment; the lift can't
+        move a position the trajectory has already pinned.
+      * The sigmoid is computed via the ``z >= 0`` / ``z < 0`` split so
+        ``np.exp`` overflow can't fire on extreme shifts.
+    """
+    if log_odds_shift == 0.0:
+        return p
+    eps = 1e-12
+    p_clamped = max(eps, min(1.0 - eps, p))
+    z = float(np.log(p_clamped / (1.0 - p_clamped))) + log_odds_shift
+    if z >= 0.0:
+        return float(1.0 / (1.0 + np.exp(-z)))
+    e = float(np.exp(z))
+    return e / (1.0 + e)
+
+
 def _compute_effective_position(
     current_position: float,
     metric: Metric,
     lag_buffer: Optional[dict[str, list[float]]],
     period_index: int,
+    treatment_shift: float = 0.0,
 ) -> float:
     """Blend the current trajectory position with the driver's past
-    effective position.
+    effective position, then apply the (optional) treatment lift.
 
     Operates on pre-polarity positions in [0,1] so both operands share the
     same semantic axis ("how well is this entity doing"). The metric's own
@@ -966,27 +1000,36 @@ def _compute_effective_position(
     Falls back to the unmodified current position when: no causal_lag is
     configured, ``period_index < lag_periods``, the lag buffer is
     ``None``, or the driver isn't in the buffer / has too short a history.
+
+    0.6-M8c: ``treatment_shift`` is applied LAST — after the lag blend,
+    just before return, on every fall-through path. Default ``0.0`` is
+    the control-arm and pre-treatment contract: byte-identical pre-M8c
+    output. The caller (``generate_metrics_for_period``) decides whether
+    treatment is active for the (entity, period) pair and passes either
+    ``entity.treatment_lift_log_odds`` (when active) or ``0.0``.
     """
-    if metric.causal_lag is None:
-        return current_position
-    lag = metric.causal_lag.lag_periods
-    if period_index < lag:
-        return current_position
-    if lag_buffer is None:
-        return current_position
-    driver = metric.causal_lag.driver
-    driver_history = lag_buffer.get(driver)
-    if driver_history is None or len(driver_history) < period_index - lag + 1:
-        return current_position
-    driver_past = driver_history[period_index - lag]
-    # 0.6-M8a: cold-start periods append NaN to the buffer (so the buffer
-    # stays period-index-aligned for lag lookups); a NaN driver_past means
-    # the driver wasn't yet active at ``period_index - lag``. Same fallback
-    # as "driver not in buffer" — current position only.
-    if isinstance(driver_past, float) and np.isnan(driver_past):
-        return current_position
-    w = metric.causal_lag.blend_weight
-    return current_position * (1.0 - w) + driver_past * w
+    eff = current_position
+    if metric.causal_lag is not None:
+        lag = metric.causal_lag.lag_periods
+        if period_index >= lag and lag_buffer is not None:
+            driver = metric.causal_lag.driver
+            driver_history = lag_buffer.get(driver)
+            if driver_history is not None and len(driver_history) >= period_index - lag + 1:
+                driver_past = driver_history[period_index - lag]
+                # 0.6-M8a: cold-start periods append NaN to the buffer (so the
+                # buffer stays period-index-aligned for lag lookups); a NaN
+                # driver_past means the driver wasn't yet active at
+                # ``period_index - lag``. Same fallback as "driver not in
+                # buffer" — current position only.
+                if not (isinstance(driver_past, float) and np.isnan(driver_past)):
+                    w = metric.causal_lag.blend_weight
+                    eff = current_position * (1.0 - w) + driver_past * w
+    # 0.6-M8c: treatment shift in logit space. The early-return paths
+    # above all collapsed into a single ``eff`` so the shift now applies
+    # uniformly regardless of which lag fallback fired.
+    if treatment_shift != 0.0:
+        eff = _apply_logit_shift(eff, treatment_shift)
+    return eff
 
 
 # --- Noise -------------------------------------------------------------------
@@ -1122,6 +1165,7 @@ def generate_metrics_for_period(
     cholesky_L: Optional[np.ndarray] = None,
     seasonal_global: float = 0.0,
     entity_seasonal_sensitivity: float = 1.0,
+    treatment_shift: float = 0.0,
 ) -> dict[str, Optional[float]]:
     """Generate every metric for one entity at one time step.
 
@@ -1151,6 +1195,7 @@ def generate_metrics_for_period(
             em,
             lag_buffer,
             period_index,
+            treatment_shift=treatment_shift,
         )
         if lag_buffer is not None:
             # Append this metric's effective position BEFORE moving on to
@@ -1224,6 +1269,8 @@ def generate_entity_metrics(
     cholesky_L: Optional[np.ndarray] = None,
     seasonal_factors: Optional[np.ndarray] = None,
     entity_seasonal_sensitivity: float = 1.0,
+    treatment_lift_log_odds: Optional[float] = None,
+    treatment_start_period: int = 0,
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
@@ -1256,6 +1303,20 @@ def generate_entity_metrics(
     lag_buffer: dict[str, list[float]] = {m.name: [] for m in sorted_metrics}
     collected: dict[str, list] = {m.name: [] for m in sorted_metrics}
 
+    # 0.6-M8c: pre-resolve the per-period treatment shift. None or 0.0
+    # produces a flat-zero array — every per-period call sees
+    # ``treatment_shift=0.0`` and ``_compute_effective_position``'s
+    # short-circuit fires (byte-identical pre-M8c output for entities
+    # with no treatment fields set). When set, the shift only applies
+    # for periods ``>= treatment_start_period``; pre-treatment periods
+    # see 0.0 so the AC "pre-treatment baseline is identical across
+    # groups" holds at the trajectory level.
+    treatment_shift_t = (
+        treatment_lift_log_odds
+        if treatment_lift_log_odds is not None and treatment_lift_log_odds != 0.0
+        else None
+    )
+
     for t in range(n_periods):
         pos = float(trajectory[t])
         # 0.6-M8a: NaN trajectory position = cold-start period (entity not
@@ -1278,6 +1339,15 @@ def generate_entity_metrics(
         # — no outer-loop append. Effective positions (not raw trajectory) land
         # in the buffer, so chains A→B→C compose.
         seasonal_global_t = float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
+        # 0.6-M8c: only apply the lift on or after ``treatment_start_period``.
+        # Pre-treatment periods see ``0.0`` so the trajectory's effective
+        # position is identical across treatment / control arms — the
+        # "pre-treatment baseline is identical" AC holds at this level.
+        shift_t = (
+            float(treatment_shift_t)
+            if treatment_shift_t is not None and t >= treatment_start_period
+            else 0.0
+        )
         period_out = generate_metrics_for_period(
             pos,
             sorted_metrics,
@@ -1290,6 +1360,7 @@ def generate_entity_metrics(
             cholesky_L=cholesky_L,
             seasonal_global=seasonal_global_t,
             entity_seasonal_sensitivity=entity_seasonal_sensitivity,
+            treatment_shift=shift_t,
         )
         for m in sorted_metrics:
             collected[m.name].append(period_out[m.name])

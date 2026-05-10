@@ -76,6 +76,7 @@ nav:
       - Archetypes: user-guide/archetypes.md
       - Metrics & connections: user-guide/metrics-and-connections.md
       - Seasonality: user-guide/seasonality.md
+      - Experiments & cohorts: user-guide/experiments-and-cohorts.md
       - Schema guide: user-guide/schema-guide.md
       - Output formats: user-guide/output-formats.md
   - Tutorials:

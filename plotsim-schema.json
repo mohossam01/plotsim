@@ -416,6 +416,36 @@
           "minimum": 0,
           "title": "Start Period",
           "type": "integer"
+        },
+        "treatment_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Treatment Group"
+        },
+        "treatment_lift_log_odds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Treatment Lift Log Odds"
+        },
+        "treatment_start_period": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Treatment Start Period",
+          "type": "integer"
         }
       },
       "required": [

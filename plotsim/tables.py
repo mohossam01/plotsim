@@ -294,6 +294,8 @@ def _compute_entity_metrics(
                 cholesky_L=cholesky_L,
                 seasonal_factors=seasonal_factors,
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
+                treatment_lift_log_odds=entity.treatment_lift_log_odds,
+                treatment_start_period=entity.treatment_start_period,
             )
         return entity_metrics
 
@@ -331,7 +333,19 @@ def _compute_entity_metrics(
         # Route them through the serial path (same lane as overridden
         # entities), where ``compute_all_trajectories`` already passed
         # the right per-entity trajectory via ``trajectories[entity.name]``.
-        if entity.overrides or entity.start_period > 0:
+        # 0.6-M8c: same routing for entities with a treatment lift —
+        # the vectorized batch path doesn't apply per-entity treatment
+        # shifts (the trajectory tensor and centers are shared across
+        # the batch axis). Routing to serial keeps the fix simple;
+        # lifting the constraint is documented in the M8a completion
+        # report under [m8a/vectorized-cold-start-fallback-perf] (the
+        # same tensor reshaping unlocks both cold-start and treatment
+        # in the vectorized path).
+        if (
+            entity.overrides
+            or entity.start_period > 0
+            or entity.treatment_lift_log_odds is not None
+        ):
             overridden_by_arch[entity.archetype].append(entity)
         else:
             standard_by_arch[entity.archetype].append(entity)
@@ -379,6 +393,8 @@ def _compute_entity_metrics(
                 cholesky_L=cholesky_L,
                 seasonal_factors=seasonal_factors,
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
+                treatment_lift_log_odds=entity.treatment_lift_log_odds,
+                treatment_start_period=entity.treatment_start_period,
             )
     return entity_metrics_v
 

@@ -52,6 +52,8 @@ from plotsim.manifest import (
     EventFiring,
     ManifestSchema,
     TrajectorySample,
+    TreatmentAssignment,
+    TreatmentCohort,
     build_manifest,
     write_manifest,
 )
@@ -141,6 +143,8 @@ __all__ = [
     "ManifestSchema",
     "EntityArchetypeAssignment",
     "ActiveWindow",
+    "TreatmentAssignment",
+    "TreatmentCohort",
     "TrajectorySample",
     "EventFiring",
     "build_manifest",

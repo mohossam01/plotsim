@@ -78,7 +78,13 @@ MANIFEST_FILENAME = "manifest.json"
 # readers see the new field populated for every entity (the default
 # ``start_period=0`` produces ``ActiveWindow(start=0, end=n_periods)``,
 # which is non-load-bearing but explicit).
-MANIFEST_SCHEMA_VERSION = "1.2"
+# 0.6-M8c: bumped 1.2 → 1.3 for the additive
+# ``EntityArchetypeAssignment.treatment`` field and the top-level
+# ``treatment_cohorts`` list. Both default to ``None`` / ``[]`` so
+# manifests on disk produced by 1.2 readers parse unchanged; 1.3
+# readers see the new fields populated only when the config uses
+# the M8c surface (treatment-free configs leave both empty).
+MANIFEST_SCHEMA_VERSION = "1.3"
 
 
 class _ManifestBase(BaseModel):
@@ -109,17 +115,75 @@ class ActiveWindow(_ManifestBase):
     end: int
 
 
+class TreatmentAssignment(_ManifestBase):
+    """0.6-M8c: an entity's treatment / control assignment.
+
+    Three fields, all sourced from the matching ``Entity`` fields:
+
+      * ``group`` — the cohort label (e.g. ``"treatment"`` /
+        ``"control"``). Plotsim treats it as opaque metadata.
+      * ``lift_log_odds`` — the known effect size for THIS entity in
+        log-odds units. ``None`` for control-arm entities.
+      * ``start_period`` — the absolute period index at which the lift
+        kicks in. Pre-treatment periods (``period_index < start_period``)
+        see the same trajectory as the control arm.
+
+    Emitted only for entities with at least one treatment field set.
+    Default-only entities (no group label, no lift, no start period) get
+    ``treatment=None`` on their ``EntityArchetypeAssignment`` so the
+    M8c manifest field is invisible to non-A/B test datasets.
+    """
+
+    group: Optional[str]
+    lift_log_odds: Optional[float]
+    start_period: int
+
+
 class EntityArchetypeAssignment(_ManifestBase):
     """Single (entity, archetype) ground-truth pair.
 
     0.6-M8a: ``active_window`` carries the entity's per-(start, end)
     period range. ``None`` on manifests written by pre-1.2 readers; new
     manifests always populate it (default entities get ``(0, n_periods)``).
+
+    0.6-M8c: ``treatment`` carries the entity's treatment assignment.
+    ``None`` on manifests written by pre-1.3 readers AND on entities
+    without any treatment fields set; populated for every entity with
+    at least one treatment field set.
     """
 
     entity: str
     archetype: str
     active_window: Optional[ActiveWindow] = None
+    treatment: Optional[TreatmentAssignment] = None
+
+
+class TreatmentCohort(_ManifestBase):
+    """0.6-M8c: aggregate ground-truth record for one treatment cohort.
+
+    Emitted at the manifest level (one entry per distinct
+    ``treatment_group`` label across all entities). Aggregates the
+    per-entity lift values: a homogeneous cohort (every entity shares
+    the same lift) reports that lift directly; a heterogeneous cohort
+    reports the mean and flags it. Provides downstream consumers with
+    a quick "what was the configured effect for this cohort" surface
+    without iterating every entity.
+
+      * ``label`` — the cohort label (matches ``Entity.treatment_group``).
+      * ``n_entities`` — count of entities tagged with this label.
+      * ``mean_lift_log_odds`` — average lift across the cohort. ``None``
+        when no entity in the cohort has a lift set (the control arm
+        contract).
+      * ``start_period`` — the typical (modal) ``treatment_start_period``
+        for the cohort. Most A/B tests use one start period per cohort,
+        so this is the headline value; if the cohort has heterogeneous
+        starts (rare, but supported), pick the most common.
+    """
+
+    label: str
+    n_entities: int
+    mean_lift_log_odds: Optional[float]
+    start_period: int
 
 
 class TrajectorySample(_ManifestBase):
@@ -462,6 +526,12 @@ class ManifestSchema(_ManifestBase):
     # outlier multiplier. Default ``None`` keeps backwards compat with
     # pre-0.6-M5 manifests.
     outlier_injections: Optional[list[OutlierInjection]] = None
+    # 0.6-M8c: per-cohort treatment record. One entry per distinct
+    # ``Entity.treatment_group`` label appearing in the config. Empty
+    # list when no entity has a treatment label (the default for
+    # non-A/B-test datasets). Default ``[]`` keeps backwards compat
+    # with pre-1.3 manifests.
+    treatment_cohorts: list[TreatmentCohort] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -632,6 +702,83 @@ def _is_event_table(name: str, config: PlotsimConfig) -> bool:
     return tbl is not None and tbl.type == "event"
 
 
+def _treatment_assignment_for(entity: Any) -> Optional[TreatmentAssignment]:
+    """0.6-M8c: return a per-entity ``TreatmentAssignment`` or ``None``.
+
+    Emits ``None`` for entities with NO treatment fields set (the
+    default lane — keeps the M8c manifest field invisible to non-A/B
+    test datasets). Emits a populated record otherwise — even for
+    control-arm entities (``treatment_lift_log_odds=None`` but
+    ``treatment_group="control"``), so the manifest carries ground
+    truth for both arms of the experiment.
+    """
+    if (
+        entity.treatment_group is None
+        and entity.treatment_lift_log_odds is None
+        and entity.treatment_start_period == 0
+    ):
+        return None
+    return TreatmentAssignment(
+        group=entity.treatment_group,
+        lift_log_odds=entity.treatment_lift_log_odds,
+        start_period=entity.treatment_start_period,
+    )
+
+
+def _build_treatment_cohorts(entities: list) -> list[TreatmentCohort]:
+    """0.6-M8c: aggregate per-entity treatment fields into per-cohort records.
+
+    One ``TreatmentCohort`` per distinct ``treatment_group`` label.
+    Entities without a label (the no-op default OR an entity with lift
+    set but no label, which is debug-only) don't contribute to any
+    cohort — the cohorts list reflects the user's labelled experiment
+    arms, not every entity.
+
+    For each cohort:
+
+      * ``mean_lift_log_odds`` — average of non-None lift values across
+        the cohort. ``None`` when every entity in the cohort has lift
+        unset (the canonical control-arm shape: labelled but no lift).
+      * ``start_period`` — modal ``treatment_start_period``. Most A/B
+        tests use one start period per cohort; if the cohort has
+        heterogeneous starts (rare, supported), pick the most common
+        and let downstream consumers cross-reference per-entity
+        records for outliers.
+
+    Cohorts are emitted in label-sorted order so manifest output is
+    deterministic across runs of the same config.
+    """
+    by_label: dict[str, list[Any]] = {}
+    for e in entities:
+        if e.treatment_group is None:
+            continue
+        by_label.setdefault(e.treatment_group, []).append(e)
+
+    cohorts: list[TreatmentCohort] = []
+    for label in sorted(by_label.keys()):
+        members = by_label[label]
+        lifts = [
+            m.treatment_lift_log_odds for m in members if m.treatment_lift_log_odds is not None
+        ]
+        mean_lift = float(sum(lifts) / len(lifts)) if lifts else None
+        # Modal start period — Counter.most_common(1) returns
+        # [(value, count)]; take the value. Tie-break: the first one
+        # seen (Counter preserves insertion order in 3.7+).
+        from collections import Counter
+
+        starts = Counter(m.treatment_start_period for m in members)
+        modal_start = starts.most_common(1)[0][0]
+        cohorts.append(
+            TreatmentCohort(
+                label=label,
+                n_entities=len(members),
+                mean_lift_log_odds=mean_lift,
+                start_period=modal_start,
+            )
+        )
+    return cohorts
+
+
 # --- Build / write -----------------------------------------------------------
 
 
@@ -680,11 +827,13 @@ def build_manifest(
                 entity=e.name,
                 archetype=e.archetype,
                 active_window=ActiveWindow(start=e.start_period, end=n_periods),
+                treatment=_treatment_assignment_for(e),
             )
             for e in config.entities
         ],
         key=lambda a: a.entity,
     )
+    treatment_cohorts = _build_treatment_cohorts(config.entities)
 
     sampled_entity_names = _sample_entity_subset(
         [e.name for e in config.entities],
@@ -880,6 +1029,7 @@ def build_manifest(
         causal_graph=causal_graph,
         correlations=correlations,
         outlier_injections=outlier_injections,
+        treatment_cohorts=treatment_cohorts,
     )
 
 
@@ -913,6 +1063,8 @@ __all__ = [
     "CorrelationCompensation",
     "CorrelationEntry",
     "EntityArchetypeAssignment",
+    "TreatmentAssignment",
+    "TreatmentCohort",
     "EventFiring",
     "HoldoutInfo",
     "ManifestSchema",

@@ -336,6 +336,61 @@ ArrivalDistribution = Annotated[
 ]
 
 
+# ── Segment treatment / control config (0.6-M8c) ────────────────────────────
+
+
+class TreatmentConfig(BaseModel):
+    """0.6-M8c: per-segment A/B test split.
+
+    Builder-internal; the interpreter consumes this to assign per-entity
+    ``treatment_group`` / ``treatment_lift_log_odds`` / ``treatment_start_period``
+    on the expanded ``Entity`` objects (the M8c engine surface).
+
+    Fields:
+
+      * ``fraction`` — share of the segment that lands in the treatment
+        arm. ``0.5`` = half the entities get the lift. The remainder go
+        to the control arm with ``treatment_lift_log_odds=None`` (no
+        shift) but the same ``control_label`` for cohort grouping.
+      * ``lift_log_odds`` — known effect size in log-odds units. Applied
+        to the treatment arm only. The control arm sees ``None``.
+      * ``start_period`` — absolute period index at which treatment
+        begins. ``0`` (default) = treatment from period 0; cold-start
+        entities still see the lift only after their own
+        ``Entity.start_period`` (the engine respects the
+        per-(entity, period) gate). Values ``> 0`` carve out a baseline
+        window where treatment and control share identical trajectory
+        positions — the AC for "pre-treatment baseline is identical".
+      * ``treatment_label`` / ``control_label`` — cohort labels for the
+        manifest. Defaults match the conventional A/B labelling.
+
+    RNG isolation: the interpreter draws treatment assignments from a
+    distinct ``np.random.default_rng(seed ^ TREATMENT_SALT)`` stream,
+    so adding / changing the segment's ``arrival`` distribution does
+    not shift which entities land in the treatment arm. M8b's
+    arrival_rng and M8c's treatment_rng are seed-coupled but
+    draw-independent.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fraction: float = Field(ge=0.0, le=1.0)
+    lift_log_odds: float
+    start_period: int = Field(default=0, ge=0)
+    treatment_label: str = Field(default="treatment", min_length=1)
+    control_label: str = Field(default="control", min_length=1)
+
+    @field_validator("lift_log_odds")
+    @classmethod
+    def _lift_finite(cls, v: float) -> float:
+        if not (-1e6 < v < 1e6):
+            raise ValueError(
+                f"treatment lift_log_odds={v} is non-finite or extreme; "
+                f"sensible A/B test lifts are typically in [-2.0, 2.0]"
+            )
+        return v
+
+
 # ── Segment ─────────────────────────────────────────────────────────────────
 
 
@@ -397,6 +452,14 @@ class SegmentInput(BaseModel):
     # field never reaches the engine config, only the per-entity values
     # do (via the M8a ``Entity.start_period`` surface).
     arrival: Optional[ArrivalDistribution] = None
+    # 0.6-M8c: optional A/B test split. ``None`` (default) means no
+    # treatment / control assignment for this segment. When set, the
+    # interpreter draws a deterministic per-entity treatment assignment
+    # (using the salted treatment_rng — independent of arrival_rng so
+    # changing arrival shape doesn't shift treatment assignments) and
+    # populates each ``Entity``'s ``treatment_group`` /
+    # ``treatment_lift_log_odds`` / ``treatment_start_period`` fields.
+    treatment: Optional[TreatmentConfig] = None
 
     @field_validator("name")
     @classmethod
