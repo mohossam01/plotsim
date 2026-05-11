@@ -67,6 +67,7 @@ from plotsim.config import (
     dump_config,
     parse_source,
 )
+from plotsim.denormalize import denormalize_fact_tables
 from plotsim.entity_features import (
     ENTITY_FEATURES_BASENAME,
     build_entity_features,
@@ -706,6 +707,31 @@ def write_tables(
         if name in streaming_written:
             continue
         write_single_table(name, df, target, config=config, float_format=float_format)
+
+    # 0.6-M14a: opt-in wide-table companions. When
+    # ``output.denormalized: true``, every fact table is left-joined
+    # with its FK'd dims (SCD2 dims filtered to current state) and
+    # written as ``<fct_name>_wide.{csv|parquet}`` alongside the
+    # normalized output. Off by default so pre-M14a output is
+    # byte-identical. Consumes ``tables_to_write`` (post-CDC,
+    # post-quality) so the wide view matches what landed on disk
+    # for the normalized tables.
+    if getattr(config.output, "denormalized", False):
+        wide_tables = denormalize_fact_tables(tables_to_write, config)
+        for wide_name, wide_df in wide_tables.items():
+            # Pass ``config`` so ``_resolve_output_format`` picks up
+            # the parquet branch when configured. The wide name
+            # (``<fct>_wide``) isn't in ``config.tables``, so
+            # ``_table_by_name`` returns None and the column-reorder
+            # / Int64-coercion path is skipped — wide frames keep
+            # their post-merge column order.
+            write_single_table(
+                wide_name,
+                wide_df,
+                target,
+                config=config,
+                float_format=float_format,
+            )
 
     write_config_copy(config, target)
     write_validation_report(report, target, generated_at=generated_at, config=config)

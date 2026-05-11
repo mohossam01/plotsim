@@ -877,7 +877,7 @@
     },
     "OutputConfig": {
       "additionalProperties": false,
-      "description": "Output format selector and target directory.\n\n``format`` accepts ``\"parquet\"`` in addition to the default ``\"csv\"``.\nCSV remains the default; configs that omit ``format`` (or set\n``format: csv``) write ``.csv`` files. Parquet output is column-typed\nand typically 5-10x smaller on the bundled templates; the engine path\nis identical, only the on-disk encoding differs.\n\nParquet writes go through ``pyarrow``, declared as the optional\nextra ``plotsim[parquet]``. When pyarrow is not installed and\n``format: parquet`` is configured, ``write_tables`` raises an\n``ImportError`` naming the install command — fail-fast at the\nwrite call rather than mid-iteration.\n\n``cell_budget`` (M7) is the per-config override of the soft\ncell-count gate enforced by ``_combined_scale_estimator``. ``None``\n(default) falls through to ``PLOTSIM_CELL_BUDGET`` env var, then\nto ``_CELL_SOFT_BUDGET_DEFAULT`` (2,000,000). ``0`` disables the\nsoft gate entirely (the 50,000,000-cell hard ceiling still\napplies). A positive integer raises (or lowers) the soft cap to\nthat value. Promoting this knob into the config makes 10M+ cell\nruns reproducible from the YAML alone — no env vars required —\nwhich is the contract the bundled ``lakehouse.yaml`` template\ndocuments for large-scale generation.",
+      "description": "Output format selector and target directory.\n\n``format`` accepts ``\"parquet\"`` in addition to the default ``\"csv\"``.\nCSV remains the default; configs that omit ``format`` (or set\n``format: csv``) write ``.csv`` files. Parquet output is column-typed\nand typically 5-10x smaller on the bundled templates; the engine path\nis identical, only the on-disk encoding differs.\n\nParquet writes go through ``pyarrow``, declared as the optional\nextra ``plotsim[parquet]``. When pyarrow is not installed and\n``format: parquet`` is configured, ``write_tables`` raises an\n``ImportError`` naming the install command — fail-fast at the\nwrite call rather than mid-iteration.\n\n``cell_budget`` (M7) is the per-config override of the soft\ncell-count gate enforced by ``_combined_scale_estimator``. ``None``\n(default) falls through to ``PLOTSIM_CELL_BUDGET`` env var, then\nto ``_CELL_SOFT_BUDGET_DEFAULT`` (2,000,000). ``0`` disables the\nsoft gate entirely (the 50,000,000-cell hard ceiling still\napplies). A positive integer raises (or lowers) the soft cap to\nthat value. Promoting this knob into the config makes 10M+ cell\nruns reproducible from the YAML alone — no env vars required —\nwhich is the contract the bundled ``lakehouse.yaml`` template\ndocuments for large-scale generation.\n\n``denormalized`` (0.6-M14a) opts into a wide-table companion\nwrite: for each fact table, ``write_tables`` left-joins every\nFK'd dim onto the fact and emits ``<fct_name>_wide.{csv|parquet}``\nalongside the normalized output. Off by default so existing\noutput is byte-identical. SCD2 dims are filtered to current-\nstate rows (``is_current == True``) before the join; SCD2 audit\ncolumns are excluded from the wide output. Dim columns are\nprefixed with the dim's table name plus ``__`` to avoid\ncollisions; the dim-side join key is dropped post-join because\nit duplicates the fact's FK column.",
       "properties": {
         "format": {
           "default": "csv",
@@ -904,6 +904,11 @@
           ],
           "default": null,
           "title": "Cell Budget"
+        },
+        "denormalized": {
+          "default": false,
+          "title": "Denormalized",
+          "type": "boolean"
         }
       },
       "required": [

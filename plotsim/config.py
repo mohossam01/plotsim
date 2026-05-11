@@ -1650,6 +1650,8 @@ class Table(_Frozen):
             )
         return self
 
+        return self
+
 
 class BridgeMetric(_Frozen):
     """A single metric column on a bridge (M:M) table.
@@ -2121,11 +2123,23 @@ class OutputConfig(_Frozen):
     runs reproducible from the YAML alone — no env vars required —
     which is the contract the bundled ``lakehouse.yaml`` template
     documents for large-scale generation.
+
+    ``denormalized`` (0.6-M14a) opts into a wide-table companion
+    write: for each fact table, ``write_tables`` left-joins every
+    FK'd dim onto the fact and emits ``<fct_name>_wide.{csv|parquet}``
+    alongside the normalized output. Off by default so existing
+    output is byte-identical. SCD2 dims are filtered to current-
+    state rows (``is_current == True``) before the join; SCD2 audit
+    columns are excluded from the wide output. Dim columns are
+    prefixed with the dim's table name plus ``__`` to avoid
+    collisions; the dim-side join key is dropped post-join because
+    it duplicates the fact's FK column.
     """
 
     format: Literal["csv", "parquet"] = "csv"
     directory: str
     cell_budget: Optional[int] = Field(default=None, ge=0)
+    denormalized: bool = False
 
 
 PERFECTLY_CLEAN = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
