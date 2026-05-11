@@ -23,14 +23,22 @@
 | [`generate_tables_with_state`](#generate_tables_with_state) | `plotsim` | Same, plus the trajectory tape |
 | [`validate`](#validate) | `plotsim` | Run every post-generation check on tables |
 | [`write_tables`](#write_tables) | `plotsim` | Write tables, config copy, validation report, manifest |
+| [`write_single_table`](#write_single_table) | `plotsim` | Write one table on its own (helper used inside `write_tables`) |
+| [`write_config_copy`](#write_config_copy) | `plotsim` | Write the round-trip `config.yaml` (helper used inside `write_tables`) |
+| [`write_validation_report`](#write_validation_report) | `plotsim` | Write the human-readable validation report (helper used inside `write_tables`) |
 | [`build_manifest`](#build_manifest) | `plotsim` | Build the ground-truth manifest payload |
+| [`write_manifest`](#write_manifest) | `plotsim` | Write `manifest.json` to disk |
 | [`build_entity_features`](#build_entity_features) | `plotsim` | Flatten facts into one row per entity |
 | [`trace_metric_cell`](#trace_metric_cell) | `plotsim.inspect` | Reconstruct one cell's full pipeline path |
 
-Constants exported from `plotsim` for engine-direct mutation:
-`PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`,
-`NOISE_PRESETS`, `PlotsimConfig`, `ManifestSchema`, `GenerationState`,
-`ValidationReport`, `ValidationIssue`, `load_config`, `dump_config`.
+Also exported from `plotsim` for engine-direct use:
+
+- **Configs / schemas** — `PlotsimConfig`, `ManifestConfig`, `ManifestSchema`, `GenerationState`, `ValidationReport`, `ValidationIssue`, `NarrativeConfig`.
+- **Column source markers** — `NarrativeSource`, `TextBucketSource`, `PoolSource` (paired with the `narrative` / `text_bucket` / `pool` column types).
+- **Manifest sub-models** — `EntityArchetypeAssignment`, `ActiveWindow`, `TreatmentAssignment`, `TreatmentCohort`, `TrajectorySample`, `EventFiring`.
+- **Noise presets** — `NOISE_PRESETS`, `PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`.
+- **Warnings** — `SurrogateKeyWarning`.
+- **YAML helpers** — `load_config`, `dump_config`.
 
 ---
 
@@ -188,7 +196,8 @@ single seed stream.
 
 **Pre-flight gates**
 
-The function checks the configured correlation matrix is positive
+The function checks every configured correlation matrix — the baseline
+`connections[]` *and* each `correlation_phases[]` window — is positive
 semi-definite before consuming any randomness. A non-PSD matrix raises
 `ValueError` here rather than silently producing partial output.
 
@@ -269,7 +278,7 @@ same function.
 Checks run in fixed order so the issue list is deterministic for the
 same input:
 
-1. correlation matrix PSD
+1. correlation matrix PSD (baseline + every `correlation_phases[]` window, projected via nearest-PD when slightly off)
 2. primary-key uniqueness
 3. foreign-key integrity
 4. date-spine completeness
@@ -434,6 +443,39 @@ write_manifest(manifest, Path("output"))
 
 ---
 
+## `write_manifest`
+
+Write a `ManifestSchema` to `manifest.json` inside `output_dir`.
+
+```python
+def write_manifest(
+    manifest: ManifestSchema,
+    output_dir: pathlib.Path,
+) -> pathlib.Path
+```
+
+Pure serialization step. Use this when you've built a manifest with
+[`build_manifest`](#build_manifest) and want to write it without
+invoking the full `write_tables` pipeline. `write_tables` already calls
+`write_manifest` itself when `manifest=...` is passed and
+`config.manifest.include` is True.
+
+**Returns** — the path of the written file (`<output_dir>/manifest.json`).
+
+**Example**
+
+```python
+from plotsim import generate_tables_with_state, build_manifest, write_manifest
+from pathlib import Path
+
+tables, state = generate_tables_with_state(cfg)
+manifest = build_manifest(cfg, state.trajectories, tables,
+                          scd_state=state.scd, bridge_state=state.bridges)
+write_manifest(manifest, Path("output"))
+```
+
+---
+
 ## `build_entity_features`
 
 Aggregate temporal facts into a single one-row-per-entity DataFrame.
@@ -537,7 +579,7 @@ row. Key fields:
 | `seasonal_factor` | Combined global × per-metric × per-entity multiplier |
 | `modulated_center` | `distribution_center × (1 + seasonal_factor)`, clamped |
 | `independent_draw` | Raw distributional sample |
-| `correlated_draw` | After Gaussian-copula transform |
+| `correlated_draw` | After Gaussian-copula transform — uses the Cholesky factor active at this period (baseline, or the matching `correlation_phases[]` window if one covers `period_index`; resolved by `_hoist_cholesky_by_period`) |
 | `noised_value` | After gaussian / outlier / MCAR noise |
 | `clamped_value` | After value-range clamp + Poisson round |
 | `realized_cell` | The value as found in the generated fact table |

@@ -32,6 +32,7 @@ from pathlib import Path as _Path
 
 from plotsim import inspect
 from plotsim.builder import create, create_from_yaml
+from plotsim.entity_features import build_entity_features
 from plotsim.config import (
     DIRTY,
     NOISE_PRESETS,
@@ -153,6 +154,8 @@ __all__ = [
     "EventFiring",
     "build_manifest",
     "write_manifest",
+    # Entity features
+    "build_entity_features",
     # Validation extras
     "validate_tables",
     "ValidationReport",
