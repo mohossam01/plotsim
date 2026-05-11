@@ -39,6 +39,7 @@ from plotsim.config import (
     CausalLag,
     Column,
     CorrelationPair,
+    CorrelationPhase,
     Distribution,
     Domain,
     Dtype,
@@ -133,6 +134,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     )
 
     correlations = _build_correlations(user_input)
+    correlation_phases = _build_correlation_phases(user_input)
     stages = _build_stages(user_input)
 
     # M117: ``segment.count`` columns translate to a PoolSource on the dim
@@ -201,6 +203,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         holdout=holdout,
         entity_features=entity_features,
         correlations=correlations,
+        correlation_phases=correlation_phases,
         stages=stages,
         seasonal_effects=seasonal_effects,
         noise=noise_cfg,
@@ -677,8 +680,19 @@ def _build_correlations(user_input: UserInput) -> list[CorrelationPair]:
     ``RELATIONSHIP_RECIPES``) or an explicit ``coefficient`` in
     ``[-1.0, 1.0]``; the input model enforces that exactly one is set.
     """
+    return _connections_to_pairs(user_input.connections)
+
+
+def _connections_to_pairs(connections: list) -> list[CorrelationPair]:
+    """Shared translation: ``ConnectionInput`` list → ``CorrelationPair`` list.
+
+    Used by both baseline ``_build_correlations`` and per-phase
+    ``_build_correlation_phases``. Skips zero-coefficient entries (the
+    engine already treats unlisted pairs as zero off-diagonal, so an
+    explicit zero would just emit a ``RedundantCorrelationWarning``).
+    """
     pairs: list[CorrelationPair] = []
-    for c in user_input.connections:
+    for c in connections:
         if c.coefficient is not None:
             coef = c.coefficient
         else:
@@ -694,6 +708,28 @@ def _build_correlations(user_input: UserInput) -> list[CorrelationPair]:
             )
         )
     return pairs
+
+
+def _build_correlation_phases(user_input: UserInput) -> list[CorrelationPhase]:
+    """0.6-M11: translate builder ``connection_phases`` → engine ``correlation_phases``.
+
+    Each ``ConnectionPhase`` carries its own ``connections`` list using
+    the same relationship-word / explicit-coefficient vocabulary as the
+    top-level ``connections`` field. Per-phase entries flow through
+    ``_connections_to_pairs`` so the zero-skip rule applies uniformly.
+
+    An empty ``connection_phases`` list translates to an empty engine
+    ``correlation_phases`` list — the engine falls back to the
+    single-Cholesky path, byte-identical to pre-M11.
+    """
+    return [
+        CorrelationPhase(
+            start_period=phase.start_period,
+            end_period=phase.end_period,
+            correlations=_connections_to_pairs(phase.connections),
+        )
+        for phase in user_input.connection_phases
+    ]
 
 
 # ── Step 6: lifecycle → StageSequence ───────────────────────────────────────

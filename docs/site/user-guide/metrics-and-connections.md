@@ -346,6 +346,81 @@ formula.
 
 ---
 
+## Time-varying connections — regime changes
+
+`connections` declares the *baseline* correlation between two metrics:
+the relationship that holds across the whole time window. Real datasets
+often have regime changes — the link between two metrics is one thing
+in early periods, then flips or weakens later. `connection_phases` lets
+you override the baseline for specific period windows.
+
+```yaml
+connections:
+  - "engagement driven_by revenue"     # baseline: positive, both rising or both falling
+
+connection_phases:
+  - start_period: 0
+    end_period: 11
+    connections:
+      - "engagement mirrors revenue"   # phase 1: tight tracking
+  - start_period: 12
+    end_period: 23
+    connections:
+      - "engagement opposes revenue"   # phase 2: divergence — engagement up while revenue compresses
+```
+
+What the engine does:
+
+1. Builds **one Cholesky factor per phase + one for the baseline**, each
+   independently checked for positive-definiteness (and Higham-projected
+   to nearest valid correlation matrix if needed).
+2. At every period, looks up which phase covers it and uses that
+   phase's Cholesky factor. Periods outside every declared phase fall
+   back to the baseline.
+3. Records the per-phase realized coefficients on the manifest under
+   `correlations` (each entry tagged with its `phase_index`) and the
+   window summaries under `correlation_phases`.
+
+### Rules
+
+- **Phases are global across entities.** Every entity sees the same
+  phase boundaries. (Per-entity regime changes are a different feature
+  — they belong on the archetype side.)
+- **No overlap.** Two phases cannot cover the same period; the config
+  loader rejects overlapping windows so the per-period factor lookup
+  is unambiguous. Adjacent windows (one ending at `N`, the next starting
+  at `N+1`) are fine.
+- **Baseline required.** If `connection_phases` is non-empty,
+  `connections` must also be non-empty. The baseline serves as the
+  active correlation set in any period not covered by a phase — even
+  if your phases tile the window exhaustively today, requiring an
+  explicit baseline keeps the fallback contract stable across later
+  edits to `window`.
+- **Within window.** Every phase's `start_period` / `end_period`
+  must fit inside `time_window`. Periods are 0-indexed and `end_period`
+  is inclusive.
+- **Same metrics, same vocabulary.** Each phase's `connections` list
+  uses the same relationship words and metric names as the top-level
+  list. Pairs you don't list in a phase default to zero off-diagonal
+  for that window (independent of what the baseline declares).
+
+### What regime detection looks like
+
+With the example above, a downstream classifier trained on
+`(engagement[t], revenue[t])` pairs labeled by period should hit ~100%
+accuracy distinguishing phase 1 cells (tight positive correlation)
+from phase 2 cells (strong negative correlation). The "regime change"
+isn't post-hoc — it's structural in the generation pipeline, and the
+manifest records the phase boundaries as ground truth.
+
+### Single-phase configs
+
+If you don't declare `connection_phases`, nothing changes: one
+Cholesky factor, one regime, byte-identical output to pre-M11. The
+feature is purely additive.
+
+---
+
 ## A complete example
 
 ```yaml

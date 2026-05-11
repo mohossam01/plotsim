@@ -258,7 +258,12 @@ def trace_metric_cell(
         trajectories_replay,
     )
 
-    cholesky_L = _hoist_cholesky(config)
+    # 0.6-M11: build the per-period Cholesky list so cells inside
+    # ``correlation_phases`` windows replay against the right factor.
+    # ``cholesky_L`` (baseline) is retained for diagnostic display only;
+    # the actual per-period replay below indexes ``cholesky_by_period``.
+    cholesky_by_period = _hoist_cholesky_by_period(config, n_periods)
+    cholesky_L = cholesky_by_period[period_index] if cholesky_by_period else None
 
     # M119: pre-compute the global per-period seasonal-strength array. The
     # replay must thread the same factors that ``tables._compute_entity_metrics``
@@ -279,7 +284,7 @@ def trace_metric_cell(
             config.noise,
             replay_rng,
             archetype=arch_by_name.get(prior.archetype),
-            cholesky_L=cholesky_L,
+            cholesky_by_period=cholesky_by_period,
             seasonal_factors=seasonal_factors,
             entity_seasonal_sensitivity=prior.seasonal_sensitivity,
         )
@@ -295,6 +300,10 @@ def trace_metric_cell(
     for t in range(period_index):
         pos = float(target_traj[t])
         seasonal_global_t = float(seasonal_factors[t]) if seasonal_factors is not None else 0.0
+        # 0.6-M11: per-period factor selection; matches the engine's
+        # phase-keyed dispatch so pre-target periods consume RNG against
+        # the same Cholesky factor the engine used.
+        cholesky_L_t = cholesky_by_period[t] if cholesky_by_period is not None else None
         generate_metrics_for_period(
             pos,
             sorted_metrics,
@@ -304,7 +313,7 @@ def trace_metric_cell(
             t,
             replay_rng,
             archetype=archetype,
-            cholesky_L=cholesky_L,
+            cholesky_L=cholesky_L_t,
             seasonal_global=seasonal_global_t,
             entity_seasonal_sensitivity=target_entity.seasonal_sensitivity,
         )
@@ -500,21 +509,35 @@ def _resolve_entity_index(config: PlotsimConfig, entity_name: str) -> int:
 
 
 def _hoist_cholesky(config: PlotsimConfig) -> Optional[np.ndarray]:
-    """Re-derive the engine's Cholesky factor for replay.
+    """Re-derive the engine's baseline Cholesky factor for replay.
 
-    Mirrors ``generate_tables_with_state``'s hoist exactly: assemble the
-    correlation matrix in toposorted-metric order, optionally apply the
-    M120 trajectory-aware pre-compensation (matching the engine's
-    ``compensate_correlations`` flag and ``_MAX_METRICS_FOR_COMPENSATION``
-    cap), project to nearest-PD if needed, factor. The mirror is required
-    so ``trace_metric_cell`` reports the compensated coefficient the
-    engine actually drove the cell against rather than the raw user
-    target.
+    Mirrors ``generate_tables_with_state``'s baseline hoist exactly:
+    assemble the correlation matrix in toposorted-metric order, optionally
+    apply the M120 trajectory-aware pre-compensation (matching the
+    engine's ``compensate_correlations`` flag and
+    ``_MAX_METRICS_FOR_COMPENSATION`` cap), project to nearest-PD if
+    needed, factor. The mirror is required so ``trace_metric_cell``
+    reports the compensated coefficient the engine actually drove the
+    cell against rather than the raw user target.
+
+    0.6-M11: this helper returns the BASELINE factor only. For configs
+    with ``correlation_phases`` set, use ``_hoist_cholesky_by_period``
+    to get the per-period list; ``trace_metric_cell`` indexes that list
+    by the traced period so traces against cells inside phase windows
+    see the active phase's factor.
     """
-    if not config.correlations:
+    return _build_one_cholesky(config, list(config.correlations))
+
+
+def _build_one_cholesky(
+    config: PlotsimConfig,
+    pairs: list,
+) -> Optional[np.ndarray]:
+    """Shared per-pair-list Cholesky build used by baseline + each phase."""
+    if not pairs:
         return None
     sorted_metrics = _toposort_metrics(list(config.metrics))
-    mat = _build_correlation_matrix(sorted_metrics, list(config.correlations))
+    mat = _build_correlation_matrix(sorted_metrics, pairs)
     if config.compensate_correlations:
         from plotsim.metrics import (
             _MAX_METRICS_FOR_COMPENSATION,
@@ -531,10 +554,45 @@ def _hoist_cholesky(config: PlotsimConfig) -> Optional[np.ndarray]:
                 mat,
                 traj_cov,
                 sorted_metrics,
-                list(config.correlations),
+                pairs,
             )
     projected_mat, _used, _fallback = project_correlation_matrix(mat)
     return np.linalg.cholesky(projected_mat)
+
+
+def _hoist_cholesky_by_period(
+    config: PlotsimConfig,
+    n_periods: int,
+) -> Optional[list[np.ndarray]]:
+    """0.6-M11: per-period Cholesky list mirroring the orchestrator.
+
+    Returns ``None`` when the config has no correlations (matches
+    ``generate_tables_with_state``'s ``cholesky_by_period = None``
+    short-circuit). Otherwise builds one factor for the baseline plus
+    one per declared phase, then expands to a length-``n_periods`` list
+    via ``config.resolve_period_to_phase``. Same structure the engine
+    threads through the generation pipeline; the trace replay reads
+    ``cholesky_by_period[period_index]`` to recover the factor active
+    at the traced cell.
+    """
+    if not config.correlations:
+        return None
+    L_baseline = _build_one_cholesky(config, list(config.correlations))
+    assert L_baseline is not None  # non-empty correlations → non-None
+    if not config.correlation_phases:
+        return [L_baseline] * n_periods
+    phase_factors: dict[int, np.ndarray] = {}
+    for phase_idx, phase in enumerate(config.correlation_phases):
+        if not phase.correlations:
+            phase_factors[phase_idx] = L_baseline
+            continue
+        L_phase = _build_one_cholesky(config, list(phase.correlations))
+        assert L_phase is not None  # non-empty phase.correlations → non-None
+        phase_factors[phase_idx] = L_phase
+    period_to_phase = config.resolve_period_to_phase()
+    return [
+        phase_factors[ph_idx] if ph_idx is not None else L_baseline for ph_idx in period_to_phase
+    ]
 
 
 def _detect_noise_branches(

@@ -250,6 +250,7 @@ def _compute_entity_metrics(
     n_periods: int,
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
+    cholesky_by_period: Optional[list[np.ndarray]] = None,
     bypass_counter: Optional[dict[str, int]] = None,  # noqa: ARG001 — M127b backward compat
 ) -> dict[str, dict[str, np.ndarray]]:
     """Generate the per-entity metric series dict the engine reads from.
@@ -294,6 +295,7 @@ def _compute_entity_metrics(
                 rng,
                 archetype=arch_by_name.get(entity.archetype),
                 cholesky_L=cholesky_L,
+                cholesky_by_period=cholesky_by_period,
                 seasonal_factors=seasonal_factors,
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
                 treatment_lift_log_odds=entity.treatment_lift_log_odds,
@@ -379,6 +381,7 @@ def _compute_entity_metrics(
                 n_periods,
                 rng,
                 cholesky_L=cholesky_L,
+                cholesky_by_period=cholesky_by_period,
                 seasonal_factors=seasonal_factors,
                 bypass_counter=bypass_counter,
             )
@@ -393,6 +396,7 @@ def _compute_entity_metrics(
                 rng,
                 archetype=archetype,
                 cholesky_L=cholesky_L,
+                cholesky_by_period=cholesky_by_period,
                 seasonal_factors=seasonal_factors,
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
                 treatment_lift_log_odds=entity.treatment_lift_log_odds,
@@ -525,6 +529,7 @@ def build_fact_tables(
     dim_tables: dict[str, pd.DataFrame],
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
+    cholesky_by_period: Optional[list[np.ndarray]] = None,
     entity_metrics: Optional[dict[str, dict[str, np.ndarray]]] = None,
 ) -> dict[str, pd.DataFrame]:
     """Generate every fact table in ``config.tables`` keyed by table name.
@@ -559,6 +564,7 @@ def build_fact_tables(
             n_periods,
             rng,
             cholesky_L=cholesky_L,
+            cholesky_by_period=cholesky_by_period,
         )
 
     # Category B Layer 4: materialize metric series as a dense (E, P, M) float64
@@ -3415,6 +3421,94 @@ def _apply_cdc_audit_columns(
     return out
 
 
+def _build_phase_cholesky(
+    config: PlotsimConfig,
+    sorted_metrics: list,
+    correlations: list,
+    *,
+    phase_label: str,
+) -> tuple[np.ndarray, np.ndarray, Optional[list[dict]]]:
+    """0.6-M11: build one Cholesky factor for a single phase's correlations.
+
+    Encapsulates the M120 compensation + M111 Higham projection +
+    decomposition that pre-M11 lived inline at the orchestrator's
+    Cholesky-build site. Called once per (baseline + each configured
+    phase) so each phase produces its own factor while sharing the
+    matrix-assembly / compensation / projection flow.
+
+    Returns ``(cholesky_L, projected_matrix, compensation_records)``.
+    ``compensation_records`` is ``None`` when ``compensate_correlations``
+    is False or when the metric cap forces the legacy direct-copula
+    fallback; otherwise a list of per-pair records the manifest reads.
+
+    ``phase_label`` is woven into the compensation-skipped UserWarning so
+    multi-phase configs can identify which phase tripped the cap.
+    """
+    mat = _build_correlation_matrix(sorted_metrics, correlations)
+    compensation_records: Optional[list[dict]] = None
+    # M120: trajectory-aware pre-compensation. The metric cap mirrors the
+    # mission spec — above 20 metrics the additive decomposition is too
+    # noisy to satisfy the sign-match floor, so emit a warning and fall
+    # through to the legacy direct-copula path.
+    if config.compensate_correlations:
+        from plotsim.metrics import (
+            _MAX_METRICS_FOR_COMPENSATION,
+            _format_correlation_compensation_warning,
+            compensate_correlation_matrix,
+            estimate_trajectory_covariance,
+        )
+
+        n_metrics = len(sorted_metrics)
+        if n_metrics > _MAX_METRICS_FOR_COMPENSATION:
+            warnings.warn(
+                f"compensate_correlations=true but config has "
+                f"{n_metrics} metrics (cap {_MAX_METRICS_FOR_COMPENSATION}); "
+                f"trajectory-aware pre-compensation skipped for {phase_label} "
+                "— the additive decomposition becomes too noisy at this "
+                "scale. Falling back to the direct copula path.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            traj_cov = estimate_trajectory_covariance(
+                config,
+                metric_order=sorted_metrics,
+            )
+            mat, compensation_records = compensate_correlation_matrix(
+                mat,
+                traj_cov,
+                sorted_metrics,
+                correlations,
+            )
+            warning_text = _format_correlation_compensation_warning(
+                compensation_records,
+            )
+            if warning_text:
+                # 0.6-M11: prefix multi-phase warnings with the phase label
+                # so the operator can attribute compensation reports to the
+                # right window. Baseline emits unchanged text for backward
+                # compatibility with pre-M11 warning-parsing consumers.
+                if phase_label != "baseline":
+                    warning_text = f"{phase_label}: {warning_text}"
+                warnings.warn(warning_text, UserWarning, stacklevel=2)
+
+    # M111: project to nearest PD if needed. The load-time validator on
+    # PlotsimConfig already projected and warned the user, but it built
+    # the matrix in declaration order while this hoist uses toposort
+    # order — so re-project deterministically here rather than thread
+    # an order-aware permutation through the engine. PD inputs pass
+    # through unchanged (byte-identical to pre-M111 for every config
+    # whose user-specified matrix is already PD). Under M120 this also
+    # absorbs the compensated matrix when pre-compensation pushed it
+    # off the PD cone (compensation alters off-diagonals — Higham
+    # restores PD without un-doing the compensation).
+    from plotsim.metrics import project_correlation_matrix
+
+    projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
+    cholesky_L = np.linalg.cholesky(projected_mat)
+    return cholesky_L, projected_mat, compensation_records
+
+
 def generate_tables(
     config: PlotsimConfig,
     rng: Optional[np.random.Generator] = None,
@@ -3486,108 +3580,97 @@ def generate_tables_with_state(
 
     # Category B Layer 3 (SEC-08): hoist the Cholesky factor out of the
     # per-(cohort, period) hot loop. The correlation matrix is config-
-    # invariant across the run (depends only on metric name order and
-    # correlations list), so computing L once saves N_cohorts × N_periods
-    # matrix+Cholesky rebuilds. The PSD gate above guarantees this Cholesky
-    # succeeds; if the call ever surfaces an error here it means an external
-    # caller bypassed ``validate_correlation_psd``.
+    # invariant across each phase window (depends only on metric name
+    # order and the active correlation list), so computing L once per
+    # phase saves N_cohorts × N_periods matrix+Cholesky rebuilds. The
+    # PSD gate above guarantees every Cholesky succeeds; if the call
+    # ever surfaces an error here it means an external caller bypassed
+    # ``validate_correlation_psd``.
     #
-    # F-06 / 0.4.0: L must be indexed in the same order the downstream
-    # ``apply_correlations`` sees its z vector. ``generate_entity_metrics``
-    # runs ``_toposort_metrics`` on the incoming list before calling
-    # ``generate_metrics_for_period``, which passes the toposorted effective
-    # metrics to ``apply_correlations``. Pre-F-06 this hoist built L on the
+    # F-06 / 0.4.0: every L must be indexed in the same order the
+    # downstream ``apply_correlations`` sees its z vector.
+    # ``generate_entity_metrics`` runs ``_toposort_metrics`` on the
+    # incoming list before calling ``generate_metrics_for_period``,
+    # which passes the toposorted effective metrics to
+    # ``apply_correlations``. Pre-F-06 this hoist built L on the
     # declaration-order list, so any config with ``causal_lag`` (which
     # reshuffles metric positions) delivered each configured correlation
     # to whichever metric pair happened to live at those index positions
     # in the toposorted list — the wrong pair unless both swapped
     # symmetrically. Building L in toposort order here restores the
     # invariant "``L`` is indexed by the metric list passed downstream".
-    cholesky_L: Optional[np.ndarray] = None
+    #
+    # 0.6-M11: ``cholesky_by_period`` is a length-``n_periods`` list
+    # whose entry at ``t`` is the Cholesky factor active at period ``t``
+    # — the baseline factor when no phase covers ``t``, or the matching
+    # phase factor otherwise. For configs without ``correlation_phases``
+    # every entry is the same baseline factor (a list of references, no
+    # copy), so the engine threads it identically to the pre-M11
+    # single-Cholesky path: byte-identical output by construction.
+    cholesky_by_period: Optional[list[np.ndarray]] = None
+    cholesky_L: Optional[np.ndarray] = None  # legacy alias for direct callers
     if config.correlations:
-        compensation_records: Optional[list[dict]] = None
         sorted_metrics = _toposort_metrics(list(config.metrics))
-        mat = _build_correlation_matrix(
+        # Baseline matrix.
+        L_baseline, projected_baseline, baseline_compensation_records = _build_phase_cholesky(
+            config,
             sorted_metrics,
             list(config.correlations),
+            phase_label="baseline",
         )
-        # M120: when ``compensate_correlations=True`` (builder default), the
-        # user-specified matrix is the table-wide target; subtract the
-        # trajectory's structural contribution off-diagonally so the copula
-        # delivers what the user asked for, recombined additively with the
-        # trajectory contribution at sample time. The metric cap mirrors the
-        # mission spec — above 20 metrics the additive decomposition is too
-        # noisy to satisfy the sign-match floor, so emit a warning and fall
-        # through to the legacy direct-copula path.
-        if config.compensate_correlations:
-            from plotsim.metrics import (
-                _MAX_METRICS_FOR_COMPENSATION,
-                _format_correlation_compensation_warning,
-                compensate_correlation_matrix,
-                estimate_trajectory_covariance,
-            )
+        cholesky_L = L_baseline
 
-            n_metrics = len(sorted_metrics)
-            if n_metrics > _MAX_METRICS_FOR_COMPENSATION:
-                warnings.warn(
-                    f"compensate_correlations=true but config has "
-                    f"{n_metrics} metrics (cap {_MAX_METRICS_FOR_COMPENSATION}); "
-                    "trajectory-aware pre-compensation skipped — the additive "
-                    "decomposition becomes too noisy at this scale. Falling "
-                    "back to the direct copula path.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            else:
-                traj_cov = estimate_trajectory_covariance(
-                    config,
-                    metric_order=sorted_metrics,
-                )
-                mat, compensation_records = compensate_correlation_matrix(
-                    mat,
-                    traj_cov,
-                    sorted_metrics,
-                    list(config.correlations),
-                )
-                warning_text = _format_correlation_compensation_warning(
-                    compensation_records,
-                )
-                if warning_text:
-                    warnings.warn(warning_text, UserWarning, stacklevel=2)
-
-        # M111: project to nearest PD if needed. The load-time validator on
-        # PlotsimConfig already projected and warned the user, but it built
-        # the matrix in declaration order while this hoist uses toposort
-        # order — so re-project deterministically here rather than thread
-        # an order-aware permutation through the engine. PD inputs pass
-        # through unchanged (byte-identical to pre-M111 for every config
-        # whose user-specified matrix is already PD). Under M120 this also
-        # absorbs the compensated matrix when pre-compensation pushed it
-        # off the PD cone (compensation alters off-diagonals — Higham
-        # restores PD without un-doing the compensation).
-        from plotsim.metrics import project_correlation_matrix
-
-        projected_mat, _projection_used, _used_fallback = project_correlation_matrix(mat)
-        cholesky_L = np.linalg.cholesky(projected_mat)
-
-        # 0.6-M5: stash the projected matrix + the toposorted metric order
-        # used to assemble it so ``plotsim.manifest.build_manifest`` can
-        # surface ``manifest.correlations`` (one entry per user-declared
-        # connection, with the post-Higham, post-compensation coefficient
-        # the engine actually drove the cell against). The two attrs are
-        # paired — without the order, indexing into the matrix is ambiguous
-        # for configs whose toposort permutes declaration order.
-        config._projected_correlation_matrix = projected_mat
+        # 0.6-M5: stash the baseline projected matrix + toposorted order
+        # so ``plotsim.manifest.build_manifest`` can surface
+        # ``manifest.correlations`` for baseline pairs. Per-phase
+        # analogues land on ``_phase_projected_correlation_matrices``.
+        config._projected_correlation_matrix = projected_baseline
         config._metric_correlation_order = [m.name for m in sorted_metrics]
+        if baseline_compensation_records is not None:
+            config._correlation_compensations = baseline_compensation_records
 
-        # Stash compensation records on the (private) config attr so
-        # ``plotsim.manifest.build_manifest`` can surface them alongside
-        # the Higham records. ``None`` (no compensation, no records) ≠
-        # empty list (compensation ran but every pair was already
-        # feasible AND in scope) — keep the distinction in the
-        # manifest's wire shape.
-        if compensation_records is not None:
-            config._correlation_compensations = compensation_records
+        # 0.6-M11: per-phase Cholesky factors. Each phase reuses the
+        # same metric set + toposort order as the baseline, so the
+        # downstream z-vector index stays aligned regardless of which
+        # phase is active at a given period.
+        phase_choleskies: dict[int, np.ndarray] = {}
+        if config.correlation_phases:
+            phase_projected_matrices: dict[int, np.ndarray] = {}
+            phase_compensation_records: dict[int, list[dict]] = {}
+            for phase_idx, phase in enumerate(config.correlation_phases):
+                if not phase.correlations:
+                    # Phase declares no overrides → reuse the baseline
+                    # factor for that window. (A phase block with empty
+                    # ``correlations`` is structurally a no-op.)
+                    phase_choleskies[phase_idx] = L_baseline
+                    continue
+                L_phase, projected_phase, ph_comp_records = _build_phase_cholesky(
+                    config,
+                    sorted_metrics,
+                    list(phase.correlations),
+                    phase_label=f"correlation_phases[{phase_idx}]",
+                )
+                phase_choleskies[phase_idx] = L_phase
+                phase_projected_matrices[phase_idx] = projected_phase
+                if ph_comp_records is not None:
+                    phase_compensation_records[phase_idx] = ph_comp_records
+            if phase_projected_matrices:
+                config._phase_projected_correlation_matrices = phase_projected_matrices
+            if phase_compensation_records:
+                config._phase_correlation_compensations = phase_compensation_records
+
+        # Resolve the per-period factor list. Single-phase: every
+        # period points at the baseline factor (same object reference,
+        # no copy). Multi-phase: pick the phase factor for periods
+        # covered by a phase, baseline for any uncovered period.
+        if config.correlation_phases:
+            period_to_phase = config.resolve_period_to_phase()
+            cholesky_by_period = [
+                phase_choleskies[ph_idx] if ph_idx is not None else L_baseline
+                for ph_idx in period_to_phase
+            ]
+        else:
+            cholesky_by_period = [L_baseline] * n_periods
 
     # Compute the per-entity metric series ONCE and pass to both
     # ``build_fact_tables`` and ``build_bridge_tables``. Without this hoist
@@ -3607,6 +3690,7 @@ def generate_tables_with_state(
         n_periods,
         rng,
         cholesky_L=cholesky_L,
+        cholesky_by_period=cholesky_by_period,
     )
     config._bypass_fallback_counts = {}
 
@@ -3616,6 +3700,7 @@ def generate_tables_with_state(
         dim_tables,
         rng,
         cholesky_L=cholesky_L,
+        cholesky_by_period=cholesky_by_period,
         entity_metrics=entity_metrics,
     )
     # M106: append ``dim_row_id`` BEFORE ``assign_stages`` so the output

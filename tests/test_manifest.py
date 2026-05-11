@@ -366,17 +366,20 @@ def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
 # --- 0.6-M5: causal_graph ---------------------------------------------------
 
 
-def test_schema_version_bumped_to_1_3():
+def test_schema_version_bumped_to_1_4():
     """0.6-M5 added causal_graph / correlations / outlier_injections (1.0 → 1.1).
     0.6-M8a added per-entity ``active_window`` on EntityArchetypeAssignment
     (1.1 → 1.2). 0.6-M8c added per-entity ``treatment`` and the top-level
-    ``treatment_cohorts`` list (1.2 → 1.3).
+    ``treatment_cohorts`` list (1.2 → 1.3). 0.6-M11 added the top-level
+    ``correlation_phases`` summary list and the optional ``phase_index``
+    field on ``CorrelationAdjustment`` / ``CorrelationCompensation`` /
+    ``CorrelationEntry`` (1.3 → 1.4).
 
     The version pin lives in this test rather than just the manifest module
-    so a downstream consumer pinning ``schema_version >= "1.3"`` has a
+    so a downstream consumer pinning ``schema_version >= "1.4"`` has a
     direct on-disk contract test it can reference.
     """
-    assert MANIFEST_SCHEMA_VERSION == "1.3"
+    assert MANIFEST_SCHEMA_VERSION == "1.4"
 
 
 def test_causal_graph_emits_one_edge_per_metric_with_lag(saas_run):
