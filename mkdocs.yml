@@ -84,6 +84,7 @@ nav:
       - Narrative text: user-guide/narrative-source.md
       - Output formats: user-guide/output-formats.md
       - Denormalization: user-guide/denormalization.md
+      - Log-file writer: user-guide/log-writer.md
   - Tutorials:
       - Getting started: tutorial-notebooks/getting_started.ipynb
       - Feature surfaces:

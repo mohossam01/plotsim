@@ -72,6 +72,7 @@ from plotsim.entity_features import (
     ENTITY_FEATURES_BASENAME,
     build_entity_features,
 )
+from plotsim.log_writer import write_event_logs
 from plotsim.holdout import cutoff_period_index, split_fact_tables
 from plotsim.manifest import ManifestSchema, write_manifest
 from plotsim.quality import apply_issues as _apply_quality_issues
@@ -732,6 +733,14 @@ def write_tables(
                 config=config,
                 float_format=float_format,
             )
+
+    # 0.6-M14b: opt-in log-file companions. When any event table has
+    # ``log_format`` set, ``write_event_logs`` emits one ``.log`` file
+    # per such event table alongside the regular CSV/Parquet output.
+    # No event tables with ``log_format`` configured → no I/O.
+    # Consumes ``tables_to_write`` so the log lines reflect the same
+    # (post-CDC, post-quality) data that landed in the event CSVs.
+    write_event_logs(tables_to_write, config, target)
 
     write_config_copy(config, target)
     write_validation_report(report, target, generated_at=generated_at, config=config)

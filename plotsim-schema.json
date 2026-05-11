@@ -1287,6 +1287,30 @@
           "default": false,
           "title": "Cdc",
           "type": "boolean"
+        },
+        "log_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log Format"
+        },
+        "log_filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log Filename"
         }
       },
       "required": [
