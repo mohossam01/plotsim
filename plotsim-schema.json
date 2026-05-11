@@ -326,6 +326,36 @@
       "title": "CorrelationPair",
       "type": "object"
     },
+    "CorrelationPhase": {
+      "additionalProperties": false,
+      "description": "0.6-M11: a window over the time axis with its own correlation matrix.\n\nPhases declare per-window correlation pairs that override the baseline\n``PlotsimConfig.correlations`` for periods inside ``[start_period,\nend_period]`` (both inclusive). Phases are non-overlapping (validated\nat config load) and global across all entities — every entity sees\nthe same phase boundaries.\n\nPeriods not covered by any phase fall back to the baseline\n``correlations`` list. A config with ``correlation_phases`` set must\nalso declare a non-empty ``correlations`` baseline (the baseline is\nrequired even if phases tile the window exhaustively, so a later\nedit to ``time_window`` cannot leave uncovered periods with no\ncorrelation set).\n\nEngine treatment per phase: each phase's ``correlations`` list runs\nthrough the same M120 trajectory-aware compensation (when\n``compensate_correlations=True``) and M111 Higham nearest-PD\nprojection that the baseline list goes through, independently. Each\nphase produces its own Cholesky factor; the engine resolves the\nactive factor per period at sample time.",
+      "properties": {
+        "start_period": {
+          "minimum": 0,
+          "title": "Start Period",
+          "type": "integer"
+        },
+        "end_period": {
+          "minimum": 0,
+          "title": "End Period",
+          "type": "integer"
+        },
+        "correlations": {
+          "items": {
+            "$ref": "#/$defs/CorrelationPair"
+          },
+          "maxItems": 1225,
+          "title": "Correlations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "start_period",
+        "end_period"
+      ],
+      "title": "CorrelationPhase",
+      "type": "object"
+    },
     "CurveSegment": {
       "additionalProperties": false,
       "properties": {
@@ -1317,6 +1347,14 @@
       },
       "maxItems": 1225,
       "title": "Correlations",
+      "type": "array"
+    },
+    "correlation_phases": {
+      "items": {
+        "$ref": "#/$defs/CorrelationPhase"
+      },
+      "maxItems": 64,
+      "title": "Correlation Phases",
       "type": "array"
     },
     "noise": {

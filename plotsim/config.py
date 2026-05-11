@@ -1930,6 +1930,45 @@ class CorrelationPair(_Frozen):
     coefficient: float = Field(ge=-1.0, le=1.0)
 
 
+class CorrelationPhase(_Frozen):
+    """0.6-M11: a window over the time axis with its own correlation matrix.
+
+    Phases declare per-window correlation pairs that override the baseline
+    ``PlotsimConfig.correlations`` for periods inside ``[start_period,
+    end_period]`` (both inclusive). Phases are non-overlapping (validated
+    at config load) and global across all entities — every entity sees
+    the same phase boundaries.
+
+    Periods not covered by any phase fall back to the baseline
+    ``correlations`` list. A config with ``correlation_phases`` set must
+    also declare a non-empty ``correlations`` baseline (the baseline is
+    required even if phases tile the window exhaustively, so a later
+    edit to ``time_window`` cannot leave uncovered periods with no
+    correlation set).
+
+    Engine treatment per phase: each phase's ``correlations`` list runs
+    through the same M120 trajectory-aware compensation (when
+    ``compensate_correlations=True``) and M111 Higham nearest-PD
+    projection that the baseline list goes through, independently. Each
+    phase produces its own Cholesky factor; the engine resolves the
+    active factor per period at sample time.
+    """
+
+    start_period: int = Field(ge=0)
+    end_period: int = Field(ge=0)
+    correlations: list[CorrelationPair] = Field(default_factory=list, max_length=1_225)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "CorrelationPhase":
+        if self.end_period < self.start_period:
+            raise ValueError(
+                f"correlation_phases entry has end_period={self.end_period} "
+                f"< start_period={self.start_period}; phases must satisfy "
+                f"start_period <= end_period (both inclusive)"
+            )
+        return self
+
+
 class NoiseConfig(_Frozen):
     gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -2285,6 +2324,16 @@ class PlotsimConfig(_Frozen):
     # given the 50-metric cap. Anything larger is either duplicates (rejected
     # at matrix assembly) or references to non-existent metrics.
     correlations: list[CorrelationPair] = Field(default_factory=list, max_length=1_225)
+    # 0.6-M11: time-varying correlations. Each phase declares its own
+    # CorrelationPair list active for the inclusive period window
+    # ``[start_period, end_period]``. Empty default — configs without
+    # phases keep the single-Cholesky behavior (byte-identical to
+    # pre-M11). When non-empty, ``correlations`` is required as the
+    # baseline for any period not covered by a phase (validated by
+    # ``_correlation_phases_require_baseline``). ``max_length=64``
+    # accommodates monthly-granularity exercises (e.g. one phase per
+    # month over a multi-year window) without unbounded growth.
+    correlation_phases: list[CorrelationPhase] = Field(default_factory=list, max_length=64)
     noise: NoiseConfig = Field(default_factory=NoiseConfig)
     output: OutputConfig
     # M105: manifest emission. Default ``include=true`` so every ``plotsim
@@ -2396,6 +2445,18 @@ class PlotsimConfig(_Frozen):
     # engine-derived, not a user input; would pollute config_sha256.
     _projected_correlation_matrix: Optional[Any] = PrivateAttr(default=None)
     _metric_correlation_order: Optional[list[str]] = PrivateAttr(default=None)
+
+    # 0.6-M11: per-phase analogues of the three sibling stashes above.
+    # Each is keyed by phase index (0..len(correlation_phases)-1). The
+    # baseline matrix continues to use the non-phase attrs. ``None`` when
+    # the run has no ``correlation_phases``; an empty dict is reserved
+    # for "phases configured but every per-phase matrix already PD" /
+    # "phases configured but compensation didn't run for any phase".
+    # Same PrivateAttr rationale as the siblings: engine-derived,
+    # excluded from ``model_dump`` / ``config_sha256``.
+    _phase_correlation_adjustments: Optional[dict[int, list[dict]]] = PrivateAttr(default=None)
+    _phase_correlation_compensations: Optional[dict[int, list[dict]]] = PrivateAttr(default=None)
+    _phase_projected_correlation_matrices: Optional[dict[int, Any]] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":
@@ -2682,6 +2743,104 @@ class PlotsimConfig(_Frozen):
         return self
 
     @model_validator(mode="after")
+    def _correlation_phases_require_baseline(self) -> "PlotsimConfig":
+        """0.6-M11: when ``correlation_phases`` is set, ``correlations`` is required.
+
+        The baseline ``correlations`` list serves as the active correlation
+        set in any period not covered by a phase. Even if the configured
+        phases tile the time window exhaustively today, a later edit to
+        ``time_window`` could leave uncovered periods with no correlation
+        set — making the engine's per-period resolver behave inconsistently
+        across config edits. Requiring an explicit baseline keeps the
+        fallback contract structural rather than emergent.
+        """
+        if self.correlation_phases and not self.correlations:
+            raise ValueError(
+                "correlation_phases is set but `correlations` (the baseline "
+                "list) is empty. The baseline serves as the active correlation "
+                "set in any period not covered by a phase; declare at least "
+                "one baseline pair even if your phases tile the window "
+                "exhaustively. See docs: user-guide/metrics-and-connections.md"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _correlation_phases_within_window(self) -> "PlotsimConfig":
+        """0.6-M11: every phase's period range fits inside the time window.
+
+        ``end_period`` is inclusive; the upper bound is
+        ``time_window.period_count() - 1``. A phase whose window extends
+        past the last period is rejected (rather than silently clipped)
+        so the user catches off-by-one errors at config load.
+        """
+        if not self.correlation_phases:
+            return self
+        last = self.time_window.period_count() - 1
+        for idx, phase in enumerate(self.correlation_phases):
+            if phase.end_period > last:
+                raise ValueError(
+                    f"correlation_phases[{idx}] has end_period="
+                    f"{phase.end_period} but time_window has only "
+                    f"{last + 1} periods (max valid period_index={last}). "
+                    f"Adjust end_period or extend time_window."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _correlation_phases_no_overlap(self) -> "PlotsimConfig":
+        """0.6-M11: phase windows must not overlap.
+
+        Overlapping phases would make the per-period Cholesky lookup
+        ambiguous (which phase wins at the overlapping period?). Rather
+        than picking an implicit precedence rule, reject the config so
+        the user explicitly resolves the ambiguity by editing the
+        windows. Phases may abut (one ends at ``t``, the next starts at
+        ``t+1``) without overlap; phases may be in any declaration order.
+        """
+        if len(self.correlation_phases) < 2:
+            return self
+        # Sort by start_period to compare consecutive windows after the sort.
+        sorted_phases = sorted(
+            enumerate(self.correlation_phases),
+            key=lambda pair: pair[1].start_period,
+        )
+        for i in range(1, len(sorted_phases)):
+            prev_idx, prev = sorted_phases[i - 1]
+            curr_idx, curr = sorted_phases[i]
+            if curr.start_period <= prev.end_period:
+                raise ValueError(
+                    f"correlation_phases[{prev_idx}] (periods "
+                    f"{prev.start_period}-{prev.end_period}) overlaps with "
+                    f"correlation_phases[{curr_idx}] (periods "
+                    f"{curr.start_period}-{curr.end_period}). Phases must "
+                    f"not overlap; adjacent windows may abut (one ending at "
+                    f"period N and the next starting at N+1)."
+                )
+        return self
+
+    def resolve_period_to_phase(self) -> list[Optional[int]]:
+        """0.6-M11: build the period_index → phase index resolution table.
+
+        Returns a length-``period_count()`` list where entry ``t`` is the
+        index into ``correlation_phases`` of the phase covering period
+        ``t``, or ``None`` if no phase covers that period (in which case
+        the baseline ``correlations`` applies).
+
+        Pure function of ``time_window`` and ``correlation_phases``; called
+        once at the engine's Cholesky-build site to avoid per-period
+        scanning. Empty ``correlation_phases`` yields a list of ``None``
+        (every period falls back to baseline) — equivalent to the
+        single-Cholesky pre-M11 path.
+        """
+        n_periods = self.time_window.period_count()
+        result: list[Optional[int]] = [None] * n_periods
+        for phase_idx, phase in enumerate(self.correlation_phases):
+            for t in range(phase.start_period, phase.end_period + 1):
+                if t < n_periods:
+                    result[t] = phase_idx
+        return result
+
+    @model_validator(mode="after")
     def _correlation_matrix_is_psd(self) -> "PlotsimConfig":
         """Project non-PD correlation matrices and warn — don't reject.
 
@@ -2697,6 +2856,11 @@ class PlotsimConfig(_Frozen):
         (deterministic, ~ms) is cheaper than threading order-aware
         permutations through the engine.
 
+        0.6-M11: when ``correlation_phases`` is set, every phase's
+        correlation matrix is independently projected too. Per-phase
+        adjustments are stashed on ``_phase_correlation_adjustments``
+        keyed by phase index.
+
         Only raises if Higham AND the eigenvalue-clipping fallback both
         fail to produce a PD matrix — should be impossible for
         symmetric input.
@@ -2706,7 +2870,10 @@ class PlotsimConfig(_Frozen):
         # Local import: plotsim.validation imports from plotsim.config,
         # so a module-level import would create a cycle.
         from plotsim.metrics import _format_correlation_adjustment_warning
-        from plotsim.validation import project_correlation_or_issue
+        from plotsim.validation import (
+            project_correlation_or_issue,
+            project_phase_correlation_or_issue,
+        )
 
         issues, adjustments, _projected = project_correlation_or_issue(self)
         if issues:
@@ -2723,6 +2890,44 @@ class PlotsimConfig(_Frozen):
                 stacklevel=2,
             )
             self._correlation_adjustments = adjustments
+
+        # 0.6-M11: per-phase PSD projection + warning emission. Each
+        # phase carries its own correlation matrix (built against the
+        # SAME metric set as the baseline); each is independently
+        # checked, projected, and warned about. Per-phase adjustments
+        # land on ``_phase_correlation_adjustments`` keyed by phase
+        # index for the manifest to surface. The dict is set whenever
+        # any phase reports adjustments — phases without adjustments
+        # are absent from the dict (None vs empty dict mirrors the
+        # baseline _correlation_adjustments contract).
+        if self.correlation_phases:
+            phase_adj_records: dict[int, list[dict]] = {}
+            for phase_idx, phase in enumerate(self.correlation_phases):
+                if not phase.correlations:
+                    continue
+                ph_issues, ph_adjustments, _ph_projected = project_phase_correlation_or_issue(
+                    self, phase_idx
+                )
+                if ph_issues:
+                    names = [m.name for m in self.metrics]
+                    raise ValueError(
+                        f"correlation_phases[{phase_idx}] (periods "
+                        f"{phase.start_period}-{phase.end_period}): "
+                        f"correlation matrix could not be projected to "
+                        f"positive-definite for metrics {names}. "
+                        f"{ph_issues[0].message}"
+                    )
+                if ph_adjustments:
+                    warnings.warn(
+                        f"correlation_phases[{phase_idx}] (periods "
+                        f"{phase.start_period}-{phase.end_period}): "
+                        + _format_correlation_adjustment_warning(ph_adjustments),
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    phase_adj_records[phase_idx] = ph_adjustments
+            if phase_adj_records:
+                self._phase_correlation_adjustments = phase_adj_records
         return self
 
 

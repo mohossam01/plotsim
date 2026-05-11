@@ -84,7 +84,15 @@ MANIFEST_FILENAME = "manifest.json"
 # manifests on disk produced by 1.2 readers parse unchanged; 1.3
 # readers see the new fields populated only when the config uses
 # the M8c surface (treatment-free configs leave both empty).
-MANIFEST_SCHEMA_VERSION = "1.3"
+# 0.6-M11: bumped 1.3 → 1.4 for the additive ``correlation_phases``
+# summary list and the optional ``phase_index`` field on
+# ``CorrelationAdjustment`` / ``CorrelationCompensation`` /
+# ``CorrelationEntry``. ``phase_index`` defaults to ``None`` (baseline)
+# so 1.3-emitted records re-read clean on a 1.4 parser; the new
+# top-level list defaults to ``[]``. Configs without
+# ``correlation_phases`` produce a 1.4 manifest byte-equivalent to 1.3
+# modulo the schema_version string and the empty list.
+MANIFEST_SCHEMA_VERSION = "1.4"
 
 
 class _ManifestBase(BaseModel):
@@ -296,6 +304,12 @@ class CorrelationAdjustment(_ManifestBase):
     (~1e-12) are dropped, so an empty adjustments list with
     ``correlation_adjustments=null`` and an empty list with one entry
     rounded out by tolerance never collide.
+
+    0.6-M11: ``phase_index`` identifies which correlation window emitted
+    this adjustment. ``None`` = baseline ``config.correlations``; an
+    integer = the index into ``config.correlation_phases``. Backwards
+    compatible: pre-M11 manifests have no entries with ``phase_index``
+    set, and the default-None field reads cleanly on M11 parsers.
     """
 
     metric_a: str
@@ -303,6 +317,7 @@ class CorrelationAdjustment(_ManifestBase):
     requested: float
     achieved: float
     adjustment: float
+    phase_index: Optional[int] = None
 
 
 class CorrelationCompensation(_ManifestBase):
@@ -354,6 +369,9 @@ class CorrelationCompensation(_ManifestBase):
     achievable: float
     infeasible: bool
     adjustment: float
+    # 0.6-M11: which window this compensation record applies to.
+    # ``None`` = baseline; integer = index into config.correlation_phases.
+    phase_index: Optional[int] = None
 
 
 class CausalEdge(_ManifestBase):
@@ -396,6 +414,29 @@ class CorrelationEntry(_ManifestBase):
     metric_b: str
     requested: float
     projected: float
+    # 0.6-M11: which window this realized-correlation entry applies to.
+    # ``None`` = baseline; integer = index into config.correlation_phases.
+    phase_index: Optional[int] = None
+
+
+class CorrelationPhaseInfo(_ManifestBase):
+    """0.6-M11: one declared phase window summarized for the manifest.
+
+    Emitted in ``ManifestSchema.correlation_phases`` — one entry per
+    ``config.correlation_phases`` declaration. Carries the window
+    bounds plus the count of pairs the phase declared so a downstream
+    consumer can join ``CorrelationAdjustment`` / ``CorrelationEntry``
+    records (which carry ``phase_index``) back to the window they
+    apply to without re-reading the source config.
+
+    Empty list when the config did not declare any phases; default
+    ``[]`` keeps pre-M11 manifests parsing unchanged.
+    """
+
+    phase_index: int
+    start_period: int
+    end_period: int
+    n_pairs: int
 
 
 class OutlierInjection(_ManifestBase):
@@ -533,6 +574,14 @@ class ManifestSchema(_ManifestBase):
     # non-A/B-test datasets). Default ``[]`` keeps backwards compat
     # with pre-1.3 manifests.
     treatment_cohorts: list[TreatmentCohort] = []
+    # 0.6-M11: per-phase window summaries. One entry per declared
+    # ``config.correlation_phases`` window, carrying bounds + the
+    # configured pair count. Empty list when the config has no phases
+    # (single-Cholesky path). Each ``phase_index`` cross-references the
+    # optional ``phase_index`` field on ``CorrelationAdjustment``,
+    # ``CorrelationCompensation``, and ``CorrelationEntry``. Default
+    # ``[]`` keeps pre-M11 manifests parsing unchanged.
+    correlation_phases: list[CorrelationPhaseInfo] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -919,24 +968,43 @@ def build_manifest(
     # had to adjust at least one pair. The PrivateAttr design keeps the
     # adjustment record out of ``model_dump`` / ``config_sha256`` so
     # YAML round-trips and the config fingerprint stay clean.
+    #
+    # 0.6-M11: baseline records carry ``phase_index=None``; per-phase
+    # records (read from ``_phase_correlation_adjustments``) carry the
+    # phase index. The two streams are concatenated into one flat list
+    # on the manifest with ``phase_index`` distinguishing them.
     raw_adjustments = getattr(config, "_correlation_adjustments", None)
+    raw_phase_adjustments = getattr(config, "_phase_correlation_adjustments", None) or {}
+    adjustments_combined: list[CorrelationAdjustment] = []
     if raw_adjustments:
-        correlation_adjustments: Optional[list[CorrelationAdjustment]] = [
-            CorrelationAdjustment(**rec) for rec in raw_adjustments
-        ]
-    else:
-        correlation_adjustments = None
+        adjustments_combined.extend(
+            CorrelationAdjustment(phase_index=None, **rec) for rec in raw_adjustments
+        )
+    for phase_idx in sorted(raw_phase_adjustments.keys()):
+        for rec in raw_phase_adjustments[phase_idx]:
+            adjustments_combined.append(CorrelationAdjustment(phase_index=phase_idx, **rec))
+    correlation_adjustments: Optional[list[CorrelationAdjustment]] = (
+        adjustments_combined if adjustments_combined else None
+    )
 
     # M120: read trajectory-aware compensation records the same way M111
     # reads its Higham adjustments. The two flows are independent — a run
     # can emit one, both, or neither.
+    #
+    # 0.6-M11: same baseline + per-phase merge pattern as the adjustments.
     raw_compensations = getattr(config, "_correlation_compensations", None)
+    raw_phase_compensations = getattr(config, "_phase_correlation_compensations", None) or {}
+    compensations_combined: list[CorrelationCompensation] = []
     if raw_compensations:
-        correlation_compensations: Optional[list[CorrelationCompensation]] = [
-            CorrelationCompensation(**rec) for rec in raw_compensations
-        ]
-    else:
-        correlation_compensations = None
+        compensations_combined.extend(
+            CorrelationCompensation(phase_index=None, **rec) for rec in raw_compensations
+        )
+    for phase_idx in sorted(raw_phase_compensations.keys()):
+        for rec in raw_phase_compensations[phase_idx]:
+            compensations_combined.append(CorrelationCompensation(phase_index=phase_idx, **rec))
+    correlation_compensations: Optional[list[CorrelationCompensation]] = (
+        compensations_combined if compensations_combined else None
+    )
 
     # M121b: pull the bypass-fallback counts off the config's private
     # attr (set by ``generate_tables_with_state`` after the dispatcher
@@ -979,11 +1047,18 @@ def build_manifest(
     # output. Skipped when the run had no correlations (the stash
     # never ran) — empty list rather than None to mirror ``causal_graph``'s
     # contract: empty means "ran, nothing to record" / no special signal.
+    #
+    # 0.6-M11: extended to also emit one entry per pair per declared
+    # phase, with ``phase_index`` set. Baseline entries keep
+    # ``phase_index=None`` and sort first; per-phase entries follow,
+    # sorted by ``(phase_index, metric_a, metric_b)`` for stable
+    # output across runs whose phase declaration order differs.
     correlations: list[CorrelationEntry] = []
     projected_mat = getattr(config, "_projected_correlation_matrix", None)
     metric_order = getattr(config, "_metric_correlation_order", None)
     if projected_mat is not None and metric_order is not None and config.correlations:
         index_by_name = {name: idx for idx, name in enumerate(metric_order)}
+        baseline_entries: list[CorrelationEntry] = []
         for pair in config.correlations:
             row_idx = index_by_name.get(pair.metric_a)
             col_idx = index_by_name.get(pair.metric_b)
@@ -993,15 +1068,55 @@ def build_manifest(
                 # cross-reference integrity at load time. Skip rather
                 # than crash if it ever surfaces.
                 continue
-            correlations.append(
+            baseline_entries.append(
                 CorrelationEntry(
                     metric_a=pair.metric_a,
                     metric_b=pair.metric_b,
                     requested=float(pair.coefficient),
                     projected=float(projected_mat[row_idx, col_idx]),
+                    phase_index=None,
                 )
             )
-        correlations.sort(key=lambda e: (e.metric_a, e.metric_b))
+        baseline_entries.sort(key=lambda e: (e.metric_a, e.metric_b))
+        correlations.extend(baseline_entries)
+
+        # 0.6-M11: per-phase realized correlations. Same metric order as
+        # the baseline (the orchestrator builds every phase against the
+        # baseline-toposorted metric list), so ``index_by_name`` is reused.
+        phase_projected = getattr(config, "_phase_projected_correlation_matrices", None) or {}
+        for phase_idx in sorted(phase_projected.keys()):
+            phase = config.correlation_phases[phase_idx]
+            phase_mat = phase_projected[phase_idx]
+            phase_entries: list[CorrelationEntry] = []
+            for pair in phase.correlations:
+                row_idx = index_by_name.get(pair.metric_a)
+                col_idx = index_by_name.get(pair.metric_b)
+                if row_idx is None or col_idx is None:
+                    continue
+                phase_entries.append(
+                    CorrelationEntry(
+                        metric_a=pair.metric_a,
+                        metric_b=pair.metric_b,
+                        requested=float(pair.coefficient),
+                        projected=float(phase_mat[row_idx, col_idx]),
+                        phase_index=phase_idx,
+                    )
+                )
+            phase_entries.sort(key=lambda e: (e.metric_a, e.metric_b))
+            correlations.extend(phase_entries)
+
+    # 0.6-M11: phase window summary. One ``CorrelationPhaseInfo`` per
+    # declared phase, in declaration order. Empty list when the config
+    # has no phases; populates for any non-empty ``correlation_phases``.
+    correlation_phases_info: list[CorrelationPhaseInfo] = [
+        CorrelationPhaseInfo(
+            phase_index=idx,
+            start_period=ph.start_period,
+            end_period=ph.end_period,
+            n_pairs=len(ph.correlations),
+        )
+        for idx, ph in enumerate(config.correlation_phases)
+    ]
 
     # 0.6-M5: outlier injection log. ``detect_outlier_injections`` returns
     # ``None`` for the three skip cases (no outlier_rate configured,
@@ -1031,6 +1146,7 @@ def build_manifest(
         correlations=correlations,
         outlier_injections=outlier_injections,
         treatment_cohorts=treatment_cohorts,
+        correlation_phases=correlation_phases_info,
     )
 
 

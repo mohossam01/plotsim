@@ -1221,6 +1221,55 @@ WindowLike = Union[WindowInput, dict[str, Any], tuple, list]
 ConnectionLike = Union[ConnectionInput, str, tuple, list, dict[str, Any]]
 
 
+# ── Connection phase (0.6-M11) ──────────────────────────────────────────────
+#
+# A builder-side phase window over the time axis with its own connection
+# list. Mirrors the engine's ``CorrelationPhase`` but uses the
+# relationship-word vocabulary (or explicit coefficients) the builder
+# already accepts on ``ConnectionInput``. Translated to
+# ``CorrelationPhase`` by ``plotsim.builder.interpreter._build_correlation_phases``.
+
+
+class ConnectionPhase(BaseModel):
+    """0.6-M11: a builder-side phase window with its own ``connections`` list.
+
+    ``start_period`` / ``end_period`` are inclusive bounds matching the
+    engine's ``CorrelationPhase`` contract. ``connections`` accepts the
+    same shorthand forms (3-token string, 3-tuple, dict) as the
+    top-level ``UserInput.connections`` field via the
+    ``_coerce_connection`` pre-normalizer.
+
+    Periods not covered by any phase fall back to the baseline
+    ``UserInput.connections`` list. The engine validator
+    ``_correlation_phases_require_baseline`` rejects configs where
+    ``connection_phases`` is non-empty but the baseline is empty.
+    """
+
+    start_period: int = Field(ge=0)
+    end_period: int = Field(ge=0)
+    connections: list[ConnectionInput] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_shorthand_connections(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        normalised = dict(data)
+        if "connections" in normalised and isinstance(normalised["connections"], list):
+            normalised["connections"] = [_coerce_connection(c) for c in normalised["connections"]]
+        return normalised
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "ConnectionPhase":
+        if self.end_period < self.start_period:
+            raise ValueError(
+                f"connection_phases entry has end_period={self.end_period} "
+                f"< start_period={self.start_period}; phases must satisfy "
+                f"start_period <= end_period (both inclusive)"
+            )
+        return self
+
+
 class UserInput(BaseModel):
     """Root user-facing input model.
 
@@ -1243,6 +1292,13 @@ class UserInput(BaseModel):
     metrics: list[MetricInput] = Field(min_length=1)
     segments: list[SegmentInput] = Field(min_length=1)
     connections: list[ConnectionInput] = Field(default_factory=list)
+    # 0.6-M11: time-varying connections. Empty default → engine receives
+    # ``correlation_phases=[]`` and runs the single-Cholesky path
+    # (byte-identical to pre-M11). When non-empty, the baseline
+    # ``connections`` list must also be non-empty — the engine validator
+    # enforces this on the translated ``correlation_phases`` / ``correlations``
+    # pair. ``max_length=64`` matches the engine cap.
+    connection_phases: list[ConnectionPhase] = Field(default_factory=list, max_length=64)
     # Friction-item #1: settled on `lifecycle` as input keyword.
     # `stages` is also accepted as an alias since the mission spec text
     # used that name and some users will follow the spec literally.

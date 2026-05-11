@@ -710,13 +710,97 @@ def validate_correlation_psd(config: PlotsimConfig) -> list[ValidationIssue]:
       * Both Higham and eigenvalue-clipping fallback failed → one
         ``error`` issue. Should never happen for symmetric input.
 
+    0.6-M11: also re-checks every ``correlation_phases`` entry. Each
+    phase's matrix is independently projectable; a failure on any phase
+    produces an issue tagged with the phase index in the message.
+
     Warning emit is owned by ``PlotsimConfig._correlation_matrix_is_psd``
     so the user sees the per-pair adjustment text at config load (once,
     at the right stack level). This wrapper does NOT re-emit; otherwise
     every post-generation validation pass would duplicate the warning.
     """
     issues, _adjustments, _projected = project_correlation_or_issue(config)
-    return issues
+    if issues:
+        return issues
+    # 0.6-M11: ``getattr`` defaults the absent-field case to ``[]`` so this
+    # validator stays callable on minimal mocks / shimmed configs that
+    # predate the M11 field. Real ``PlotsimConfig`` instances always have
+    # the field; the defensive path is only for engine-direct callers that
+    # construct partial namespaces in tests.
+    for phase_idx, phase in enumerate(getattr(config, "correlation_phases", []) or []):
+        if not phase.correlations:
+            continue
+        ph_issues, _ph_adj, _ph_proj = project_phase_correlation_or_issue(config, phase_idx)
+        if ph_issues:
+            return ph_issues
+    return []
+
+
+def project_phase_correlation_or_issue(
+    config: PlotsimConfig,
+    phase_idx: int,
+) -> tuple[list[ValidationIssue], Optional[list[dict]], Optional[np.ndarray]]:
+    """0.6-M11: per-phase analogue of ``project_correlation_or_issue``.
+
+    Operates on ``config.correlation_phases[phase_idx].correlations``
+    instead of the baseline ``config.correlations``. Returns the same
+    ``(issues, adjustments, projected_matrix)`` shape so the
+    load-time validator can apply the same emit-warning + stash-records
+    flow per phase.
+
+    Empty phase correlations short-circuit to ``([], None, None)`` —
+    a phase with no pairs is structurally a no-op (the engine falls
+    back to the identity matrix for that window), not an error.
+    """
+    if phase_idx < 0 or phase_idx >= len(config.correlation_phases):
+        raise IndexError(
+            f"phase_idx={phase_idx} out of range for "
+            f"correlation_phases (len={len(config.correlation_phases)})"
+        )
+    phase = config.correlation_phases[phase_idx]
+    if not phase.correlations:
+        return [], None, None
+
+    from plotsim.metrics import (
+        _build_correlation_matrix,
+        _correlation_adjustment_records,
+        project_correlation_matrix,
+    )
+
+    metrics = list(config.metrics)
+    pairs = list(phase.correlations)
+    mat = _build_correlation_matrix(metrics, pairs)
+    try:
+        projected, projection_used, _used_fallback = project_correlation_matrix(mat)
+    except RuntimeError as exc:
+        eigvals = np.linalg.eigvalsh((mat + mat.T) / 2.0).tolist()
+        return (
+            [
+                ValidationIssue(
+                    check=CHECK_CORRELATION_PSD,
+                    severity="error",
+                    table=None,
+                    message=(
+                        f"correlation_phases[{phase_idx}] matrix could not be "
+                        f"projected to positive-definite: {exc}"
+                    ),
+                    details={
+                        "phase_index": phase_idx,
+                        "metrics": [m.name for m in metrics],
+                        "min_eigenvalue": min(eigvals),
+                        "eigenvalues": eigvals,
+                    },
+                )
+            ],
+            None,
+            None,
+        )
+
+    if not projection_used:
+        return [], None, None
+
+    records = _correlation_adjustment_records(mat, projected, metrics, pairs)
+    return [], records, projected
 
 
 # --- Check 2: PK uniqueness --------------------------------------------------

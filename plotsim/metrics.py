@@ -1332,6 +1332,7 @@ def generate_entity_metrics(
     rng: np.random.Generator,
     archetype: Optional[Archetype] = None,
     cholesky_L: Optional[np.ndarray] = None,
+    cholesky_by_period: Optional[list[np.ndarray]] = None,
     seasonal_factors: Optional[np.ndarray] = None,
     entity_seasonal_sensitivity: float = 1.0,
     treatment_lift_log_odds: Optional[float] = None,
@@ -1413,6 +1414,13 @@ def generate_entity_metrics(
             if treatment_shift_t is not None and t >= treatment_start_period
             else 0.0
         )
+        # 0.6-M11: per-period Cholesky factor selection. When the caller
+        # supplies ``cholesky_by_period`` (the M11 orchestrator path),
+        # index by period to pick the factor active at this phase. The
+        # legacy ``cholesky_L`` parameter remains the fallback for direct
+        # callers (notably ``plotsim.inspect``); when both are None the
+        # downstream copula short-circuits via ``correlations`` empty.
+        cholesky_L_t = cholesky_by_period[t] if cholesky_by_period is not None else cholesky_L
         period_out = generate_metrics_for_period(
             pos,
             sorted_metrics,
@@ -1422,7 +1430,7 @@ def generate_entity_metrics(
             t,
             rng,
             archetype=archetype,
-            cholesky_L=cholesky_L,
+            cholesky_L=cholesky_L_t,
             seasonal_global=seasonal_global_t,
             entity_seasonal_sensitivity=entity_seasonal_sensitivity,
             treatment_shift=shift_t,
@@ -1678,6 +1686,7 @@ def generate_archetype_batch(
     n_periods: int,
     rng: np.random.Generator,
     cholesky_L: Optional[np.ndarray] = None,
+    cholesky_by_period: Optional[list[np.ndarray]] = None,
     seasonal_factors: Optional[np.ndarray] = None,
     bypass_counter: Optional[dict[str, int]] = None,
 ) -> dict[str, dict[str, np.ndarray]]:
@@ -1876,13 +1885,20 @@ def generate_archetype_batch(
         #    needed (it would just get discarded). Without correlations,
         #    fall back to the per-metric ``sample_single_metric_batch`` so
         #    each marginal is drawn from its own distribution as before.
-        if correlations and cholesky_L is not None:
+        #
+        # 0.6-M11: pick the per-period Cholesky factor at this phase. The
+        # batched copula already operates per-period (entities batched on
+        # axis 0 at one period at a time), so resolving the factor by
+        # index ``[t]`` here covers phase-keyed correlations without any
+        # within-batch axis split.
+        cholesky_L_t = cholesky_by_period[t] if cholesky_by_period is not None else cholesky_L
+        if correlations and cholesky_L_t is not None:
             correlated, _period_bypass = _apply_correlations_batch(
                 None,
                 centers,
                 effective,
                 correlations,
-                cholesky_L,
+                cholesky_L_t,
                 rng=rng,
             )
         else:
