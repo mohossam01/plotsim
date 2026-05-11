@@ -92,7 +92,13 @@ MANIFEST_FILENAME = "manifest.json"
 # top-level list defaults to ``[]``. Configs without
 # ``correlation_phases`` produce a 1.4 manifest byte-equivalent to 1.3
 # modulo the schema_version string and the empty list.
-MANIFEST_SCHEMA_VERSION = "1.4"
+# 0.6-M13: bumped 1.4 → 1.5 for the additive ``source_entity_mappings``
+# list. Configs without ``multi_source`` produce an empty list (the
+# default), so 1.4 readers parse 1.5 manifests cleanly except for the
+# new field. Multi-source configs populate the list with one record per
+# (entity, source, dim_table) tuple — the ground-truth answer key for
+# entity-resolution exercises.
+MANIFEST_SCHEMA_VERSION = "1.5"
 
 
 class _ManifestBase(BaseModel):
@@ -470,6 +476,44 @@ class OutlierInjection(_ManifestBase):
     metric: str
 
 
+class SourceEntityMapping(_ManifestBase):
+    """0.6-M13: one (entity, source, dim_table) ground-truth mapping record.
+
+    Emitted in ``ManifestSchema.source_entity_mappings`` only when
+    ``config.multi_source`` is set. One record per canonical entity per
+    declared source per per_entity dim — for a 2-source config with one
+    per_entity dim and 50 entities the manifest carries 100 records.
+
+      * ``entity`` — the canonical entity name from ``config.entities[i].name``.
+      * ``source`` — the declared source name (matches
+        ``SourceDeclaration.name``).
+      * ``dim_table`` — the canonical dim table this mapping bridges
+        (``dim_<entity>``). The drifted per-source table is at
+        ``dim_<entity>_<source>``.
+      * ``canonical_entity_id`` — the canonical PK value on
+        ``dim_<entity>``. Bridges back to the fact / event tables that
+        FK off the canonical PK; those tables are untouched by drift
+        (M13 is dim-only).
+      * ``source_entity_id`` — the per-source PK value on
+        ``dim_<entity>_<source>`` in the source's declared
+        ``key_scheme``. The literal value an entity-resolution
+        exercise would join on (or, more interestingly, fail to join
+        on without fuzzy-matching the drifted name / attribute fields).
+      * ``drifted_fields`` — canonical column names that received drift
+        on this row. Empty when the row passed through untouched (the
+        majority lane at low drift rates). Non-empty lists name the
+        column(s) that disagree with the canonical dim — the answer
+        key for "which fields will record linkage have to match on?".
+    """
+
+    entity: str
+    source: str
+    dim_table: str
+    canonical_entity_id: str
+    source_entity_id: str
+    drifted_fields: list[str]
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -582,6 +626,12 @@ class ManifestSchema(_ManifestBase):
     # ``CorrelationCompensation``, and ``CorrelationEntry``. Default
     # ``[]`` keeps pre-M11 manifests parsing unchanged.
     correlation_phases: list[CorrelationPhaseInfo] = []
+    # 0.6-M13: per-(entity, source, dim_table) ground-truth mappings
+    # produced by the multi-source / overlap dim emission pass. Empty
+    # list when the config has no ``multi_source`` block (the default
+    # lane — keeps pre-M13 manifests byte-equivalent modulo the schema
+    # version bump and the empty list).
+    source_entity_mappings: list[SourceEntityMapping] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1118,6 +1168,17 @@ def build_manifest(
         for idx, ph in enumerate(config.correlation_phases)
     ]
 
+    # 0.6-M13: pull the per-source mapping records off the config's private
+    # attr (set by ``dimensions._emit_per_source_dims`` during the dim-build
+    # pass). ``None`` for runs without ``multi_source`` → empty manifest
+    # list. The records carry entity / source / dim_table / canonical_entity_id
+    # / source_entity_id / drifted_fields, all already string-typed by the
+    # drift module, so the SourceEntityMapping construction is trivial.
+    raw_source_mappings = getattr(config, "_source_entity_mappings", None) or []
+    source_entity_mappings: list[SourceEntityMapping] = [
+        SourceEntityMapping(**rec) for rec in raw_source_mappings
+    ]
+
     # 0.6-M5: outlier injection log. ``detect_outlier_injections`` returns
     # ``None`` for the three skip cases (no outlier_rate configured,
     # vectorized mode, cell budget exceeded) and a list otherwise. The
@@ -1147,6 +1208,7 @@ def build_manifest(
         outlier_injections=outlier_injections,
         treatment_cohorts=treatment_cohorts,
         correlation_phases=correlation_phases_info,
+        source_entity_mappings=source_entity_mappings,
     )
 
 
@@ -1188,6 +1250,7 @@ __all__ = [
     "OutlierInjection",
     "QualityInjection",
     "SCDEvent",
+    "SourceEntityMapping",
     "TrajectorySample",
     "build_manifest",
     "config_sha256",

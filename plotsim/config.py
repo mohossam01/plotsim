@@ -2306,6 +2306,94 @@ class StageSequence(_Frozen):
         return self
 
 
+# 0.6-M13: multi-source / overlap mode. Each `SourceDeclaration` describes
+# one upstream system the engine emits a divergent copy of the canonical
+# per_entity dim for. The canonical `dim_<entity>` is unchanged; per-source
+# emissions land as `dim_<entity>_<source>` with name, key-scheme, and
+# attribute drift applied at the configured rates. Ground truth (entity →
+# source-specific-id, list of drifted fields) is recorded in the manifest's
+# `source_entity_mappings` section so an entity-resolution exercise has an
+# answer key.
+SourceKeyScheme = Literal["prefix_padded", "numeric", "uuid_short"]
+
+
+class SourceDeclaration(_Frozen):
+    """One upstream system in the multi-source / overlap layout.
+
+    Fields:
+
+      * ``name`` — SQL-safe identifier used as the per-source dim
+        suffix (``dim_<entity>_<name>``) and the source label on
+        manifest mapping records. Must be unique within
+        ``MultiSourceConfig.sources``.
+
+      * ``key_scheme`` — how this source represents entity IDs.
+        ``prefix_padded`` mimics a CRM (``CUST-001``);
+        ``numeric`` mimics a billing system (``1001``);
+        ``uuid_short`` mimics a record-keeping system (``c3f9a``,
+        5-char hex). The canonical ``dim_<entity>`` PK is preserved;
+        the per-source dim's PK column is renamed to
+        ``<entity_type>_id_<source>`` so a join on the canonical PK
+        is impossible by construction — entity resolution must
+        bridge through the manifest mapping or fuzzy-match on
+        drifted attributes.
+
+      * ``name_drift_rate`` — fraction of entities (per source) whose
+        first ``generated:faker.{name,first_name,last_name,company}``
+        column gets a name typo applied (adjacent-char swap, casing
+        flip, or abbreviation). ``0.0`` = no drift (the same names
+        as the canonical dim); ``1.0`` = every entity is drifted.
+
+      * ``attribute_drift_rate`` — fraction of entities (per source)
+        whose first non-PK, non-FK, non-name string column gets a
+        deterministic conflicting value. Builds the per-entity
+        attribute disagreement that record-linkage exercises learn
+        to score over.
+
+    Drift mechanics live in :mod:`plotsim.multi_source`. Per-source
+    RNGs are derived by sequential ``integers`` draws on the
+    dim-build RNG in declaration order, so toggling source order
+    shifts each source's drift but stays deterministic under a
+    fixed ``(seed, sources)`` pair.
+    """
+
+    name: str
+    key_scheme: SourceKeyScheme = "prefix_padded"
+    name_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    attribute_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    _name_is_identifier = field_validator("name")(_identifier_field_validator("source name"))
+
+
+class MultiSourceConfig(_Frozen):
+    """Multi-source / overlap mode config block.
+
+    Activates per-source dim emission when present on a
+    ``PlotsimConfig``. ``sources`` must declare 2–5 named sources;
+    1 source is degenerate (no overlap to resolve against) and >5
+    moves out of the teaching range called out in the mission spec.
+
+    Default-empty ``PlotsimConfig.multi_source = None`` means the
+    feature is dormant — output is byte-identical to pre-0.6-M13.
+    """
+
+    sources: list[SourceDeclaration] = Field(min_length=2, max_length=5)
+
+    @model_validator(mode="after")
+    def _source_names_unique(self) -> "MultiSourceConfig":
+        seen: set[str] = set()
+        for src in self.sources:
+            if src.name in seen:
+                raise ValueError(
+                    f"multi_source.sources: duplicate source name "
+                    f"{src.name!r}; each declared source must be unique "
+                    f"because the source name doubles as the per-source "
+                    f"dim suffix and the manifest mapping label"
+                )
+            seen.add(src.name)
+        return self
+
+
 class PlotsimConfig(_Frozen):
     domain: Domain
     time_window: TimeWindow
@@ -2375,6 +2463,17 @@ class PlotsimConfig(_Frozen):
         default_factory=list,
         max_length=12,
     )
+
+    # 0.6-M13: multi-source / overlap mode. ``None`` (default) keeps output
+    # byte-identical to pre-M13: the dim builder skips the multi-source pass
+    # entirely. When set, the canonical ``dim_<entity>`` is still emitted;
+    # each source declared under ``multi_source.sources`` produces an
+    # additional ``dim_<entity>_<source>`` table with name typos, an
+    # alternate ID scheme, and attribute conflicts applied at the configured
+    # rates. The manifest's ``source_entity_mappings`` records the
+    # (entity, source, source_entity_id, drifted_fields) tuples as the
+    # ground-truth answer key for entity-resolution exercises.
+    multi_source: Optional[MultiSourceConfig] = None
 
     # M120: trajectory-aware correlation pre-compensation. Default ``false``
     # for engine-direct configs so the bundled templates (and any pre-M120
@@ -2458,6 +2557,15 @@ class PlotsimConfig(_Frozen):
     _phase_correlation_compensations: Optional[dict[int, list[dict]]] = PrivateAttr(default=None)
     _phase_projected_correlation_matrices: Optional[dict[int, Any]] = PrivateAttr(default=None)
 
+    # 0.6-M13: per-(entity, source, dim_table) ground-truth mapping records
+    # produced by the dim builder when ``multi_source`` is set. ``None`` on
+    # configs without multi-source (the default lane — keeps manifest's
+    # ``source_entity_mappings`` empty). PrivateAttr because this is a per-run
+    # side-effect of generation, not user input — round-tripping it through
+    # ``model_dump`` would pollute the YAML and ``config_sha256``, same
+    # reasoning as the sibling adjustment / compensation stashes above.
+    _source_entity_mappings: Optional[list[dict]] = PrivateAttr(default=None)
+
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":
         total = sum(e.size for e in self.entities)
@@ -2465,6 +2573,40 @@ class PlotsimConfig(_Frozen):
             raise ValueError(
                 f"Total entity count across all groups is {total:,}. " f"Maximum is 100,000."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _multi_source_requires_per_entity_dim(self) -> "PlotsimConfig":
+        """0.6-M13: gate ``multi_source`` on the presence of a per_entity dim.
+
+        The per-source emission pass copies each per_entity dim and applies
+        drift. Without at least one per_entity dim there's nothing to
+        overlay — surface a precise error at load rather than letting the
+        dim orchestrator silently emit zero per-source tables.
+
+        Also reject source names that would generate a ``dim_<entity>_<source>``
+        table name colliding with an existing table — the dim writer would
+        overwrite one file with the other.
+        """
+        if self.multi_source is None:
+            return self
+        per_entity_dims = [t for t in self.tables if t.type == "dim" and t.grain == "per_entity"]
+        if not per_entity_dims:
+            raise ValueError(
+                "multi_source is set but no per_entity dim tables are "
+                "declared; multi-source emission overlays drift on top of "
+                "an existing per_entity dim, so at least one is required"
+            )
+        table_names = {t.name for t in self.tables}
+        for src in self.multi_source.sources:
+            for dim in per_entity_dims:
+                emitted = f"{dim.name}_{src.name}"
+                if emitted in table_names:
+                    raise ValueError(
+                        f"multi_source source {src.name!r} would emit dim "
+                        f"table {emitted!r}, which collides with an existing "
+                        f"table in config.tables; rename the source"
+                    )
         return self
 
     @model_validator(mode="after")

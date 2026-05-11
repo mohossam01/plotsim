@@ -679,8 +679,9 @@ class TestPerPhasePSD:
 class TestManifestIntegration:
     """Manifest carries per-phase entries and the new top-level summary."""
 
-    def test_schema_version_is_1_4(self):
-        assert MANIFEST_SCHEMA_VERSION == "1.4"
+    def test_schema_version_is_1_5(self):
+        # 0.6-M13 bumped 1.4 → 1.5 for ``source_entity_mappings``.
+        assert MANIFEST_SCHEMA_VERSION == "1.5"
 
     def test_no_phases_yields_empty_correlation_phases_list(self):
         cfg = _two_metric_config(

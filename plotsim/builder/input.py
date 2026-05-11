@@ -1088,6 +1088,32 @@ class OutputInput(BaseModel):
     cell_budget: Optional[int] = Field(default=None, ge=0)
 
 
+class SourceInput(BaseModel):
+    """0.6-M13: one upstream system in the multi-source / overlap layout.
+
+    1:1 mirror of the engine's
+    :class:`~plotsim.config.SourceDeclaration`. The builder layer
+    surfaces the same vocabulary directly — the three drift rates and
+    the key-scheme enum have no friendlier "preset" form to translate
+    through; users either want the canonical names or they want explicit
+    rates.
+
+    Two name-related drift kinds + one key-scheme drift + one
+    attribute-conflict drift; rates default to ``0.0`` so a user can
+    enable just one flavor on a source if that's what their teaching
+    scenario calls for. The engine validator caps the source list to 5;
+    the builder caps lower (``max_length=5``) here so a builder-side
+    typo doesn't reach the engine.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(min_length=1)
+    key_scheme: Literal["prefix_padded", "numeric", "uuid_short"] = "prefix_padded"
+    name_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    attribute_drift_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 # Mapping from short, lower-cased preset names to the engine's
 # canonical ``NoiseConfig`` parameter triples. Friendly aliases (``clean``,
 # ``messy``, ``very_messy``) map onto the same four engine presets so
@@ -1321,6 +1347,14 @@ class UserInput(BaseModel):
     quality: list[QualityIssueInput] = Field(default_factory=list, max_length=50)
     holdout: Optional[HoldoutInput] = None
     entity_features: Optional[EntityFeaturesInput] = None
+    # 0.6-M13: multi-source / overlap mode. Empty default → engine receives
+    # ``multi_source=None`` and the dim builder skips the per-source pass
+    # (byte-identical to pre-M13). When non-empty, at least 2 sources are
+    # required — a 1-source declaration has no overlap to resolve. The
+    # engine validator caps at 5 sources (teaching range); the builder
+    # mirrors that cap so user typos surface at the builder layer with the
+    # user's own input vocabulary in the error message.
+    sources: list[SourceInput] = Field(default_factory=list, max_length=5)
     # M124: optional explicit seed. When ``None`` the interpreter draws one
     # from ``secrets.randbelow(2**32)`` (preserves prior non-determinism for
     # callers that don't pin a seed). When set, the interpreter threads the
@@ -1363,6 +1397,35 @@ class UserInput(BaseModel):
         dups = sorted({n for n in names if n in seen or seen.add(n)})  # type: ignore[func-returns-value]
         if dups:
             raise ValueError(f"duplicate metric name(s): {dups}")
+        return self
+
+    @model_validator(mode="after")
+    def _sources_valid(self) -> "UserInput":
+        """0.6-M13: validate the multi-source declaration block.
+
+        Empty list → feature off, no checks. Non-empty list must declare
+        at least 2 distinct source names. The engine catches both rules
+        on the translated ``MultiSourceConfig``, but raising here surfaces
+        the error against the user's own ``sources:`` vocabulary instead
+        of the engine's translated field path.
+        """
+        if not self.sources:
+            return self
+        if len(self.sources) < 2:
+            raise ValueError(
+                f"sources: at least 2 distinct source declarations are "
+                f"required when the multi-source block is set (got "
+                f"{len(self.sources)}). A single-source declaration has "
+                f"no overlap to resolve against — either declare a second "
+                f"source or remove the block entirely"
+            )
+        names = [s.name for s in self.sources]
+        if len(set(names)) != len(names):
+            raise ValueError(
+                f"sources: duplicate source name(s) in {names!r}. Each "
+                f"declared source must be unique because the name doubles "
+                f"as the per-source dim suffix"
+            )
         return self
 
     @model_validator(mode="after")

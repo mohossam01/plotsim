@@ -17,6 +17,7 @@ EXPECTED_TEMPLATES = {
     "ab_trial",
     "bare_minimum",
     "cdc_demo",
+    "crm_billing_overlap",
     "education",
     "geo_retail",
     "hr",

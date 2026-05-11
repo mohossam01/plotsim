@@ -782,6 +782,26 @@
       "title": "MetricOverride",
       "type": "object"
     },
+    "MultiSourceConfig": {
+      "additionalProperties": false,
+      "description": "Multi-source / overlap mode config block.\n\nActivates per-source dim emission when present on a\n``PlotsimConfig``. ``sources`` must declare 2–5 named sources;\n1 source is degenerate (no overlap to resolve against) and >5\nmoves out of the teaching range called out in the mission spec.\n\nDefault-empty ``PlotsimConfig.multi_source = None`` means the\nfeature is dormant — output is byte-identical to pre-0.6-M13.",
+      "properties": {
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceDeclaration"
+          },
+          "maxItems": 5,
+          "minItems": 2,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sources"
+      ],
+      "title": "MultiSourceConfig",
+      "type": "object"
+    },
     "NarrativeConfig": {
       "additionalProperties": false,
       "description": "Lexicon + template config for a :class:`NarrativeSource` column.\n\nEach fact-cell is built by:\n\n  1. Reading the entity's trajectory position ``p ∈ [0, 1]`` at the\n     current period.\n  2. Mapping ``p`` to one of ``N = len(bands)`` evenly-spaced bands\n     via ``min(int(p * N), N - 1)`` (same arithmetic\n     :class:`TextBucketSource` uses; ``p == 1.0`` lands in the last\n     band rather than overflowing).\n  3. Looking up the entity's archetype to pick which lexicon applies.\n  4. For each ``{slot}`` placeholder in ``template``, sampling one\n     phrase from ``lexicons[archetype][slot][bands[band_idx]]`` via\n     the seeded engine RNG.\n  5. ``template.format(**slot_values)`` → final cell value.\n\nLexicon shape:\n    ``{archetype_name: {slot_name: {band_name: [phrase, ...]}}}``\n\nLoad-time validation gates (this model):\n\n  * ``template`` contains at least one ``{slot}`` placeholder, no\n    duplicate placeholders, slot names are valid identifiers.\n  * ``bands`` has 2–20 entries (mirrors :class:`TextBucketSource`;\n    the bound is for lexicon-authoring ergonomics, not engine math —\n    the band-index arithmetic supports any ``N >= 1``).\n  * ``bands`` entries are non-empty unique strings.\n  * For every archetype, ``lexicons[archetype]`` keys equal the\n    template's ``{slot}`` placeholder set.\n  * For every slot, ``lexicons[archetype][slot]`` keys equal the\n    ``bands`` tuple as a set.\n  * Each band's phrase list is non-empty and contains only non-empty\n    strings.\n\nCross-config gates (in ``PlotsimConfig._narrative_gates``):\n\n  * ``lexicons`` keys are a subset of ``config.archetypes[].name``.\n  * The owning column's table has ``type == \"fact\"`` and\n    ``grain == \"per_entity_per_period\"``.",
@@ -1063,6 +1083,45 @@
         "strength"
       ],
       "title": "SeasonalEffect",
+      "type": "object"
+    },
+    "SourceDeclaration": {
+      "additionalProperties": false,
+      "description": "One upstream system in the multi-source / overlap layout.\n\nFields:\n\n  * ``name`` — SQL-safe identifier used as the per-source dim\n    suffix (``dim_<entity>_<name>``) and the source label on\n    manifest mapping records. Must be unique within\n    ``MultiSourceConfig.sources``.\n\n  * ``key_scheme`` — how this source represents entity IDs.\n    ``prefix_padded`` mimics a CRM (``CUST-001``);\n    ``numeric`` mimics a billing system (``1001``);\n    ``uuid_short`` mimics a record-keeping system (``c3f9a``,\n    5-char hex). The canonical ``dim_<entity>`` PK is preserved;\n    the per-source dim's PK column is renamed to\n    ``<entity_type>_id_<source>`` so a join on the canonical PK\n    is impossible by construction — entity resolution must\n    bridge through the manifest mapping or fuzzy-match on\n    drifted attributes.\n\n  * ``name_drift_rate`` — fraction of entities (per source) whose\n    first ``generated:faker.{name,first_name,last_name,company}``\n    column gets a name typo applied (adjacent-char swap, casing\n    flip, or abbreviation). ``0.0`` = no drift (the same names\n    as the canonical dim); ``1.0`` = every entity is drifted.\n\n  * ``attribute_drift_rate`` — fraction of entities (per source)\n    whose first non-PK, non-FK, non-name string column gets a\n    deterministic conflicting value. Builds the per-entity\n    attribute disagreement that record-linkage exercises learn\n    to score over.\n\nDrift mechanics live in :mod:`plotsim.multi_source`. Per-source\nRNGs are derived by sequential ``integers`` draws on the\ndim-build RNG in declaration order, so toggling source order\nshifts each source's drift but stays deterministic under a\nfixed ``(seed, sources)`` pair.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "key_scheme": {
+          "default": "prefix_padded",
+          "enum": [
+            "prefix_padded",
+            "numeric",
+            "uuid_short"
+          ],
+          "title": "Key Scheme",
+          "type": "string"
+        },
+        "name_drift_rate": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Name Drift Rate",
+          "type": "number"
+        },
+        "attribute_drift_rate": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Attribute Drift Rate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SourceDeclaration",
       "type": "object"
     },
     "StageDefinition": {
@@ -1416,6 +1475,17 @@
       "maxItems": 12,
       "title": "Seasonal Effects",
       "type": "array"
+    },
+    "multi_source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MultiSourceConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "compensate_correlations": {
       "default": false,

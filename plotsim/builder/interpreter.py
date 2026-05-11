@@ -49,6 +49,7 @@ from plotsim.config import (
     HoldoutConfig,
     Metric,
     MetricOverride,
+    MultiSourceConfig,
     NarrativeConfig,
     NoiseConfig,
     OutputConfig,
@@ -57,6 +58,7 @@ from plotsim.config import (
     QualityIssue,
     SCDType2Config,
     SeasonalEffect,
+    SourceDeclaration,
     StageDefinition,
     StageSequence,
     Table,
@@ -75,6 +77,7 @@ from .input import (
     LinearArrival,
     MetricInput,
     SegmentInput,
+    SourceInput,
     StepArrival,
     UniformArrival,
     UserInput,
@@ -163,6 +166,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
     entity_features = _translate_entity_features(user_input)
 
     seasonal_effects = _build_seasonal_effects(user_input)
+    multi_source = _build_multi_source(user_input)
 
     # M124 / 0.6-M8b: ``seed`` was resolved above (before entity expansion)
     # so segment arrival distributions could draw deterministic
@@ -227,6 +231,40 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
         # byte-identically on disk.
         generation_mode="auto",
         output=output_cfg,
+        multi_source=multi_source,
+    )
+
+
+def _build_multi_source(user_input: UserInput) -> Optional[MultiSourceConfig]:
+    """0.6-M13: translate builder ``sources`` → engine ``MultiSourceConfig``.
+
+    Empty ``UserInput.sources`` → ``None`` (the engine default — dim
+    builder skips the per-source pass). Non-empty list → one
+    ``SourceDeclaration`` per ``SourceInput`` with the four fields passed
+    through 1:1. The engine validators on ``MultiSourceConfig`` and
+    ``PlotsimConfig._multi_source_requires_per_entity_dim`` run on the
+    constructed config and surface any remaining issues (e.g. emission
+    collisions against existing dim table names).
+    """
+    if not user_input.sources:
+        return None
+    return MultiSourceConfig(
+        sources=[_translate_source(s) for s in user_input.sources],
+    )
+
+
+def _translate_source(s: SourceInput) -> SourceDeclaration:
+    """1:1 builder ``SourceInput`` → engine ``SourceDeclaration``.
+
+    Field shapes match exactly; the split exists so the builder layer can
+    raise its own input-vocabulary errors before the engine sees the
+    translated config.
+    """
+    return SourceDeclaration(
+        name=s.name,
+        key_scheme=s.key_scheme,
+        name_drift_rate=s.name_drift_rate,
+        attribute_drift_rate=s.attribute_drift_rate,
     )
 
 
