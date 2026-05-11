@@ -15,249 +15,285 @@ Showcase template for ``NarrativeSource`` columns:
     ``(trajectory_position, archetype, RNG_state)``: same seed →
     byte-identical text.
   * Three segments (``promoters``, ``neutrals``, ``detractors``) ride
-    three archetypes (growth / steady / decline). Each segment has its
-    own lexicon — promoters skew positive even in the low band,
-    detractors skew negative even in the high band, neutrals stay
-    measured. This asymmetry is the signal a classifier learns.
-  * Phrase pools include intentional overlap between segments — there
-    is no one-to-one phrase → segment lookup. The trajectory-band ×
-    segment vocabulary distribution is what carries the discriminative
-    signal.
+    three archetypes (growth / flat / decline). Bands carry a
+    **universal sentiment gradient** — low = negative language, mid =
+    neutral language, high = positive language — consistent across all
+    three archetypes. A growth entity's text becomes more positive as
+    the trajectory rises; a decline entity's text becomes more negative.
+  * Each slot is an independent aspect: ``opener`` is archetype-
+    distinct (the segment's speaking style), while ``object`` and
+    ``comment`` share sentiment vocabulary across archetypes. Aspect-
+    level sentiment is recoverable per slot, which unlocks Aspect-
+    Based Sentiment Analysis on top of overall sentiment recovery.
 
-Domain narrative: 60 customers leave one review per month for a year,
-producing ~720 review rows. Engagement trajectory drives the band; the
-segment's lexicon drives the vocabulary. A bag-of-words classifier
-trained on the text predicts the segment well above chance — the
-shipping target is ≥ 0.55 accuracy on a held-out entity split (chance
-is 1/3 for three segments).
+Domain narrative: 60 customers leave one review per month for two years,
+producing 1,440 review rows. Engagement trajectory drives the band (and
+therefore sentiment); the archetype's opener vocabulary plus the band-
+driven object/comment vocabulary together carry the signal a classifier
+learns. A bag-of-words classifier predicts the segment above chance —
+the shipping target is ≥ 0.45 accuracy on a held-out entity split
+(chance is 1/3 for three segments).
 """
 
 from plotsim import create
 
 
-# ── Lexicons ──────────────────────────────────────────────
+# ── Shared sentiment pools (object + comment slots) ──────────
 #
-# Three segments × three slots × three bands × five phrases =
-# 135 phrases. Cross-segment overlap is intentional: e.g. "It works."
-# appears in both neutral-mid and promoter-low pools. The signal a
-# classifier learns is the joint distribution of (segment, band,
-# slot, phrase), not a deterministic mapping.
+# Object and comment slots are not archetype-distinct: the same phrase
+# pools ride under every segment. The band carries the sentiment, not
+# the archetype. Promoters, neutrals, and detractors all draw from
+# these pools — the trajectory shape just determines how often each
+# band gets visited per segment.
 
-_PROMOTERS_LEXICON = {
-    "opener": {
-        "low": [
-            "I tried",
-            "I am still warming up to",
-            "Just getting started with",
-            "Recently joined",
-            "Slowly using",
-        ],
-        "mid": [
-            "I am using",
-            "Settled into",
-            "Getting real value from",
-            "Finally got the hang of",
-            "Genuinely rely on",
-        ],
-        "high": [
-            "I love",
-            "Cannot stop recommending",
-            "Truly enjoy",
-            "Wholeheartedly endorse",
-            "Adore",
-        ],
-    },
-    "object": {
-        "low": [
-            "the app",
-            "this tool",
-            "the experience",
-            "the dashboard",
-            "the platform",
-        ],
-        "mid": [
-            "the platform",
-            "this product",
-            "the workflow",
-            "the service",
-            "the new release",
-        ],
-        "high": [
-            "this product",
-            "every feature",
-            "the entire suite",
-            "the whole experience",
-            "the full platform",
-        ],
-    },
-    "comment": {
-        "low": [
-            "Decent start.",
-            "It works.",
-            "Promising so far.",
-            "Plenty of room to grow.",
-            "Optimistic.",
-        ],
-        "mid": [
-            "Solid choice for the price.",
-            "Doing what we hoped.",
-            "Real productivity wins.",
-            "Glad we picked it.",
-            "Recommending to peers.",
-        ],
-        "high": [
-            "Highly recommend.",
-            "Best in class.",
-            "Cannot imagine going back.",
-            "A standout in the category.",
-            "Renewing for sure.",
-        ],
-    },
+_OBJECT_BY_BAND = {
+    "low": [
+        "the broken release",
+        "the buggy app",
+        "the half-baked tool",
+        "the unreliable platform",
+        "the unfinished product",
+        "the clunky workflow",
+        "the flaky service",
+        "the rough dashboard",
+        "the messy interface",
+        "the unstable build",
+        "the underwhelming experience",
+        "the disappointing release",
+    ],
+    "mid": [
+        "the platform",
+        "the product",
+        "the workflow",
+        "the service",
+        "the dashboard",
+        "the tool",
+        "the app",
+        "the suite",
+        "the basic features",
+        "the core product",
+        "the latest release",
+        "the standard build",
+    ],
+    "high": [
+        "the polished platform",
+        "the slick product",
+        "the smooth workflow",
+        "the reliable service",
+        "the responsive dashboard",
+        "the powerful tool",
+        "the elegant app",
+        "the full suite",
+        "the flagship features",
+        "the well-rounded product",
+        "the standout release",
+        "the rock-solid build",
+    ],
 }
 
-_NEUTRALS_LEXICON = {
-    "opener": {
-        "low": [
-            "Started using",
-            "Briefly tried",
-            "Logged into",
-            "Tested out",
-            "Sampled",
-        ],
-        "mid": [
-            "Continue to use",
-            "Keep coming back to",
-            "Steadily using",
-            "Stick with",
-            "Routinely access",
-        ],
-        "high": [
-            "Reliably use",
-            "Regularly turn to",
-            "Frequently open",
-            "Consistently choose",
-            "Default to",
-        ],
-    },
-    "object": {
-        "low": [
-            "the app",
-            "the tool",
-            "this offering",
-            "the basic plan",
-            "the new build",
-        ],
-        "mid": [
-            "the platform",
-            "this product",
-            "the service",
-            "the dashboard",
-            "the workflow",
-        ],
-        "high": [
-            "the platform",
-            "the full suite",
-            "the workflow",
-            "the integrated stack",
-            "this product",
-        ],
-    },
-    "comment": {
-        "low": [
-            "Adequate.",
-            "Does what it says.",
-            "Nothing exceptional.",
-            "Functional enough.",
-            "Meets baseline expectations.",
-        ],
-        "mid": [
-            "Reasonable value.",
-            "Works as advertised.",
-            "It works.",
-            "Continues to deliver.",
-            "Reliable for routine work.",
-        ],
-        "high": [
-            "Dependable.",
-            "Steady performer.",
-            "No surprises.",
-            "Holds up under load.",
-            "A safe choice.",
-        ],
-    },
+_COMMENT_BY_BAND = {
+    "low": [
+        "Not recommended.",
+        "Going elsewhere.",
+        "Disappointing.",
+        "Cancelled.",
+        "Hard to recommend.",
+        "Avoid.",
+        "Not for me.",
+        "Skip it.",
+        "Look elsewhere.",
+        "Pass.",
+        "Bad value.",
+        "Cannot endorse.",
+    ],
+    "mid": [
+        "It works.",
+        "Does the job.",
+        "Reasonable value.",
+        "Fair price for what you get.",
+        "Meets baseline expectations.",
+        "Functional enough.",
+        "Continues to deliver.",
+        "Adequate.",
+        "No surprises.",
+        "Works as advertised.",
+        "Useful for routine work.",
+        "Fits the basic use case.",
+    ],
+    "high": [
+        "Highly recommend.",
+        "Best in class.",
+        "Cannot imagine going back.",
+        "A standout in the category.",
+        "Renewing for sure.",
+        "Top choice.",
+        "Strong endorsement.",
+        "Excellent value.",
+        "Worth every penny.",
+        "Five stars.",
+        "Easy to recommend.",
+        "A winner.",
+    ],
 }
 
-_DETRACTORS_LEXICON = {
-    "opener": {
-        "low": [
-            "Was hopeful for",
-            "Briefly tolerated",
-            "Reluctantly used",
-            "Forced myself through",
-            "Gave up on",
-        ],
-        "mid": [
-            "Tried",
-            "Made do with",
-            "Endured",
-            "Limped along with",
-            "Worked around",
-        ],
-        "high": [
-            "Briefly liked",
-            "Almost recommended",
-            "Sometimes appreciated",
-            "Occasionally enjoyed",
-            "Now and then valued",
-        ],
-    },
-    "object": {
-        "low": [
-            "this thing",
-            "the broken release",
-            "the half-baked tool",
-            "the buggy app",
-            "this disappointment",
-        ],
-        "mid": [
-            "the service",
-            "the platform",
-            "the workflow",
-            "the basic features",
-            "the core product",
-        ],
-        "high": [
-            "the product",
-            "the better moments",
-            "the rare wins",
-            "the working pieces",
-            "the stable corner",
-        ],
-    },
-    "comment": {
-        "low": [
-            "Going elsewhere.",
-            "Not for me.",
-            "Disappointing.",
-            "Cancelled.",
-            "Cannot recommend.",
-        ],
-        "mid": [
-            "Mediocre.",
-            "Falls short.",
-            "Underwhelming.",
-            "Has issues.",
-            "Better options exist.",
-        ],
-        "high": [
-            "Some good days.",
-            "Not bad I guess.",
-            "Occasionally usable.",
-            "Could be worse.",
-            "Better than expected at moments.",
-        ],
-    },
+
+# ── Per-archetype opener vocabularies ──────────────────────
+#
+# Opener is the archetype-distinct slot. The phrasing register encodes
+# segment identity: promoters speak in first-person emotional voice,
+# neutrals in measured observational voice, detractors in terse blunt
+# voice. Within each archetype, the band carries the sentiment (low =
+# negative, mid = neutral, high = positive).
+
+_PROMOTERS_OPENER = {
+    "low": [
+        "I am disappointed by",
+        "I am frustrated with",
+        "I am unhappy with",
+        "I am underwhelmed by",
+        "I cannot get excited about",
+        "I keep getting let down by",
+        "I am giving up on",
+        "I find myself frustrated by",
+        "I am sour on",
+        "I am soured by",
+        "I cannot recommend",
+        "I am losing patience with",
+    ],
+    "mid": [
+        "I am using",
+        "I am working with",
+        "I have settled into",
+        "I have gotten used to",
+        "I keep using",
+        "I rely on",
+        "I have adopted",
+        "I have stuck with",
+        "I have come to use",
+        "I have learned",
+        "I find myself reaching for",
+        "I keep returning to",
+    ],
+    "high": [
+        "I love",
+        "I cannot stop recommending",
+        "I truly enjoy",
+        "I wholeheartedly endorse",
+        "I adore",
+        "I am thrilled with",
+        "I am amazed by",
+        "I am blown away by",
+        "I rave about",
+        "I am delighted by",
+        "I cannot get enough of",
+        "I sing the praises of",
+    ],
 }
+
+_NEUTRALS_OPENER = {
+    "low": [
+        "I noticed problems with",
+        "I have concerns about",
+        "I had issues with",
+        "I ran into trouble with",
+        "I encountered friction with",
+        "I found shortcomings in",
+        "I see gaps in",
+        "I take note of issues with",
+        "I observed weaknesses in",
+        "I am wary of",
+        "I have reservations about",
+        "I have doubts about",
+    ],
+    "mid": [
+        "I continue to use",
+        "I steadily use",
+        "I keep coming back to",
+        "I routinely access",
+        "I stick with",
+        "I default to",
+        "I check in on",
+        "I open up",
+        "I make regular use of",
+        "I keep tabs on",
+        "I regularly open",
+        "I consistently choose",
+    ],
+    "high": [
+        "I consistently recommend",
+        "I reliably turn to",
+        "I steadily endorse",
+        "I find real value in",
+        "I see clear benefits from",
+        "I appreciate",
+        "I am satisfied with",
+        "I think highly of",
+        "I value",
+        "I trust",
+        "I am pleased with",
+        "I am impressed with",
+    ],
+}
+
+_DETRACTORS_OPENER = {
+    "low": [
+        "Hate",
+        "Cannot stand",
+        "Despise",
+        "Have given up on",
+        "Am done with",
+        "Refuse to use",
+        "Avoid",
+        "Steer clear of",
+        "Am moving on from",
+        "Am cancelling",
+        "Walked away from",
+        "Will not touch",
+    ],
+    "mid": [
+        "Tried",
+        "Used",
+        "Tested",
+        "Demoed",
+        "Sampled",
+        "Checked",
+        "Looked at",
+        "Worked with",
+        "Logged into",
+        "Made do with",
+        "Got through",
+        "Stuck with",
+    ],
+    "high": [
+        "Liked",
+        "Enjoyed",
+        "Found value in",
+        "Was happy with",
+        "Appreciated",
+        "Was impressed by",
+        "Did enjoy",
+        "Was pleased with",
+        "Had a good time with",
+        "Got real value from",
+        "Had fun with",
+        "Wound up enjoying",
+    ],
+}
+
+
+def _lexicon(opener: dict) -> dict:
+    """Compose one archetype's lexicon from its opener pool and the
+    shared object + comment pools."""
+    return {
+        "opener": opener,
+        "object": _OBJECT_BY_BAND,
+        "comment": _COMMENT_BY_BAND,
+    }
+
+
+_PROMOTERS_LEXICON = _lexicon(_PROMOTERS_OPENER)
+_NEUTRALS_LEXICON = _lexicon(_NEUTRALS_OPENER)
+_DETRACTORS_LEXICON = _lexicon(_DETRACTORS_OPENER)
 
 
 config = create(

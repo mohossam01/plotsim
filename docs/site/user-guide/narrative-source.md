@@ -144,27 +144,52 @@ head ./narrative_out/fct_reviews.csv
 
 ## Lexicon design — the signal a classifier learns
 
-For a downstream classifier to recover the segment from the text, the
-per-segment lexicons must differ. Three principles produce a learnable
-but not trivially deterministic signal:
+Lexicons in plotsim do two jobs at once: they let a classifier recover
+the **segment** from the text, and they let a sentiment model recover
+the **trajectory band** from the text. Four principles produce that
+dual-use signal:
 
-1. **Per-segment vocabulary skew.** Promoters' low band still leans
-   positive (`"Decent start."`), detractors' high band still leans
-   wary (`"Some good days."`). The asymmetry across bands is the
-   classifier's discriminative axis.
-2. **Intentional cross-segment overlap.** Phrases like `"It works."`
-   appearing in both promoter-low and neutral-mid pools prevent the
-   classifier from learning a one-to-one phrase → segment lookup.
-   Real-world text has overlap; the lexicon should too.
-3. **Multiple phrases per (slot, band) cell.** Five phrases per cell
-   gives ≈ 5³ = 125 combinations per (segment, band) — enough variety
-   that adjacent rows differ even when the band hasn't shifted.
+1. **Universal sentiment gradient on bands.** Low-band phrases carry
+   negative language, mid-band phrases carry neutral language, and
+   high-band phrases carry positive language — consistent across
+   *every* archetype. A growth entity's text becomes more positive as
+   its trajectory rises; a decline entity's text becomes more negative
+   as its trajectory falls. Because sentiment is keyed on the band
+   rather than the archetype, the same text is usable for sentiment
+   classification (predict band from text) as well as segment
+   classification (predict archetype from text).
+2. **Each slot is an independent aspect.** The template's slots are
+   the seams along which aspect-based sentiment can be recovered. In
+   `narrative_reviews` the three slots cover the *experience* aspect
+   (`opener`), the *product* aspect (`object`), and the *judgment*
+   aspect (`comment`). Each slot independently varies in sentiment
+   across bands, so a per-aspect sentiment classifier can be trained
+   on top of the same text column without changing any engine config.
+3. **Archetype identity concentrates in one slot.** Putting per-
+   archetype phrasing on *every* slot makes segment classification
+   trivial — a single distinctive token leaks the label. Instead,
+   concentrate the archetype-distinct surface in *one* slot (usually
+   `opener`) and let the remaining slots share their phrase pools
+   across archetypes. The `opener` carries a segment-distinct
+   speaking *style* (in `narrative_reviews`: promoters speak in first-
+   person emotional voice, neutrals in measured observational voice,
+   detractors in terse blunt voice), while `object` and `comment`
+   draw from the same band-keyed pool regardless of segment. The
+   classifier still recovers the segment — opener tokens are
+   distinctive enough — but it cannot cheat its way to 1.0 accuracy.
+4. **Multiple phrases per (slot, band) cell.** Ten to fifteen phrases
+   per cell gives ≈ 10³ = 1,000 combinations per (segment, band) —
+   enough variety that adjacent rows differ even when the band hasn't
+   shifted, and enough vocabulary that bag-of-words classifiers learn
+   token distributions rather than memorizing per-row strings.
 
 The bundled `narrative_reviews` template hits ≥ 0.55 bag-of-words
 classification accuracy on a held-out entity split (chance is 1/3 for
-three segments). Lexicons that ship below this threshold either have
-collapsed across segments or have lost intra-band variety — both are
-test-time signals to revisit the lexicon design.
+three segments) while keeping sentiment recoverable per band. Lexicons
+that ship below the segment-classification threshold either have
+collapsed across archetypes (no archetype-distinct slot left) or have
+lost intra-band variety — both are test-time signals to revisit the
+lexicon design.
 
 ---
 

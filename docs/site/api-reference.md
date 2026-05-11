@@ -390,6 +390,89 @@ print(f"Wrote to {out}")
 
 ---
 
+## `write_single_table`
+
+Write one table on its own (helper used inside `write_tables`).
+
+```python
+def write_single_table(
+    name: str,
+    df: pandas.DataFrame,
+    output_dir: pathlib.Path,
+    config: PlotsimConfig | None = None,
+    float_format: str = "%.4f",
+) -> pathlib.Path
+```
+
+This is the low-level serialization helper for DataFrames. It uses `config.output.format` if a `config` is provided, defaulting to CSV if none is given.
+
+**Returns** — the path of the written file.
+
+**Example**
+
+```python
+from plotsim.output import write_single_table
+from pathlib import Path
+
+out_path = write_single_table("my_table", df, Path("output"), config)
+```
+
+---
+
+## `write_config_copy`
+
+Write the round-trip `config.yaml` (helper used inside `write_tables`).
+
+```python
+def write_config_copy(
+    config: PlotsimConfig,
+    output_dir: pathlib.Path,
+) -> pathlib.Path
+```
+
+Dumps the `PlotsimConfig` out to `config.yaml` in the specified directory. This file is functionally identical to the config used to trigger generation.
+
+**Returns** — the path of the written file (`<output_dir>/config.yaml`).
+
+**Example**
+
+```python
+from plotsim.output import write_config_copy
+from pathlib import Path
+
+out_path = write_config_copy(cfg, Path("output"))
+```
+
+---
+
+## `write_validation_report`
+
+Write the human-readable validation report (helper used inside `write_tables`).
+
+```python
+def write_validation_report(
+    report: ValidationReport,
+    output_dir: pathlib.Path,
+    generated_at: datetime.datetime | None = None,
+    config: PlotsimConfig | None = None,
+) -> pathlib.Path
+```
+
+Writes `validation_report.txt` containing the formatted output of `report`. The header uses `generated_at` if provided, otherwise a config fingerprint.
+
+**Returns** — the path of the written file (`<output_dir>/validation_report.txt`).
+
+**Example**
+
+```python
+from plotsim.output import write_validation_report
+from pathlib import Path
+
+out_path = write_validation_report(report, Path("output"), config=cfg)
+```
+
+---
+
 ## `build_manifest`
 
 Assemble the ground-truth manifest from a generation run.
