@@ -205,8 +205,18 @@ def _streaming_fact_table_names(config: PlotsimConfig) -> set[str]:
     written as a single row group via the same ParquetWriter so the
     on-disk layout matches the non-streaming output exactly except for
     row group boundaries.
+
+    0.6-M14c: fact tables with nested (struct / array) columns route
+    through the standard ``write_single_table`` path, which builds an
+    explicit pyarrow schema from the column config. The streaming
+    writer auto-infers schema per chunk and would either lose nesting
+    or trip on dtype drift across chunks.
     """
-    return {tbl.name for tbl in config.tables if tbl.type == "fact"}
+    return {
+        tbl.name
+        for tbl in config.tables
+        if tbl.type == "fact" and not any(c.dtype in ("struct", "array") for c in tbl.columns)
+    }
 
 
 def _write_streaming_parquet_facts(
@@ -414,13 +424,27 @@ def write_single_table(
 
     if output_format == "parquet":
         _check_parquet_engine_available()
-        to_write.to_parquet(
-            path,
-            engine="pyarrow",
-            index=False,
-            compression="snappy",
-        )
+        # 0.6-M14c: nested columns (struct / array) need an explicit
+        # pyarrow schema so dict / list cells write as native nested
+        # types instead of being inferred as opaque object columns.
+        # Other columns let pyarrow infer; only nested columns get the
+        # explicit treatment.
+        if tbl is not None and _table_has_nested_columns(tbl):
+            _write_parquet_with_nested_schema(to_write, tbl, path)
+        else:
+            to_write.to_parquet(
+                path,
+                engine="pyarrow",
+                index=False,
+                compression="snappy",
+            )
     else:
+        # 0.6-M14c: nested columns serialise via ``json.dumps`` for CSV
+        # output. Pandas ``to_csv`` would otherwise call ``str(dict)`` /
+        # ``str(list)`` and produce Python literal syntax (single quotes
+        # around keys), which round-trips through ``json.loads`` poorly.
+        if tbl is not None and _table_has_nested_columns(tbl):
+            to_write = _serialise_nested_for_csv(to_write, tbl)
         # Pin LF: pandas defaults to os.linesep, which produces CRLF on
         # Windows and LF on Linux — breaks byte-identical fixture
         # comparisons across platforms.
@@ -434,6 +458,86 @@ def write_single_table(
             lineterminator="\n",
         )
     return path
+
+
+# --- 0.6-M14c: nested column output helpers ---------------------------------
+
+
+def _table_has_nested_columns(tbl: Table) -> bool:
+    """True when any column on ``tbl`` declares dtype ``struct`` or ``array``."""
+    return any(col.dtype in ("struct", "array") for col in tbl.columns)
+
+
+def _serialise_nested_for_csv(df: pd.DataFrame, tbl: Table) -> pd.DataFrame:
+    """Replace nested cells (dict / list) on a copy of ``df`` with JSON strings.
+
+    Only struct/array columns declared on the table config are
+    transformed. Other columns pass through untouched. NaN / None
+    cells are preserved (CSV writer renders them as the empty
+    ``na_rep`` string), so the round-trip is ``json.loads`` on a
+    non-empty cell.
+    """
+    out = df.copy(deep=False)
+    for col in tbl.columns:
+        if col.dtype not in ("struct", "array") or col.name not in out.columns:
+            continue
+        out[col.name] = out[col.name].map(
+            lambda v: json.dumps(v) if v is not None and not _is_nan_scalar(v) else None
+        )
+    return out
+
+
+def _is_nan_scalar(v: object) -> bool:
+    """True for float NaN scalars; False for dict / list / other values."""
+    try:
+        return bool(pd.isna(v)) and not isinstance(v, (dict, list))
+    except (TypeError, ValueError):
+        return False
+
+
+def _write_parquet_with_nested_schema(df: pd.DataFrame, tbl: Table, path: Path) -> None:
+    """Write ``df`` to Parquet using an explicit pyarrow schema for nested columns.
+
+    The struct schema fields and array element types come from the
+    column config (``nested_schema`` / ``array_element_type``).
+    Non-nested columns are inferred from the pandas dtype.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    fields: list[pa.Field] = []
+    for col_name in df.columns:
+        tbl_col = next((c for c in tbl.columns if c.name == col_name), None)
+        if tbl_col is None or tbl_col.dtype not in ("struct", "array"):
+            inferred = pa.array(df[col_name]).type
+            fields.append(pa.field(col_name, inferred))
+            continue
+        if tbl_col.dtype == "struct":
+            assert tbl_col.nested_schema is not None
+            struct_fields = [
+                pa.field(field_name, _pa_primitive(field_type))
+                for field_name, field_type in tbl_col.nested_schema.items()
+            ]
+            fields.append(pa.field(col_name, pa.struct(struct_fields)))
+        else:  # array
+            assert tbl_col.array_element_type is not None
+            fields.append(pa.field(col_name, pa.list_(_pa_primitive(tbl_col.array_element_type))))
+
+    schema = pa.schema(fields)
+    table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+    pq.write_table(table, path, compression="snappy")
+
+
+def _pa_primitive(type_word: str):
+    """Map a nested-primitive type word to a pyarrow primitive type."""
+    import pyarrow as pa
+
+    return {
+        "int": pa.int64(),
+        "float": pa.float64(),
+        "string": pa.string(),
+        "boolean": pa.bool_(),
+    }[type_word]
 
 
 # --- Config copy -------------------------------------------------------------

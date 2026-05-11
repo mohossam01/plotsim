@@ -508,6 +508,28 @@ class NarrativeConfig(_Frozen):
         return _NARRATIVE_PLACEHOLDER_RE.findall(self.template)
 
 
+class NestedSource(_Frozen):
+    """Marker source for a column carrying a nested (struct or array) value per cell.
+
+    Grammar: the literal source string ``nested`` parses to this marker.
+    The cell shape (``dict`` for struct, ``list`` for array) is determined
+    by ``Column.dtype`` plus ``Column.nested_schema`` (struct) or
+    ``Column.array_element_type`` + ``Column.array_length`` (array).
+
+    A column with this source MUST also declare ``dtype: struct`` (with
+    ``nested_schema``) or ``dtype: array`` (with ``array_element_type``);
+    the pairing is enforced by ``Column._nested_pairing``. A column with
+    one of those dtypes that uses any other source is rejected — nested
+    cells need the dedicated builder path.
+
+    Scope (V1): one level of nesting. Struct fields are primitive
+    (``int`` / ``float`` / ``string`` / ``boolean``); array elements are
+    primitive. No struct-of-struct, array-of-struct, or nested-of-nested.
+    The cell builder draws a value per field/element from a seeded RNG so
+    same-seed runs produce byte-identical nested cells.
+    """
+
+
 ParsedSource = (
     PKSource
     | FKSource
@@ -523,6 +545,7 @@ ParsedSource = (
     | SCDType2Source
     | PoolSource
     | NarrativeSource
+    | NestedSource
 )
 
 _SOURCE_FORMAT_HELP = (
@@ -535,7 +558,8 @@ _SOURCE_FORMAT_HELP = (
     "'text:bucket:[<label1>, <label2>, ...]', "
     "'scd_type2', "
     "'pool:<name>', "
-    "'narrative:<key>'"
+    "'narrative:<key>', "
+    "'nested'"
 )
 
 
@@ -551,6 +575,8 @@ def parse_source(source: str) -> ParsedSource:
         return PKSource()
     if source == "scd_type2":
         return SCDType2Source()
+    if source == "nested":
+        return NestedSource()
 
     if source.startswith("fk:"):
         ref = source[3:]
@@ -1390,6 +1416,20 @@ class Column(_Frozen):
     # placement are enforced cross-model in
     # ``plotsim.validation.validate_narrative_columns``.
     narrative: Optional["NarrativeConfig"] = None
+    # 0.6-M14c: nested column type — struct or array. Both fields are
+    # paired with ``source: "nested"`` and ``dtype: "struct"`` /
+    # ``dtype: "array"`` respectively (validated by ``_nested_pairing``).
+    # ``nested_schema`` maps struct field names → primitive type words
+    # (``int`` / ``float`` / ``string`` / ``boolean``); the cell builder
+    # generates a Python dict of those typed values per row.
+    # ``array_element_type`` + ``array_length`` describe an array of
+    # primitive values; the cell builder generates a Python list of
+    # ``array_length`` values of ``array_element_type`` per row.
+    # Output writer: Parquet uses native nested schema (pyarrow); CSV
+    # serializes via ``json.dumps``. V1 supports one level of nesting only.
+    nested_schema: Optional[dict[str, str]] = None
+    array_element_type: Optional[str] = None
+    array_length: Optional[int] = Field(default=None, ge=1, le=100)
 
     @field_validator("source")
     @classmethod
@@ -1517,6 +1557,111 @@ class Column(_Frozen):
                             f"value {v!r}; pool values must be non-empty "
                             f"strings"
                         )
+        return self
+
+    @model_validator(mode="after")
+    def _nested_pairing(self) -> "Column":
+        """Source ``nested`` and ``dtype: struct|array`` must be paired.
+
+        Three pairing rules:
+          * ``source: "nested"`` requires ``dtype: "struct"`` or
+            ``dtype: "array"`` — anything else has no nested-cell semantics.
+          * ``dtype: "struct"`` requires ``source: "nested"`` plus a
+            ``nested_schema`` mapping field names → primitive types.
+            ``array_element_type`` and ``array_length`` are not meaningful
+            for struct columns and are rejected.
+          * ``dtype: "array"`` requires ``source: "nested"`` plus an
+            ``array_element_type`` (and an ``array_length``, defaulted to
+            3 if omitted). ``nested_schema`` is rejected for arrays.
+
+        Primitive types inside ``nested_schema`` and ``array_element_type``
+        are restricted to ``int`` / ``float`` / ``string`` / ``boolean``.
+        Nested-of-nested (struct-of-struct, array-of-struct, ...) is
+        rejected — V1 supports one level of nesting only.
+        """
+        from plotsim._types import is_nested_primitive
+
+        is_nested_source = self.source == "nested"
+        is_struct_dtype = self.dtype == "struct"
+        is_array_dtype = self.dtype == "array"
+
+        # Source vs dtype consistency.
+        if is_nested_source and not (is_struct_dtype or is_array_dtype):
+            raise ValueError(
+                f"column {self.name!r} declares source 'nested' but "
+                f"dtype={self.dtype!r}; nested cells require dtype "
+                f"'struct' or 'array'"
+            )
+        if (is_struct_dtype or is_array_dtype) and not is_nested_source:
+            raise ValueError(
+                f"column {self.name!r} has dtype={self.dtype!r} but "
+                f"source={self.source!r}; nested dtypes require "
+                f"source 'nested' (the cell builder reads nested_schema "
+                f"or array_element_type to materialise the value)"
+            )
+
+        # Struct-specific shape.
+        if is_struct_dtype:
+            if not self.nested_schema:
+                raise ValueError(
+                    f"column {self.name!r} has dtype 'struct' but no "
+                    f"nested_schema; declare 'nested_schema: {{<field>: "
+                    f"<int|float|string|boolean>, ...}}'"
+                )
+            if self.array_element_type is not None or self.array_length is not None:
+                raise ValueError(
+                    f"column {self.name!r} has dtype 'struct' but also "
+                    f"declares array_element_type / array_length; those "
+                    f"fields are array-only"
+                )
+            for field_name, field_type in self.nested_schema.items():
+                if not field_name:
+                    raise ValueError(
+                        f"column {self.name!r} nested_schema has an empty " f"field name"
+                    )
+                if not is_nested_primitive(field_type):
+                    raise ValueError(
+                        f"column {self.name!r} nested_schema field "
+                        f"{field_name!r} has type {field_type!r}; valid "
+                        f"primitive types are int / float / string / boolean "
+                        f"(nested-of-nested not supported in V1)"
+                    )
+
+        # Array-specific shape.
+        if is_array_dtype:
+            if self.array_element_type is None:
+                raise ValueError(
+                    f"column {self.name!r} has dtype 'array' but no "
+                    f"array_element_type; declare 'array_element_type: "
+                    f"<int|float|string|boolean>'"
+                )
+            if not is_nested_primitive(self.array_element_type):
+                raise ValueError(
+                    f"column {self.name!r} array_element_type "
+                    f"{self.array_element_type!r} is not a valid primitive; "
+                    f"valid: int / float / string / boolean"
+                )
+            if self.nested_schema is not None:
+                raise ValueError(
+                    f"column {self.name!r} has dtype 'array' but also "
+                    f"declares nested_schema; that field is struct-only"
+                )
+
+        # Reject the nested config fields outside their dtype scope.
+        if not is_struct_dtype and self.nested_schema is not None:
+            raise ValueError(
+                f"column {self.name!r} has nested_schema but dtype="
+                f"{self.dtype!r}; nested_schema is only valid on dtype "
+                f"'struct'"
+            )
+        if not is_array_dtype and (
+            self.array_element_type is not None or self.array_length is not None
+        ):
+            raise ValueError(
+                f"column {self.name!r} has array_element_type/array_length "
+                f"but dtype={self.dtype!r}; those fields are only valid on "
+                f"dtype 'array'"
+            )
         return self
 
     @field_validator("distribution", mode="before")

@@ -38,6 +38,8 @@ Some types take additional fields (`labels` for `bucket`, `tracks` /
 | `bucket` | yes | yes | yes | — |
 | `narrative` | — | yes (per_entity_per_period only) | — | — |
 | `scd` | yes (per-entity dim only) | — | — | — |
+| `struct` | yes | yes | — | — |
+| `array` | yes | yes | — | — |
 | `date` / `int` / `string` / `float` | yes (`dim_date` only) | — | — | — |
 
 \* Bridge `ref.` columns are auto-generated for the two endpoints; you
@@ -389,6 +391,89 @@ Each column is derived from the date-key spine — `year`, `month`,
 bare dtype word (e.g. `type: int`) raise — non-`dim_date` columns must
 declare a source-bearing type (`metric.X`, `faker.X`, `static.X`,
 `ref.X`, etc.).
+
+---
+
+## `struct`
+
+A nested column where each cell is a Python `dict` with a fixed set of
+typed fields. The cell shape is declared by `nested_schema` mapping
+field names to primitive types (`int`, `float`, `string`, `boolean`).
+
+```yaml
+- name: metadata
+  type: struct
+  nested_schema:
+    tier_score: int
+    is_pilot: boolean
+    region_code: string
+```
+
+Output:
+
+* **Parquet** — written as a native pyarrow `struct<...>` field,
+  preserving the typed schema. Round-trips through `pd.read_parquet`
+  as a column of dicts.
+* **CSV** — each cell serialised via `json.dumps`, so a row's value
+  looks like `{"tier_score": 654, "is_pilot": false, "region_code": "v091"}`.
+  Round-trip via `json.loads`.
+
+Engine-direct shape:
+
+```yaml
+- name: metadata
+  dtype: struct
+  source: nested
+  nested_schema: { tier_score: int, is_pilot: boolean, region_code: string }
+```
+
+V1 supports one level of nesting only — struct field types are
+primitive (no struct-of-struct). Field values are drawn independently
+per row from a seeded RNG, so the same seed produces byte-identical
+nested cells across runs. Need realistic strings? Use a separate
+`faker.<method>` column instead — `string` field values inside a struct
+are short deterministic tokens (`"v00042"`).
+
+**Valid on**: dim and fact tables. Not supported on event or bridge
+tables in V1.
+
+---
+
+## `array`
+
+A nested column where each cell is a Python `list` of fixed length,
+holding values of one primitive type. Declared by `array_element_type`
+(required) and optional `array_length` (defaults to 3, capped at 100).
+
+```yaml
+- name: tags
+  type: array
+  array_element_type: string
+  array_length: 5
+```
+
+Output:
+
+* **Parquet** — written as a native `list<element: ...>` field.
+* **CSV** — each cell serialised via `json.dumps`, e.g.
+  `["v43301", "v85859", "v08594"]`.
+
+Engine-direct shape:
+
+```yaml
+- name: tags
+  dtype: array
+  source: nested
+  array_element_type: string
+  array_length: 5
+```
+
+Element type is one of `int` / `float` / `string` / `boolean` (no
+nested-of-nested in V1). All cells in a column have the same length —
+it's a homogeneous array shape, not a list of variable-length lists.
+
+**Valid on**: dim and fact tables. Not supported on event or bridge
+tables in V1.
 
 ---
 

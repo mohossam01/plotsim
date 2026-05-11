@@ -69,6 +69,7 @@ from plotsim.config import (
     LagSource,
     MetricSource,
     NarrativeSource,
+    NestedSource,
     PlotsimConfig,
     PKSource,
     ProportionalSource,
@@ -845,7 +846,9 @@ def _build_per_entity_per_period_fact(
     # F3 (M102): boolean MetricSource / LagSource columns no longer force the
     # scalar fallback — `_coerce_array_for_dtype` handles them correctly in
     # the vectorized path.
-    forces_scalar = any(isinstance(p, (FakerSource, NarrativeSource)) for _, p in parsed_cols)
+    forces_scalar = any(
+        isinstance(p, (FakerSource, NarrativeSource, NestedSource)) for _, p in parsed_cols
+    )
     if forces_scalar or metrics_3d is None:
         return _scalar_per_entity_per_period_fact(
             tbl,
@@ -1325,6 +1328,26 @@ def _fact_scalar_derived(parsed: DerivedSource, ctx: dict):
     raise ValueError(f"fact column {col.name!r} derived field {parsed.field!r} not supported")
 
 
+def _fact_scalar_nested(parsed: NestedSource, ctx: dict):
+    """Build one nested cell (struct → dict, array → list) on a scalar fact row.
+
+    0.6-M14c: forced-scalar path (the vectorized branch hands off via
+    ``forces_scalar`` because nested values can't ride numpy's typed
+    arrays). Per-row determinism follows the seeded engine RNG, so
+    same seed → byte-identical column.
+    """
+    from plotsim.dimensions import _generate_nested_value
+
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"fact column {col.name!r} has source 'nested' but no RNG "
+            f"in scalar fact context; nested cell generation requires rng"
+        )
+    return _generate_nested_value(col, rng)
+
+
 def _fact_scalar_narrative(parsed: NarrativeSource, ctx: dict):
     """Build one trajectory- and archetype-driven text cell.
 
@@ -1485,6 +1508,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
     NarrativeSource,
     _fact_scalar_narrative,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    NestedSource,
+    _fact_scalar_nested,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,

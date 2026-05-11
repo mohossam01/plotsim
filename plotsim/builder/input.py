@@ -701,6 +701,15 @@ class ColumnInput(BaseModel):
     template: Optional[str] = None
     lexicons: Optional[dict[str, dict[str, dict[str, list[str]]]]] = None
     bands: Optional[list[str]] = None
+    # 0.6-M14c: nested column type fields. Used when ``type`` is
+    # ``"struct"`` (requires ``nested_schema``) or ``"array"`` (requires
+    # ``array_element_type``; ``array_length`` defaults to 3 when
+    # omitted). Mirrors ``Column.nested_schema`` / ``array_element_type``
+    # / ``array_length`` on the engine model. See user guide
+    # ``column-types.md`` for the full grammar.
+    nested_schema: Optional[dict[str, str]] = None
+    array_element_type: Optional[str] = None
+    array_length: Optional[int] = Field(default=None, ge=1, le=100)
 
 
 class DimInput(BaseModel):

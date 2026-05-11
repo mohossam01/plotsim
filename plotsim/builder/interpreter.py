@@ -1371,11 +1371,40 @@ def _translate_column(
             narrative=NarrativeConfig(**narrative_kwargs),
         )
 
+    # ─── struct (0.6-M14c) ──────────────────────────────────────────────
+    if t == "struct":
+        if not col.nested_schema:
+            raise ValueError(
+                f"column {col.name!r}: type 'struct' requires "
+                f"`nested_schema: {{<field>: <int|float|string|boolean>, ...}}`"
+            )
+        return Column(
+            name=col.name,
+            dtype="struct",
+            source="nested",
+            nested_schema=dict(col.nested_schema),
+        )
+
+    # ─── array (0.6-M14c) ───────────────────────────────────────────────
+    if t == "array":
+        if col.array_element_type is None:
+            raise ValueError(
+                f"column {col.name!r}: type 'array' requires "
+                f"`array_element_type: <int|float|string|boolean>`"
+            )
+        return Column(
+            name=col.name,
+            dtype="array",
+            source="nested",
+            array_element_type=col.array_element_type,
+            array_length=col.array_length,
+        )
+
     raise ValueError(
         f"column {col.name!r} in {owning_table!r}: unknown type {t!r}. "
         f"Valid types: id, ref.X, metric.X, faker.X, geo.X, static.X, "
         f"segment.count, pool.X, timestamp, date, int, string, float, "
-        f"bucket, scd, narrative"
+        f"bucket, scd, narrative, struct, array"
     )
 
 
