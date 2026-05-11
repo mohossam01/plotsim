@@ -77,7 +77,9 @@
             "string",
             "date",
             "boolean",
-            "id"
+            "id",
+            "struct",
+            "array"
           ],
           "title": "Dtype",
           "type": "string"
@@ -214,7 +216,9 @@
             "string",
             "date",
             "boolean",
-            "id"
+            "id",
+            "struct",
+            "array"
           ],
           "title": "Dtype",
           "type": "string"
@@ -290,6 +294,47 @@
             }
           ],
           "default": null
+        },
+        "nested_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nested Schema"
+        },
+        "array_element_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Array Element Type"
+        },
+        "array_length": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Array Length"
         }
       },
       "required": [

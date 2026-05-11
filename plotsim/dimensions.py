@@ -56,6 +56,7 @@ from plotsim.config import (
     FKSource,
     FakerSource,
     GeneratedSource,
+    NestedSource,
     PKSource,
     PlotsimConfig,
     PoolSource,
@@ -660,6 +661,70 @@ def _per_entity_unsupported(parsed: Any, ctx: dict):
     )
 
 
+# 0.6-M14c: nested column type cell builder. Generates a Python dict
+# (struct) or list (array) per cell from a seeded RNG. Each
+# field/element value is drawn independently from a primitive-type
+# generator below; one cell consumes ``len(nested_schema)`` (struct)
+# or ``array_length`` (array) RNG draws so RNG-consumption order is
+# deterministic for a given config.
+def _generate_nested_primitive(type_word: str, rng) -> Any:
+    """Draw one primitive value of ``type_word`` from ``rng``.
+
+    Same draw count per call regardless of type (one ``rng.integers``
+    or one ``rng.random``) so reordering struct fields in config
+    never changes the RNG state more than the field count itself.
+    """
+    if type_word == "int":
+        return int(rng.integers(0, 1000))
+    if type_word == "float":
+        return float(rng.random())
+    if type_word == "string":
+        # Deterministic short string token. Users who need realistic
+        # strings should use a separate ``faker.<method>`` column
+        # instead — nested cells are intended for structured
+        # JSON-like payloads, not free-form prose.
+        return f"v{int(rng.integers(0, 100000)):05d}"
+    if type_word == "boolean":
+        return bool(int(rng.integers(0, 2)))
+    raise ValueError(
+        f"unknown nested primitive type {type_word!r}; valid: " f"int / float / string / boolean"
+    )
+
+
+def _generate_nested_value(col: Column, rng) -> Any:
+    """Generate one nested cell value (dict for struct, list for array).
+
+    Pre-conditions enforced by ``Column._nested_pairing``:
+      * struct columns have ``nested_schema`` set
+      * array columns have ``array_element_type`` set
+      * primitive types in both are validated
+    """
+    if col.dtype == "struct":
+        assert col.nested_schema is not None  # _nested_pairing
+        return {field: _generate_nested_primitive(t, rng) for field, t in col.nested_schema.items()}
+    if col.dtype == "array":
+        assert col.array_element_type is not None  # _nested_pairing
+        n = col.array_length if col.array_length is not None else 3
+        return [_generate_nested_primitive(col.array_element_type, rng) for _ in range(n)]
+    raise ValueError(
+        f"_generate_nested_value called on column {col.name!r} with "
+        f"dtype={col.dtype!r}; nested generation requires dtype "
+        f"'struct' or 'array'"
+    )
+
+
+def _per_entity_nested(parsed: NestedSource, ctx: dict):
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"column {col.name!r} has source 'nested' but no RNG was "
+            f"supplied to _column_value_for_entity; nested cell "
+            f"generation requires the per-table RNG"
+        )
+    return _generate_nested_value(col, rng)
+
+
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PKSource, _per_entity_pk)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, StaticSource, _per_entity_static)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, DerivedSource, _per_entity_derived)
@@ -672,6 +737,7 @@ COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FakerSource, _per_entity_fa
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, FKSource, _per_entity_fk)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, SCDType2Source, _per_entity_scd2)
 COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, PoolSource, _per_entity_pool)
+COLUMN_DISPATCH.register(BuilderKind.PER_ENTITY_DIM, NestedSource, _per_entity_nested)
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_DIM,
     _per_entity_unsupported,
@@ -902,6 +968,7 @@ def build_dim_subentity(
                 "local_fk_column": local_fk_column,
                 "local_pk": local_pk,
                 "fake": fake,
+                "rng": rng,
                 "geo_bundle": (geo_bundles[cursor] if geo_bundles is not None else None),
             }
             for col in table_config.columns:
@@ -979,12 +1046,24 @@ def _sub_unsupported(parsed: Any, ctx: dict):
     )
 
 
+def _sub_nested(parsed: NestedSource, ctx: dict):
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"column {col.name!r} on sub-entity dim has source 'nested' "
+            f"but no RNG in context; nested cell generation requires rng"
+        )
+    return _generate_nested_value(col, rng)
+
+
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, PKSource, _sub_pk)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, FKSource, _sub_fk)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, GeneratedSource, _sub_generated)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, FakerSource, _sub_faker)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, StaticSource, _sub_static)
 COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, DerivedSource, _sub_derived)
+COLUMN_DISPATCH.register(BuilderKind.SUB_ENTITY_DIM, NestedSource, _sub_nested)
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.SUB_ENTITY_DIM,
     _sub_unsupported,
@@ -1019,6 +1098,7 @@ def build_dim_reference(
             "i": i,
             "ids": ids,
             "fake": fake,
+            "rng": rng,
             "geo_bundle": geo_bundles[i] if geo_bundles is not None else None,
         }
         for col in table_config.columns:
@@ -1086,11 +1166,23 @@ def _ref_unsupported(parsed: Any, ctx: dict):
     )
 
 
+def _ref_nested(parsed: NestedSource, ctx: dict):
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"column {col.name!r} on reference dim has source 'nested' "
+            f"but no RNG in context; nested cell generation requires rng"
+        )
+    return _generate_nested_value(col, rng)
+
+
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, PKSource, _ref_pk)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, StaticSource, _ref_static)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FakerSource, _ref_faker)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, GeneratedSource, _ref_generated)
 COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, FKSource, _ref_fk)
+COLUMN_DISPATCH.register(BuilderKind.REFERENCE_DIM, NestedSource, _ref_nested)
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.REFERENCE_DIM,
     _ref_unsupported,

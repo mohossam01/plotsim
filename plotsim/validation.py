@@ -133,6 +133,12 @@ def _is_nullish(value: Any) -> bool:
     # F3 (M102): pandas nullable extension dtypes (Int64, BooleanDtype) carry
     # `pd.NA` for missing values, not Python None or float NaN. `pd.isna`
     # uniformly handles None, float NaN, np.datetime64('NaT'), and pd.NA.
+    # 0.6-M14c: nested cells (dict / list from struct / array columns) are
+    # never nullish; ``pd.isna`` returns an element-wise array for lists,
+    # which raises ``ValueError`` on ``bool(...)``. Short-circuit them so
+    # the null-policy validator treats nested values as present.
+    if isinstance(value, (dict, list)):
+        return False
     return bool(pd.isna(value))
 
 

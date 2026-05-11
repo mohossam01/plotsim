@@ -65,7 +65,20 @@ Grain = Literal[
     "variable",
 ]
 
-Dtype = Literal["int", "float", "string", "date", "boolean", "id"]
+Dtype = Literal["int", "float", "string", "date", "boolean", "id", "struct", "array"]
+
+# Primitive element types valid inside a ``struct`` field map or as the
+# ``array_element_type`` of an ``array`` column. Excludes nested types
+# (no struct-of-struct or array-of-struct in V1) and engine-internal
+# dtypes (``id``, ``date`` carry semantic constraints that don't compose
+# inside a one-level nested cell).
+NestedPrimitiveType = Literal["int", "float", "string", "boolean"]
+
+
+def is_nested_primitive(s: str) -> TypeGuard[NestedPrimitiveType]:
+    """True when ``s`` is a valid type word inside a struct/array column."""
+    return s in ("int", "float", "string", "boolean")
+
 
 Granularity = Literal["monthly", "weekly", "daily"]
 
