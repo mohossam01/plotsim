@@ -83,6 +83,7 @@ nav:
       - CDC fact-side: user-guide/cdc-facts.md
       - Narrative text: user-guide/narrative-source.md
       - Output formats: user-guide/output-formats.md
+      - Denormalization: user-guide/denormalization.md
   - Tutorials:
       - Getting started: tutorial-notebooks/getting_started.ipynb
       - Feature surfaces:
