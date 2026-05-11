@@ -1087,6 +1087,8 @@ def _translate_event(
         foreign_keys=foreign_keys,
         row_count_source=row_count_source,
         cdc=False,
+        log_format=e.log_format,
+        log_filename=e.log_filename,
     )
 
 

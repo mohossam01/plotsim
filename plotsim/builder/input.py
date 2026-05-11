@@ -754,6 +754,15 @@ class EventInput(BaseModel):
         ge=1,
         validation_alias=AliasChoices("for_periods", "for"),
     )
+    # 0.6-M14b: opt-in log-file companion writer. ``log_format`` is a
+    # Python ``str.format`` template whose placeholders must match
+    # column names on this event table (e.g.
+    # ``"{event_ts} [INFO] {company_id} login {event_id}"``).
+    # ``log_filename`` is the on-disk name; defaults to
+    # ``<event_name>.log`` when omitted. Both default ``None`` so
+    # pre-M14b builder output is byte-identical.
+    log_format: Optional[str] = Field(default=None, min_length=1)
+    log_filename: Optional[str] = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _trigger_specific_fields(self) -> "EventInput":

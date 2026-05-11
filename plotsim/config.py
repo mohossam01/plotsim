@@ -1562,6 +1562,20 @@ class Table(_Frozen):
     # on dim/event/bridge by ``_cdc_only_on_fact``. Default False
     # preserves pre-M9c output byte-for-byte.
     cdc: bool = False
+    # 0.6-M14b: opt-in log-file companion writer for event tables. When
+    # ``log_format`` is set on an event table, ``write_tables`` formats
+    # each event row through the template (Python ``str.format`` against
+    # the row's column dict) and writes one ``.log`` file per event
+    # table alongside the CSV/Parquet. Placeholder names must match
+    # column names on the table (e.g.
+    # ``"{event_ts} [INFO] {company_id} login {event_id}"``).
+    # ``log_filename`` is the on-disk name (default
+    # ``<table_name>.log``). Both fields are valid only on event
+    # tables — rejected at load on fact/dim/bridge by
+    # ``_log_format_only_on_event``. Default ``None`` preserves
+    # pre-M14b output byte-for-byte.
+    log_format: Optional[str] = None
+    log_filename: Optional[str] = None
 
     @property
     def primary_key_cols(self) -> list[str]:
@@ -1650,6 +1664,31 @@ class Table(_Frozen):
             )
         return self
 
+    @model_validator(mode="after")
+    def _log_format_only_on_event(self) -> "Table":
+        # 0.6-M14b: ``log_format`` / ``log_filename`` are event-side
+        # only — fact/dim/bridge tables don't have the "one row per
+        # discrete event" shape that a log file expresses. Reject at
+        # load. Either field set on a non-event table is the
+        # mis-configuration; mention both in the message because
+        # users frequently set one without the other.
+        if self.type != "event" and (self.log_format is not None or self.log_filename is not None):
+            raise ValueError(
+                f"table {self.name!r} has log_format/log_filename set "
+                f"but type={self.type!r}; both fields are only valid on "
+                f"event tables (each fact/dim row is a state snapshot, "
+                f"not a discrete event)"
+            )
+        # ``log_filename`` without ``log_format`` is meaningless —
+        # there's nothing to write. Reject so the user isn't surprised
+        # when no log file appears.
+        if self.log_filename is not None and self.log_format is None:
+            raise ValueError(
+                f"table {self.name!r} sets log_filename={self.log_filename!r} "
+                f"but log_format is None; the filename alone produces no "
+                f"output. Set log_format (the template string) or drop "
+                f"log_filename."
+            )
         return self
 
 
