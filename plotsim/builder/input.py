@@ -1079,6 +1079,13 @@ class OutputInput(BaseModel):
     integers raise (or lower) the cap to that value. Promoting the
     field through the builder lets ``create(output={'cell_budget':
     N})`` override the cap without env vars.
+
+    ``denormalized`` (0.6-M14a) mirrors ``OutputConfig.denormalized``
+    — opt-in wide-table companion writer. ``False`` (default) keeps
+    output byte-identical to pre-M14a. ``True`` emits
+    ``<fct_name>_wide.{csv|parquet}`` alongside each normalized fact
+    table, with FK'd dims left-joined onto the fact (SCD2 dims
+    filtered to current state).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1086,6 +1093,7 @@ class OutputInput(BaseModel):
     format: Literal["csv", "parquet"] = "csv"
     directory: str = "output"
     cell_budget: Optional[int] = Field(default=None, ge=0)
+    denormalized: bool = False
 
 
 class SourceInput(BaseModel):

@@ -181,6 +181,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
             format=user_input.output.format,
             directory=user_input.output.directory,
             cell_budget=user_input.output.cell_budget,
+            denormalized=user_input.output.denormalized,
         )
     else:
         output_cfg = OutputConfig(format="csv", directory="output")
@@ -1085,6 +1086,7 @@ def _translate_event(
         primary_key=pk,
         foreign_keys=foreign_keys,
         row_count_source=row_count_source,
+        cdc=False,
     )
 
 
