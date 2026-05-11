@@ -535,37 +535,63 @@ def _segment_for_customer_id(customer_id: str) -> str:
     return "detractors"
 
 
-def _all_phrases_for_segment(cfg: NarrativeConfig, segment: str) -> set[str]:
-    """Flatten every phrase across all (slot, band) for one segment."""
-    out: set[str] = set()
-    for _slot, by_band in cfg.lexicons[segment].items():
-        for _band, phrases in by_band.items():
-            for p in phrases:
-                out.add(p)
-    return out
+def _openers_for_segment(cfg: NarrativeConfig, segment: str) -> set[str]:
+    """Flatten every opener-slot phrase across bands for one segment."""
+    return {
+        phrase
+        for band_phrases in cfg.lexicons[segment]["opener"].values()
+        for phrase in band_phrases
+    }
 
 
 def test_per_archetype_lexicon_is_respected(reviews_cfg, reviews_tables):
-    """Every emitted token sequence for a promoter must have come from the
-    promoter lexicon — no leakage from neutrals or detractors."""
+    """Each row's opener phrase must come from the row segment's opener
+    pool — no opener-slot leakage across archetypes.
+
+    The bundled lexicons share ``object`` and ``comment`` phrase pools
+    across all three archetypes by design (the universal sentiment
+    gradient lives in those slots). The ``opener`` slot is the only
+    archetype-distinct surface, so the per-archetype invariant is
+    asserted at the opener-slot level: for every row the text begins
+    with one of the row's-segment opener phrases — and never an opener
+    phrase that belongs exclusively to a different segment.
+    """
     df = reviews_tables["fct_reviews"]
     fct_table = next(t for t in reviews_cfg.tables if t.name == "fct_reviews")
     review_col = next(c for c in fct_table.columns if c.name == "review_text")
     nar_cfg = review_col.narrative
     assert nar_cfg is not None
 
-    promoter_phrases = _all_phrases_for_segment(nar_cfg, "promoters")
-    detractor_phrases = _all_phrases_for_segment(nar_cfg, "detractors")
-    leaked = []
+    openers_by_segment: dict[str, set[str]] = {
+        seg: _openers_for_segment(nar_cfg, seg) for seg in nar_cfg.lexicons
+    }
+
+    def matches_opener(text: str, candidates: set[str]) -> str | None:
+        # Opener is followed by a single space then the object slot. An
+        # exact-prefix match with a trailing space is the unambiguous
+        # test (every opener in the bundled lexicon is unique to one
+        # segment, so cross-segment ambiguity does not arise).
+        for phrase in candidates:
+            if text.startswith(phrase + " "):
+                return phrase
+        return None
+
+    misses: list[tuple[str, str, str]] = []
     for _, row in df.iterrows():
         seg = _segment_for_customer_id(row["customer_id"])
         text = row["review_text"]
-        if seg == "promoters":
-            # No detractor-only phrase may appear in a promoter row
-            offending = [p for p in (detractor_phrases - promoter_phrases) if p in text]
-            if offending:
-                leaked.append((row["customer_id"], text, offending))
-    assert not leaked, f"detractor phrases leaked into promoter rows: {leaked[:3]}"
+        own = matches_opener(text, openers_by_segment[seg])
+        if own is None:
+            misses.append((row["customer_id"], "no own-segment opener", text))
+            continue
+        for other_seg, other_openers in openers_by_segment.items():
+            if other_seg == seg:
+                continue
+            foreign_only = other_openers - openers_by_segment[seg]
+            leaked = matches_opener(text, foreign_only)
+            if leaked is not None:
+                misses.append((row["customer_id"], f"{other_seg} opener leaked", text))
+    assert not misses, f"opener-slot leakage detected: {misses[:5]}"
 
 
 def test_text_varies_across_periods_for_non_flat_trajectory(reviews_tables):
