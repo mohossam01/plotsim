@@ -94,6 +94,18 @@ segments:
       impressions: high
       ad_spend: high
       conversion_rate: low
+    # 0.6-M15: A/B treatment cohort (M8c) demonstrated on a realistic
+    # marketing campaign. Half of the awareness campaigns flip to a new
+    # audience-targeting algorithm at period 8; the new algorithm lifts
+    # conversion_rate by ~0.5 log-odds. Students recover the ATE
+    # against the ``treatment_assignments`` ground truth in
+    # ``manifest.json``.
+    treatment:
+      fraction: 0.5
+      lift_log_odds: 0.5
+      start_period: 8
+      treatment_label: "new_audience_model"
+      control_label: "incumbent_audience_model"
 
   - name: paid_burst
     count: 18
@@ -279,6 +291,14 @@ events:
       - {name: campaign_id, type: ref.dim_campaign}
       - {name: reason,      type: faker.sentence}
       - {name: pause_flag,  type: flag}
+
+
+# 0.6-M15: data-quality issues for Data Quality Testing (DE L25) and
+# Data Cleaning (DE L15). Manifest records every injection so students
+# can score detectors against ground truth.
+quality:
+  - { table: fct_spend, issue: null_injection, rate: 0.03, column: ad_spend }
+  - { table: evt_click, issue: late_arrival,   rate: 0.02 }
 
 
 # ═══════════════════════════════════════════════════════

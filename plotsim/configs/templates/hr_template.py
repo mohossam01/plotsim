@@ -261,4 +261,16 @@ config = create(
             ],
         },
     ],
+    # 0.6-M15: data-quality issues for Data Quality Testing (DE L25)
+    # and Data Cleaning (DE L15). Manifest records every injection so
+    # students can score detectors against ground truth.
+    quality=[
+        {
+            "table": "fct_performance",
+            "issue": "null_injection",
+            "rate": 0.04,
+            "column": "engagement",
+        },
+        {"table": "evt_training_completion", "issue": "late_arrival", "rate": 0.02},
+    ],
 )

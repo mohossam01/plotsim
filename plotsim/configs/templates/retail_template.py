@@ -173,6 +173,18 @@ config = create(
                 {"name": "category_id", "type": "id"},
                 {"name": "category_name", "type": "static.electronics,apparel,home,grocery,beauty"},
                 {"name": "margin_tier", "type": "static.high,standard,standard,low,high"},
+                # 0.6-M15: nested struct column (M14c) — see
+                # ``retail_template.yaml`` for the Semi-Structured
+                # Flattening (DE L12) exercise rationale.
+                {
+                    "name": "catalog_metadata",
+                    "type": "struct",
+                    "nested_schema": {
+                        "aisle": "string",
+                        "seasonality": "string",
+                        "avg_basket_position": "int",
+                    },
+                },
             ],
         },
         {
@@ -220,6 +232,11 @@ config = create(
         {
             "name": "fct_purchases",
             "metrics": ["cart_value", "return_rate", "loyalty_score", "repeat_purchase_rate"],
+            # 0.6-M15: CDC fact-side (M9c) — every row carries
+            # _inserted_at / _updated_at / _op audit columns. Column-
+            # level quality injections (see ``quality=`` below) flip
+            # _op to "U" on touched rows. See ``retail_template.yaml``.
+            "cdc": True,
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
@@ -267,6 +284,20 @@ config = create(
                 {"name": "reason", "type": "faker.sentence"},
                 {"name": "churn_flag", "type": "flag"},
             ],
+        },
+    ],
+    # 0.6-M15: data-quality issues — see ``retail_template.yaml`` for
+    # the Data Quality Testing (DE L25), Data Cleaning (DE L15), and
+    # Data Observability (DE L28) rationale. The volume_anomaly spike
+    # at period 18 is the canonical observability scenario.
+    quality=[
+        {"table": "fct_purchases", "issue": "null_injection", "rate": 0.03, "column": "cart_value"},
+        {
+            "table": "fct_sessions",
+            "issue": "volume_anomaly",
+            "rate": 0.5,
+            "mode": "spike",
+            "period": 18,
         },
     ],
 )

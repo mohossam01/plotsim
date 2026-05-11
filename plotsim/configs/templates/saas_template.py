@@ -19,8 +19,11 @@ config = create(
     unit="company",
     seed=1729,  # determinism
     noise="perfectly_clean",  # also: slightly_messy, realistic, dirty
-    # output={"format": "parquet", "directory": "./out"},  # uncomment for parquet
     # locale=["en_US", "en_GB"],                # multi-locale faker mix
+    # 0.6-M15: opt-in denormalization (M14a) — see ``saas_template.yaml``
+    # for the rationale. Each fact is left-joined with its FK'd dims;
+    # ``<fct>_wide.csv`` is emitted alongside the normalized output.
+    output={"denormalized": True},
     window=("2023-01", "2024-12", "monthly"),
     seasonality=[
         {"months": [11, 12], "strength": 0.30},  # Q4 lift
@@ -257,6 +260,11 @@ config = create(
             "trigger": "proportional",
             "driver": "engagement",
             "scale": 5,
+            # 0.6-M15: log-file writer (M14b) demonstrated on the login
+            # event stream — see ``saas_template.yaml`` for parsing
+            # exercises that join the .log file back to the CSV.
+            "log_format": "{event_ts} INFO user={user_id} company={company_id} action=login",
+            "log_filename": "evt_login.log",
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
@@ -279,5 +287,14 @@ config = create(
                 {"name": "churn_flag", "type": "flag"},
             ],
         },
+    ],
+    # 0.6-M15: data-quality issues for Data Quality Testing (DE L25)
+    # and Data Cleaning (DE L15). Manifest records every injection so
+    # students can score detectors against ground truth. Issue
+    # placement is on event tables here (not facts) — see
+    # ``saas_template.yaml`` for the streaming-parquet rationale.
+    quality=[
+        {"table": "evt_churn", "issue": "null_injection", "rate": 0.05, "column": "churn_reason"},
+        {"table": "evt_login", "issue": "duplicate_rows", "rate": 0.02},
     ],
 )

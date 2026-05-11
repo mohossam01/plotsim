@@ -91,6 +91,15 @@ config = create(
             "label": "Top-of-funnel brand awareness — steady reach growth",
             "attributes": {"objective": ["awareness"], "channel": ["paid_social", "display"]},
             "baseline": {"impressions": "high", "ad_spend": "high", "conversion_rate": "low"},
+            # 0.6-M15: A/B treatment cohort (M8c) — see
+            # ``marketing_template.yaml`` for the ATE recovery exercise.
+            "treatment": {
+                "fraction": 0.5,
+                "lift_log_odds": 0.5,
+                "start_period": 8,
+                "treatment_label": "new_audience_model",
+                "control_label": "incumbent_audience_model",
+            },
         },
         {
             "name": "paid_burst",
@@ -294,5 +303,12 @@ config = create(
                 {"name": "pause_flag", "type": "flag"},
             ],
         },
+    ],
+    # 0.6-M15: data-quality issues for Data Quality Testing (DE L25)
+    # and Data Cleaning (DE L15). Manifest records every injection so
+    # students can score detectors against ground truth.
+    quality=[
+        {"table": "fct_spend", "issue": "null_injection", "rate": 0.03, "column": "ad_spend"},
+        {"table": "evt_click", "issue": "late_arrival", "rate": 0.02},
     ],
 )
