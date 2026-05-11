@@ -1111,6 +1111,144 @@ def _is_subentity_table(table: Table, per_entity_names: set[str]) -> bool:
     return False
 
 
+def _per_entity_pk_column(table: Table) -> str:
+    """0.6-M13: locate the canonical PK column on a per_entity dim.
+
+    ``Table.primary_key`` is the canonical source — it's a string for
+    single-column PKs (every per_entity dim that exists in the wild) and
+    a list for composite PKs (facts only). For a per_entity dim with a
+    composite PK the multi-source emission can't generate a coherent
+    drifted ID, so we defensively raise.
+    """
+    pk = table.primary_key
+    if isinstance(pk, list):
+        raise ValueError(
+            f"multi-source emission cannot drift composite-PK dim "
+            f"{table.name!r} (primary_key={pk!r}); only single-column PKs "
+            f"are supported on per_entity dims"
+        )
+    return pk
+
+
+def _entity_type_for_dim(table_name: str) -> str:
+    """Strip the leading ``dim_`` prefix; raise if absent.
+
+    The convention enforced elsewhere in the engine is that every dim
+    table name starts with ``dim_``. Used to derive the prefix for
+    ``prefix_padded`` keys and the suffix on the renamed PK column
+    (``<entity_type>_id_<source>``).
+    """
+    if not table_name.startswith("dim_"):
+        raise ValueError(
+            f"multi-source dim {table_name!r} does not start with 'dim_'; "
+            f"cannot derive the entity-type prefix"
+        )
+    return table_name[len("dim_") :]
+
+
+def _emit_per_source_dims(
+    config: PlotsimConfig,
+    dims: dict[str, pd.DataFrame],
+    rng: np.random.Generator,
+) -> None:
+    """0.6-M13: write per-source drifted copies of every per_entity dim into ``dims``.
+
+    For each ``SourceDeclaration`` (in config declaration order):
+      1. Draw one seed integer off ``rng`` and instantiate a per-source RNG.
+         Same pattern as quality issues' ``base_seed + seed_offset`` —
+         shifts source order to a single deterministic offset on the dim
+         RNG without coupling RNGs across sources.
+      2. For each per_entity dim already built into ``dims``, copy the
+         canonical frame, apply name/attribute drift via
+         :func:`plotsim.multi_source.apply_source_drift`, and emit the
+         result as ``dim_<entity>_<source>``.
+      3. Accumulate per-row mapping records (entity name, source name,
+         source PK, drifted fields) onto a single flat list, then stash
+         the list on ``config._source_entity_mappings`` so
+         ``manifest.build_manifest`` can surface it.
+
+    Side effects:
+      * Adds new keys to ``dims`` (one per ``(source, per_entity_dim)``).
+      * Consumes RNG draws on ``rng`` (one per source).
+      * Writes to ``config._source_entity_mappings`` (PrivateAttr).
+    """
+    # Local import: ``plotsim.multi_source`` would otherwise create a
+    # circular dependency at module load (it imports config classes
+    # we re-export from ``plotsim.config``, and ``dimensions`` is
+    # imported by ``tables.py`` which the load order would chain into).
+    from plotsim.multi_source import apply_source_drift
+
+    if config.multi_source is None:
+        return
+
+    per_entity_tables = [t for t in config.tables if t.type == "dim" and t.grain == "per_entity"]
+    if not per_entity_tables:
+        # Cross-reference validator (``_multi_source_requires_per_entity_dim``)
+        # already rejected this path; defensive no-op for any future caller
+        # that bypasses validation.
+        return
+
+    entity_names_by_position = [e.name for e in config.entities]
+    all_mappings: list[dict[str, Any]] = []
+
+    for source in config.multi_source.sources:
+        source_seed = int(rng.integers(0, 2**31 - 1))
+        source_rng = np.random.default_rng(source_seed)
+
+        for tbl in per_entity_tables:
+            canonical_df = dims.get(tbl.name)
+            if canonical_df is None:
+                # Step 3 above builds every per_entity dim before we run;
+                # a missing entry would mean an earlier-step bug, not a
+                # multi-source bug. Surface it instead of silently skipping.
+                raise ValueError(
+                    f"multi-source emission: canonical dim {tbl.name!r} "
+                    f"was not built before per-source pass; this is an "
+                    f"internal orchestrator wiring bug"
+                )
+            entity_type = _entity_type_for_dim(tbl.name)
+            pk_column = _per_entity_pk_column(tbl)
+            drifted_df, _source_pk_col, per_row_mappings = apply_source_drift(
+                canonical_df=canonical_df,
+                canonical_columns=list(tbl.columns),
+                canonical_pk_column=pk_column,
+                source=source,
+                entity_type=entity_type,
+                rng=source_rng,
+            )
+            dims[f"{tbl.name}_{source.name}"] = drifted_df
+
+            # Stitch entity name + source name onto each mapping record.
+            # ``canonical_df`` rows are 1:1 with ``config.entities`` order
+            # (per ``build_dim_entity``'s contract), so position N's entity
+            # name is ``config.entities[N].name``. SCD expansion runs AFTER
+            # ``build_all_dimensions`` returns, so canonical_df has not yet
+            # been row-multiplied here.
+            for row_idx, mapping in enumerate(per_row_mappings):
+                entity_name = (
+                    entity_names_by_position[row_idx]
+                    if row_idx < len(entity_names_by_position)
+                    else mapping["canonical_entity_id"]
+                )
+                all_mappings.append(
+                    {
+                        "entity": entity_name,
+                        "source": source.name,
+                        "dim_table": tbl.name,
+                        "canonical_entity_id": mapping["canonical_entity_id"],
+                        "source_entity_id": mapping["source_entity_id"],
+                        "drifted_fields": mapping["drifted_fields"],
+                    }
+                )
+
+    # PrivateAttr write — engine-derived runtime state, mirrors the
+    # ``_correlation_compensations`` stash pattern. ``None`` (default)
+    # signals "multi-source not configured"; an empty list would be
+    # ambiguous with that. We only land here when ``multi_source is not
+    # None`` so the empty-list case is impossible.
+    config._source_entity_mappings = all_mappings
+
+
 def build_all_dimensions(
     config: PlotsimConfig,
     rng: np.random.Generator,
@@ -1121,7 +1259,13 @@ def build_all_dimensions(
         1. dim_date             (no deps)
         2. reference dims       (no deps)
         3. per_entity dims      (FK-backfilled from reference dims)
+        3b. per-source dims     (0.6-M13; drift overlay on per_entity dims)
         4. sub-entity dims      (FK to per_entity dim)
+
+    Step 3b runs only when ``config.multi_source`` is set. It does NOT
+    touch the canonical per_entity dims — those are passed through to
+    sub-entity FK resolution (step 4) untouched, so fact / event tables
+    that key off the canonical PK are unaffected by drift.
     """
     per_entity_names = {
         t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"
@@ -1158,6 +1302,9 @@ def build_all_dimensions(
                 rng,
                 entities=list(config.entities),
             )
+
+    # 3b. 0.6-M13: per-source drifted copies of per_entity dims.
+    _emit_per_source_dims(config, dims, rng)
 
     # 4. sub-entity dims.
     for tbl in config.tables:
