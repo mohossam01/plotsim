@@ -212,13 +212,13 @@ decouples the two:
   fraction, label, start_period, or none) → identical arrival
   schedule.
 
-This is the same principle behind M8b's `step` / `explicit`
-zero-RNG-draw contract, applied across feature boundaries: changing
-one feature's shape doesn't shift another feature's outputs.
+This is the same principle behind the `step` / `explicit` arrival
+shapes' zero-RNG-draw contract, applied across feature boundaries:
+changing one feature's shape doesn't shift another feature's outputs.
 
 ### Manifest
 
-Two new manifest fields land at schema version `1.3`:
+Two new manifest fields land at schema version `1.5`:
 
 - `EntityArchetypeAssignment.treatment` — per-entity assignment
   record. Carries the entity's group label, lift (or `None` for

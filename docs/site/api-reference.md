@@ -131,11 +131,12 @@ Return the names of bundled builder templates.
 def list_templates() -> list[str]
 ```
 
-Names round-trip through [`load_template`](#load_template). `bare_minimum`
-keeps its full stem; the five domain templates strip the `_template`
-suffix. Sorted alphabetically.
+Names round-trip through [`load_template`](#load_template). Templates
+whose filename ends in `_template` strip that suffix; `bare_minimum`
+and the single-feature templates keep their full stems. Sorted
+alphabetically.
 
-**Returns** — e.g. `["bare_minimum", "education", "hr", "marketing", "retail", "saas"]`.
+**Returns** — e.g. `["ab_trial", "bare_minimum", "cdc_demo", "crm_billing_overlap", "education", "geo_retail", "hr", "lakehouse", "latency_skew", "marketing", "narrative_reviews", "retail", "saas"]`.
 
 **Example**
 
@@ -330,7 +331,7 @@ def write_tables(
     config: PlotsimConfig,
     report: ValidationReport | None = None,
     output_dir: str | Path | None = None,
-    float_format: str = "%.6g",
+    float_format: str = "%.4f",
     base_dir: str | Path | None = None,
     generated_at: datetime.datetime | None = None,
     manifest: ManifestSchema | None = None,
@@ -345,23 +346,33 @@ def write_tables(
 | `config` | The config used for generation. Drives column ordering, dtypes, output format, and quality / holdout / entity-features companion files. |
 | `report` | A pre-built `ValidationReport`. When `None`, the full check suite runs first. |
 | `output_dir` | Target directory. When `None`, uses `config.output.directory`. |
-| `float_format` | Format string for floats in CSV output. Default `"%.6g"`. |
+| `float_format` | Format string for floats in CSV output. Default `"%.4f"`. |
 | `base_dir` | Sandbox root for hosted deployments. When set, the resolved target must live under it; absolute-path overrides and `..` traversal raise `ValueError`. |
 | `generated_at` | Wall-clock timestamp for the validation-report header. When `None`, the header carries a deterministic config-fingerprint identifier instead. |
 | `manifest` | A pre-built `ManifestSchema`. Required when `config.entity_features.enabled` is True; otherwise optional. Written as `manifest.json` when `config.manifest.include` is True. |
 
 **What gets written**
 
-- `<table>.csv` (or `.parquet`) for every key in `tables`.
+- `<table>.csv` / `.parquet` / `.jsonl` for every key in `tables`
+  (extension follows `config.output.format`).
+- `data.sql` instead of per-table files when `config.output.format ==
+  "sql"`: every dim / fact / event / bridge — plus optional
+  denormalized wide tables and holdout splits — lands in a single
+  file as dialect-aware DDL + batched INSERTs.
 - `config.yaml` — round-trippable copy of `config`.
 - `validation_report.txt` — human-readable.
 - `manifest.json` — when `manifest` was passed and `config.manifest.include` is True.
-- `<fact>_train.<ext>` and `<fact>_holdout.<ext>` — when `config.holdout.enabled`.
-- `_entity_features.<ext>` — when `config.entity_features.enabled`.
+- `<fact>_train.<ext>` and `<fact>_holdout.<ext>` — when `config.holdout.enabled`
+  (under `format=sql` these emit as trailing CREATE TABLE + INSERT
+  blocks inside `data.sql` instead of separate files).
+- `_entity_features.<ext>` — when `config.entity_features.enabled`
+  (rejected at config load when `format=sql`).
 
-The output format (`csv` vs `parquet`) is read off `config.output.format`.
-Parquet writes require `pyarrow`; an `ImportError` with the install hint
-is raised if it's missing.
+The output format (`csv` / `parquet` / `jsonl` / `sql`) is read off
+`config.output.format`. Parquet and partitioned-Parquet writes require
+`pyarrow`; an `ImportError` with the install hint is raised if it's
+missing. JSONL and SQL paths use only stdlib + pandas (no optional
+installs).
 
 Generation failures are not masked: when `report.ok` is False the files
 are still written so you can inspect the broken data. Block on

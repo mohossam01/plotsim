@@ -49,9 +49,9 @@ plotsim run config.yaml -q                # quiet — no stdout chatter
 | `-v, --validate` | flag | off | Print the validation report after generation (always run; this just prints) |
 | `--strict` | flag | off | Exit with code 1 if validation has any errors. Tables are NOT written |
 | `-q, --quiet` | flag | off | Suppress the "Generating..." / "Wrote N rows" lines |
-| `--allow-absolute-output` | flag | off | Bypass the cwd path sandbox (SEC-01). Required to write outside the working directory or use `..` segments in `--output-dir` |
+| `--allow-absolute-output` | flag | off | Bypass the cwd path sandbox. Required to write outside the working directory or use `..` segments in `--output-dir` |
 
-**SEC-01 sandbox** — by default, every CLI write must land under the
+**cwd sandbox** — by default, every CLI write must land under the
 process's current working directory. A crafted config or a crafted
 `-o` flag can't scribble to `/etc/`, your home folder, or any other
 absolute location. Pass `--allow-absolute-output` only when you

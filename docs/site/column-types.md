@@ -427,15 +427,15 @@ Engine-direct shape:
   nested_schema: { tier_score: int, is_pilot: boolean, region_code: string }
 ```
 
-V1 supports one level of nesting only — struct field types are
-primitive (no struct-of-struct). Field values are drawn independently
-per row from a seeded RNG, so the same seed produces byte-identical
-nested cells across runs. Need realistic strings? Use a separate
-`faker.<method>` column instead — `string` field values inside a struct
-are short deterministic tokens (`"v00042"`).
+The current release supports one level of nesting only — struct field
+types are primitive (no struct-of-struct). Field values are drawn
+independently per row from a seeded RNG, so the same seed produces
+byte-identical nested cells across runs. Need realistic strings? Use a
+separate `faker.<method>` column instead — `string` field values
+inside a struct are short deterministic tokens (`"v00042"`).
 
 **Valid on**: dim and fact tables. Not supported on event or bridge
-tables in V1.
+tables in the current release.
 
 ---
 
@@ -469,11 +469,12 @@ Engine-direct shape:
 ```
 
 Element type is one of `int` / `float` / `string` / `boolean` (no
-nested-of-nested in V1). All cells in a column have the same length —
-it's a homogeneous array shape, not a list of variable-length lists.
+nested-of-nested in the current release). All cells in a column have
+the same length — it's a homogeneous array shape, not a list of
+variable-length lists.
 
 **Valid on**: dim and fact tables. Not supported on event or bridge
-tables in V1.
+tables in the current release.
 
 ---
 

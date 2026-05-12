@@ -23,19 +23,38 @@ pytest -m "not integration"       # skip slow end-to-end tests
 
 The integration tests in `tests/test_integration.py` are tagged with
 `@pytest.mark.integration` so fast dev loops can skip them; they cover
-all five shipped templates end to end.
+the bundled templates end to end (13 templates as of this writing —
+run `plotsim list-templates` for the current list).
 
-## Adding a new domain template
+## Adding a new template
 
-1. Copy an existing config from `plotsim/configs/` to a working file.
-2. Edit the `domain`, `metrics`, `archetypes`, `entities`, and `tables`
-   sections for the new use case.
-3. Validate it: `plotsim validate my_config.yaml`.
-4. Run it with validation on: `plotsim run my_config.yaml --validate`.
-5. Drop the new config into `plotsim/configs/sample_<name>.yaml` and
-   add a description in `plotsim/cli.py::cmd_list_templates` so it
-   shows up in `plotsim list-templates`.
-6. Open a PR.
+Plotsim ships templates in two surfaces — pick the one that matches
+your config shape:
+
+1. **Builder-shape templates** (`plotsim/configs/templates/<name>_template.{py,yaml}`)
+   are the recommended front door. Author the `.py` file as a
+   `create(**kwargs)` call and the `.yaml` file as the equivalent YAML;
+   both must round-trip to the same `PlotsimConfig` under the same seed.
+2. **Engine-direct templates** (`plotsim/configs/sample_<name>.yaml`)
+   are the escape hatch when you need full `PlotsimConfig` shape with
+   every knob exposed.
+
+Steps:
+
+1. Copy an existing template (e.g. `saas_template.yaml` +
+   `saas_template.py`) as a starting point.
+2. Edit metrics, segments / archetypes, dimensions, facts, events, and
+   any feature-specific blocks for the new use case.
+3. Validate it: `plotsim validate <path>.yaml`.
+4. Run it: `plotsim run <path>.yaml --validate`.
+5. Add a description for the new name in
+   `plotsim/cli.py::cmd_list_templates` so it shows up in
+   `plotsim list-templates`.
+6. Add the new name to `EXPECTED_TEMPLATES` in
+   `tests/test_templates_api.py` — the catalog test fails the moment a
+   bundled template lands without a matching entry, so this step is
+   structural rather than optional.
+7. Open a PR.
 
 ## Adding a new curve type
 
@@ -45,8 +64,8 @@ all five shipped templates end to end.
 3. Add it to the `CURVE_TYPES` / `CurveType` literal in
    `plotsim/config.py` so the schema accepts it.
 4. Add unit tests in `tests/test_curves.py`.
-5. If the curve needs new parameter types, update the YAML schema
-   documentation in the README.
+5. If the curve needs new parameter types, update the column-type and
+   archetype docs under `docs/site/`.
 
 ## Code style
 
@@ -106,9 +125,8 @@ chars:
 | `test`     | Test-only change                                              |
 
 Small, focused commits. Body wraps at ~72 chars and explains *why* —
-the diff already shows *what*. Reference a mission file or issue when
-one exists. Tests should land in the same commit as the behavior they
-cover.
+the diff already shows *what*. Reference an issue when one exists.
+Tests should land in the same commit as the behavior they cover.
 
 ## Pull request flow
 

@@ -46,7 +46,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.5",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -68,7 +68,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.1"` (bumped from `"1.0"` in 0.6-M5 for the additive `causal_graph`, `correlations`, `outlier_injections` sections) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.5"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings — landed) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -81,7 +81,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `correlation_adjustments` | array or `null` | Higham nearest-PD projections. `null` when the user matrix was already PD |
 | `correlation_compensations` | array or `null` | Trajectory-aware compensation records. `null` when `compensate_correlations` is False or the metric cap was exceeded |
 | `bypass_fallback_counts` | object or `null` | Per-archetype count of cells that fell back to the scalar copula path. `null` in serial mode |
-| `vectorized_threshold_used` | `int` or `null` | The auto-mode entity-count threshold at generation time. `null` for pre-M121b manifests on disk |
+| `vectorized_threshold_used` | `int` or `null` | The auto-mode entity-count threshold at generation time. `null` for manifests produced before this field was added |
 | `causal_graph` | array | One `CausalEdge` per metric with a non-None `causal_lag`. Empty list when no metric uses `causal_lag` |
 | `correlations` | array | One entry per user-declared `config.correlations` pair, with the realized (post-Higham, post-compensation) coefficient. Empty list when no correlations are configured |
 | `outlier_injections` | array or `null` | Per-cell outlier-fire log. `null` when skipped (no `outlier_rate`, vectorized mode, or cell budget exceeded). `[]` when the detector ran and observed no firings |
@@ -448,7 +448,7 @@ The value of the auto-mode entity-count threshold at generation time.
 | Form | Meaning |
 |---|---|
 | `int` | Recorded threshold (currently `50`) |
-| `null` | Pre-M121b manifest on disk |
+| `null` | Older manifest produced before this field existed |
 
 Recorded so old manifests stay reproducible if the constant changes in
 a later release — comparing this against the current threshold lets a
@@ -515,7 +515,7 @@ coefficient the engine actually drove the copula against.
 | `metric_a` | `str` | First metric of the user-declared pair |
 | `metric_b` | `str` | Second metric of the pair |
 | `requested` | `float` | The coefficient written in `config.correlations` — what the user asked for |
-| `projected` | `float` | The coefficient at `(metric_a, metric_b)` of the matrix the engine drove the copula against — i.e. after M120 trajectory-aware compensation (when enabled) and M111 Higham nearest-PD projection (when needed). May differ from `requested` when those steps adjusted the matrix |
+| `projected` | `float` | The coefficient at `(metric_a, metric_b)` of the matrix the engine drove the copula against — i.e. after trajectory-aware compensation (when enabled) and Higham nearest-PD projection (when needed). May differ from `requested` when those steps adjusted the matrix |
 
 One entry per pair in `config.correlations`. Auto-zero off-diagonals
 (pairs the user did not declare) are not recorded. Sorted by
@@ -523,7 +523,7 @@ One entry per pair in `config.correlations`. Auto-zero off-diagonals
 
 **Distinct from** `correlation_adjustments` (which only fires when
 Higham had to project) and `correlation_compensations` (which only
-fires when M120 compensation ran). `correlations` fires on every run
+fires when trajectory-aware compensation ran). `correlations` fires on every run
 that has correlations, so consumers always see the realized value
 regardless of whether the matrix needed adjustment.
 
@@ -567,7 +567,7 @@ observe outlier firings. It skips three cases, all of which surface as
 | Skip reason | Why |
 |---|---|
 | `noise.outlier_rate == 0.0` | The noise pipeline never consults the outlier branch — re-running the engine to observe zero firings would be wasted work |
-| Vectorized generation mode | `_apply_noise_batch` consumes RNG in a different order than per-cell `apply_noise`. A serial-mode replay would record firings at cells that don't match the vectorized fact tables. Recording vectorized outliers needs a parallel batch detector — out of scope for 0.6-M5 |
+| Vectorized generation mode | `_apply_noise_batch` consumes RNG in a different order than per-cell `apply_noise`. A serial-mode replay would record firings at cells that don't match the vectorized fact tables. Recording vectorized outliers needs a parallel batch detector — out of scope for this release |
 | Cell count exceeds budget | The detector replays the full metric pipeline once. Total cells (`n_entities × n_periods × n_metrics`) above `OUTLIER_DETECTION_CELL_BUDGET` (1,000,000) trigger a skip — the replay cost is not justified for what is effectively a debug aid |
 
 `[]` (empty list) means the detector ran and observed no firings — a

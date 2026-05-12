@@ -26,7 +26,7 @@ quality: [ ... ]
 holdout: { target, periods, min_training_periods }
 entity_features: true | false | { metrics, include_labels }
 noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate }
-output: csv | parquet | { format, directory }
+output: csv | parquet | jsonl | sql | { format, directory, cell_budget, denormalized, partition_by, sql_dialect }
 locale: <faker locale or list of locales>
 seed: <int>
 ```
@@ -502,8 +502,8 @@ mismatches, late arrivals, schema drift, volume anomalies.
 
 Append to any config. Replace `<fact>` with one of your fact-table
 names and `<metric_col>` with a column on that fact. Mutually exclusive
-with `holdout` and `entity_features` — pick one corruption strategy
-per config.
+with `holdout` and `entity_features` — the three blocks are pairwise
+incompatible, so a config may opt into at most one of them.
 
 ```yaml
 quality:
@@ -666,7 +666,7 @@ values *during* generation (correlations and trajectory still hold);
 
 ## `output`
 
-Output-format selector and target directory.
+Output-format selector, target directory, and per-format knobs.
 
 ```yaml
 # Word shorthand (uses default directory ./output)
@@ -676,19 +676,26 @@ output: parquet
 output:
   format: parquet
   directory: ./fixtures
+  cell_budget: 5_000_000
+  denormalized: true
+  partition_by: date_key
+  sql_dialect: postgresql
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `format` | `"csv"` / `"parquet"` | `"csv"` | CSV is the default; `parquet` requires `pip install plotsim[parquet]` (pyarrow). Same engine path, ~5–10× smaller on disk |
+| `format` | `"csv"` / `"parquet"` / `"jsonl"` / `"sql"` | `"csv"` | `parquet` requires `pip install plotsim[parquet]` (pyarrow) and produces typed binary files ~5–10× smaller than CSV. `jsonl` writes newline-delimited JSON (one self-contained object per row) for streaming-ingestion / schema-on-read consumers. `sql` writes a single `data.sql` file with dialect-aware DDL + batched INSERTs instead of per-table files |
 | `directory` | `str` | `"output"` | Where `write_tables` writes. Override at call time with `write_tables(..., output_dir=...)` |
-| `cell_budget` | `int ≥ 0` / `null` | `null` | M7 — soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
+| `cell_budget` | `int ≥ 0` / `null` | `null` | Soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
+| `denormalized` | `bool` | `false` | Opt-in wide-table companion writer. When `true`, every fact table is left-joined with its FK'd dims (SCD2 dims filtered to current state) and emits `<fct>_wide.<ext>` alongside the normalized output. Under `format: sql` the wide tables emit as trailing blocks inside `data.sql` instead of separate files |
+| `partition_by` | `str` / `null` | `null` | Column name to partition Parquet output on. When set, every table that carries the column is written as a Hive-style directory (`<output_dir>/<table>/<col>=<value>/...`) via `pyarrow.parquet.write_to_dataset`. Tables without the column fall back to single files. Requires `format: parquet`; cross-validated at config load |
+| `sql_dialect` | `"postgresql"` / `"mysql"` / `"sqlite"` | `"postgresql"` | Dialect for the SQL dump writer — selects identifier quoting (`"col"` for PG/SQLite, `` `col` `` for MySQL), type words (PG `NUMERIC` / MySQL `DOUBLE` + `VARCHAR(255)` for string PKs / SQLite `REAL`), and boolean encoding. The default round-trips under any format; explicit `mysql` / `sqlite` requires `format: sql` (cross-validated at config load) |
 
 When `format: parquet` and `pyarrow` is missing, `write_tables` raises
 `ImportError` naming the install command — fail-fast at the write call
 rather than mid-iteration. See [Output formats](./user-guide/output-formats.md)
-for the full pickup of column dtypes, dim_date typing, and downstream
-loader notes.
+for per-format conventions, partitioned-Parquet layout, the JSONL
+streaming-ingestion contract, and the SQL dump's dialect comparison.
 
 ---
 
@@ -731,7 +738,7 @@ so the realized Pearson correlations land closer to the declared
 Records each adjustment in `manifest.correlation_compensations`. The
 builder layer sets `True` explicitly because `connections` is a
 table-wide intent contract; engine-direct configs default to `False`
-to preserve byte-identical output for pre-M120 YAML on disk.
+to preserve byte-identical output for legacy YAML on disk.
 
 ### `generation_mode`
 

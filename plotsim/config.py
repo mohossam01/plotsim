@@ -2379,6 +2379,21 @@ class OutputConfig(_Frozen):
             )
         return self
 
+    @model_validator(mode="after")
+    def _sql_dialect_requires_sql_format(self) -> "OutputConfig":
+        # The default ``postgresql`` is allowed under any format (it
+        # round-trips through ``dump_config`` regardless of whether the
+        # SQL writer ever consumes it). An explicit ``mysql`` / ``sqlite``
+        # paired with a non-sql format is a misconfiguration the user
+        # should hear about at load rather than have silently ignored.
+        if self.sql_dialect != "postgresql" and self.format != "sql":
+            raise ValueError(
+                f"output.sql_dialect={self.sql_dialect!r} requires "
+                f"output.format='sql' (got {self.format!r}); the dialect "
+                f"is only consumed when emitting the data.sql dump"
+            )
+        return self
+
 
 PERFECTLY_CLEAN = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
 SLIGHTLY_MESSY = NoiseConfig(gaussian_sigma=0.03, outlier_rate=0.01, mcar_rate=0.005)

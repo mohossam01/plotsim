@@ -23,7 +23,7 @@ tests reproduce. Configurable quality injection lets you assert dirty-
 data handling explicitly.
 
 The companion notebook is the runnable, end-to-end walkthrough:
-[**de_use_cases.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/de_use_cases.ipynb).
+[**de_use_cases.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/de_use_cases.ipynb).
 
 ---
 
@@ -151,7 +151,7 @@ appends duplicates of `floor(rate × N)` rows at the target period(s);
 `mode: drop` removes them. PK / FK / `date_key` columns are skipped
 automatically — quality never breaks referential integrity.
 
-See the [data_quality.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/data_quality.ipynb)
+See the [data_quality.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/data_quality.ipynb)
 notebook for assertions against the recovered clean values.
 
 ---
@@ -338,22 +338,29 @@ explicitly:
 | Cell count | Behavior |
 |---|---|
 | `≤ 500,000` | Silent (just the summary line) |
-| `> 500,000` | Warning to stderr |
-| `> 2,000,000` | `ValueError` at load — generation blocked |
+| `> 500,000` | Stderr advisory recommending `output.format: parquet` and `generation_mode: auto` |
+| `> soft budget` (default `2,000,000`) | `ValueError` at load with instructions to opt in |
+| `> soft budget` with opt-in | Stderr large-dataset notice, generation proceeds |
+| `> 50,000,000` | Hard ceiling — `ValueError` regardless of opt-in |
 
-For a 12-month monthly window that's 166k entities at the warn
-threshold and 666k entities at the error. For a 365-day daily
-window it's 1,370 / 5,480 entities. Reduce entity count, time
-window span, or switch to a coarser granularity to clear the
-error. See [Limits](../config-reference.md#limits-and-performance-gates).
+Two ways to opt into above-soft-budget runs: `--allow-large-dataset` on
+the CLI, or `PLOTSIM_ALLOW_LARGE_DATASET=1` in the environment. Three
+ways to change the soft-budget threshold itself: `output.cell_budget`
+in the config (recommended; reproducible from YAML alone),
+`PLOTSIM_CELL_BUDGET=N` env var, or the `2,000,000`-cell default.
+`output.cell_budget: 0` (or `PLOTSIM_CELL_BUDGET=0`) disables the soft
+cap entirely; only the `50,000,000`-cell hard ceiling still applies.
+See [Limits](../config-reference.md#limits-and-performance-gates) for
+the full ladder and the bundled `lakehouse` template for a worked
+example of a 1.5M-cell config.
 
 ---
 
 ## See also
 
-- [data_quality.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/data_quality.ipynb) —
+- [data_quality.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/data_quality.ipynb) —
   every quality issue type with examples
-- [pipeline_testing.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/pipeline_testing.ipynb) —
+- [pipeline_testing.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/pipeline_testing.ipynb) —
   deeper end-to-end recipe
 - [CLI reference](../cli-reference.md) — every subcommand and flag
 - [Schema guide](../user-guide/schema-guide.md) — designing dim / fact / event tables

@@ -5,7 +5,7 @@
 > [API](./api-reference.md), [Config fields](./config-reference.md),
 > [Column types](./column-types.md), [Manifest](./manifest-reference.md).
 >
-> Snapshot against `plotsim` `0.7.0-dev` (main HEAD `fbbf6ab`, post-M14c).
+> Snapshot against `plotsim` `0.6.1` on `main`.
 
 ---
 
@@ -129,13 +129,13 @@ on critical issues).
 seed, archetype assignments per entity, sampled trajectory positions
 (rate-controlled), event firings, SCD-2 band crossings, treatment
 assignments + cohort definitions, bridge associations, and configured
-quality-issue rates. Plus three M5 ground-truth sections that turn the
+quality-issue rates. Plus three ground-truth sections that turn the
 manifest into a scoreable answer key:
 
 | Section | What it carries | Used for |
 |---|---|---|
 | `causal_graph` | One `CausalEdge` record per non-None `causal_lag` in the config (source metric → target metric, lag, decay window when set) | DE lineage / cataloging exercises; AE semantic-layer modeling |
-| `correlations` | One `CorrelationEntry` per metric pair (projected coefficient after Higham nearest-PD); M11 extends with per-phase entries tagged by `phase_index` | DS/ML feature-engineering guidance; correlation-recovery exercises |
+| `correlations` | One `CorrelationEntry` per metric pair (projected coefficient after Higham nearest-PD); time-varying `correlation_phases` add per-phase entries tagged by `phase_index` | DS/ML feature-engineering guidance; correlation-recovery exercises |
 | `outlier_injections` | Per-cell log of where the noise outlier branch fired (`None` when skipped — zero outlier rate or above the `OUTLIER_DETECTION_CELL_BUDGET` of 1M cells) | DS/ML anomaly-detection scoring (Isolation Forest, LOF); DE data-quality testing |
 
 The "what was true at generation time" record.
@@ -190,7 +190,7 @@ convenience shapes:
 - `window=("2024-01", "2024-12", "monthly")` shorthand.
 
 Templates: `plotsim.list_templates()` →
-`["bare_minimum", "education", "hr", "marketing", "retail", "saas"]`.
+`["ab_trial", "bare_minimum", "cdc_demo", "crm_billing_overlap", "education", "geo_retail", "hr", "lakehouse", "latency_skew", "marketing", "narrative_reviews", "retail", "saas"]`.
 `plotsim.load_template("saas")` returns a `PlotsimConfig` ready to mutate
 or pass to `generate_tables`.
 
@@ -217,9 +217,12 @@ output/
 
 Format conventions:
 
-- UTF-8, `pd.NA` written as empty string, `%.6g` floats.
-- Parquet emitted instead of CSV when `output.format: parquet` (requires
-  `plotsim[parquet]` extra). Columns and dtypes identical otherwise.
+- UTF-8, `pd.NA` written as empty string, `%.4f` floats (4 decimal
+  places, fixed-point).
+- `output.format` selects the per-table encoding: `csv` (default),
+  `parquet` (requires `plotsim[parquet]` extra), `jsonl` (one JSON
+  object per line), or `sql` (single `data.sql` with dialect-aware DDL
+  + INSERTs). Columns and dtypes identical across encodings.
 - `output.holdout` swaps each `fct_*` and `evt_*` for paired
   `_train` / `_holdout` files.
 
@@ -228,33 +231,7 @@ the same plotsim version → byte-identical output.
 
 ---
 
-## Engine internals not yet exposed in the public API
-
-The library has more capability than `plotsim/__init__.py:__all__`
-exposes. Anything below works today via direct submodule import, but
-isn't part of the supported front door — meaning it can be renamed or
-restructured between minor releases without notice. External wrappers
-(FastAPI studio, Streamlit demo) should treat this list as gap-to-close,
-not as a parallel API.
-
-Symbols are reachable via the path shown; promotion to `plotsim/__all__`
-is a straightforward re-export.
-
-| Capability | Where it lives | Why a wrapper might want it |
-|---|---|---|
-| 8 curve functions + `evaluate_segment` + `CURVE_REGISTRY` | `plotsim.curves` | Render archetype previews ("show me what `sigmoid then plateau` looks like") without spinning up a config |
-| Archetype DSL parser | `plotsim.builder.parse_archetype` (re-exported via `plotsim.builder`, not via top-level `plotsim`) | Validate or preview a DSL string from a UI editor |
-| Trajectory engine | `plotsim.trajectory.compute_trajectory`, `compute_all_trajectories`, `compute_time_steps` | Generate the position curve for one entity for live preview, without `generate_tables` |
-| Distribution registry | `plotsim._distribution_registry.DISTRIBUTION_REGISTRY`, `get_family`, `DistributionFamily` | List available distribution families to a UI dropdown |
-| Quality-issue dispatcher | `plotsim.quality.apply_issues` | Apply quality issues to an existing table in a sandbox |
-| Holdout helpers | `plotsim.holdout.cutoff_period_index`, `split_fact_tables` | Slice tables on demand without rerunning generation |
-| Dimension builders | `plotsim.dimensions.build_dim_date`, `build_dim_entity`, `build_dim_subentity`, `build_dim_reference`, `build_all_dimensions` | Build a single dim for inspection / fixture work |
-| JSON-Schema generators | `plotsim.schema.generate_schema`, `plotsim.builder.schema.generate_user_input_schema`, `write_user_input_schema` | Serve the input schema to an editor for autocomplete and lint |
-| Builder input models | `plotsim.builder.input.MetricInput`, `SegmentInput`, `ConnectionInput`, `ConnectionPhase`, `LifecycleInput`, `ColumnInput`, `DimInput`, `FactInput`, `EventInput`, `SeasonalEffectInput`, `QualityIssueInput`, `HoldoutInput`, `EntityFeaturesInput`, `BridgeInput`, `NoiseInput`, `OutputInput` | Pydantic-based field-level validation in a UI; only `UserInput` is plausibly user-facing |
-| Manifest constants | `plotsim.manifest.MANIFEST_FILENAME`, `MANIFEST_SCHEMA_VERSION`; `plotsim.entity_features.ENTITY_FEATURES_BASENAME`; `plotsim.schema.SCHEMA_FILENAME` | Identify expected sidecar files without hard-coding strings |
-| Manifest sub-models (not in `__all__`) | `plotsim.manifest.CausalEdge`, `CorrelationAdjustment`, `CorrelationCompensation`, `CorrelationEntry`, `CorrelationPhaseInfo`, `OutlierInjection`, `QualityInjection`, `SCDEvent`, `BridgeAssociationRecord`, `HoldoutInfo` | Typed parsing of `manifest.json` from a wrapper (e.g. an evaluator scoring anomaly-detection candidates against the outlier ground truth). The six manifest sub-models already in `__all__` (`EntityArchetypeAssignment`, `ActiveWindow`, `TreatmentAssignment`, `TreatmentCohort`, `TrajectorySample`, `EventFiring`) show the pattern; these would complete the typed surface. |
-
-### Known limits (intentional, not "not yet exposed")
+## Known limits (intentional, not "not yet exposed")
 
 These are engine-level limitations, not closed doors waiting to be
 opened — surfaced here so a feature catalog reader doesn't go looking:
@@ -265,12 +242,6 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
   to chance. For trajectory- and archetype-driven text on fact tables,
   use the `narrative` column type instead — see
   [Narrative text source](./user-guide/narrative-source.md).
-- **Single source per config.** No multi-system overlap, no CDC change
-  log on facts (SCD2 covers dim CDC only), no schema-evolution
-  emission. (Tracked: multi-source mode mission.)
-- **Flat scalars only.** No struct/array/JSON column types; CSV and
-  Parquet writers don't emit nested types.
-- **3NF by construction.** No denormalized "wide" output mode.
 - **Faker geo providers are independent draws.** `generated:faker.city`,
   `generated:faker.country`, etc. don't agree on a single row — Faker
   picks each value independently. Use the `geo.<field>` column type
@@ -278,7 +249,14 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
   country / region / city / postcode / lat-lng bundles drawn from a
   curated reference dataset; see
   [Geo hierarchy](./user-guide/geo-hierarchy.md).
-
-These are listed in `project/notes/engine-features-maturity.md`
-(internal) with mission-shaped fixes. They are out of scope for "what
-the library does today."
+- **Nested columns are dim-only and one level deep.** `dtype: struct`
+  and `dtype: array` are supported on dimension columns with primitive
+  leaves (`int` / `float` / `string` / `boolean`). Nested-of-nested
+  (struct-of-struct, array-of-struct) is rejected at config load. Fact
+  and event tables stay flat.
+- **No LLM-driven domain scaffolding.** Plotsim ships the engine
+  surface (`create` / `create_from_yaml` / templates) but not the
+  natural-language → YAML scaffolder described in the spec. Users
+  hand-write the YAML, copy a bundled template, or use the
+  `create(**kwargs)` builder. The LLM scaffolder is a planned future
+  release.

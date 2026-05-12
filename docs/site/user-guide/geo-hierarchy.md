@@ -28,7 +28,7 @@ so a single rng call shapes the whole table's geography.
 Geo data is **dim-only**. Fact and event tables intentionally
 reject `generated:geo.<field>` — geography is reference metadata
 that joins back to a dim, not something that varies per period.
-The mission spec also keeps geography out of metric generation:
+The engine design also keeps geography out of metric generation:
 metrics do not vary by country.
 
 ## Quickstart — builder

@@ -114,7 +114,8 @@ that — no joins required, no SQL knowledge required.
 
 ## Scope and limitations
 
-* **Facts only.** Events and bridge tables are not denormalized in V1.
+* **Facts only.** Events and bridge tables are not denormalized in the
+  current release.
   An event's row count depends on the trajectory and would multiply
   out into the wide view in confusing ways; bridges are M:M
   associations whose denormalized form is rarely useful.
