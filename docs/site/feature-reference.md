@@ -228,35 +228,3 @@ Format conventions:
 
 Reproducibility contract: run `plotsim run output/config.yaml` against
 the same plotsim version → byte-identical output.
-
----
-
-## Known limits (intentional, not "not yet exposed")
-
-These are engine-level limitations, not closed doors waiting to be
-opened — surfaced here so a feature catalog reader doesn't go looking:
-
-- **Faker text is non-semantic.** `generated:faker.sentence` and
-  similar are independent draws — no access to entity, archetype, or
-  trajectory position. Text-classification / sentiment lessons score
-  to chance. For trajectory- and archetype-driven text on fact tables,
-  use the `narrative` column type instead — see
-  [Narrative text source](./user-guide/narrative-source.md).
-- **Faker geo providers are independent draws.** `generated:faker.city`,
-  `generated:faker.country`, etc. don't agree on a single row — Faker
-  picks each value independently. Use the `geo.<field>` column type
-  (or `generated:geo.<field>` source) for row-coherent
-  country / region / city / postcode / lat-lng bundles drawn from a
-  curated reference dataset; see
-  [Geo hierarchy](./user-guide/geo-hierarchy.md).
-- **Nested columns are dim-only and one level deep.** `dtype: struct`
-  and `dtype: array` are supported on dimension columns with primitive
-  leaves (`int` / `float` / `string` / `boolean`). Nested-of-nested
-  (struct-of-struct, array-of-struct) is rejected at config load. Fact
-  and event tables stay flat.
-- **No LLM-driven domain scaffolding.** Plotsim ships the engine
-  surface (`create` / `create_from_yaml` / templates) but not the
-  natural-language → YAML scaffolder described in the spec. Users
-  hand-write the YAML, copy a bundled template, or use the
-  `create(**kwargs)` builder. The LLM scaffolder is a planned future
-  release.
