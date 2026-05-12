@@ -231,33 +231,7 @@ the same plotsim version → byte-identical output.
 
 ---
 
-## Engine internals not yet exposed in the public API
-
-The library has more capability than `plotsim/__init__.py:__all__`
-exposes. Anything below works today via direct submodule import, but
-isn't part of the supported front door — meaning it can be renamed or
-restructured between minor releases without notice. External wrappers
-(FastAPI studio, Streamlit demo) should treat this list as gap-to-close,
-not as a parallel API.
-
-Symbols are reachable via the path shown; promotion to `plotsim/__all__`
-is a straightforward re-export.
-
-| Capability | Where it lives | Why a wrapper might want it |
-|---|---|---|
-| 8 curve functions + `evaluate_segment` + `CURVE_REGISTRY` | `plotsim.curves` | Render archetype previews ("show me what `sigmoid then plateau` looks like") without spinning up a config |
-| Archetype DSL parser | `plotsim.builder.parse_archetype` (re-exported via `plotsim.builder`, not via top-level `plotsim`) | Validate or preview a DSL string from a UI editor |
-| Trajectory engine | `plotsim.trajectory.compute_trajectory`, `compute_all_trajectories`, `compute_time_steps` | Generate the position curve for one entity for live preview, without `generate_tables` |
-| Distribution registry | `plotsim._distribution_registry.DISTRIBUTION_REGISTRY`, `get_family`, `DistributionFamily` | List available distribution families to a UI dropdown |
-| Quality-issue dispatcher | `plotsim.quality.apply_issues` | Apply quality issues to an existing table in a sandbox |
-| Holdout helpers | `plotsim.holdout.cutoff_period_index`, `split_fact_tables` | Slice tables on demand without rerunning generation |
-| Dimension builders | `plotsim.dimensions.build_dim_date`, `build_dim_entity`, `build_dim_subentity`, `build_dim_reference`, `build_all_dimensions` | Build a single dim for inspection / fixture work |
-| JSON-Schema generators | `plotsim.schema.generate_schema`, `plotsim.builder.schema.generate_user_input_schema`, `write_user_input_schema` | Serve the input schema to an editor for autocomplete and lint |
-| Builder input models | `plotsim.builder.input.MetricInput`, `SegmentInput`, `ConnectionInput`, `ConnectionPhase`, `LifecycleInput`, `ColumnInput`, `DimInput`, `FactInput`, `EventInput`, `SeasonalEffectInput`, `QualityIssueInput`, `HoldoutInput`, `EntityFeaturesInput`, `BridgeInput`, `NoiseInput`, `OutputInput` | Pydantic-based field-level validation in a UI; only `UserInput` is plausibly user-facing |
-| Manifest constants | `plotsim.manifest.MANIFEST_FILENAME`, `MANIFEST_SCHEMA_VERSION`; `plotsim.entity_features.ENTITY_FEATURES_BASENAME`; `plotsim.schema.SCHEMA_FILENAME` | Identify expected sidecar files without hard-coding strings |
-| Manifest sub-models (not in `__all__`) | `plotsim.manifest.CausalEdge`, `CorrelationAdjustment`, `CorrelationCompensation`, `CorrelationEntry`, `CorrelationPhaseInfo`, `OutlierInjection`, `QualityInjection`, `SCDEvent`, `BridgeAssociationRecord`, `HoldoutInfo` | Typed parsing of `manifest.json` from a wrapper (e.g. an evaluator scoring anomaly-detection candidates against the outlier ground truth). The six manifest sub-models already in `__all__` (`EntityArchetypeAssignment`, `ActiveWindow`, `TreatmentAssignment`, `TreatmentCohort`, `TrajectorySample`, `EventFiring`) show the pattern; these would complete the typed surface. |
-
-### Known limits (intentional, not "not yet exposed")
+## Known limits (intentional, not "not yet exposed")
 
 These are engine-level limitations, not closed doors waiting to be
 opened — surfaced here so a feature catalog reader doesn't go looking:
@@ -284,5 +258,5 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
   surface (`create` / `create_from_yaml` / templates) but not the
   natural-language → YAML scaffolder described in the spec. Users
   hand-write the YAML, copy a bundled template, or use the
-  `create(**kwargs)` builder. The LLM scaffolder is a planned V2
-  surface.
+  `create(**kwargs)` builder. The LLM scaffolder is a planned future
+  release.

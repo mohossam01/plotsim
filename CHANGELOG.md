@@ -79,7 +79,7 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   entity count crosses the auto threshold, serial below. Same `(config,
   seed)` produces statistically equivalent but **byte-different** output
   vs. the previous serial default — the two modes consume RNG in
-  different orders. Layer 4 reference fixtures regenerated under the new
+  different orders. Integration reference fixtures regenerated under the new
   default. Pin `generation_mode: "serial"` explicitly to preserve
   pre-flip bytes.
 - **Auto-mode threshold keys on archetype batch size, not total entity

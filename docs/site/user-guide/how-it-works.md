@@ -96,7 +96,8 @@ output/
 └── manifest.json             # archetype labels, trajectory tape, etc.
 ```
 
-Configure `output_format: parquet` and you get `.parquet` files instead.
+Set `output: { format: parquet }` (or one of `csv` / `jsonl` / `sql`)
+on the config and the table files land in that encoding instead.
 [`output-formats.md`](./output-formats.md) covers the differences.
 
 ---

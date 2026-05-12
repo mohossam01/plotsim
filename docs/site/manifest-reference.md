@@ -46,7 +46,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "1.5",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -68,7 +68,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.1"` (bumped from `"1.0"` when the additive `causal_graph`, `correlations`, and `outlier_injections` sections landed) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.5"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings — landed) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |

@@ -124,7 +124,7 @@ Same config + same seed produces byte-identical output every time. CSV is the de
 
 **Educators and students** who need realistic datasets for SQL
 courses, data modeling workshops, analytics training, or portfolio
-projects — five domain templates ready to go, same seed produces
+projects — 13 bundled templates ready to go, same seed produces
 the same data every time.
 
 **Data engineers** who need test fixtures that behave like production
@@ -196,7 +196,7 @@ flowchart LR
     QLT["Quality injection<br/>nulls · dupes · type-mismatch · late-arrival"]
 
     %% Validation (integrity checks)
-    QLT --> VAL["38 validators<br/>FK · PK · temporal · PSD"]
+    QLT --> VAL["Validators<br/>FK · PK · temporal · PSD"]
 
     %% Outputs diverge
     VAL --> CSV[("CSV / Parquet")]

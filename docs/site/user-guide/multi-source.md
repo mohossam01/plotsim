@@ -194,7 +194,7 @@ Rules enforced at load:
 ## Out of scope (today)
 
 * **Fact-table drift.** Drift is dim-only; facts are unchanged. A
-  future mission could optionally divergence-tag fact-side audit
+  future release could optionally divergence-tag fact-side audit
   columns, but the current spec keeps the contract simple.
 * **Probabilistic record linkage.** The manifest carries binary
   match / no-match ground truth, not similarity scores. If your

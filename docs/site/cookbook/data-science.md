@@ -20,9 +20,9 @@ classifier on the noisy fact tables and *score it against the answer
 key*.
 
 The companion notebooks are
-[**ds_use_cases.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/ds_use_cases.ipynb)
+[**ds_use_cases.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/ds_use_cases.ipynb)
 (end-to-end ML workflows) and
-[**ml_readiness.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/ml_readiness.ipynb)
+[**ml_readiness.ipynb**](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/ml_readiness.ipynb)
 (features, holdout, sklearn).
 
 ---
@@ -310,7 +310,7 @@ relationship-graph features.
 
 `driver: mrr` biases sampling toward the entity's trajectory
 position — high-MRR companies hold more subscriptions. See
-[`bridges_and_advanced.ipynb`](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/bridges_and_advanced.ipynb).
+[`bridges_and_advanced.ipynb`](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/bridges_and_advanced.ipynb).
 
 ---
 
@@ -440,11 +440,11 @@ linear-regression forecast.
 
 ## See also
 
-- [ml_readiness.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/ml_readiness.ipynb) —
+- [ml_readiness.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/ml_readiness.ipynb) —
   end-to-end ML pipeline with plotsim fixtures
-- [designing_archetypes.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/designing_archetypes.ipynb) —
+- [designing_archetypes.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/designing_archetypes.ipynb) —
   the archetype DSL in depth
-- [seasonality_and_correlations.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/tutorial-notebooks/seasonality_and_correlations.ipynb) —
+- [seasonality_and_correlations.ipynb](https://github.com/mohossam01/plotsim/blob/main/docs/site/tutorial-notebooks/seasonality_and_correlations.ipynb) —
   full seasonality + connection-grammar walk-through
 - [Manifest reference](../manifest-reference.md) — every ground-truth field
 - [Config field reference §holdout / §entity_features](../config-reference.md#holdout) —

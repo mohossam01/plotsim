@@ -92,10 +92,10 @@ MANIFEST_FILENAME = "manifest.json"
 # top-level list defaults to ``[]``. Configs without
 # ``correlation_phases`` produce a 1.4 manifest byte-equivalent to 1.3
 # modulo the schema_version string and the empty list.
-# 0.6-M13: bumped 1.4 → 1.5 for the additive ``source_entity_mappings``
-# list. Configs without ``multi_source`` produce an empty list (the
-# default), so 1.4 readers parse 1.5 manifests cleanly except for the
-# new field. Multi-source configs populate the list with one record per
+# Bumped 1.4 → 1.5 for the additive ``source_entity_mappings`` list.
+# Configs without ``multi_source`` produce an empty list (the default),
+# so 1.4 readers parse 1.5 manifests cleanly except for the new field.
+# Multi-source configs populate the list with one record per
 # (entity, source, dim_table) tuple — the ground-truth answer key for
 # entity-resolution exercises.
 MANIFEST_SCHEMA_VERSION = "1.5"
