@@ -184,10 +184,20 @@ def _streaming_parquet_eligible(config: Optional[PlotsimConfig]) -> bool:
     pre-mission unified-DataFrame write path. Engine-direct configs
     that never opted into vectorized mode are unaffected because their
     ``generation_mode`` defaults to ``"serial"``.
+
+    0.6-M16a: partitioning wins over streaming. When
+    ``output.partition_by`` is set, every fact table routes through
+    ``write_single_table``'s partitioned branch (``write_to_dataset``);
+    the per-archetype row-group writer would have to compose with
+    Hive-style directory layout, which ``pyarrow`` does not support in
+    one call. Streaming is an internal optimization; partitioning is
+    the user-visible knob — partitioning wins.
     """
     if config is None:
         return False
     if _resolve_output_format(config) != "parquet":
+        return False
+    if _resolve_partition_by(config) is not None:
         return False
     # Local import: ``plotsim.tables`` imports ``plotsim.output``
     # transitively for non-streaming writes; importing at module
@@ -357,6 +367,21 @@ def _resolve_output_format(config: Optional[PlotsimConfig]) -> str:
     return getattr(output_cfg, "format", "csv")
 
 
+def _resolve_partition_by(config: Optional[PlotsimConfig]) -> Optional[str]:
+    """Return ``output.partition_by`` if set, else ``None``.
+
+    Mirrors ``_resolve_output_format``'s defensive ``getattr`` chain so
+    stub configs and ``None`` inputs (used by programmatic callers of
+    ``write_single_table``) keep the single-file Parquet path.
+    """
+    if config is None:
+        return None
+    output_cfg = getattr(config, "output", None)
+    if output_cfg is None:
+        return None
+    return getattr(output_cfg, "partition_by", None)
+
+
 def _check_parquet_engine_available() -> None:
     """Raise ImportError with the install hint if ``pyarrow`` is missing.
 
@@ -424,6 +449,15 @@ def write_single_table(
 
     if output_format == "parquet":
         _check_parquet_engine_available()
+        # 0.6-M16a: when ``output.partition_by`` is set AND the column
+        # is present in this DataFrame, route through the partitioned
+        # writer. Tables that don't carry the partition column fall
+        # back to the single-file Parquet path on the next branch —
+        # this is the "partition where applicable" semantic declared
+        # in ``OutputConfig.partition_by``.
+        partition_by = _resolve_partition_by(config)
+        if partition_by is not None and partition_by in to_write.columns:
+            return _write_partitioned_parquet(to_write, tbl, output_dir, name, partition_by)
         # 0.6-M14c: nested columns (struct / array) need an explicit
         # pyarrow schema so dict / list cells write as native nested
         # types instead of being inferred as opaque object columns.
@@ -495,15 +529,16 @@ def _is_nan_scalar(v: object) -> bool:
         return False
 
 
-def _write_parquet_with_nested_schema(df: pd.DataFrame, tbl: Table, path: Path) -> None:
-    """Write ``df`` to Parquet using an explicit pyarrow schema for nested columns.
+def _build_nested_pa_schema(df: pd.DataFrame, tbl: Table):
+    """Build a pyarrow schema mapping nested config columns to native
+    struct / list types and inferring other columns from pandas dtypes.
 
-    The struct schema fields and array element types come from the
-    column config (``nested_schema`` / ``array_element_type``).
-    Non-nested columns are inferred from the pandas dtype.
+    Shared between the single-file Parquet path
+    (``_write_parquet_with_nested_schema``) and the partitioned dataset
+    path (``_write_partitioned_parquet``) so nested-column round-trip
+    behaves identically under both layouts.
     """
     import pyarrow as pa
-    import pyarrow.parquet as pq
 
     fields: list[pa.Field] = []
     for col_name in df.columns:
@@ -522,10 +557,71 @@ def _write_parquet_with_nested_schema(df: pd.DataFrame, tbl: Table, path: Path) 
         else:  # array
             assert tbl_col.array_element_type is not None
             fields.append(pa.field(col_name, pa.list_(_pa_primitive(tbl_col.array_element_type))))
+    return pa.schema(fields)
 
-    schema = pa.schema(fields)
+
+def _write_parquet_with_nested_schema(df: pd.DataFrame, tbl: Table, path: Path) -> None:
+    """Write ``df`` to Parquet using an explicit pyarrow schema for nested columns.
+
+    The struct schema fields and array element types come from the
+    column config (``nested_schema`` / ``array_element_type``).
+    Non-nested columns are inferred from the pandas dtype.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = _build_nested_pa_schema(df, tbl)
     table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
     pq.write_table(table, path, compression="snappy")
+
+
+def _write_partitioned_parquet(
+    df: pd.DataFrame,
+    tbl: Optional[Table],
+    output_dir: Path,
+    name: str,
+    partition_by: str,
+) -> Path:
+    """Write ``df`` as a Hive-style partitioned Parquet directory under
+    ``<output_dir>/<name>/``.
+
+    Uses ``pyarrow.parquet.write_to_dataset`` with
+    ``partition_cols=[partition_by]``; the resulting layout is
+    ``<output_dir>/<name>/<partition_by>=<value>/<file>.parquet``.
+    File naming inside each partition is pyarrow's default — names are
+    not part of the on-disk contract (callers iterate the dataset).
+
+    Nested-column tables (``struct`` / ``array``) reuse
+    ``_build_nested_pa_schema`` so the column types survive partitioning
+    exactly as they do under the single-file Parquet path.
+    """
+    _check_parquet_engine_available()
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    dataset_dir = output_dir / name
+    resolved_dir = output_dir.resolve()
+    if dataset_dir.resolve().parent != resolved_dir:
+        raise ValueError(
+            f"_write_partitioned_parquet: table name {name!r} resolves "
+            f"outside output_dir {str(output_dir)!r}; names must be "
+            f"SQL-safe identifiers (no path separators, no ..)"
+        )
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    if tbl is not None and _table_has_nested_columns(tbl):
+        schema = _build_nested_pa_schema(df, tbl)
+        pa_table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+    else:
+        pa_table = pa.Table.from_pandas(df, preserve_index=False)
+
+    pq.write_to_dataset(
+        pa_table,
+        root_path=str(dataset_dir),
+        partition_cols=[partition_by],
+        compression="snappy",
+    )
+    return dataset_dir
 
 
 def _pa_primitive(type_word: str):

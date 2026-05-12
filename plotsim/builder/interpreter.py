@@ -182,6 +182,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
             directory=user_input.output.directory,
             cell_budget=user_input.output.cell_budget,
             denormalized=user_input.output.denormalized,
+            partition_by=user_input.output.partition_by,
         )
     else:
         output_cfg = OutputConfig(format="csv", directory="output")

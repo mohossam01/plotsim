@@ -1104,6 +1104,14 @@ class OutputInput(BaseModel):
     ``<fct_name>_wide.{csv|parquet}`` alongside each normalized fact
     table, with FK'd dims left-joined onto the fact (SCD2 dims
     filtered to current state).
+
+    ``partition_by`` (0.6-M16a) mirrors ``OutputConfig.partition_by``
+    — opt-in Hive-style Parquet partitioning by the named column.
+    ``None`` (default) keeps the single-file-per-table layout. When
+    set, tables that have the column are written as a directory of
+    Parquet files (``<output>/<table>/<col>=<value>/...``); tables
+    without the column fall back to single files. Requires
+    ``format='parquet'``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1112,6 +1120,7 @@ class OutputInput(BaseModel):
     directory: str = "output"
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False
+    partition_by: Optional[str] = None
 
 
 class SourceInput(BaseModel):
