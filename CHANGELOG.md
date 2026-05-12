@@ -7,6 +7,41 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Broader feature coverage in bundled domain templates.** The five
+  domain templates (`saas`, `hr`, `retail`, `education`, `marketing`)
+  now demonstrate audit, quality, treatment, and nested-output
+  surfaces that previously lived only in dedicated single-feature
+  templates. `saas` opts into denormalized output (`output.denormalized:
+  true`) and ships a syslog `log_format` on `evt_login`;
+  `retail.fct_purchases` flips `cdc: true` with a paired
+  `null_injection` quality block on `cart_value`;
+  `retail.dim_product_category` adds a nested `struct` column for
+  JSON-flattening exercises; `retail.fct_sessions` carries a 50%
+  `volume_anomaly` spike at period 18 for data-observability training;
+  `marketing.awareness_builder` adds a 50/50 A/B treatment cohort with
+  a 0.5 log-odds lift. All five domain templates gain a top-level
+  `quality:` block with two issue types each.
+- **`crm_billing_overlap` listed in the bundled-templates index.** The
+  multi-source overlap template (shipped previously) was missing from
+  the bundled-templates catalog in `docs/site/feature-reference.md` —
+  documentation parity catch-up.
+- **Section 7 of `feature-reference.md` extended.** "Audit + downstream-
+  pipeline outputs" now covers denormalization, the log-file writer,
+  multi-source overlap mode, and nested struct / array column types,
+  with each row citing its demonstrating bundled template.
+
+### Changed
+
+- **`narrative_reviews` lexicon: cross-segment shared opener pool.**
+  Each band's per-segment opener phrases are concatenated with a
+  shared cross-segment pool of four band-keyed phrases. Bag-of-words
+  classifier accuracy on the held-out entity split drops from 0.90
+  (trivially separable) into the 0.65–0.85 range — preserves the
+  per-archetype speaking style while introducing controlled overlap
+  so the classification challenge isn't a one-line solve.
+
 ## [0.6.1] — 2026-05-08
 
 ### Added

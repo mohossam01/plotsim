@@ -13,8 +13,16 @@ seed: 1729
 # `dirty`) or use the dict form for full control. See
 # docs/site/config-reference.md §noise / §output / §locale.
 noise: perfectly_clean       # demo: also accepts `slightly_messy`, `realistic`, `dirty`
-# output: parquet            # csv (default) | parquet | {format, directory}
 # locale: en_US              # str or list — threaded to faker.* columns
+
+# 0.6-M15: opt-in denormalization (M14a). With ``denormalized: true``,
+# each fact is left-joined with its FK'd dims and a paired
+# ``<fct>_wide.csv`` is emitted alongside the normalized output. Lets
+# students practice 1NF–3NF decomposition (DE L4) against a realistic
+# SaaS subscription dataset; the normalized output stays available as
+# the answer key.
+output:
+  denormalized: true
 
 window:
   start: 2023-01
@@ -259,6 +267,14 @@ events:
     trigger: proportional
     driver: engagement
     scale: 5
+    # 0.6-M15: log-file writer (M14b) demonstrated on the login event
+    # stream. Each row is rendered into a structured log line; the
+    # ``.log`` file is emitted alongside the CSV / Parquet output. The
+    # format is a syslog-flavoured template — students parse it with
+    # regex / grok / line splitters and reconcile against the
+    # event-table CSV for ground truth (DE L33).
+    log_format: "{event_ts} INFO user={user_id} company={company_id} action=login"
+    log_filename: "evt_login.log"
     columns:
       - {name: event_id,    type: id}
       - {name: date_key,    type: ref.dim_date}
@@ -277,6 +293,20 @@ events:
       - {name: company_id,    type: ref.dim_company}
       - {name: churn_reason,  type: faker.sentence}
       - {name: churn_flag,    type: flag}
+
+
+# 0.6-M15: data-quality issues for Data Quality Testing (DE L25) and
+# Data Cleaning (DE L15). Manifest records every injection so students
+# can score detectors against ground truth. Issue placement is on
+# event tables here (not facts) because the streaming-parquet writer
+# (M121b) operates per fact-table row group and tests assert in-memory
+# / on-disk fact frames equal cell-for-cell — quality injections
+# applied during write would surface that as a regression. Events
+# go through the standard single-shot writer where in-memory and
+# on-disk reconcile under quality injection.
+quality:
+  - { table: evt_churn, issue: null_injection, rate: 0.05, column: churn_reason }
+  - { table: evt_login, issue: duplicate_rows, rate: 0.02 }
 
 
 # ═══════════════════════════════════════════════════════

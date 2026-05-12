@@ -137,13 +137,48 @@ _COMMENT_BY_BAND = {
 }
 
 
+# ── Cross-segment shared opener pool ────────────────────────
+#
+# Phrases that are plausibly from any segment — they carry band-sentiment
+# but no archetype-style signal. Concatenated into every segment's
+# per-band opener pool by ``_lexicon``. Introducing controlled overlap
+# here drops bag-of-words classifier accuracy out of the trivially-
+# separable range (≥ 0.90) into a pedagogically-interesting band
+# (0.65–0.85) while preserving the M12 design: archetype identity still
+# concentrates in the per-segment opener pool, but ~25% of rows draw
+# from the shared pool so the BOW signal is noisier than M10 / M12.
+
+_SHARED_OPENERS_BY_BAND = {
+    "low": [
+        "I have run into issues with",
+        "I keep finding bugs in",
+        "I am not satisfied with",
+        "I cannot get behind",
+    ],
+    "mid": [
+        "I am still working with",
+        "I have been using",
+        "I make use of",
+        "I get value from",
+    ],
+    "high": [
+        "I am sold on",
+        "I am a fan of",
+        "I keep recommending",
+        "I am fond of",
+    ],
+}
+
+
 # ── Per-archetype opener vocabularies ──────────────────────
 #
 # Opener is the archetype-distinct slot. The phrasing register encodes
 # segment identity: promoters speak in first-person emotional voice,
 # neutrals in measured observational voice, detractors in terse blunt
 # voice. Within each archetype, the band carries the sentiment (low =
-# negative, mid = neutral, high = positive).
+# negative, mid = neutral, high = positive). The shared pool above is
+# concatenated into every segment's per-band opener at ``_lexicon``
+# time — see _SHARED_OPENERS_BY_BAND for the rationale.
 
 _PROMOTERS_OPENER = {
     "low": [
@@ -282,10 +317,20 @@ _DETRACTORS_OPENER = {
 
 
 def _lexicon(opener: dict) -> dict:
-    """Compose one archetype's lexicon from its opener pool and the
-    shared object + comment pools."""
+    """Compose one archetype's lexicon from its per-segment opener pool,
+    the cross-segment shared opener pool, and the shared object +
+    comment pools.
+
+    Each band's opener list is ``segment-specific phrases first, shared
+    phrases second`` — the same order the bundled YAML lays them out, so
+    same-seed runs against ``narrative_reviews.yaml`` and
+    ``narrative_reviews.py`` produce byte-identical text columns.
+    """
     return {
-        "opener": opener,
+        "opener": {
+            band: list(phrases) + list(_SHARED_OPENERS_BY_BAND[band])
+            for band, phrases in opener.items()
+        },
         "object": _OBJECT_BY_BAND,
         "comment": _COMMENT_BY_BAND,
     }

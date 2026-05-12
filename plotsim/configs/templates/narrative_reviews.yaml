@@ -163,6 +163,10 @@ facts:
                 - "I am soured by"
                 - "I cannot recommend"
                 - "I am losing patience with"
+                - "I have run into issues with"
+                - "I keep finding bugs in"
+                - "I am not satisfied with"
+                - "I cannot get behind"
               mid:
                 - "I am using"
                 - "I am working with"
@@ -176,6 +180,10 @@ facts:
                 - "I have learned"
                 - "I find myself reaching for"
                 - "I keep returning to"
+                - "I am still working with"
+                - "I have been using"
+                - "I make use of"
+                - "I get value from"
               high:
                 - "I love"
                 - "I cannot stop recommending"
@@ -189,6 +197,10 @@ facts:
                 - "I am delighted by"
                 - "I cannot get enough of"
                 - "I sing the praises of"
+                - "I am sold on"
+                - "I am a fan of"
+                - "I keep recommending"
+                - "I am fond of"
             object:
               low:
                 - "the broken release"
@@ -284,6 +296,10 @@ facts:
                 - "I am wary of"
                 - "I have reservations about"
                 - "I have doubts about"
+                - "I have run into issues with"
+                - "I keep finding bugs in"
+                - "I am not satisfied with"
+                - "I cannot get behind"
               mid:
                 - "I continue to use"
                 - "I steadily use"
@@ -297,6 +313,10 @@ facts:
                 - "I keep tabs on"
                 - "I regularly open"
                 - "I consistently choose"
+                - "I am still working with"
+                - "I have been using"
+                - "I make use of"
+                - "I get value from"
               high:
                 - "I consistently recommend"
                 - "I reliably turn to"
@@ -310,6 +330,10 @@ facts:
                 - "I trust"
                 - "I am pleased with"
                 - "I am impressed with"
+                - "I am sold on"
+                - "I am a fan of"
+                - "I keep recommending"
+                - "I am fond of"
             object:
               low:
                 - "the broken release"
@@ -405,6 +429,10 @@ facts:
                 - "Am cancelling"
                 - "Walked away from"
                 - "Will not touch"
+                - "I have run into issues with"
+                - "I keep finding bugs in"
+                - "I am not satisfied with"
+                - "I cannot get behind"
               mid:
                 - "Tried"
                 - "Used"
@@ -418,6 +446,10 @@ facts:
                 - "Made do with"
                 - "Got through"
                 - "Stuck with"
+                - "I am still working with"
+                - "I have been using"
+                - "I make use of"
+                - "I get value from"
               high:
                 - "Liked"
                 - "Enjoyed"
@@ -431,6 +463,10 @@ facts:
                 - "Got real value from"
                 - "Had fun with"
                 - "Wound up enjoying"
+                - "I am sold on"
+                - "I am a fan of"
+                - "I keep recommending"
+                - "I am fond of"
             object:
               low:
                 - "the broken release"

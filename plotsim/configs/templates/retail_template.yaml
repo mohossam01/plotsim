@@ -200,6 +200,16 @@ dimensions:
       - {name: category_id,    type: id}
       - {name: category_name,  type: "static.electronics,apparel,home,grocery,beauty"}
       - {name: margin_tier,    type: "static.high,standard,standard,low,high"}
+      # 0.6-M15: nested struct column (M14c). Each category row carries a
+      # struct of per-category attributes — exercises Semi-Structured
+      # Flattening (DE L12). Parquet preserves native struct schema;
+      # CSV serializes as a JSON string for parser-practice exercises.
+      - name: catalog_metadata
+        type: struct
+        nested_schema:
+          aisle: string
+          seasonality: string
+          avg_basket_position: int
 
   - name: dim_channel
     reference: true
@@ -231,6 +241,13 @@ facts:
 
   - name: fct_purchases
     metrics: [cart_value, return_rate, loyalty_score, repeat_purchase_rate]
+    # 0.6-M15: CDC fact-side (M9c) demonstrated on a realistic retail
+    # purchase ledger — every row carries ``_inserted_at`` /
+    # ``_updated_at`` / ``_op`` audit columns. Column-level quality
+    # injections (see ``quality:`` block below) flip ``_op`` to ``"U"``
+    # on touched rows, giving students an incremental-ingestion exercise
+    # against a believable purchase / refund / cancellation trace.
+    cdc: true
     columns:
       - {name: date_key,             type: ref.dim_date}
       - {name: customer_id,          type: ref.dim_customer}
@@ -271,6 +288,17 @@ events:
       - {name: customer_id, type: ref.dim_customer}
       - {name: reason,      type: faker.sentence}
       - {name: churn_flag,  type: flag}
+
+
+# 0.6-M15: data-quality issues exercising Data Quality Testing (DE
+# L25), Data Cleaning (DE L15), AND Data Observability (DE L28). The
+# ``volume_anomaly`` spike at period 18 is the canonical observability
+# scenario — a 50% session-count spike (think holiday surge or
+# scraping incident) that students train detectors to flag against
+# manifest ground truth.
+quality:
+  - { table: fct_purchases, issue: null_injection,  rate: 0.03, column: cart_value }
+  - { table: fct_sessions,  issue: volume_anomaly,  rate: 0.5,  mode: spike, period: 18 }
 
 
 # ═══════════════════════════════════════════════════════

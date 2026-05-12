@@ -5,7 +5,7 @@
 > [API](./api-reference.md), [Config fields](./config-reference.md),
 > [Column types](./column-types.md), [Manifest](./manifest-reference.md).
 >
-> Snapshot against `plotsim` `0.7.0-dev` (main HEAD `cd643d0`, post-M11).
+> Snapshot against `plotsim` `0.7.0-dev` (main HEAD `fbbf6ab`, post-M14c).
 
 ---
 
@@ -22,7 +22,7 @@ Three surfaces today:
 |---|---|---|
 | Library | `plotsim.create`, `create_from_yaml`, `generate_tables`, `write_tables` | Python users in an IDE or notebook |
 | CLI | `plotsim run`, `validate`, `info`, `template`, `schema` | Terminal, CI, scripts |
-| YAML | bundled templates: `ab_trial`, `bare_minimum`, `cdc_demo`, `education`, `geo_retail`, `hr`, `lakehouse`, `latency_skew`, `marketing`, `narrative_reviews`, `retail`, `saas` | Anyone who wants to hand-edit a config |
+| YAML | bundled templates: `ab_trial`, `bare_minimum`, `cdc_demo`, `crm_billing_overlap`, `education`, `geo_retail`, `hr`, `lakehouse`, `latency_skew`, `marketing`, `narrative_reviews`, `retail`, `saas` | Anyone who wants to hand-edit a config |
 
 ---
 
@@ -99,8 +99,12 @@ integrity / provenance tooling.
 |---|---|
 | SCD Type 2 | `dim_<entity>` expanded to N×versions with `valid_from_period` and band-crossing events surfaced in the manifest |
 | SCD Type 1 | default (no-op) |
-| Fact-side CDC | `facts[].cdc: true` emits `_inserted_at` / `_updated_at` / `_op` audit columns; column-level quality issues flip `_op` to `"U"` on affected rows |
+| Fact-side CDC | `facts[].cdc: true` emits `_inserted_at` / `_updated_at` / `_op` audit columns; column-level quality issues flip `_op` to `"U"` on affected rows. Demonstrated in `cdc_demo` (dedicated) and `retail` (realistic POS purchase ledger). |
 | Holdout splits | `output.holdout: {fraction\|periods}` writes `{table}_train.<csv\|parquet>` + `{table}_holdout.<csv\|parquet>` instead of one file per fact, split by period index |
+| Denormalization | `output.denormalized: true` joins each fact with its FK'd dims (SCD2 current-only, audit columns excluded, dim columns prefixed `<dim>__<col>`); emits `<fct>_wide.{csv\|parquet}` alongside normalized output for 1NF–3NF decomposition exercises. Demonstrated in `saas`. |
+| Log-file writer | Event tables with `log_format: "{ts} ... "` + `log_filename: "..."` emit a structured `.log` file alongside the CSV/Parquet event table. Format string is `template.format(**row.to_dict())` per row; unknown placeholders raise. Demonstrated in `saas` (`evt_login` as syslog-flavoured lines). |
+| Multi-source / overlap | `multi_source:` block emits per-source dim copies with controlled drift (casing / abbreviation / swap) and per-source key schemes; `source_entity_mappings` ground truth in the manifest. Demonstrated in `crm_billing_overlap` (CRM + billing dual-source, 40 mapping records). |
+| Nested / JSON columns | `dtype: struct` (with `nested_schema`) or `dtype: array` (with `array_element_type`) paired with `source: nested` on dim columns. Parquet preserves native nested schema (`pa.struct(...)`); CSV serializes as JSON string. Dim-only, one level of nesting, primitive leaves in V1. Demonstrated in `retail` (`dim_product_category.catalog_metadata`). |
 
 ### 8. Validation, manifest, and provenance (advanced)
 
