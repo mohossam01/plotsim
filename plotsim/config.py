@@ -2285,15 +2285,16 @@ class HoldoutConfig(_Frozen):
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
-    ``format`` accepts ``"parquet"`` and ``"jsonl"`` in addition to the
-    default ``"csv"``. CSV remains the default; configs that omit
-    ``format`` (or set ``format: csv``) write ``.csv`` files. Parquet
-    output is column-typed and typically 5-10x smaller on the bundled
-    templates; the engine path is identical, only the on-disk encoding
-    differs. JSONL (newline-delimited JSON, one object per row) is
-    designed for streaming / API ingestion workflows where each line is
-    self-contained and the file can be tailed or replayed through Kafka /
-    Kinesis / SQS without a header dance.
+    ``format`` accepts ``"parquet"``, ``"jsonl"``, and ``"sql"`` in
+    addition to the default ``"csv"``. CSV remains the default; configs
+    that omit ``format`` (or set ``format: csv``) write ``.csv`` files.
+    Parquet output is column-typed and typically 5-10x smaller on the
+    bundled templates; the engine path is identical, only the on-disk
+    encoding differs. JSONL (0.6-M16b) writes newline-delimited JSON for
+    streaming-ingestion / schema-on-read consumers. SQL (0.6-M16c)
+    writes a single ``data.sql`` file with dialect-aware DDL + batched
+    INSERTs for database-exercise workflows (``psql < data.sql``,
+    ``sqlite3 db.sqlite < data.sql``).
 
     Parquet writes go through ``pyarrow``, declared as the optional
     extra ``plotsim[parquet]``. When pyarrow is not installed and
@@ -2306,6 +2307,23 @@ class OutputConfig(_Frozen):
     native JSON objects / arrays, NaN values become ``null``, and date
     columns land as ISO-8601 strings (rather than pandas' default
     epoch-ms milliseconds for ``orient='records'``).
+
+    SQL writes emit one ``data.sql`` file containing dialect-specific
+    DDL (``CREATE TABLE`` with PK + FK constraints) and batched
+    ``INSERT`` statements (~100 rows per statement). Dimension tables
+    appear before fact / event / bridge tables so FK targets exist when
+    the dump is replayed top-to-bottom. ``sql_dialect`` selects between
+    ``postgresql`` (default; ``"col"`` quoting, ``NUMERIC`` for floats),
+    ``mysql`` (`` `col` `` quoting, ``DOUBLE``, ``VARCHAR(255)`` for id
+    cols since MySQL forbids ``TEXT`` primary keys), and ``sqlite``
+    (``"col"`` quoting, ``REAL`` for floats, ``INTEGER`` for booleans).
+    Denormalized wide tables and holdout splits — when enabled —
+    appear as additional ``CREATE TABLE`` + INSERT blocks AFTER the
+    star schema, without FK constraints (their multi-dim shape doesn't
+    fit the FK model). ``entity_features.enabled`` is rejected at load
+    when ``format == "sql"`` (the per-entity feature DataFrame mixes
+    aggregates across all metrics and doesn't compose cleanly into the
+    single-file SQL dump).
 
     ``cell_budget`` (M7) is the per-config override of the soft
     cell-count gate enforced by ``_combined_scale_estimator``. ``None``
@@ -2344,11 +2362,12 @@ class OutputConfig(_Frozen):
     ``struct`` / ``array`` partition keys are rejected at load.
     """
 
-    format: Literal["csv", "parquet", "jsonl"] = "csv"
+    format: Literal["csv", "parquet", "jsonl", "sql"] = "csv"
     directory: str
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False
     partition_by: Optional[str] = None
+    sql_dialect: Literal["postgresql", "mysql", "sqlite"] = "postgresql"
 
     @model_validator(mode="after")
     def _partition_by_requires_parquet(self) -> "OutputConfig":
@@ -3047,6 +3066,20 @@ class PlotsimConfig(_Frozen):
         """
         if not self.entity_features.enabled:
             return self
+        # 0.6-M16c: entity_features doesn't compose into the single-file
+        # SQL dump — its per-entity wide-table shape mixes aggregates
+        # across all metrics and breaks the dim/fact star schema that
+        # the SQL writer ships. Operator-stated scope decision at M16c
+        # kickoff: reject the combination at load rather than silently
+        # drop the file.
+        if self.output.format == "sql":
+            raise ValueError(
+                "entity_features.enabled=True is not supported with "
+                "output.format='sql'. The per-entity feature DataFrame "
+                "doesn't compose cleanly into the single data.sql file. "
+                "Use output.format=csv/parquet/jsonl, or disable "
+                "entity_features for the SQL run."
+            )
         # Local import: plotsim.validation imports from plotsim.config,
         # so a module-level import would create a cycle.
         from plotsim.validation import validate_entity_features_config

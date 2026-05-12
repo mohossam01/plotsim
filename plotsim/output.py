@@ -709,6 +709,391 @@ def _pa_primitive(type_word: str):
     }[type_word]
 
 
+# --- 0.6-M16c: SQL dump writer ---------------------------------------------
+
+
+SQL_FILENAME = "data.sql"
+_SQL_INSERT_BATCH_SIZE = 100
+
+
+def _sql_quote_identifier(name: str, dialect: str) -> str:
+    """Wrap ``name`` in the dialect's identifier quote character.
+
+    PG and SQLite use double quotes; MySQL uses backticks. Embedded
+    quote characters in the identifier are doubled (SQL standard) —
+    plotsim's column-name regex disallows them in practice, but the
+    doubling is cheap and keeps the helper safe for any caller.
+    """
+    if dialect == "mysql":
+        return "`" + name.replace("`", "``") + "`"
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _sql_quote_string(s: str) -> str:
+    """SQL string literal: single quotes with embedded ``'`` doubled.
+
+    All three target dialects (PG / MySQL / SQLite) accept the SQL
+    standard doubled-single-quote escaping, so the function is
+    dialect-agnostic.
+    """
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _sql_type_for_dialect(col_dtype: str, dialect: str, *, is_pk_or_fk: bool) -> str:
+    """Map a plotsim ``Column.dtype`` to the dialect's SQL type word.
+
+    Type words come from the V1 dtype set (``int`` / ``float`` /
+    ``string`` / ``id`` / ``boolean`` / ``date`` / ``struct`` / ``array``).
+    Nested types serialise as JSON in TEXT cells — all three dialects
+    accept TEXT, though PG has a native JSONB type that operators can
+    swap in post-import if they prefer.
+
+    MySQL exception: TEXT / BLOB columns cannot be primary keys
+    (or foreign keys) without a key prefix, so when ``is_pk_or_fk`` is
+    true and the dtype is string-like, the MySQL mapping switches to
+    ``VARCHAR(255)``.
+    """
+    if dialect == "postgresql":
+        mapping = {
+            "int": "INTEGER",
+            "float": "NUMERIC",
+            "string": "TEXT",
+            "id": "TEXT",
+            "boolean": "BOOLEAN",
+            "date": "TIMESTAMP",
+            "struct": "TEXT",
+            "array": "TEXT",
+        }
+    elif dialect == "mysql":
+        mapping = {
+            "int": "INT",
+            "float": "DOUBLE",
+            "string": "VARCHAR(255)" if is_pk_or_fk else "TEXT",
+            "id": "VARCHAR(255)",
+            "boolean": "TINYINT(1)",
+            "date": "TIMESTAMP",
+            "struct": "TEXT",
+            "array": "TEXT",
+        }
+    else:  # sqlite
+        mapping = {
+            "int": "INTEGER",
+            "float": "REAL",
+            "string": "TEXT",
+            "id": "TEXT",
+            "boolean": "INTEGER",
+            "date": "TEXT",
+            "struct": "TEXT",
+            "array": "TEXT",
+        }
+    return mapping.get(col_dtype, "TEXT")
+
+
+def _infer_dtype_from_series(series: pd.Series) -> str:
+    """Best-effort plotsim-dtype inference for columns without a
+    ``Column`` config entry (denormalized wide tables, holdout splits,
+    derived columns like ``stage`` / SCD2 audit / CDC audit). Falls
+    back to ``string`` for object / mixed cells; the SQL writer treats
+    those as TEXT in every dialect.
+    """
+    if pd.api.types.is_bool_dtype(series):
+        return "boolean"
+    if pd.api.types.is_integer_dtype(series):
+        return "int"
+    if pd.api.types.is_float_dtype(series):
+        return "float"
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return "date"
+    return "string"
+
+
+def _sql_format_value(cell: object, dialect: str) -> str:
+    """Format a single DataFrame cell as a SQL literal.
+
+    NaN / pd.NA / None → ``NULL``. Booleans render as ``TRUE`` /
+    ``FALSE`` under PG and ``1`` / ``0`` under MySQL + SQLite. Numbers
+    render verbatim via ``repr`` (float) / ``str`` (int) — no thousands
+    separators, no scientific notation rewrites. Dict / list cells
+    (struct / array dtype) serialise via ``json.dumps`` into a quoted
+    string. Date / datetime / Timestamp cells emit as ISO-8601 strings
+    (``YYYY-MM-DD HH:MM:SS`` for datetimes, ``YYYY-MM-DD`` for dates).
+    Everything else falls through to ``str(cell)`` quoted.
+    """
+    if cell is None or cell is pd.NA:
+        return "NULL"
+    if isinstance(cell, float) and pd.isna(cell):
+        return "NULL"
+    if isinstance(cell, bool):
+        if dialect == "postgresql":
+            return "TRUE" if cell else "FALSE"
+        return "1" if cell else "0"
+    if isinstance(cell, int):
+        return str(cell)
+    if isinstance(cell, float):
+        return repr(cell)
+    if isinstance(cell, (dict, list)):
+        return _sql_quote_string(json.dumps(cell, ensure_ascii=False))
+    if isinstance(cell, pd.Timestamp):
+        if pd.isna(cell):
+            return "NULL"
+        return _sql_quote_string(cell.isoformat(sep=" "))
+    if hasattr(cell, "isoformat"):
+        return _sql_quote_string(cell.isoformat())
+    # Defensive: pandas Int64 NA arrives here as <NA>.
+    try:
+        if pd.isna(cell):
+            return "NULL"
+    except (TypeError, ValueError):
+        pass
+    return _sql_quote_string(str(cell))
+
+
+def _sql_table_order(config: PlotsimConfig) -> list[str]:
+    """Return table names in dependency-safe write order.
+
+    Star schema: dimensions first (no FK dependencies), then every
+    other table type (fact / event / bridge) in config declaration
+    order. Within each group, declaration order is preserved so the
+    SQL dump replays with stable ordering across runs.
+    """
+    dims = [t.name for t in config.tables if t.type == "dim"]
+    others = [t.name for t in config.tables if t.type != "dim"]
+    return dims + others
+
+
+def _sql_column_defs(
+    df: pd.DataFrame,
+    tbl: Optional[Table],
+    dialect: str,
+    *,
+    pk_cols: set[str],
+    fk_cols: set[str],
+) -> list[str]:
+    """Build one ``"col" TYPE`` line per DataFrame column.
+
+    SQL types come from the runtime pandas dtype rather than the
+    plotsim engine dtype — the engine's ``id`` / ``string`` distinction
+    doesn't survive to disk, and the actual cell shape (``int64`` vs
+    ``object``) is what the target database needs to accept. The one
+    exception is ``struct`` / ``array``: those columns hold dict /
+    list cells that ``_sql_format_value`` JSON-serializes, so they
+    must be declared as TEXT regardless of pandas dtype.
+    """
+    config_by_name = {c.name: c for c in tbl.columns} if tbl is not None else {}
+    lines: list[str] = []
+    for col_name in df.columns:
+        is_key = col_name in pk_cols or col_name in fk_cols
+        cfg_col = config_by_name.get(col_name)
+        dtype: str
+        if cfg_col is not None and cfg_col.dtype in ("struct", "array"):
+            dtype = cfg_col.dtype
+        else:
+            dtype = _infer_dtype_from_series(df[col_name])
+        type_word = _sql_type_for_dialect(dtype, dialect, is_pk_or_fk=is_key)
+        lines.append(f"  {_sql_quote_identifier(col_name, dialect)} {type_word}")
+    return lines
+
+
+def _key_is_unique(df: pd.DataFrame, cols: list[str]) -> bool:
+    """True when ``df`` has no duplicate rows under the ``cols`` subset.
+
+    Used to decide whether a ``PRIMARY KEY`` or ``FOREIGN KEY``
+    constraint can actually be emitted: SCD2 dims and quality-injected
+    duplicates would make a strict UNIQUE constraint fail at
+    replay-time, so the SQL writer falls back to bare ``CREATE TABLE``
+    (no constraints) when the data doesn't permit one.
+    """
+    if df.empty or not cols:
+        return True
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        return False
+    return not df.duplicated(subset=cols).any()
+
+
+def _sql_create_table(
+    name: str,
+    df: pd.DataFrame,
+    tbl: Optional[Table],
+    dialect: str,
+    *,
+    with_constraints: bool,
+    all_tables: Optional[dict[str, pd.DataFrame]] = None,
+) -> str:
+    """Emit a ``CREATE TABLE`` statement for ``df``.
+
+    When ``with_constraints`` is true and ``tbl`` is provided:
+
+    - ``PRIMARY KEY (...)`` is added when the actual data permits.
+      SCD2 dims (detected by a ``dim_row_id`` surrogate column) use
+      ``dim_row_id`` as the PK. Tables whose natural PK has duplicate
+      rows (quality-injected ``duplicate_rows`` / ``volume_anomaly``)
+      are emitted without a PK constraint — the dump still replays,
+      and the consumer can add constraints after import if needed.
+    - ``FOREIGN KEY (col) REFERENCES dim(pk)`` is added for every
+      column whose ``source`` parses as ``FKSource`` AND whose target
+      dim's referenced column is unique in the actual data. SCD2 dims
+      and quality-injected duplicates make the natural FK column
+      non-unique, so the constraint is skipped in those cases.
+
+    Wide-table / holdout sidecars pass ``with_constraints=False``
+    because their multi-dim shape doesn't fit the FK model.
+    """
+    pk_cols_actual: list[str] = []
+    fk_pairs: list[tuple[str, str, str]] = []
+
+    if with_constraints and tbl is not None:
+        # ``dim_row_id`` is the SCD2 surrogate on dim tables. Facts
+        # also carry ``dim_row_id`` as a join surrogate when they FK
+        # to an SCD2 dim, but the fact's true PK remains the natural
+        # composite — only dim tables route to the surrogate PK.
+        if tbl.type == "dim" and "dim_row_id" in df.columns:
+            pk_cols_actual = ["dim_row_id"]
+        elif _key_is_unique(df, list(tbl.primary_key_cols)):
+            pk_cols_actual = list(tbl.primary_key_cols)
+
+        for col in tbl.columns:
+            if col.name not in df.columns:
+                continue
+            parsed = parse_source(col.source)
+            if not isinstance(parsed, FKSource):
+                continue
+            target_table = parsed.table
+            target_col = parsed.column
+            if all_tables is not None and target_table in all_tables:
+                target_df = all_tables[target_table]
+                if "dim_row_id" in target_df.columns:
+                    # SCD2 target — natural FK column is not unique
+                    # (multiple versioned rows per natural key).
+                    continue
+                if not _key_is_unique(target_df, [target_col]):
+                    continue
+            fk_pairs.append((col.name, target_table, target_col))
+
+    fk_col_set = {c for c, _, _ in fk_pairs}
+    body_lines = _sql_column_defs(df, tbl, dialect, pk_cols=set(pk_cols_actual), fk_cols=fk_col_set)
+
+    if pk_cols_actual:
+        pk_list = ", ".join(_sql_quote_identifier(c, dialect) for c in pk_cols_actual)
+        body_lines.append(f"  PRIMARY KEY ({pk_list})")
+
+    for fk_col, ref_table, ref_col in fk_pairs:
+        body_lines.append(
+            f"  FOREIGN KEY ({_sql_quote_identifier(fk_col, dialect)}) "
+            f"REFERENCES {_sql_quote_identifier(ref_table, dialect)}"
+            f"({_sql_quote_identifier(ref_col, dialect)})"
+        )
+
+    qname = _sql_quote_identifier(name, dialect)
+    body = ",\n".join(body_lines)
+    return f"CREATE TABLE {qname} (\n{body}\n);"
+
+
+def _sql_inserts(
+    name: str,
+    df: pd.DataFrame,
+    dialect: str,
+    *,
+    batch_size: int = _SQL_INSERT_BATCH_SIZE,
+) -> list[str]:
+    """Emit batched multi-row ``INSERT`` statements for ``df``.
+
+    Each statement covers up to ``batch_size`` rows (default 100,
+    matched to the mission spec). Empty DataFrames produce no
+    statements at all — a ``CREATE TABLE`` with zero rows is the
+    natural representation.
+    """
+    if df.empty:
+        return []
+    qname = _sql_quote_identifier(name, dialect)
+    qcols = ", ".join(_sql_quote_identifier(c, dialect) for c in df.columns)
+    statements: list[str] = []
+    # ``itertuples(index=False)`` preserves dtypes (no Series-wrapping
+    # cost per cell) and gives us a stable iteration order matching
+    # ``df.columns``.
+    rows = list(df.itertuples(index=False, name=None))
+    for batch_start in range(0, len(rows), batch_size):
+        chunk = rows[batch_start : batch_start + batch_size]
+        value_lines = [
+            "  (" + ", ".join(_sql_format_value(c, dialect) for c in row) + ")" for row in chunk
+        ]
+        statements.append(f"INSERT INTO {qname} ({qcols}) VALUES\n" + ",\n".join(value_lines) + ";")
+    return statements
+
+
+def _sql_header(dialect: str, config: PlotsimConfig) -> str:
+    """SQL file preamble: dialect label + replay-command hint."""
+    replay = {
+        "postgresql": "psql -d <database> < data.sql",
+        "mysql": "mysql <database> < data.sql",
+        "sqlite": "sqlite3 <database.sqlite> < data.sql",
+    }[dialect]
+    table_list = ", ".join(t.name for t in config.tables)
+    return (
+        "-- Generated by plotsim — 0.6-M16c SQL dump\n"
+        f"-- Dialect: {dialect}\n"
+        f"-- Tables: {table_list}\n"
+        f"-- Replay: {replay}\n"
+    )
+
+
+def _write_sql_dump(
+    tables_to_write: dict[str, pd.DataFrame],
+    config: PlotsimConfig,
+    output_dir: Path,
+    *,
+    wide_tables: Optional[dict[str, pd.DataFrame]] = None,
+    holdout_splits: Optional[dict[str, tuple[pd.DataFrame, pd.DataFrame]]] = None,
+) -> Path:
+    """Write every fact / dim / event / bridge table — plus optional
+    denormalized wide and holdout-split sidecars — to a single
+    ``data.sql`` file inside ``output_dir``.
+
+    Star schema (dims → others) is emitted first with PK + FK
+    constraints. Wide tables and holdout splits follow as trailing
+    blocks without FK constraints (operator-stated scope decision at
+    M16c kickoff: their multi-dim / partial-fact shape doesn't fit
+    the FK model but should still ship in the single-file deliverable).
+    """
+    dialect = config.output.sql_dialect
+    path = output_dir / SQL_FILENAME
+
+    chunks: list[str] = [_sql_header(dialect, config)]
+    for name in _sql_table_order(config):
+        df = tables_to_write[name]
+        tbl = _table_by_name(config, name)
+        chunks.append(
+            _sql_create_table(
+                name,
+                df,
+                tbl,
+                dialect,
+                with_constraints=True,
+                all_tables=tables_to_write,
+            )
+        )
+        chunks.extend(_sql_inserts(name, df, dialect))
+
+    if wide_tables:
+        for wide_name, wide_df in wide_tables.items():
+            chunks.append(
+                _sql_create_table(wide_name, wide_df, None, dialect, with_constraints=False)
+            )
+            chunks.extend(_sql_inserts(wide_name, wide_df, dialect))
+
+    if holdout_splits:
+        for fact_name, (train_df, holdout_df) in holdout_splits.items():
+            for suffix, split_df in (("train", train_df), ("holdout", holdout_df)):
+                full_name = f"{fact_name}_{suffix}"
+                chunks.append(
+                    _sql_create_table(full_name, split_df, None, dialect, with_constraints=False)
+                )
+                chunks.extend(_sql_inserts(full_name, split_df, dialect))
+
+    path.write_text("\n\n".join(chunks) + "\n", encoding="utf-8")
+    return path
+
+
 # --- Config copy -------------------------------------------------------------
 
 
@@ -963,49 +1348,73 @@ def write_tables(
             cdc_facts,
         )
 
-    # M121b: streaming Parquet path. When format=parquet AND the
-    # resolved generation_mode is vectorized, fact tables are written
-    # via ``_write_streaming_parquet_facts`` (per-archetype row groups
-    # via ParquetWriter) and skipped in the standard loop below. Dim,
-    # event, and bridge tables continue through ``write_single_table``.
-    # Serial mode and CSV output skip this branch entirely.
-    streaming_written: set[str] = set()
-    if _streaming_parquet_eligible(config):
-        streaming_written = _write_streaming_parquet_facts(
-            config,
-            tables_to_write,
-            target,
+    # 0.6-M16c: single-file SQL dump path. ``format == "sql"`` bypasses
+    # the per-table writer loop, the denormalized sidecar loop, the
+    # holdout-split loop, and the streaming-Parquet path — everything
+    # the user requested lands in ``data.sql`` instead. Companions
+    # (config.yaml, validation_report.txt, manifest.json) + the
+    # log-file writer still run below the branch; they are not table
+    # data and stay in their canonical formats.
+    output_format = _resolve_output_format(config)
+    if output_format == "sql":
+        sql_wide = (
+            denormalize_fact_tables(tables_to_write, config)
+            if getattr(config.output, "denormalized", False)
+            else None
         )
-
-    for name, df in tables_to_write.items():
-        if name in streaming_written:
-            continue
-        write_single_table(name, df, target, config=config, float_format=float_format)
-
-    # 0.6-M14a: opt-in wide-table companions. When
-    # ``output.denormalized: true``, every fact table is left-joined
-    # with its FK'd dims (SCD2 dims filtered to current state) and
-    # written as ``<fct_name>_wide.{csv|parquet}`` alongside the
-    # normalized output. Off by default so pre-M14a output is
-    # byte-identical. Consumes ``tables_to_write`` (post-CDC,
-    # post-quality) so the wide view matches what landed on disk
-    # for the normalized tables.
-    if getattr(config.output, "denormalized", False):
-        wide_tables = denormalize_fact_tables(tables_to_write, config)
-        for wide_name, wide_df in wide_tables.items():
-            # Pass ``config`` so ``_resolve_output_format`` picks up
-            # the parquet branch when configured. The wide name
-            # (``<fct>_wide``) isn't in ``config.tables``, so
-            # ``_table_by_name`` returns None and the column-reorder
-            # / Int64-coercion path is skipped — wide frames keep
-            # their post-merge column order.
-            write_single_table(
-                wide_name,
-                wide_df,
+        sql_holdout = split_fact_tables(config, tables) if config.holdout.enabled else None
+        _write_sql_dump(
+            tables_to_write,
+            config,
+            target,
+            wide_tables=sql_wide,
+            holdout_splits=sql_holdout,
+        )
+    else:
+        # M121b: streaming Parquet path. When format=parquet AND the
+        # resolved generation_mode is vectorized, fact tables are written
+        # via ``_write_streaming_parquet_facts`` (per-archetype row groups
+        # via ParquetWriter) and skipped in the standard loop below. Dim,
+        # event, and bridge tables continue through ``write_single_table``.
+        # Serial mode and CSV output skip this branch entirely.
+        streaming_written: set[str] = set()
+        if _streaming_parquet_eligible(config):
+            streaming_written = _write_streaming_parquet_facts(
+                config,
+                tables_to_write,
                 target,
-                config=config,
-                float_format=float_format,
             )
+
+        for name, df in tables_to_write.items():
+            if name in streaming_written:
+                continue
+            write_single_table(name, df, target, config=config, float_format=float_format)
+
+        # 0.6-M14a: opt-in wide-table companions. When
+        # ``output.denormalized: true``, every fact table is left-joined
+        # with its FK'd dims (SCD2 dims filtered to current state) and
+        # written as ``<fct_name>_wide.{csv|parquet|jsonl}`` alongside
+        # the normalized output. Off by default so pre-M14a output is
+        # byte-identical. Consumes ``tables_to_write`` (post-CDC,
+        # post-quality) so the wide view matches what landed on disk
+        # for the normalized tables. Under format=sql, this loop is
+        # bypassed — wide tables land inside ``data.sql`` instead.
+        if getattr(config.output, "denormalized", False):
+            wide_tables = denormalize_fact_tables(tables_to_write, config)
+            for wide_name, wide_df in wide_tables.items():
+                # Pass ``config`` so ``_resolve_output_format`` picks up
+                # the parquet branch when configured. The wide name
+                # (``<fct>_wide``) isn't in ``config.tables``, so
+                # ``_table_by_name`` returns None and the column-reorder
+                # / Int64-coercion path is skipped — wide frames keep
+                # their post-merge column order.
+                write_single_table(
+                    wide_name,
+                    wide_df,
+                    target,
+                    config=config,
+                    float_format=float_format,
+                )
 
     # 0.6-M14b: opt-in log-file companions. When any event table has
     # ``log_format`` set, ``write_event_logs`` emits one ``.log`` file
@@ -1023,8 +1432,12 @@ def write_tables(
     # matches the clean ``tables`` dict whenever ``holdout.enabled`` is
     # true. We still walk ``tables`` (the clean dict) explicitly to
     # make that invariant visible at the call site.
+    # 0.6-M16c: under format=sql, holdout splits are emitted inside
+    # ``data.sql`` by ``_write_sql_dump`` above — the per-split file
+    # writes are skipped here. The manifest's HoldoutInfo stitching
+    # below still fires regardless of format.
     holdout_splits: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
-    if config.holdout.enabled:
+    if config.holdout.enabled and output_format != "sql":
         holdout_splits = split_fact_tables(config, tables)
         for name, (train_df, holdout_df) in holdout_splits.items():
             write_single_table(
