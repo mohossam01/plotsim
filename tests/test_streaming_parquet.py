@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 from plotsim.builder import create_from_yaml
-from plotsim.config import load_config
+from plotsim.config import QualityConfig, QualityIssue, load_config
 from plotsim.output import (
     _streaming_fact_table_names,
     _streaming_parquet_eligible,
@@ -181,12 +181,116 @@ class TestIterFactChunks:
 
 
 class TestRoundTripEquality:
-    """Streaming Parquet and non-streaming Parquet produce read-back
-    DataFrames that are equal cell-for-cell. Raw file bytes differ
-    (row group metadata varies by construction) — read via
-    ``pd.read_parquet`` and compare frames, never bytes."""
+    """Streaming Parquet and non-streaming Parquet, given the same
+    in-memory ``tables`` dict, produce on-disk Parquet files that read
+    back to cell-identical DataFrames. Raw file bytes differ (row group
+    metadata varies by construction) — read via ``pd.read_parquet`` and
+    compare frames, never bytes.
 
-    def test_streaming_round_trips_to_unified(self, tmp_path):
+    Comparison is **disk-to-disk** (streaming write vs single-shot
+    ``to_parquet`` write) rather than in-memory-vs-disk. Quality
+    injection runs inside ``write_tables`` and produces a corrupted
+    copy of the input; both writers consume the same corrupted dict,
+    so the on-disk parity holds even when fact columns carry
+    column-level quality issues like ``null_injection``. The prior
+    in-memory-vs-disk pattern failed for any fact-column injection
+    because the in-memory ``tables`` is the clean source pre-corruption
+    — a contract gap discovered while shipping a fact-column
+    ``null_injection`` in the saas template.
+    """
+
+    @staticmethod
+    def _assert_parquet_files_equal(
+        streaming_path: Path,
+        plain_path: Path,
+        fact_name: str,
+    ) -> None:
+        """Read both Parquet files and assert cell-for-cell DataFrame
+        equality. Numeric columns compare via ``to_numpy()`` to absorb
+        nullable-Int64 representation drift; non-numeric columns
+        compare via ``astype(object).tolist()``."""
+        a = pd.read_parquet(streaming_path)
+        b = pd.read_parquet(plain_path)
+        assert len(a) == len(b), fact_name
+        assert sorted(a.columns) == sorted(b.columns), fact_name
+        for col in a.columns:
+            sa = pd.Series(a[col]).reset_index(drop=True)
+            sb = pd.Series(b[col]).reset_index(drop=True)
+            if pd.api.types.is_numeric_dtype(sa) and pd.api.types.is_numeric_dtype(sb):
+                a_arr = pd.to_numeric(sa, errors="coerce").to_numpy()
+                b_arr = pd.to_numeric(sb, errors="coerce").to_numpy()
+                np.testing.assert_array_equal(a_arr, b_arr, err_msg=f"{fact_name}.{col}")
+            else:
+                assert (
+                    sa.astype(object).tolist() == sb.astype(object).tolist()
+                ), f"{fact_name}.{col}"
+
+    @staticmethod
+    def _write_streaming_and_plain(
+        cfg_v,
+        tables: dict[str, pd.DataFrame],
+        tmp_path: Path,
+    ) -> tuple[Path, Path]:
+        """Write ``tables`` twice from the same in-memory dict — once
+        through the streaming Parquet path (``generation_mode ==
+        "vectorized"``) and once through the single-shot ``to_parquet``
+        path (flipped to ``"serial"`` for the write call only).
+
+        Flipping ``generation_mode`` on the write-side config copy
+        toggles ``_streaming_parquet_eligible`` without re-running
+        generation; quality injection, CDC flip, denormalization, and
+        every other ``write_tables`` branch is mode-agnostic and
+        consumes the same corrupted dict on both writes
+        (``_apply_quality_issues`` is deterministic given
+        ``(tables, config, seed)`` and returns a new dict without
+        mutating its input)."""
+        stream_dir = tmp_path / "streaming"
+        plain_dir = tmp_path / "plain"
+        cfg_plain = cfg_v.model_copy(update={"generation_mode": "serial"})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            write_tables(tables, cfg_v, output_dir=stream_dir)
+            write_tables(tables, cfg_plain, output_dir=plain_dir)
+        return stream_dir, plain_dir
+
+    def test_streaming_matches_non_streaming(self, tmp_path):
+        """Baseline: with no quality issues configured, the streaming
+        Parquet write reads back cell-identical to a single-shot
+        ``to_parquet`` write of the same in-memory tables dict."""
+        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg_v = cfg.model_copy(
+            update={
+                "output": cfg.output.model_copy(update={"format": "parquet"}),
+                "generation_mode": "vectorized",
+                "quality": QualityConfig(quality_issues=[]),
+            }
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tables = generate_tables(cfg_v, np.random.default_rng(cfg_v.seed))
+        stream_dir, plain_dir = self._write_streaming_and_plain(cfg_v, tables, tmp_path)
+        for fact_name in _streaming_fact_table_names(cfg_v):
+            self._assert_parquet_files_equal(
+                stream_dir / f"{fact_name}.parquet",
+                plain_dir / f"{fact_name}.parquet",
+                fact_name,
+            )
+
+    def test_streaming_matches_non_streaming_with_fact_column_null_injection(self, tmp_path):
+        """Regression: ``null_injection`` on a streaming-eligible fact
+        table round-trips identically through the streaming and
+        non-streaming write paths.
+
+        Pre-fix, the test in this slot compared the clean in-memory
+        ``tables`` dict against the corrupted on-disk Parquet, so any
+        fact-column injection rate > 0 broke the assertion and forced
+        bundled templates to route column-level quality issues onto
+        event tables. After the fix the comparison is disk-to-disk
+        (both writes share the same corrupted dict via
+        ``_apply_quality_issues``), so future templates are free to
+        place ``null_injection`` / ``type_mismatch`` / ``schema_drift``
+        on fact columns without invalidating the streaming path's
+        contract."""
         cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         cfg_v = cfg.model_copy(
             update={
@@ -194,30 +298,33 @@ class TestRoundTripEquality:
                 "generation_mode": "vectorized",
             }
         )
+        streaming_facts = sorted(_streaming_fact_table_names(cfg_v))
+        assert streaming_facts, "saas template must have at least one streaming-eligible fact table"
+        target_fact = streaming_facts[0]
+        cfg_q = cfg_v.model_copy(
+            update={
+                "quality": QualityConfig(
+                    quality_issues=[
+                        QualityIssue(
+                            type="null_injection",
+                            target_table=target_fact,
+                            target_columns=["*"],
+                            rate=0.05,
+                        )
+                    ]
+                ),
+            }
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            tables = generate_tables(cfg_v, np.random.default_rng(cfg_v.seed))
-            write_tables(tables, cfg_v, output_dir=tmp_path)
-
-        for fact_name in _streaming_fact_table_names(cfg_v):
-            in_memory = tables[fact_name]
-            on_disk = pd.read_parquet(tmp_path / f"{fact_name}.parquet")
-            assert len(on_disk) == len(in_memory), fact_name
-            assert sorted(on_disk.columns) == sorted(in_memory.columns), fact_name
-            # Row order preserved by chunk-iteration order — compare via
-            # index_reset on both sides for completeness.
-            for col in in_memory.columns:
-                a = pd.Series(in_memory[col]).reset_index(drop=True)
-                b = pd.Series(on_disk[col]).reset_index(drop=True)
-                # Allow nullable Int64 vs Int64 representation drift.
-                if pd.api.types.is_numeric_dtype(a) and pd.api.types.is_numeric_dtype(b):
-                    a_arr = pd.to_numeric(a, errors="coerce").to_numpy()
-                    b_arr = pd.to_numeric(b, errors="coerce").to_numpy()
-                    np.testing.assert_array_equal(a_arr, b_arr, err_msg=f"{fact_name}.{col}")
-                else:
-                    assert (
-                        a.astype(object).tolist() == b.astype(object).tolist()
-                    ), f"{fact_name}.{col}"
+            tables = generate_tables(cfg_q, np.random.default_rng(cfg_q.seed))
+        stream_dir, plain_dir = self._write_streaming_and_plain(cfg_q, tables, tmp_path)
+        for fact_name in _streaming_fact_table_names(cfg_q):
+            self._assert_parquet_files_equal(
+                stream_dir / f"{fact_name}.parquet",
+                plain_dir / f"{fact_name}.parquet",
+                fact_name,
+            )
 
     def test_streaming_vs_non_streaming_dataframes_equal(self, tmp_path):
         """Two writes — one with vectorized+parquet (streaming) and one
