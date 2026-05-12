@@ -93,6 +93,94 @@ df = pl.read_parquet("output/fct_engagement.parquet")
 
 ---
 
+## Partitioned Parquet
+
+Set `partition_by` to a column name and every table that carries that
+column is written as a Hive-style partitioned directory instead of a
+single file. The shape matches what a lakehouse landing zone (S3 +
+Glue / Iceberg, GCS + BigLake, ABFS + Synapse) expects — drop the
+output directory into the landing bucket and a `MSCK REPAIR TABLE` /
+crawler picks up every partition without further setup.
+
+```yaml
+output:
+  format: parquet
+  partition_by: date_key
+```
+
+A run on the bundled saas template produces:
+
+```
+output/
+├── dim_date/                       # has date_key → partitioned
+│   ├── date_key=20240101/part-0.parquet
+│   ├── date_key=20240201/part-0.parquet
+│   └── ...
+├── dim_company.parquet             # no date_key → single file
+├── dim_user.parquet                # no date_key → single file
+├── dim_plan.parquet                # no date_key → single file
+├── fct_engagement/
+│   ├── date_key=20240101/part-0.parquet
+│   └── ...
+├── fct_revenue/
+│   └── ...
+├── fct_support_tickets/
+│   └── ...
+├── evt_login/
+│   └── ...
+├── evt_churn/
+│   └── ...
+├── config.yaml
+└── validation_report.txt
+```
+
+**Rules:**
+
+- Only applies when `format: parquet`. A `partition_by` paired with
+  `format: csv` is rejected at config load.
+- Tables that have a column with the named name are partitioned;
+  tables without it stay as single files. The validator confirms the
+  name resolves on at least one table (typos fail fast) and rejects
+  `float` / `struct` / `array` partition keys (Hive-style equality
+  matching is ill-defined for those types).
+- Companion files (`config.yaml`, `validation_report.txt`,
+  `manifest.json`) are always single top-level files — they are not
+  table data.
+- Denormalized wide-table sidecars (when `denormalized: true`) and
+  holdout splits (`<fct>_train` / `<fct>_holdout`) partition on the
+  same column when they carry it.
+- The per-entity feature file (`_entity_features.parquet`) is
+  per-entity with no time axis, so it stays as a single file.
+
+### Loading partitioned datasets
+
+pandas, polars, pyarrow, and DuckDB all read a partitioned directory
+without any glob ceremony — point them at the table directory:
+
+```python
+import pandas as pd
+df = pd.read_parquet("output/fct_engagement")  # directory, not file
+
+import polars as pl
+df = pl.read_parquet("output/fct_engagement/**/*.parquet")
+
+import duckdb
+duckdb.sql("SELECT * FROM 'output/fct_engagement/**/*.parquet'")
+```
+
+The partition column is added back from the directory names on read.
+
+### Streaming + partitioning
+
+The streaming-Parquet row-group writer (used when `generation_mode:
+vectorized` + `format: parquet` for very large fact tables) bypasses
+cleanly when partitioning is on — the partitioned writer emits one
+file per partition value rather than one row group per archetype.
+Partitioning is the user-visible knob; streaming is an internal
+memory tactic that loses precedence on collision.
+
+---
+
 ## What `write_tables` produces
 
 | File | Always written? | Description |

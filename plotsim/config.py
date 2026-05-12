@@ -2318,12 +2318,37 @@ class OutputConfig(_Frozen):
     prefixed with the dim's table name plus ``__`` to avoid
     collisions; the dim-side join key is dropped post-join because
     it duplicates the fact's FK column.
+
+    ``partition_by`` names a column to partition Parquet output on.
+    When set (and ``format == "parquet"``), every table that has a
+    column with this name is written as a Hive-style directory of
+    Parquet files (``<output_dir>/<table_name>/<col>=<value>/...``)
+    via ``pyarrow.parquet.write_to_dataset``. Tables without the
+    column are written as a single Parquet file unchanged. Default
+    ``None`` preserves the single-file-per-table layout. The
+    streaming-Parquet row-group optimization (M121b) bypasses cleanly
+    when ``partition_by`` is set — partitioning is the user-visible
+    knob, streaming is an internal memory tactic. The cross-table
+    column-type check on the named partition column runs in
+    ``PlotsimConfig._validate_partition_column``: ``float`` /
+    ``struct`` / ``array`` partition keys are rejected at load.
     """
 
     format: Literal["csv", "parquet"] = "csv"
     directory: str
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False
+    partition_by: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _partition_by_requires_parquet(self) -> "OutputConfig":
+        if self.partition_by is not None and self.format != "parquet":
+            raise ValueError(
+                f"output.partition_by={self.partition_by!r} requires "
+                f"output.format='parquet' (got {self.format!r}); "
+                f"partitioning only applies to the columnar format"
+            )
+        return self
 
 
 PERFECTLY_CLEAN = NoiseConfig(gaussian_sigma=0.0, outlier_rate=0.0, mcar_rate=0.0)
@@ -2770,6 +2795,46 @@ class PlotsimConfig(_Frozen):
         if total > 100_000:
             raise ValueError(
                 f"Total entity count across all groups is {total:,}. " f"Maximum is 100,000."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_partition_column(self) -> "PlotsimConfig":
+        """0.6-M16a: cross-table partition-column existence and dtype check.
+
+        When ``output.partition_by`` is set, at least one table must
+        declare a column with that name (otherwise the name is a typo
+        and partitioning would silently no-op across the entire write).
+        Every table that *does* declare the column must use a
+        partition-eligible dtype — ``float`` / ``struct`` / ``array``
+        are rejected because Hive-style equality partitioning is
+        ill-defined for them. The remaining dtypes (``int`` /
+        ``string`` / ``date`` / ``boolean`` / ``id``) all work.
+        """
+        partition_by = self.output.partition_by
+        if partition_by is None:
+            return self
+        invalid_dtypes = {"float", "struct", "array"}
+        found_anywhere = False
+        for tbl in self.tables:
+            for col in tbl.columns:
+                if col.name != partition_by:
+                    continue
+                found_anywhere = True
+                if col.dtype in invalid_dtypes:
+                    raise ValueError(
+                        f"output.partition_by={partition_by!r} resolves to "
+                        f"column {tbl.name}.{col.name} with dtype "
+                        f"{col.dtype!r}, which is not a valid partition "
+                        f"key type; use one of int / string / date / "
+                        f"boolean / id"
+                    )
+        if not found_anywhere:
+            table_names = ", ".join(t.name for t in self.tables)
+            raise ValueError(
+                f"output.partition_by={partition_by!r} does not match any "
+                f"column on any declared table ({table_names}); check for "
+                f"typos or remove the field to disable partitioning"
             )
         return self
 
