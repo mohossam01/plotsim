@@ -183,6 +183,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
             cell_budget=user_input.output.cell_budget,
             denormalized=user_input.output.denormalized,
             partition_by=user_input.output.partition_by,
+            sql_dialect=user_input.output.sql_dialect,
         )
     else:
         output_cfg = OutputConfig(format="csv", directory="output")

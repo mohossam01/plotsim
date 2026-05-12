@@ -1102,8 +1102,9 @@ class OutputInput(BaseModel):
     — opt-in wide-table companion writer. ``False`` (default) keeps
     output byte-identical to pre-M14a. ``True`` emits
     ``<fct_name>_wide.{csv|parquet|jsonl}`` alongside each normalized
-    fact table, with FK'd dims left-joined onto the fact (SCD2 dims
-    filtered to current state).
+    fact table (or as a trailing block in the SQL dump when
+    ``format == "sql"``), with FK'd dims left-joined onto the fact
+    (SCD2 dims filtered to current state).
 
     ``partition_by`` (0.6-M16a) mirrors ``OutputConfig.partition_by``
     — opt-in Hive-style Parquet partitioning by the named column.
@@ -1119,15 +1120,25 @@ class OutputInput(BaseModel):
     workflows (Kafka / Kinesis / SQS replay), schema-on-read pipelines,
     and any consumer that prefers a row-at-a-time format over CSV's
     flat-string-cell encoding or Parquet's columnar binary.
+
+    ``format: sql`` + ``sql_dialect`` (0.6-M16c) emits a single
+    ``data.sql`` file with dialect-aware DDL + batched INSERTs.
+    ``sql_dialect`` is required to be one of ``postgresql`` / ``mysql``
+    / ``sqlite``; default ``postgresql`` matches the most common
+    "load this into a database" exercise target. Wide tables and
+    holdout splits — when enabled alongside ``format: sql`` — emit
+    as additional CREATE TABLE + INSERT blocks after the star schema
+    (no FK constraints on them).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format: Literal["csv", "parquet", "jsonl"] = "csv"
+    format: Literal["csv", "parquet", "jsonl", "sql"] = "csv"
     directory: str = "output"
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False
     partition_by: Optional[str] = None
+    sql_dialect: Literal["postgresql", "mysql", "sqlite"] = "postgresql"
 
 
 class SourceInput(BaseModel):
@@ -1198,16 +1209,16 @@ def _coerce_noise(value: Any) -> Any:
 def _coerce_output(value: Any) -> Any:
     """Accept format-string shorthand on ``UserInput.output``.
 
-    ``"csv"`` / ``"parquet"`` / ``"jsonl"`` resolve to the corresponding
-    ``OutputInput(format=<word>, directory="output")`` default. Dicts
-    pass through unchanged.
+    ``"csv"`` / ``"parquet"`` / ``"jsonl"`` / ``"sql"`` resolve to the
+    corresponding ``OutputInput(format=<word>, directory="output")``
+    default. Dicts pass through unchanged.
     """
     if isinstance(value, str):
         word = value.strip().lower()
-        if word not in ("csv", "parquet", "jsonl"):
+        if word not in ("csv", "parquet", "jsonl", "sql"):
             raise ValueError(
                 f"unknown output format {value!r}. Valid: 'csv', "
-                f"'parquet', or 'jsonl' (or pass a dict "
+                f"'parquet', 'jsonl', or 'sql' (or pass a dict "
                 f"`{{format: ..., directory: ...}}`)"
             )
         return {"format": word, "directory": "output"}
