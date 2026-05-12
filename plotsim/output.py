@@ -1,4 +1,4 @@
-"""plotsim.output — CSV / Parquet file writing.
+"""plotsim.output — CSV / Parquet / JSONL file writing.
 
 What it does:
     Takes the dict of DataFrames returned by ``plotsim.tables.generate_tables``
@@ -13,10 +13,12 @@ What it does:
     ``OutputConfig.format`` selects the per-table encoding. ``"csv"`` is the
     long-standing default; ``"parquet"`` is the M104 addition for columnar
     output (typically 5-10x smaller than the equivalent CSVs, types
-    preserved by the format). Both branches share the same column-ordering
-    and Int64 coercion path; only the file extension and the on-disk
-    encoder differ. ``config.yaml`` and ``validation_report.txt`` are
-    always written as text — they are companions, not table data.
+    preserved by the format); ``"jsonl"`` (0.6-M16b) writes
+    newline-delimited JSON for streaming-ingestion / schema-on-read
+    consumers. All branches share the same column-ordering and Int64
+    coercion path; only the file extension and the on-disk encoder
+    differ. ``config.yaml`` and ``validation_report.txt`` are always
+    written as text — they are companions, not table data.
 
 CSV conventions (all tables):
     - encoding: utf-8
@@ -39,6 +41,22 @@ Parquet conventions:
     - compression: snappy (pandas/pyarrow default), explicit for clarity
     - deterministic: same DataFrame + same plotsim/pyarrow versions →
       byte-identical Parquet output across runs
+
+JSONL conventions:
+    - one JSON object per line, terminated by ``\\n`` (pinned LF for
+      cross-platform byte-identity)
+    - writer: ``DataFrame.to_json(orient='records', lines=True,
+      date_format='iso', force_ascii=False)``
+    - same column ordering and Int64 coercion as CSV; ordered columns
+      appear in the same key order inside each JSON object (pandas
+      preserves DataFrame column order in ``orient='records'``)
+    - NaN / pd.NA / None serialize as JSON ``null``
+    - nested ``struct`` cells serialize as native JSON objects;
+      ``array`` cells as native JSON arrays — no JSON-string wrapping
+    - date columns emit as ISO-8601 strings, not pandas' default
+      epoch-ms milliseconds (pinned via ``date_format='iso'``)
+    - encoding: utf-8 with ``force_ascii=False`` so unicode characters
+      land verbatim rather than as ``\\uXXXX`` escapes
 
 Input:
     ``tables`` (dict[str, pd.DataFrame]), ``PlotsimConfig``, ``ValidationReport``.
@@ -350,14 +368,15 @@ def _write_streaming_parquet_facts(
 
 
 def _resolve_output_format(config: Optional[PlotsimConfig]) -> str:
-    """Return ``'csv'`` or ``'parquet'`` based on config; default to CSV.
+    """Return ``'csv'``, ``'parquet'``, or ``'jsonl'`` based on config;
+    default to CSV.
 
     Programmatic callers that pass ``config=None`` or a stub object
     without an ``output`` attribute (e.g. unit tests of
     ``write_single_table`` against an ad-hoc DataFrame) get CSV — the
     long-standing behavior — preserved. The defensive ``getattr`` chain
     keeps that contract intact while the YAML-loaded ``PlotsimConfig``
-    surface drives the parquet branch.
+    surface drives the parquet / jsonl branches.
     """
     if config is None:
         return "csv"
@@ -380,6 +399,54 @@ def _resolve_partition_by(config: Optional[PlotsimConfig]) -> Optional[str]:
     if output_cfg is None:
         return None
     return getattr(output_cfg, "partition_by", None)
+
+
+_FORMAT_EXTENSIONS: dict[str, str] = {
+    "csv": "csv",
+    "parquet": "parquet",
+    "jsonl": "jsonl",
+}
+
+
+def _extension_for_format(output_format: str) -> str:
+    """Return the on-disk file extension for ``output_format``.
+
+    Single source of truth so the table writer, the entity-features
+    writer, and any future companion writer all agree on the suffix.
+    Unknown formats fall back to ``"csv"`` to preserve the legacy
+    ``config=None`` contract on ``write_single_table``.
+    """
+    return _FORMAT_EXTENSIONS.get(output_format, "csv")
+
+
+def _write_jsonl(df: pd.DataFrame, path: Path) -> None:
+    """Write ``df`` as newline-delimited JSON to ``path``.
+
+    Pinned options:
+
+    - ``orient='records'``, ``lines=True`` — one JSON object per row,
+      each row self-contained (the streaming-ingestion contract).
+    - ``date_format='iso'`` — date / datetime columns emit as ISO-8601
+      strings; pandas defaults to epoch-ms for ``orient='records'``,
+      which is unfriendly for hand-inspection and most downstream
+      JSONL consumers.
+    - ``force_ascii=False`` — unicode characters land verbatim; matches
+      the utf-8 contract used for CSV.
+
+    NaN / ``pd.NA`` / ``None`` serialise as JSON ``null``. Nested
+    ``struct`` / ``array`` cells (which are Python dicts / lists in
+    the DataFrame) serialise as native JSON objects / arrays — no
+    JSON-string wrapping. The DataFrame's column order is preserved
+    in the JSON key order of each row (pandas guarantee for
+    ``orient='records'``).
+    """
+    df.to_json(
+        path,
+        orient="records",
+        lines=True,
+        date_format="iso",
+        force_ascii=False,
+    )
 
 
 def _check_parquet_engine_available() -> None:
@@ -418,7 +485,7 @@ def write_single_table(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_format = _resolve_output_format(config)
-    extension = "parquet" if output_format == "parquet" else "csv"
+    extension = _extension_for_format(output_format)
     path = output_dir / f"{name}.{extension}"
 
     # SEC-02 defense-in-depth: ``Table.name`` / ``Column.name`` are regex-
@@ -472,6 +539,12 @@ def write_single_table(
                 index=False,
                 compression="snappy",
             )
+    elif output_format == "jsonl":
+        # 0.6-M16b: newline-delimited JSON. Nested struct / array cells
+        # land as native JSON objects / arrays (no _serialise_nested_for_csv
+        # wrapping); date columns serialise as ISO-8601 strings rather
+        # than pandas' default epoch-ms milliseconds for orient=records.
+        _write_jsonl(to_write, path)
     else:
         # 0.6-M14c: nested columns serialise via ``json.dumps`` for CSV
         # output. Pandas ``to_csv`` would otherwise call ``str(dict)`` /
@@ -1035,14 +1108,17 @@ def _write_entity_features(
     underscore signals "derived companion" rather than "table" and
     keeps the file out of any glob that targets ``*.csv``-tables only.
     Format follows ``config.output.format`` so a user opting into
-    Parquet for the table set gets Parquet for the feature file too —
-    no mixed-encoding output dirs.
+    Parquet (or 0.6-M16b JSONL) for the table set gets the matching
+    encoding for the feature file too — no mixed-encoding output dirs.
 
     Same encoding / quoting / float-format conventions as the regular
-    table writers (``CSV_ENCODING``, ``QUOTE_NONNUMERIC``, ``%.4f``).
+    table writers (``CSV_ENCODING``, ``QUOTE_NONNUMERIC``, ``%.4f``)
+    on the CSV branch; the JSONL branch uses ``_write_jsonl``'s pinned
+    options (orient=records, lines=True, date_format=iso,
+    force_ascii=False).
     """
     output_format = _resolve_output_format(config)
-    extension = "parquet" if output_format == "parquet" else "csv"
+    extension = _extension_for_format(output_format)
     path = output_dir / f"{ENTITY_FEATURES_BASENAME}.{extension}"
     if output_format == "parquet":
         _check_parquet_engine_available()
@@ -1052,6 +1128,8 @@ def _write_entity_features(
             index=False,
             compression="snappy",
         )
+    elif output_format == "jsonl":
+        _write_jsonl(df, path)
     else:
         df.to_csv(
             path,

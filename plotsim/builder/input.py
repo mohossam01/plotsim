@@ -1101,8 +1101,8 @@ class OutputInput(BaseModel):
     ``denormalized`` (0.6-M14a) mirrors ``OutputConfig.denormalized``
     — opt-in wide-table companion writer. ``False`` (default) keeps
     output byte-identical to pre-M14a. ``True`` emits
-    ``<fct_name>_wide.{csv|parquet}`` alongside each normalized fact
-    table, with FK'd dims left-joined onto the fact (SCD2 dims
+    ``<fct_name>_wide.{csv|parquet|jsonl}`` alongside each normalized
+    fact table, with FK'd dims left-joined onto the fact (SCD2 dims
     filtered to current state).
 
     ``partition_by`` (0.6-M16a) mirrors ``OutputConfig.partition_by``
@@ -1112,11 +1112,18 @@ class OutputInput(BaseModel):
     Parquet files (``<output>/<table>/<col>=<value>/...``); tables
     without the column fall back to single files. Requires
     ``format='parquet'``.
+
+    ``format: jsonl`` (0.6-M16b) emits newline-delimited JSON — one
+    JSON object per row, nested struct / array cells preserved as
+    native JSON objects / arrays. Designed for streaming-ingestion
+    workflows (Kafka / Kinesis / SQS replay), schema-on-read pipelines,
+    and any consumer that prefers a row-at-a-time format over CSV's
+    flat-string-cell encoding or Parquet's columnar binary.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    format: Literal["csv", "parquet"] = "csv"
+    format: Literal["csv", "parquet", "jsonl"] = "csv"
     directory: str = "output"
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False
@@ -1191,16 +1198,17 @@ def _coerce_noise(value: Any) -> Any:
 def _coerce_output(value: Any) -> Any:
     """Accept format-string shorthand on ``UserInput.output``.
 
-    ``"csv"`` / ``"parquet"`` resolve to the corresponding
+    ``"csv"`` / ``"parquet"`` / ``"jsonl"`` resolve to the corresponding
     ``OutputInput(format=<word>, directory="output")`` default. Dicts
     pass through unchanged.
     """
     if isinstance(value, str):
         word = value.strip().lower()
-        if word not in ("csv", "parquet"):
+        if word not in ("csv", "parquet", "jsonl"):
             raise ValueError(
-                f"unknown output format {value!r}. Valid: 'csv' or "
-                f"'parquet' (or pass a dict `{{format: ..., directory: ...}}`)"
+                f"unknown output format {value!r}. Valid: 'csv', "
+                f"'parquet', or 'jsonl' (or pass a dict "
+                f"`{{format: ..., directory: ...}}`)"
             )
         return {"format": word, "directory": "output"}
     return value

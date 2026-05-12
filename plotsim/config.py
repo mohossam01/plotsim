@@ -2285,17 +2285,27 @@ class HoldoutConfig(_Frozen):
 class OutputConfig(_Frozen):
     """Output format selector and target directory.
 
-    ``format`` accepts ``"parquet"`` in addition to the default ``"csv"``.
-    CSV remains the default; configs that omit ``format`` (or set
-    ``format: csv``) write ``.csv`` files. Parquet output is column-typed
-    and typically 5-10x smaller on the bundled templates; the engine path
-    is identical, only the on-disk encoding differs.
+    ``format`` accepts ``"parquet"`` and ``"jsonl"`` in addition to the
+    default ``"csv"``. CSV remains the default; configs that omit
+    ``format`` (or set ``format: csv``) write ``.csv`` files. Parquet
+    output is column-typed and typically 5-10x smaller on the bundled
+    templates; the engine path is identical, only the on-disk encoding
+    differs. JSONL (newline-delimited JSON, one object per row) is
+    designed for streaming / API ingestion workflows where each line is
+    self-contained and the file can be tailed or replayed through Kafka /
+    Kinesis / SQS without a header dance.
 
     Parquet writes go through ``pyarrow``, declared as the optional
     extra ``plotsim[parquet]``. When pyarrow is not installed and
     ``format: parquet`` is configured, ``write_tables`` raises an
     ``ImportError`` naming the install command — fail-fast at the
     write call rather than mid-iteration.
+
+    JSONL writes use ``DataFrame.to_json(orient='records', lines=True,
+    date_format='iso')`` so nested struct / array cells serialize as
+    native JSON objects / arrays, NaN values become ``null``, and date
+    columns land as ISO-8601 strings (rather than pandas' default
+    epoch-ms milliseconds for ``orient='records'``).
 
     ``cell_budget`` (M7) is the per-config override of the soft
     cell-count gate enforced by ``_combined_scale_estimator``. ``None``
@@ -2334,7 +2344,7 @@ class OutputConfig(_Frozen):
     ``struct`` / ``array`` partition keys are rejected at load.
     """
 
-    format: Literal["csv", "parquet"] = "csv"
+    format: Literal["csv", "parquet", "jsonl"] = "csv"
     directory: str
     cell_budget: Optional[int] = Field(default=None, ge=0)
     denormalized: bool = False

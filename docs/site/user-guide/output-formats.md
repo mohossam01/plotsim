@@ -181,11 +181,139 @@ memory tactic that loses precedence on collision.
 
 ---
 
+## JSONL
+
+Set the output format to `jsonl` and every table is written as
+newline-delimited JSON — one self-contained JSON object per line. The
+shape matches what a Kafka producer, an SQS / Kinesis replay tool, or a
+schema-on-read pipeline (Spark / DuckDB / jq) expects to consume.
+
+```yaml
+output:
+  format: jsonl
+```
+
+A run on the bundled saas template produces:
+
+```
+output/
+├── dim_date.jsonl
+├── dim_company.jsonl
+├── dim_user.jsonl
+├── dim_plan.jsonl
+├── fct_engagement.jsonl
+├── fct_revenue.jsonl
+├── fct_support_tickets.jsonl
+├── evt_login.jsonl
+├── evt_churn.jsonl
+├── config.yaml
+├── validation_report.txt
+└── manifest.json
+```
+
+A handful of lines from `fct_engagement.jsonl`:
+
+```json
+{"date_key":20230101,"company_id":"c-001","engagement_score":0.7088,"feature_adoption":0.0,"customer_sentiment":"at_risk","dim_row_id":1}
+{"date_key":20230201,"company_id":"c-001","engagement_score":0.6667,"feature_adoption":0.0,"customer_sentiment":"at_risk","dim_row_id":1}
+```
+
+**Format conventions**:
+
+- One JSON object per line, terminated by `\n` (LF pinned, even on
+  Windows, so files are byte-identical across platforms)
+- UTF-8 encoding; non-ASCII characters land verbatim (not as `\uXXXX`
+  escapes) — useful for international templates and entity names
+- `NaN` / `pd.NA` / `None` serialise as JSON `null`
+- Date and datetime columns emit as ISO-8601 strings (`"2024-01-15"`),
+  not pandas' default epoch-ms milliseconds
+- Nested `struct` columns serialise as native JSON objects; `array`
+  columns as native JSON arrays — no JSON-string wrapping (the CSV
+  writer wraps because flat-string cells can't carry nested types;
+  JSONL doesn't have that constraint)
+- Column key order in each row matches the config's column order
+  (PK → FK → others)
+
+**When to use JSONL**:
+
+- Streaming-ingestion workflows: drop the file into Kafka / Kinesis /
+  SQS as a replay source, one message per line
+- Schema-on-read pipelines (Spark `spark.read.json`, DuckDB
+  `read_json_auto`, jq, ripgrep over the raw file)
+- Nested-data exercises where you want students to see the JSON shape
+  directly rather than parse a CSV column
+- Hand-inspection of a few rows — `head -3 fct_engagement.jsonl | jq`
+  beats opening a Parquet file in a hex editor
+
+**When CSV or Parquet is fine**:
+
+- Tabular BI tooling (Excel, Google Sheets, Looker, Tableau) — they
+  speak CSV / Parquet natively, JSONL needs a transform step
+- Maximum file-size compactness — Parquet's columnar binary beats
+  JSONL's per-row key-name repetition by 5-15x on the bundled templates
+
+### Loading JSONL
+
+pandas, polars, DuckDB, and Spark all read JSONL without ceremony:
+
+```python
+import pandas as pd
+df = pd.read_json("output/fct_engagement.jsonl", lines=True)
+
+# or
+import polars as pl
+df = pl.read_ndjson("output/fct_engagement.jsonl")
+
+# or
+import duckdb
+duckdb.sql("SELECT * FROM read_json_auto('output/fct_engagement.jsonl')")
+```
+
+### Replaying through Kafka
+
+The on-disk format is wire-ready — each line is a complete message.
+Pipe straight into a producer:
+
+```bash
+while IFS= read -r line; do
+  kafka-console-producer --topic engagement --broker-list localhost:9092 <<< "$line"
+done < output/fct_engagement.jsonl
+```
+
+Or in Python:
+
+```python
+from kafka import KafkaProducer
+producer = KafkaProducer(bootstrap_servers="localhost:9092")
+with open("output/fct_engagement.jsonl") as f:
+    for line in f:
+        producer.send("engagement", line.rstrip("\n").encode("utf-8"))
+producer.flush()
+```
+
+### Sidecars under JSONL
+
+The same encoding extends to every per-table sidecar so a run never
+produces mixed-format output:
+
+- Denormalized wide tables (when `denormalized: true`) →
+  `<fct_name>_wide.jsonl`
+- Holdout splits (when `holdout` is configured) →
+  `<fct_name>_train.jsonl` / `<fct_name>_holdout.jsonl`
+- Per-entity features (when `entity_features` is enabled) →
+  `_entity_features.jsonl`
+
+Companions are not table data and stay in their canonical text form:
+`config.yaml`, `validation_report.txt`, and `manifest.json` are never
+re-encoded.
+
+---
+
 ## What `write_tables` produces
 
 | File | Always written? | Description |
 |---|---|---|
-| `<table>.csv` / `.parquet` | yes | One file per generated table |
+| `<table>.csv` / `.parquet` / `.jsonl` | yes | One file per generated table |
 | `config.yaml` | yes | Round-trippable copy of the config used for generation |
 | `validation_report.txt` | yes | Human-readable list of FK / PK / spine / null-policy issues |
 | `manifest.json` | conditional | Ground-truth signal layer (see below) |
