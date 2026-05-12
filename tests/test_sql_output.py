@@ -513,6 +513,23 @@ class TestFormatLiteral:
         with pytest.raises(Exception, match="sql_dialect"):
             OutputConfig(format="sql", directory="out", sql_dialect="oracle")
 
+    def test_non_default_dialect_with_non_sql_format_rejected(self):
+        # Mirror of ``_partition_by_requires_parquet``: ``sql_dialect``
+        # is only consumed when emitting the SQL dump. Pairing
+        # ``mysql`` / ``sqlite`` with a non-sql format used to be
+        # silently ignored — now rejected at load.
+        for fmt in ("csv", "parquet", "jsonl"):
+            for d in ("mysql", "sqlite"):
+                with pytest.raises(Exception, match="sql_dialect"):
+                    OutputConfig(format=fmt, directory="out", sql_dialect=d)
+
+    def test_default_dialect_with_non_sql_format_allowed(self):
+        # The default ``postgresql`` round-trips through ``dump_config``
+        # regardless of format — only explicit non-default values raise.
+        for fmt in ("csv", "parquet", "jsonl"):
+            oc = OutputConfig(format=fmt, directory="out")
+            assert oc.sql_dialect == "postgresql"
+
     def test_resolve_output_format_returns_sql(self):
         cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
         cfg_s = cfg.model_copy(

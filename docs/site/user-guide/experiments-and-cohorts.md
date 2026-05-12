@@ -212,9 +212,9 @@ decouples the two:
   fraction, label, start_period, or none) → identical arrival
   schedule.
 
-This is the same principle behind M8b's `step` / `explicit`
-zero-RNG-draw contract, applied across feature boundaries: changing
-one feature's shape doesn't shift another feature's outputs.
+This is the same principle behind the `step` / `explicit` arrival
+shapes' zero-RNG-draw contract, applied across feature boundaries:
+changing one feature's shape doesn't shift another feature's outputs.
 
 ### Manifest
 

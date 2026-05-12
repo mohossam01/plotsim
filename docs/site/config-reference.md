@@ -682,7 +682,7 @@ output:
 |---|---|---|---|
 | `format` | `"csv"` / `"parquet"` | `"csv"` | CSV is the default; `parquet` requires `pip install plotsim[parquet]` (pyarrow). Same engine path, ~5–10× smaller on disk |
 | `directory` | `str` | `"output"` | Where `write_tables` writes. Override at call time with `write_tables(..., output_dir=...)` |
-| `cell_budget` | `int ≥ 0` / `null` | `null` | M7 — soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
+| `cell_budget` | `int ≥ 0` / `null` | `null` | Soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
 
 When `format: parquet` and `pyarrow` is missing, `write_tables` raises
 `ImportError` naming the install command — fail-fast at the write call
@@ -731,7 +731,7 @@ so the realized Pearson correlations land closer to the declared
 Records each adjustment in `manifest.correlation_compensations`. The
 builder layer sets `True` explicitly because `connections` is a
 table-wide intent contract; engine-direct configs default to `False`
-to preserve byte-identical output for pre-M120 YAML on disk.
+to preserve byte-identical output for legacy YAML on disk.
 
 ### `generation_mode`
 

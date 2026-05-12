@@ -5,7 +5,7 @@
 > [API](./api-reference.md), [Config fields](./config-reference.md),
 > [Column types](./column-types.md), [Manifest](./manifest-reference.md).
 >
-> Snapshot against `plotsim` `0.7.0-dev` (main HEAD `fbbf6ab`, post-M14c).
+> Snapshot against `plotsim` `0.6.1` on `main`.
 
 ---
 
@@ -129,13 +129,13 @@ on critical issues).
 seed, archetype assignments per entity, sampled trajectory positions
 (rate-controlled), event firings, SCD-2 band crossings, treatment
 assignments + cohort definitions, bridge associations, and configured
-quality-issue rates. Plus three M5 ground-truth sections that turn the
+quality-issue rates. Plus three ground-truth sections that turn the
 manifest into a scoreable answer key:
 
 | Section | What it carries | Used for |
 |---|---|---|
 | `causal_graph` | One `CausalEdge` record per non-None `causal_lag` in the config (source metric → target metric, lag, decay window when set) | DE lineage / cataloging exercises; AE semantic-layer modeling |
-| `correlations` | One `CorrelationEntry` per metric pair (projected coefficient after Higham nearest-PD); M11 extends with per-phase entries tagged by `phase_index` | DS/ML feature-engineering guidance; correlation-recovery exercises |
+| `correlations` | One `CorrelationEntry` per metric pair (projected coefficient after Higham nearest-PD); time-varying `correlation_phases` add per-phase entries tagged by `phase_index` | DS/ML feature-engineering guidance; correlation-recovery exercises |
 | `outlier_injections` | Per-cell log of where the noise outlier branch fired (`None` when skipped — zero outlier rate or above the `OUTLIER_DETECTION_CELL_BUDGET` of 1M cells) | DS/ML anomaly-detection scoring (Isolation Forest, LOF); DE data-quality testing |
 
 The "what was true at generation time" record.
@@ -190,7 +190,7 @@ convenience shapes:
 - `window=("2024-01", "2024-12", "monthly")` shorthand.
 
 Templates: `plotsim.list_templates()` →
-`["bare_minimum", "education", "hr", "marketing", "retail", "saas"]`.
+`["ab_trial", "bare_minimum", "cdc_demo", "crm_billing_overlap", "education", "geo_retail", "hr", "lakehouse", "latency_skew", "marketing", "narrative_reviews", "retail", "saas"]`.
 `plotsim.load_template("saas")` returns a `PlotsimConfig` ready to mutate
 or pass to `generate_tables`.
 
@@ -217,9 +217,12 @@ output/
 
 Format conventions:
 
-- UTF-8, `pd.NA` written as empty string, `%.6g` floats.
-- Parquet emitted instead of CSV when `output.format: parquet` (requires
-  `plotsim[parquet]` extra). Columns and dtypes identical otherwise.
+- UTF-8, `pd.NA` written as empty string, `%.4f` floats (4 decimal
+  places, fixed-point).
+- `output.format` selects the per-table encoding: `csv` (default),
+  `parquet` (requires `plotsim[parquet]` extra), `jsonl` (one JSON
+  object per line), or `sql` (single `data.sql` with dialect-aware DDL
+  + INSERTs). Columns and dtypes identical across encodings.
 - `output.holdout` swaps each `fct_*` and `evt_*` for paired
   `_train` / `_holdout` files.
 
@@ -265,12 +268,6 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
   to chance. For trajectory- and archetype-driven text on fact tables,
   use the `narrative` column type instead — see
   [Narrative text source](./user-guide/narrative-source.md).
-- **Single source per config.** No multi-system overlap, no CDC change
-  log on facts (SCD2 covers dim CDC only), no schema-evolution
-  emission. (Tracked: multi-source mode mission.)
-- **Flat scalars only.** No struct/array/JSON column types; CSV and
-  Parquet writers don't emit nested types.
-- **3NF by construction.** No denormalized "wide" output mode.
 - **Faker geo providers are independent draws.** `generated:faker.city`,
   `generated:faker.country`, etc. don't agree on a single row — Faker
   picks each value independently. Use the `geo.<field>` column type
@@ -278,7 +275,14 @@ opened — surfaced here so a feature catalog reader doesn't go looking:
   country / region / city / postcode / lat-lng bundles drawn from a
   curated reference dataset; see
   [Geo hierarchy](./user-guide/geo-hierarchy.md).
-
-These are listed in `project/notes/engine-features-maturity.md`
-(internal) with mission-shaped fixes. They are out of scope for "what
-the library does today."
+- **Nested columns are dim-only and one level deep.** `dtype: struct`
+  and `dtype: array` are supported on dimension columns with primitive
+  leaves (`int` / `float` / `string` / `boolean`). Nested-of-nested
+  (struct-of-struct, array-of-struct) is rejected at config load. Fact
+  and event tables stay flat.
+- **No LLM-driven domain scaffolding.** Plotsim ships the engine
+  surface (`create` / `create_from_yaml` / templates) but not the
+  natural-language → YAML scaffolder described in the spec. Users
+  hand-write the YAML, copy a bundled template, or use the
+  `create(**kwargs)` builder. The LLM scaffolder is a planned V2
+  surface.

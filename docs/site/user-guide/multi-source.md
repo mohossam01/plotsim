@@ -59,7 +59,7 @@ sources)` pair always produces byte-identical per-source dims, and
 toggling source order shifts each source's drift to a different
 deterministic offset without coupling across sources. Adding or
 removing a source changes the RNG stream for every source declared
-after it (one draw per source, per the M13 design note in
+after it (one draw per source, per the design note in
 `plotsim/multi_source.py`).
 
 ## Quickstart — builder
@@ -184,7 +184,7 @@ sources:
 Rules enforced at load:
 
 * 2–5 sources per config. 1 is degenerate (no overlap); >5 moves out
-  of the teaching range called out in the M13 design spec.
+  of the teaching range called out in the multi-source design spec.
 * Source names must be unique within the block.
 * Source names must not collide with any existing dim table name
   (the emitted `dim_<entity>_<source>` would shadow a real table).

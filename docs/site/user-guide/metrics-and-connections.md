@@ -416,7 +416,8 @@ manifest records the phase boundaries as ground truth.
 ### Single-phase configs
 
 If you don't declare `connection_phases`, nothing changes: one
-Cholesky factor, one regime, byte-identical output to pre-M11. The
+Cholesky factor, one regime, byte-identical output to the
+single-phase baseline. The
 feature is purely additive.
 
 ---
