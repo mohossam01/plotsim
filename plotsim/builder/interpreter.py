@@ -1050,6 +1050,7 @@ def _translate_fact(
     # Both new shapes route through dedicated config fields rather
     # than overloading existing ones, so a fact that sets neither pair
     # stays byte-identical with pre-M18.
+    grain: Grain
     if f.parent_table is not None:
         grain = "per_parent_row"
         row_count_source = None
