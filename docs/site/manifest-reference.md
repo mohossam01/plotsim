@@ -46,7 +46,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.5",
+  "schema_version": "1.6",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -62,13 +62,14 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
   "vectorized_threshold_used": 50 | null,
   "causal_graph": [...],
   "correlations": [...],
-  "outlier_injections": [...] | null
+  "outlier_injections": [...] | null,
+  "parent_child_relations": [...]
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.5"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings — landed) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.6"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations` — landed) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -578,6 +579,47 @@ from `null` (skipped).
 injection is ground truth: the cell got an outlier multiplier from
 `apply_noise`, so a detector that fails to flag it has missed a known
 positive. An empty list means clean data with no anomalies to find.
+
+---
+
+## `parent_child_relations`
+
+Parent-fact / child-fact pairing records — one entry per
+`per_parent_row` child table declared in the config.
+
+```json
+{
+  "parent_child_relations": [
+    {
+      "parent_table": "fct_orders",
+      "child_table": "fct_order_items",
+      "children_per_row_min": 1,
+      "children_per_row_max": 5,
+      "parent_row_count": 221,
+      "child_row_count": 662
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `parent_table` | `str` | Name of the parent fact table |
+| `child_table` | `str` | Name of the `per_parent_row` child fact table |
+| `children_per_row_min` | `int` | Inclusive lower bound declared on the child (`Table.children_per_row[0]`) |
+| `children_per_row_max` | `int` | Inclusive upper bound declared on the child (`Table.children_per_row[1]`) |
+| `parent_row_count` | `int` | Actual row count of the parent fact in the generated output |
+| `child_row_count` | `int` | Actual row count of the child fact in the generated output |
+
+Empty list when the config declares no `per_parent_row` tables.
+Sorted by `child_table` for stable diff under the same config.
+
+**Use case** — verify the trajectory-driven parent fan-out without
+re-reading the CSVs. `parent_row_count` reflects the
+trajectory-driven row counts; `child_row_count` reflects the
+configured `children_per_row` range × parent rows. A divergent
+`child_row_count / parent_row_count` ratio across runs at the same
+seed signals a generation regression.
 
 ---
 
