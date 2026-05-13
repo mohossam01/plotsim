@@ -742,7 +742,7 @@ class TestDimensionConstruction:
                     name="founded_date",
                     dtype="date",
                     source=(
-                        "generated:faker.date_between:" "start_date:2022-01-01:end_date:2024-12-31"
+                        "generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31"
                     ),
                 ),
             ],

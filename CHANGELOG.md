@@ -9,6 +9,29 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Parent/child fact grain + sibling-fact references.** Three
+  composable patterns for multi-fact stars:
+  - **Header / detail** — a `per_parent_row` child fact fans out
+    deterministically from each parent row. The parent FK column on the
+    child is auto-synthesized from `parent_table` (bridge precedent:
+    user declares the relationship once, engine emits the FK column).
+    Models orders + line items, claims + claim lines, etc.
+  - **Variable-grain parent** — a `variable`-grain fact whose row count
+    is trajectory-driven via a `row_count_driver` metric. Reads the
+    driver directly from the metric layer; no intermediate driver-host
+    fact required (2-table minimum: parent + child).
+  - **Sibling-fact reference** — a second variable-grain fact carries a
+    `ref.<other_fact>` column; the engine resolves it via same-entity-
+    filtered stochastic draw from the referenced fact's PK column.
+    Models orders + returns, orders + selectively-shipped orders, etc.
+  Builder vocabulary: `row_count_driver` / `row_count_scale` (variable
+  parent or sibling), `parent_table` / `children_per_row` (header /
+  detail child). Topological build order across fact dependencies
+  (parent_table edges + `fk:fct_*` column edges). Bundled template
+  `orders` demonstrates all three patterns (`fct_orders` parent,
+  `fct_order_items` child, `fct_returns` sibling). Manifest schema
+  bumps 1.5 → 1.6 with a new `parent_child_relations` list (one record
+  per declared header / detail edge, carrying actual row counts).
 - **Broader feature coverage in bundled domain templates.** The five
   domain templates (`saas`, `hr`, `retail`, `education`, `marketing`)
   now demonstrate audit, quality, treatment, and nested-output

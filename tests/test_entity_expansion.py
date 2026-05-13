@@ -435,10 +435,9 @@ def test_segment_count_value_pool_carries_original_cohort_size():
         # naive ``rsplit('_', 1)[0]`` works because the suffix is always
         # the 4-digit zero-padded index appended by the M117 expansion.
         prefix, _suffix = entity_name.rsplit("_", 1)
-        assert prefix in segment_counts, (
-            f"{entity_name}: prefix {prefix!r} not in template segments "
-            f"{sorted(segment_counts)}"
-        )
+        assert (
+            prefix in segment_counts
+        ), f"{entity_name}: prefix {prefix!r} not in template segments {sorted(segment_counts)}"
         expected = [str(segment_counts[prefix])]
         assert (
             pool_values == expected

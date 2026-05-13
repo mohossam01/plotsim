@@ -416,9 +416,9 @@ def test_churn_events_align_with_engagement_decline():
     # churn_risk the whole window without a meaningful prior decline.
     # Require at least one event to trace back to an engagement decline.
     if total > 0:
-        assert declines >= 1, (
-            f"no churn event followed an engagement decline " f"(0 declines across {total} events)"
-        )
+        assert (
+            declines >= 1
+        ), f"no churn event followed an engagement decline (0 declines across {total} events)"
 
 
 def test_stages_never_go_backward_saas():
@@ -556,10 +556,9 @@ def test_maximum_noise_preserves_structural_checks(tmp_path: Path):
     report = validate(cfg, tables)
     structural_checks = {"pk_uniqueness", "fk_integrity", "date_spine"}
     structural_errors = [i for i in report.errors if i.check in structural_checks]
-    assert not structural_errors, (
-        f"max-noise broke structural checks: "
-        f"{[(i.check, i.message) for i in structural_errors]}"
-    )
+    assert (
+        not structural_errors
+    ), f"max-noise broke structural checks: {[(i.check, i.message) for i in structural_errors]}"
 
 
 def test_no_correlations(tmp_path: Path):

@@ -547,10 +547,9 @@ def test_valid_correlation_matrix_still_works(saas_cfg, saas_tables):
     mask = e.notna() & m.notna()
     obs_corr = float(np.corrcoef(e[mask].values, m[mask].values)[0, 1])
     delivered = _delivered_coefficient(saas_cfg, "engagement", "mrr")
-    assert abs(obs_corr - delivered) < 0.30, (
-        f"observed engagement/mrr correlation {obs_corr:.3f} too far from "
-        f"delivered {delivered:.3f}"
-    )
+    assert (
+        abs(obs_corr - delivered) < 0.30
+    ), f"observed engagement/mrr correlation {obs_corr:.3f} too far from delivered {delivered:.3f}"
 
 
 def test_empty_correlations_skips_psd_check():

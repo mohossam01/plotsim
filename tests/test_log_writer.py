@@ -186,9 +186,7 @@ def test_log_placeholders_resolve_to_column_values(tmp_path):
     # the actual value in the source DataFrame.
     first_row = df.iloc[0]
     expected = (
-        f"ts={first_row['event_ts']} "
-        f"user={first_row['user_id']} "
-        f"co={first_row['company_id']}"
+        f"ts={first_row['event_ts']} user={first_row['user_id']} co={first_row['company_id']}"
     )
     assert log_lines[0] == expected
 

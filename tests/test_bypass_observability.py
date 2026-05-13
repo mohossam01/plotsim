@@ -202,10 +202,9 @@ class TestCounterIncrement:
         # M127b: bypass plumbing is gone, so even an all-degenerate
         # config produces an empty counter. The cells themselves still
         # produce finite output via the new family-grouped transforms.
-        assert m.bypass_fallback_counts == {}, (
-            f"M127b: bypass machinery removed; expected empty dict, "
-            f"got {m.bypass_fallback_counts}"
-        )
+        assert (
+            m.bypass_fallback_counts == {}
+        ), f"M127b: bypass machinery removed; expected empty dict, got {m.bypass_fallback_counts}"
 
     def test_counter_zero_for_healthy_centers(self):
         """A config whose trajectory keeps centers comfortably above
@@ -301,9 +300,9 @@ class TestCounterIncrement:
             generation_mode="vectorized",
         )
         m = _build_manifest_for(cfg)
-        assert m.bypass_fallback_counts.get("healthy", 0) == 0, (
-            f"healthy normal centers shouldn't trip bypass; got " f"{m.bypass_fallback_counts}"
-        )
+        assert (
+            m.bypass_fallback_counts.get("healthy", 0) == 0
+        ), f"healthy normal centers shouldn't trip bypass; got {m.bypass_fallback_counts}"
 
 
 # --- vectorized_threshold_used ---------------------------------------------

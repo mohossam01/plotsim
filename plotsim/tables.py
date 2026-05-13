@@ -102,6 +102,68 @@ def _per_entity_dim_names(config: PlotsimConfig) -> set[str]:
     return {t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"}
 
 
+def _fact_topo_order(config: PlotsimConfig) -> list[str]:
+    """0.6-M18: topological order over fact-table dependencies.
+
+    Two edge types contribute to the graph:
+
+      * ``per_parent_row`` child → parent fact (``parent_table`` field).
+      * Any fact column with source ``fk:fct_<other>.<col>`` → referenced
+        fact (sibling-fact reference, 0.6-M18 Fix 3).
+
+    Returns fact names in a build order that guarantees every fact's
+    dependencies are materialized before the fact itself. Stability:
+    ties broken by ``config.tables`` declaration order. Raises on
+    cycles — load-time validators already reject these but the runtime
+    sort double-checks so a downstream caller can't accidentally feed
+    an invalid config.
+    """
+    fact_names = [t.name for t in config.tables if t.type == "fact"]
+    fact_name_set = set(fact_names)
+    deps: dict[str, set[str]] = {name: set() for name in fact_names}
+    for tbl in config.tables:
+        if tbl.type != "fact":
+            continue
+        if tbl.grain == "per_parent_row" and tbl.parent_table:
+            deps[tbl.name].add(tbl.parent_table)
+        for col in tbl.columns:
+            try:
+                parsed = parse_source(col.source)
+            except ValueError:
+                continue
+            if isinstance(parsed, FKSource) and parsed.table in fact_name_set:
+                deps[tbl.name].add(parsed.table)
+
+    in_degree = {name: len(deps[name]) for name in fact_names}
+    downstream: dict[str, set[str]] = {name: set() for name in fact_names}
+    for name, ds in deps.items():
+        for d in ds:
+            downstream[d].add(name)
+
+    queue: list[str] = [name for name in fact_names if in_degree[name] == 0]
+    order: list[str] = []
+    while queue:
+        node = queue.pop(0)
+        order.append(node)
+        # Preserve config.tables declaration order when multiple nodes
+        # become ready at the same step.
+        for ds_name in fact_names:
+            if ds_name not in downstream[node]:
+                continue
+            in_degree[ds_name] -= 1
+            if in_degree[ds_name] == 0:
+                queue.append(ds_name)
+
+    if len(order) != len(fact_names):
+        unresolved = [n for n in fact_names if n not in order]
+        raise ValueError(
+            f"fact dependency cycle detected; could not resolve "
+            f"build order for {unresolved!r}. Check parent_table and "
+            f"fk:fct_* column sources."
+        )
+    return order
+
+
 def _find_entity_fk_column(
     table: Table, per_entity_dims: set[str]
 ) -> Optional[tuple[str, str, str]]:
@@ -587,9 +649,17 @@ def build_fact_tables(
     fact_out: dict[str, pd.DataFrame] = {}
     fake = _make_faker(rng, config.locale)
 
-    for tbl in config.tables:
-        if tbl.type != "fact":
-            continue
+    # 0.6-M18: topological build order over fact dependencies. Two edge
+    # types contribute: ``per_parent_row`` child → parent (parent_table)
+    # and any fact column with ``fk:fct_*`` → referenced fact (sibling
+    # references). Single pass through facts in topo order replaces the
+    # earlier two-pass scheme and generalizes to multi-fact stars
+    # (orders + line items + returns).
+    fact_build_order = _fact_topo_order(config)
+    tables_by_name = {t.name: t for t in config.tables}
+
+    for fact_name in fact_build_order:
+        tbl = tables_by_name[fact_name]
         if tbl.grain == "per_entity_per_period":
             df = _build_per_entity_per_period_fact(
                 tbl,
@@ -617,10 +687,55 @@ def build_fact_tables(
                 fake,
                 metrics_3d,
             )
+        elif tbl.grain == "variable":
+            # 0.6-M18: variable-grain fact (parent of per_parent_row
+            # children OR sibling-referenced fact). Row count is
+            # trajectory-driven via ``row_count_source``. Routes through
+            # ``_build_variable_grain_fact`` which reads the driver
+            # metric directly from ``entity_metrics`` — no intermediate
+            # driver-host fact required.
+            if tbl.row_count_source is None:
+                raise ValueError(
+                    f"variable-grain fact {tbl.name!r} has no "
+                    f"row_count_source; declare one (e.g. "
+                    f"'proportional:order_volume:scale:1.5') so the "
+                    f"engine can derive per-(entity, period) row counts"
+                )
+            parsed_rc = parse_source(tbl.row_count_source)
+            if not isinstance(parsed_rc, ProportionalSource):
+                raise ValueError(
+                    f"variable-grain fact {tbl.name!r} row_count_source "
+                    f"{tbl.row_count_source!r} resolves to "
+                    f"{type(parsed_rc).__name__}; only "
+                    f"ProportionalSource is supported on variable-grain "
+                    f"fact tables in 0.6"
+                )
+            fact_out[tbl.name] = _build_variable_grain_fact(
+                tbl,
+                parsed_rc,
+                config,
+                dim_tables,
+                per_entity_dims,
+                entity_metrics,
+                fact_out,
+                fake,
+                rng,
+            )
+        elif tbl.grain == "per_parent_row":
+            fact_out[tbl.name] = _build_per_parent_row_fact(
+                tbl,
+                config,
+                fact_out,
+                dim_tables,
+                per_entity_dims,
+                fake,
+                rng,
+            )
         else:
             raise ValueError(
                 f"fact table {tbl.name!r} has unsupported grain "
-                f"{tbl.grain!r}; expected per_entity_per_period or per_period"
+                f"{tbl.grain!r}; expected per_entity_per_period, "
+                f"per_period, variable, or per_parent_row"
             )
 
     return fact_out
@@ -788,8 +903,7 @@ def _build_per_entity_per_period_fact(
     date_fk = _find_date_fk_column(tbl)
     if date_fk is None:
         raise ValueError(
-            f"fact table {tbl.name!r} has grain per_entity_per_period but no "
-            f"FK column to dim_date"
+            f"fact table {tbl.name!r} has grain per_entity_per_period but no FK column to dim_date"
         )
     local_date_col, _, parent_date_pk = date_fk
     dim_date = dim_tables["dim_date"]
@@ -1110,7 +1224,7 @@ def _fact_vec_derived(parsed: DerivedSource, ctx: dict):
         return ctx["period_idx_col"].copy()
     if parsed.field == "entity_id":
         return ctx["entity_pk_repeated"]
-    raise ValueError(f"fact column {col.name!r} derived field " f"{parsed.field!r} not supported")
+    raise ValueError(f"fact column {col.name!r} derived field {parsed.field!r} not supported")
 
 
 def _fact_vec_text_bucket(parsed: TextBucketSource, ctx: dict):
@@ -1789,20 +1903,16 @@ def _build_proportional_event(
 ) -> pd.DataFrame:
     """Build a proportional event table with hybrid vectorization.
 
-    Category B Layer 5 splits event columns into two categories:
+    Event-table path: the driver metric must be projected onto a fact
+    column. We read entity_ids / date_keys / metric values straight off
+    the already-built fact DataFrame (entity-major from the Layer 4
+    builder), then delegate to ``_emit_proportional_rows`` for the
+    counts + column-dispatch pipeline.
 
-      * **Deterministic** (no RNG draws): PK, FK to ``dim_date``, FK to a
-        ``per_entity`` dim, ``ThresholdSource`` cells (always ``None`` in
-        the proportional path), ``GeneratedSource``, ``StaticSource``,
-        ``DerivedSource``. These are materialized once as numpy arrays via
-        ``np.repeat`` / ``np.tile`` + index lookups.
-      * **Stochastic** (consumes RNG or advances faker state): ``FakerSource``
-        and sub-entity/reference ``FKSource``. These still go through a
-        per-row scalar loop in the same cell order as the pre-Layer-5 path,
-        so RNG consumption order is preserved byte-for-byte.
-
-    When an event table has zero stochastic columns (e.g. a pure counts
-    export), the per-row loop is skipped entirely.
+    For variable-grain fact tables (0.6-M18) the same downstream
+    pipeline runs but the three input arrays come from
+    ``entity_metrics`` + per_entity dim PK + dim_date directly — that
+    path lives in ``_build_variable_grain_fact``.
     """
     located = _find_metric_column_in_facts(rc.metric, fact_tables, config)
     if located is None:
@@ -1824,9 +1934,6 @@ def _build_proportional_event(
         raise ValueError(f"fact {fact_name!r} has no dim_date FK; cannot derive event dates")
     fact_date_col_name = fact_date_col[0]
 
-    dim_date = dim_tables["dim_date"]
-    parsed_cols = [(col, parse_source(col.source)) for col in tbl.columns]
-
     # Per-cell vectors — fact rows are already in entity-major order from the
     # Layer 4 builder (or the scalar fallback, which also emits in that
     # order), so column-reading the fact DataFrame preserves the exact cell
@@ -1840,6 +1947,69 @@ def _build_proportional_event(
     # metrics). Without the cast, ``np.isnan`` raises
     # ``TypeError: ufunc 'isnan' not supported for input types`` on int dtype.
     values_arr = pd.to_numeric(fact_df[metric_col], errors="coerce").to_numpy(dtype=np.float64)
+
+    return _emit_proportional_rows(
+        tbl,
+        rc,
+        entity_ids_arr,
+        date_keys_arr,
+        values_arr,
+        config,
+        dim_tables,
+        fact_tables,
+        per_entity_dims,
+        fake,
+        rng,
+    )
+
+
+def _emit_proportional_rows(
+    tbl: Table,
+    rc: ProportionalSource,
+    entity_ids_arr: np.ndarray,
+    date_keys_arr: np.ndarray,
+    values_arr: np.ndarray,
+    config: PlotsimConfig,
+    dim_tables: dict[str, pd.DataFrame],
+    fact_tables: dict[str, pd.DataFrame],
+    per_entity_dims: set[str],
+    fake: Faker,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Shared row-emission pipeline for proportional-driven tables.
+
+    Both event tables (``_build_proportional_event``) and variable-grain
+    fact tables (``_build_variable_grain_fact``) funnel through this
+    helper. They differ only in how the three input arrays — cell-major
+    entity-IDs, cell-major date-keys, cell-major driver metric values —
+    are sourced.
+
+    Inputs (all length ``n_entities * n_periods``, entity-major order):
+
+      * ``entity_ids_arr`` — the entity's per_entity dim PK value at each
+        cell. Constant across all cells for one entity.
+      * ``date_keys_arr`` — the period's ``dim_date.date_key`` at each
+        cell. Cycles every ``n_periods`` entries.
+      * ``values_arr`` — the driver metric value at each cell as
+        ``float64``. ``NaN`` cells contribute zero rows.
+
+    Category B Layer 5 hybrid:
+
+      * **Deterministic** columns (PK, FK to ``dim_date``, FK to
+        per_entity dim, ``ThresholdSource`` cells (always ``None`` here),
+        ``GeneratedSource``, ``StaticSource``, ``DerivedSource``):
+        materialized once as numpy arrays via ``np.repeat`` / ``np.tile`` +
+        index lookups.
+      * **Stochastic** columns (``FakerSource``, sub-entity/reference
+        ``FKSource``): per-row scalar loop in the same cell order as the
+        pre-Layer-5 path, so RNG + faker consumption order is byte-
+        identical.
+
+    When there are zero stochastic columns the per-row loop is skipped
+    entirely.
+    """
+    dim_date = dim_tables["dim_date"]
+    parsed_cols = [(col, parse_source(col.source)) for col in tbl.columns]
 
     # NaN-as-null cells contribute zero rows. Replace NaN before the cast so
     # np.int64 doesn't emit a garbage-value RuntimeWarning on the NaN lane.
@@ -1865,7 +2035,13 @@ def _build_proportional_event(
     )
 
     # PK serial: scalar path writes pk_counter+1 starting from 0 → 1..total_rows.
-    pk_prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
+    # 0.6-M18: variable-grain fact tables (e.g. ``fct_orders``) route through
+    # this builder too; strip the ``fct_`` prefix the same way so a fact PK
+    # reads ``o-0001`` (orders) rather than ``f-0001``.
+    if tbl.name.startswith(("evt_", "fct_")):
+        pk_prefix = tbl.name[4:]
+    else:
+        pk_prefix = tbl.name
     pk_width = _id_pad(_EVENT_PK_WIDTH_HINT)
     pk_first_char = pk_prefix[0]
 
@@ -1879,6 +2055,31 @@ def _build_proportional_event(
         return False
 
     stochastic_cols = {col.name for col, parsed in parsed_cols if _is_stochastic(col, parsed)}
+
+    # 0.6-M18 Fix 3: pre-compute per-entity index for cross-fact FK
+    # columns so the stochastic loop draws in O(1) per row. Keyed by
+    # column name → dict[entity_pk_value, np.ndarray of parent PK
+    # values]. Empty array (or missing key) signals "no parent rows for
+    # this entity"; the loop emits ``None`` for that cell.
+    cross_fact_lookups: dict[str, dict[Any, np.ndarray]] = {}
+    for col, parsed in parsed_cols:
+        if not isinstance(parsed, FKSource):
+            continue
+        if parsed.table not in fact_tables:
+            continue
+        parent_fact = fact_tables[parsed.table]
+        if parent_fact.empty:
+            cross_fact_lookups[col.name] = {}
+            continue
+        parent_fact_tbl = next(t for t in config.tables if t.name == parsed.table)
+        parent_entity_fk = _find_entity_fk_column(parent_fact_tbl, per_entity_dims)
+        if parent_entity_fk is None:
+            # Validator should have caught this — but be defensive.
+            cross_fact_lookups[col.name] = {}
+            continue
+        parent_entity_col = parent_entity_fk[0]
+        grouped = parent_fact.groupby(parent_entity_col, sort=False)[parsed.column].apply(list)
+        cross_fact_lookups[col.name] = {k: np.asarray(v, dtype=object) for k, v in grouped.items()}
 
     col_arrays: dict[str, np.ndarray] = {}
     base_ctx = {
@@ -1928,6 +2129,21 @@ def _build_proportional_event(
                             parsed.kwargs,
                         )
                     elif isinstance(parsed, FKSource):
+                        # 0.6-M18 Fix 3: cross-fact reference. Same-entity
+                        # filtered draw from the referenced fact's PK
+                        # column via pre-computed per-entity index.
+                        if col.name in cross_fact_lookups:
+                            candidates_arr = cross_fact_lookups[col.name].get(entity_pk_value)
+                            if candidates_arr is None or len(candidates_arr) == 0:
+                                col_arrays[col.name][row_idx] = None
+                            else:
+                                if rng is not None:
+                                    pick = int(rng.integers(0, len(candidates_arr)))
+                                else:
+                                    pick = 0
+                                col_arrays[col.name][row_idx] = candidates_arr[pick]
+                            continue
+                        # Dim FK (existing behavior).
                         parent = dim_tables.get(parsed.table)
                         if parent is None or parent.empty:
                             col_arrays[col.name][row_idx] = None
@@ -1950,6 +2166,107 @@ def _build_proportional_event(
                 row_idx += 1
 
     return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
+
+
+def _build_variable_grain_fact(
+    tbl: Table,
+    rc: ProportionalSource,
+    config: PlotsimConfig,
+    dim_tables: dict[str, pd.DataFrame],
+    per_entity_dims: set[str],
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    fact_tables: dict[str, pd.DataFrame],
+    fake: Faker,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """0.6-M18: variable-grain fact table builder.
+
+    Unlike events (which read driver values off an already-built fact),
+    variable-grain facts read directly from the metric layer
+    (``entity_metrics``). The minimum surface for a parent/child star is
+    two facts — a variable-grain parent and a per_parent_row child — with
+    no intermediate driver-host fact required.
+
+    Cell-major input arrays:
+
+      * ``entity_ids_arr`` — the per_entity dim's PK column repeated
+        ``n_periods`` times per entity (config-entities order).
+      * ``date_keys_arr`` — ``dim_date.date_key`` tiled ``n_entities``
+        times.
+      * ``values_arr`` — per-entity driver metric series concatenated in
+        config-entities order; ``NaN`` for cold-start prefix cells.
+
+    Cold-start entities yield zero rows for their NaN prefix cells —
+    same behavior as the event-table path.
+    """
+    if not per_entity_dims:
+        raise ValueError(
+            f"variable-grain fact {tbl.name!r} requires a per_entity dim "
+            f"to derive per-entity row counts; none declared"
+        )
+    if len(per_entity_dims) > 1:
+        # Plotsim configs have exactly one per_entity dim by construction
+        # (the entity body). Surface this loudly if a future change
+        # breaks the invariant.
+        raise RuntimeError(
+            f"variable-grain fact {tbl.name!r}: expected exactly one "
+            f"per_entity dim, found {sorted(per_entity_dims)}"
+        )
+    entity_dim_name = next(iter(per_entity_dims))
+    entity_dim_tbl = next(t for t in config.tables if t.name == entity_dim_name)
+    entity_dim_pk_col = entity_dim_tbl.primary_key_cols[0]
+    entity_dim_df = dim_tables.get(entity_dim_name)
+    if entity_dim_df is None:
+        raise RuntimeError(
+            f"variable-grain fact {tbl.name!r}: per_entity dim "
+            f"{entity_dim_name!r} not yet materialized"
+        )
+    dim_date = dim_tables.get("dim_date")
+    if dim_date is None:
+        raise RuntimeError(f"variable-grain fact {tbl.name!r}: dim_date not yet materialized")
+
+    n_entities = len(config.entities)
+    n_periods = len(dim_date)
+
+    # entity-major: each entity contributes n_periods cells in a row.
+    # dim_entity rows are in config.entities declaration order
+    # (established by dimensions.build_dim_entity). SCD2-expanded dims
+    # have multiple rows per entity (one per tier band); collapse them
+    # back to one PK per entity via ``drop_duplicates(keep='first')``,
+    # which preserves config.entities first-occurrence ordering.
+    entity_pks = entity_dim_df[entity_dim_pk_col].drop_duplicates().to_numpy()
+    if len(entity_pks) != n_entities:
+        raise RuntimeError(
+            f"variable-grain fact {tbl.name!r}: per_entity dim resolves "
+            f"to {len(entity_pks)} unique PK values but config declares "
+            f"{n_entities} entities. SCD2 expansion preserves unique "
+            f"natural keys; some other invariant is broken."
+        )
+    entity_ids_arr = np.repeat(entity_pks, n_periods)
+    date_keys_arr = np.tile(dim_date["date_key"].to_numpy(), n_entities)
+
+    # Concatenate per-entity driver series in config.entities order.
+    # entity_metrics[entity_name][metric] is shape (n_periods,) with NaN
+    # for cold-start prefix cells.
+    per_entity_values: list[np.ndarray] = []
+    for entity in config.entities:
+        series = entity_metrics[entity.name][rc.metric]
+        per_entity_values.append(np.asarray(series, dtype=np.float64))
+    values_arr = np.concatenate(per_entity_values)
+
+    return _emit_proportional_rows(
+        tbl,
+        rc,
+        entity_ids_arr,
+        date_keys_arr,
+        values_arr,
+        config,
+        dim_tables,
+        fact_tables,
+        per_entity_dims,
+        fake,
+        rng,
+    )
 
 
 # --- Proportional event deterministic-column dispatch ------------------------
@@ -2064,6 +2381,258 @@ COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PROPORTIONAL_EVENT,
     _prop_evt_unsupported,
 )
+
+
+# --- Per-parent-row child fact builder (0.6-M18) -----------------------------
+
+
+def _build_per_parent_row_fact(
+    tbl: Table,
+    config: PlotsimConfig,
+    fact_tables: dict[str, pd.DataFrame],
+    dim_tables: dict[str, pd.DataFrame],
+    per_entity_dims: set[str],
+    fake: Faker,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Build a per_parent_row child fact table.
+
+    For each row of the parent fact, draw
+    ``n = rng.integers(min, max + 1)`` children (uniform over the
+    configured range, independent of trajectory) and emit one row per
+    child carrying:
+
+      * an **auto-synthesized** FK column to the parent's PK. Following
+        the bridge pattern (``BridgeTableConfig.connects`` synthesizes
+        both FK columns at generation time), the user declares the
+        relationship once via ``parent_table`` and the engine emits the
+        FK column. The synthesized column's name matches the parent
+        fact's PK column name verbatim (e.g. ``order_id``) and it lands
+        first in column order.
+      * inherited entity and period columns (the child shares its
+        parent's (entity, period) coordinates);
+      * dim FKs drawn per-row from the referenced dim table;
+      * remaining columns (``pk``, ``static:``, ``generated:``,
+        ``derived:``) resolved per the standard source dispatch.
+
+    Trajectory-first invariant: child rows do NOT call into the
+    trajectory engine. Their attribute values are independent draws from
+    column-level sources. The trajectory-driven signal flows through
+    the parent's row count (a growth entity has more parent rows than a
+    decline entity); the child fans out uniformly from each parent row.
+
+    RNG consumption order is deterministic and ordered by
+    ``config.tables`` declaration: children counts first (one
+    ``rng.integers`` call), then per-cell stochastic draws (faker,
+    cross-dim FK sampling) in column-declaration order for each child
+    row.
+    """
+    parent_name = tbl.parent_table
+    assert parent_name is not None  # paired-field validator
+    children_range = tbl.children_per_row
+    assert children_range is not None
+    mn, mx = children_range
+
+    parent_df = fact_tables.get(parent_name)
+    if parent_df is None:
+        raise ValueError(
+            f"per_parent_row child {tbl.name!r} parent_table="
+            f"{parent_name!r} not in fact_tables; parent build "
+            f"order broken"
+        )
+
+    parent_tbl = next(t for t in config.tables if t.name == parent_name)
+    parent_pk_cols = parent_tbl.primary_key_cols
+    if len(parent_pk_cols) != 1:
+        raise ValueError(
+            f"per_parent_row child {tbl.name!r} parent {parent_name!r} "
+            f"has composite primary_key {parent_pk_cols!r}; M18 supports "
+            f"single-column parent PKs only"
+        )
+    parent_pk_col = parent_pk_cols[0]
+    # Auto-synthesized FK column on the child carries the parent's PK
+    # column name verbatim (bridge precedent). Collision with a user-
+    # declared child column is caught by the config-load validator.
+    synthesized_fk_name = parent_pk_col
+
+    parent_entity_fk = _find_entity_fk_column(parent_tbl, per_entity_dims)
+    parent_entity_col = parent_entity_fk[0] if parent_entity_fk is not None else None
+    parent_date_fk = _find_date_fk_column(parent_tbl)
+    parent_date_col = parent_date_fk[0] if parent_date_fk is not None else None
+
+    n_parents = len(parent_df)
+    if n_parents == 0:
+        return pd.DataFrame(columns=[c.name for c in tbl.columns])
+
+    # Single RNG call for the entire counts vector — deterministic and
+    # cheap. mn == mx degenerates to a constant fan-out (still one draw
+    # for column-order consistency).
+    counts = rng.integers(mn, mx + 1, size=n_parents).astype(np.int64)
+    total_rows = int(counts.sum())
+    if total_rows == 0:
+        return pd.DataFrame(columns=[c.name for c in tbl.columns])
+
+    parent_pk_repeated = np.repeat(parent_df[parent_pk_col].to_numpy(), counts)
+    if parent_entity_col is not None:
+        entity_repeated = np.repeat(parent_df[parent_entity_col].to_numpy(), counts)
+    else:
+        entity_repeated = None
+    if parent_date_col is not None:
+        date_repeated = np.repeat(parent_df[parent_date_col].to_numpy(), counts)
+    else:
+        date_repeated = None
+
+    # Build a parallel date-index array so generated:timestamp /
+    # period_label can resolve per-row even on children. dim_date might
+    # not be needed (no generated:timestamp columns), so resolve lazily.
+    dim_date = dim_tables.get("dim_date")
+    date_idx_repeated: Optional[np.ndarray] = None
+    if dim_date is not None and date_repeated is not None:
+        date_key_idx = {k: i for i, k in enumerate(dim_date["date_key"].tolist())}
+        date_idx_repeated = np.fromiter(
+            (date_key_idx.get(k, 0) for k in date_repeated),
+            dtype=np.int64,
+            count=total_rows,
+        )
+
+    if tbl.name.startswith(("evt_", "fct_")):
+        pk_prefix = tbl.name[4:]
+    else:
+        pk_prefix = tbl.name
+    pk_first = pk_prefix[0]
+    pk_width = _id_pad(_EVENT_PK_WIDTH_HINT)
+
+    col_arrays: dict[str, np.ndarray] = {}
+    parsed_cols = [(col, parse_source(col.source)) for col in tbl.columns]
+
+    # 0.6-M18: auto-synthesize the parent FK column FIRST in column
+    # order (bridge convention). User-declared columns follow in their
+    # declared order. Validator at config-load time rejects an explicit
+    # ``ref.fct_<parent>`` column on the child, so there's no collision
+    # path here.
+    col_arrays[synthesized_fk_name] = parent_pk_repeated
+
+    for col, parsed in parsed_cols:
+        if isinstance(parsed, PKSource):
+            col_arrays[col.name] = np.asarray(
+                [f"{pk_first}-{i + 1:0{pk_width}d}" for i in range(total_rows)],
+                dtype=object,
+            )
+        elif isinstance(parsed, FKSource):
+            if parsed.table in per_entity_dims:
+                if entity_repeated is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} fk to "
+                        f"{parsed.table!r} (per_entity dim) but parent "
+                        f"{parent_name!r} has no per_entity FK to inherit"
+                    )
+                col_arrays[col.name] = entity_repeated
+            elif parsed.table == "dim_date":
+                if date_repeated is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} fk to "
+                        f"dim_date but parent {parent_name!r} has no "
+                        f"dim_date FK to inherit"
+                    )
+                col_arrays[col.name] = date_repeated
+            else:
+                # Cross-dim FK (e.g. dim_product, dim_payment_method).
+                # Independent draws per child row.
+                parent_dim = dim_tables.get(parsed.table)
+                if parent_dim is None or len(parent_dim) == 0:
+                    col_arrays[col.name] = np.full(total_rows, None, dtype=object)
+                else:
+                    candidates = parent_dim[parsed.column].to_numpy()
+                    pick = rng.integers(0, len(candidates), size=total_rows)
+                    col_arrays[col.name] = candidates[pick]
+        elif isinstance(parsed, StaticSource):
+            col_arrays[col.name] = np.full(total_rows, parsed.value, dtype=object)
+        elif isinstance(parsed, DerivedSource):
+            if parsed.field == "entity_id":
+                if entity_repeated is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} derived "
+                        f"entity_id but parent has no per_entity FK"
+                    )
+                col_arrays[col.name] = entity_repeated
+            elif parsed.field == "date_key":
+                if date_repeated is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} derived "
+                        f"date_key but parent has no dim_date FK"
+                    )
+                col_arrays[col.name] = date_repeated
+            else:
+                raise ValueError(
+                    f"child {tbl.name!r} column {col.name!r} derived "
+                    f"field {parsed.field!r} is not supported on "
+                    f"per_parent_row; use 'entity_id' or 'date_key'"
+                )
+        elif isinstance(parsed, GeneratedSource):
+            provider = parsed.provider
+            if provider == "date_key":
+                if date_repeated is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} "
+                        f"generated:date_key but parent has no dim_date FK"
+                    )
+                col_arrays[col.name] = date_repeated
+            elif provider == "timestamp":
+                if date_idx_repeated is None or dim_date is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} "
+                        f"generated:timestamp but parent has no "
+                        f"dim_date FK to derive period dates from"
+                    )
+                dates = dim_date["date"].tolist()
+                promoted: list[Any] = []
+                for d in dates:
+                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
+                        promoted.append(_dt.datetime(d.year, d.month, d.day))
+                    else:
+                        promoted.append(d)
+                col_arrays[col.name] = np.asarray(
+                    [promoted[i] for i in date_idx_repeated], dtype=object
+                )
+            elif provider == "period_label":
+                if date_idx_repeated is None or dim_date is None:
+                    raise ValueError(
+                        f"child {tbl.name!r} column {col.name!r} "
+                        f"generated:period_label but parent has no "
+                        f"dim_date FK"
+                    )
+                pl = dim_date["period_label"].tolist()
+                col_arrays[col.name] = np.asarray([pl[i] for i in date_idx_repeated], dtype=object)
+            else:
+                raise ValueError(
+                    f"child {tbl.name!r} column {col.name!r} "
+                    f"generated:{provider!r} is not supported on "
+                    f"per_parent_row tables"
+                )
+        elif isinstance(parsed, FakerSource):
+            col_arrays[col.name] = np.asarray(
+                [_call_faker(fake, parsed.method, parsed.kwargs) for _ in range(total_rows)],
+                dtype=object,
+            )
+        else:
+            raise TypeError(
+                f"child {tbl.name!r} column {col.name!r} source "
+                f"{col.source!r} resolves to {type(parsed).__name__}, "
+                f"which is not supported on per_parent_row tables. "
+                f"Supported: pk, fk:<dim>.<col>, "
+                f"static:, derived:entity_id/date_key, "
+                f"generated:date_key/timestamp/period_label, "
+                f"generated:faker.<method>. "
+                f"(The parent FK column is auto-synthesized from "
+                f"parent_table; do not declare it explicitly.)"
+            )
+
+    # Synthesized parent FK column lands first (bridge convention),
+    # then user-declared columns in declaration order.
+    output_columns: dict[str, np.ndarray] = {synthesized_fk_name: col_arrays[synthesized_fk_name]}
+    for col, _ in parsed_cols:
+        output_columns[col.name] = col_arrays[col.name]
+    return pd.DataFrame(output_columns)
 
 
 def _build_threshold_event(
@@ -2193,7 +2762,7 @@ def _evt_row_pk(parsed: PKSource, ctx: dict):
     tbl = ctx["tbl"]
     width = ctx["width"]
     prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
-    return f"{prefix[0]}-{ctx['pk_counter']+1:0{width}d}"
+    return f"{prefix[0]}-{ctx['pk_counter'] + 1:0{width}d}"
 
 
 def _evt_row_fk(parsed: FKSource, ctx: dict):

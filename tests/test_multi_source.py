@@ -306,8 +306,11 @@ def test_manifest_source_entity_mappings_complete():
             assert field in canonical_columns
 
 
-def test_manifest_schema_bumped_to_1_5():
-    assert MANIFEST_SCHEMA_VERSION == "1.5"
+def test_manifest_schema_bumped_to_1_6():
+    # 1.5 introduced the source_entity_mappings list (0.6-M13); 1.6 adds
+    # the parent_child_relations list (0.6-M18). This module's contract
+    # tracks the pin at the schema level, not the field semantics.
+    assert MANIFEST_SCHEMA_VERSION == "1.6"
 
 
 # ── AC6: single-source configs unchanged (no multi_source block) ──────────
@@ -397,7 +400,7 @@ def test_bundled_template_loads_and_validates(tmp_path: Path):
     assert (out_dir / "dim_company_crm.csv").is_file()
     assert (out_dir / "dim_company_billing.csv").is_file()
     manifest_payload = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest_payload["schema_version"] == "1.5"
+    assert manifest_payload["schema_version"] == "1.6"
     # 20 entities × 2 sources = 40 mapping records.
     assert len(manifest_payload["source_entity_mappings"]) == 40
 

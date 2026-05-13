@@ -162,9 +162,9 @@ def test_shape_sub_segments_chain_contiguously_and_cover_unit_window(shape):
     assert sub_segments[0][2] == 0.0, f"shape {shape!r} first sub-segment must start at 0.0"
     assert sub_segments[-1][3] == 1.0, f"shape {shape!r} last sub-segment must end at 1.0"
     for prev, curr in zip(sub_segments, sub_segments[1:]):
-        assert prev[3] == curr[2], (
-            f"shape {shape!r} has gap/overlap between sub-segments: " f"{prev[3]} != {curr[2]}"
-        )
+        assert (
+            prev[3] == curr[2]
+        ), f"shape {shape!r} has gap/overlap between sub-segments: {prev[3]} != {curr[2]}"
 
 
 def test_spike_then_crash_has_three_sub_segments():

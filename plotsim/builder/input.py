@@ -647,7 +647,7 @@ class LifecycleInput(BaseModel):
         for prev, curr in zip(thresholds, thresholds[1:]):
             if curr <= prev:
                 raise ValueError(
-                    f"lifecycle stage thresholds must be strictly " f"ascending, got {thresholds}"
+                    f"lifecycle stage thresholds must be strictly ascending, got {thresholds}"
                 )
         return self
 
@@ -726,7 +726,7 @@ class DimInput(BaseModel):
     def _per_or_reference_not_both(self) -> "DimInput":
         if self.reference and self.per is not None:
             raise ValueError(
-                f"dimension {self.name!r}: `reference: true` and `per` are " f"mutually exclusive"
+                f"dimension {self.name!r}: `reference: true` and `per` are mutually exclusive"
             )
         return self
 
@@ -742,6 +742,57 @@ class FactInput(BaseModel):
     # to the fact at generation time. Default False preserves pre-M9c
     # output byte-for-byte.
     cdc: bool = False
+    # 0.6-M18: variable-grain fact (parent of a per_parent_row child).
+    # Row count is trajectory-driven via a driver metric × scale,
+    # same mechanic as event tables. When both fields are set, the
+    # interpreter translates to grain='variable' with
+    # row_count_source='proportional:<driver>:scale:<scale>'.
+    row_count_driver: Optional[str] = None
+    row_count_scale: Optional[float] = Field(default=None, gt=0.0)
+    # 0.6-M18: per_parent_row child of another fact. ``parent_table``
+    # names the parent fact; ``children_per_row`` is the inclusive
+    # ``(min, max)`` fan-out range. When both fields are set, the
+    # interpreter translates to grain='per_parent_row'. Mutually
+    # exclusive with the row_count_driver / row_count_scale pair —
+    # a child does not declare its own row count source.
+    parent_table: Optional[str] = None
+    children_per_row: Optional[tuple[int, int]] = None
+
+    @model_validator(mode="after")
+    def _parent_child_field_pairing(self) -> "FactInput":
+        has_driver = self.row_count_driver is not None
+        has_scale = self.row_count_scale is not None
+        if has_driver != has_scale:
+            raise ValueError(
+                f"fact {self.name!r}: row_count_driver and "
+                f"row_count_scale must be set together (got "
+                f"driver={self.row_count_driver!r}, "
+                f"scale={self.row_count_scale!r})"
+            )
+        has_parent = self.parent_table is not None
+        has_range = self.children_per_row is not None
+        if has_parent != has_range:
+            raise ValueError(
+                f"fact {self.name!r}: parent_table and children_per_row "
+                f"must be set together (got "
+                f"parent_table={self.parent_table!r}, "
+                f"children_per_row={self.children_per_row!r})"
+            )
+        if has_driver and has_parent:
+            raise ValueError(
+                f"fact {self.name!r}: a fact cannot be both a "
+                f"variable-grain parent (row_count_driver set) and a "
+                f"per_parent_row child (parent_table set). Pick one."
+            )
+        if has_range:
+            mn, mx = self.children_per_row  # type: ignore[misc]
+            if mn < 1:
+                raise ValueError(f"fact {self.name!r}: children_per_row min={mn} must be >= 1")
+            if mx < mn:
+                raise ValueError(
+                    f"fact {self.name!r}: children_per_row max={mx} must be >= min={mn}"
+                )
+        return self
 
 
 class EventInput(BaseModel):
@@ -778,25 +829,23 @@ class EventInput(BaseModel):
         if self.trigger == "proportional":
             if self.driver is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'proportional' requires " f"a `driver` metric"
+                    f"event {self.name!r}: trigger 'proportional' requires a `driver` metric"
                 )
             if self.scale is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'proportional' requires " f"a numeric `scale`"
+                    f"event {self.name!r}: trigger 'proportional' requires a numeric `scale`"
                 )
         else:  # threshold
             if self.metric is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'threshold' requires a " f"`metric` to watch"
+                    f"event {self.name!r}: trigger 'threshold' requires a `metric` to watch"
                 )
             if self.above is None and self.below is None:
                 raise ValueError(
-                    f"event {self.name!r}: trigger 'threshold' requires " f"`above` or `below`"
+                    f"event {self.name!r}: trigger 'threshold' requires `above` or `below`"
                 )
             if self.above is not None and self.below is not None:
-                raise ValueError(
-                    f"event {self.name!r}: pick one of `above` / `below`, " f"not both"
-                )
+                raise ValueError(f"event {self.name!r}: pick one of `above` / `below`, not both")
         return self
 
 
@@ -824,9 +873,7 @@ class SeasonalEffectInput(BaseModel):
             if not 1 <= int(m) <= 12:
                 raise ValueError(f"seasonality month {m} out of range; valid: 1..12")
         if len(set(v)) != len(v):
-            raise ValueError(
-                f"seasonality months must be unique within one effect, " f"got {list(v)}"
-            )
+            raise ValueError(f"seasonality months must be unique within one effect, got {list(v)}")
         return v
 
 
@@ -1045,9 +1092,7 @@ class BridgeInput(BaseModel):
         if hi < 1:
             raise ValueError(f"bridge cardinality max ({hi}) must be >= 1")
         if lo > hi:
-            raise ValueError(
-                f"bridge cardinality [min, max] = [{lo}, {hi}]: " f"min must be <= max"
-            )
+            raise ValueError(f"bridge cardinality [min, max] = [{lo}, {hi}]: min must be <= max")
         return v
 
     @model_validator(mode="after")
@@ -1252,7 +1297,7 @@ def _coerce_window_tuple(value: Any) -> Any:
         if len(value) == 3:
             return {"start": value[0], "end": value[1], "every": value[2]}
         raise ValueError(
-            f"window tuple must have 2 or 3 elements (start, end, [every]), " f"got {len(value)}"
+            f"window tuple must have 2 or 3 elements (start, end, [every]), got {len(value)}"
         )
     return value
 

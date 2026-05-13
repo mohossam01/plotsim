@@ -189,9 +189,9 @@ def test_saas_template_sentiment_values_are_configured_labels(saas_tables):
     df = saas_tables["fct_engagement"]
     expected = {"at_risk", "lukewarm", "satisfied", "delighted"}
     actual = set(df["customer_sentiment"].dropna().unique())
-    assert actual.issubset(expected), (
-        f"sentiment column produced unexpected labels: " f"{actual - expected}"
-    )
+    assert actual.issubset(
+        expected
+    ), f"sentiment column produced unexpected labels: {actual - expected}"
 
 
 def test_saas_template_sentiment_uses_all_buckets(saas_tables):
@@ -204,9 +204,12 @@ def test_saas_template_sentiment_uses_all_buckets(saas_tables):
     """
     df = saas_tables["fct_engagement"]
     seen = set(df["customer_sentiment"].dropna().unique())
-    assert seen == {"at_risk", "lukewarm", "satisfied", "delighted"}, (
-        f"missing buckets: " f"{ {'at_risk','lukewarm','satisfied','delighted'} - seen}"
-    )
+    assert seen == {
+        "at_risk",
+        "lukewarm",
+        "satisfied",
+        "delighted",
+    }, f"missing buckets: { {'at_risk', 'lukewarm', 'satisfied', 'delighted'} - seen }"
 
 
 def test_saas_template_determinism(saas_cfg):

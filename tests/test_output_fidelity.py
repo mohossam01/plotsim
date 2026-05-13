@@ -682,9 +682,9 @@ class TestCorrelationRegression:
         joint = _joint_frame(tables, cfg, metric_a, metric_b)
         assert joint is not None, f"could not locate fact columns for {metric_a!r}, {metric_b!r}"
         joint = joint.dropna()
-        assert len(joint) >= 100, (
-            f"insufficient joined rows ({len(joint)}) for {template}:" f"{metric_a}×{metric_b}"
-        )
+        assert (
+            len(joint) >= 100
+        ), f"insufficient joined rows ({len(joint)}) for {template}:{metric_a}×{metric_b}"
         observed = float(
             np.corrcoef(
                 joint["a"].astype(float),

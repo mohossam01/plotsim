@@ -224,10 +224,9 @@ def test_correlation_ordering_holds_when_toposort_reverses_declaration():
     )
 
     topo_names = [m.name for m in _toposort_metrics(list(cfg.metrics))]
-    assert topo_names == list(reversed(declaration_order)), (
-        f"Test setup error: toposort {topo_names} did not reverse "
-        f"declaration {declaration_order}"
-    )
+    assert topo_names == list(
+        reversed(declaration_order)
+    ), f"Test setup error: toposort {topo_names} did not reverse declaration {declaration_order}"
 
     observed = _observed_pearson_per_seed(cfg, SEEDS, pair_targets)
     for pair, target in pair_targets.items():

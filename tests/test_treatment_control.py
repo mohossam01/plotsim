@@ -391,9 +391,9 @@ def test_treatment_assignments_independent_of_arrival_shape():
     labels_explicit = [e.treatment_group for e in cfg_explicit.entities]
     labels_step = [e.treatment_group for e in cfg_step.entities]
     labels_none = [e.treatment_group for e in cfg_none.entities]
-    assert labels_uniform == labels_explicit == labels_step == labels_none, (
-        "treatment assignments shifted when arrival shape changed — " "RNG isolation broken"
-    )
+    assert (
+        labels_uniform == labels_explicit == labels_step == labels_none
+    ), "treatment assignments shifted when arrival shape changed — RNG isolation broken"
 
 
 def test_treatment_determinism_under_reseed():

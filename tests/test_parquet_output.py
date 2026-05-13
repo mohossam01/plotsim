@@ -131,10 +131,9 @@ def test_parquet_round_trip_matches_csv_content(name, tmp_path):
         assert list(csv_df.columns) == list(
             pq_df.columns
         ), f"{name}/{csv_path.stem}: column order differs"
-        assert len(csv_df) == len(pq_df), (
-            f"{name}/{csv_path.stem}: row count differs "
-            f"(csv={len(csv_df)}, parquet={len(pq_df)})"
-        )
+        assert len(csv_df) == len(
+            pq_df
+        ), f"{name}/{csv_path.stem}: row count differs (csv={len(csv_df)}, parquet={len(pq_df)})"
 
         for col in csv_df.columns:
             csv_col = csv_df[col]

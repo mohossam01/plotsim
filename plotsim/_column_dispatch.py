@@ -103,8 +103,7 @@ class ColumnDispatcher:
         if unsupported is not None:
             return unsupported(parsed, context)
         raise TypeError(
-            f"ColumnDispatcher: no handler registered for "
-            f"{type(parsed).__name__} on {kind.value!r}"
+            f"ColumnDispatcher: no handler registered for {type(parsed).__name__} on {kind.value!r}"
         )
 
     def supports(self, kind: BuilderKind, source_type: type) -> bool:

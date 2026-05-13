@@ -101,3 +101,7 @@ AGENTS.md
 
 # Session / audit artifacts
 /*.py
+_audit_*
+_ecommerce_*
+/ecommerce_output*/
+/orders_out*/

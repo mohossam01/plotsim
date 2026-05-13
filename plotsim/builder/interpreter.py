@@ -609,8 +609,7 @@ def _draw_segment_arrivals(
         end = arrival.end if arrival.end is not None else default_end
         if end <= arrival.start:
             raise ValueError(
-                f"segment {s.name!r}: linear arrival end ({end}) must be "
-                f"> start ({arrival.start})"
+                f"segment {s.name!r}: linear arrival end ({end}) must be > start ({arrival.start})"
             )
         u = rng.random(size=s.count)
         span = end - arrival.start
@@ -847,9 +846,23 @@ def _build_tables(
 
     # Build a dim PK lookup for FK resolution. dim_date is special-cased
     # because it might not appear in user_input.dimensions explicitly.
+    # 0.6-M18: fact-table PKs are also seeded here so ``ref.fct_<parent>``
+    # on a per_parent_row child resolves cleanly. Fact PK convention
+    # mirrors ``_translate_fact``'s child / variable branches: the
+    # first ``id``-typed column, falling back to the first column.
     dim_pk: dict[str, str] = {"dim_date": "date_key"}
     for d in user_input.dimensions:
         dim_pk[d.name] = _dim_primary_key(d)
+    for f in user_input.facts:
+        # Only variable / per_parent_row facts expose a single-column
+        # PK that an FK can reference. The per_entity_per_period
+        # default uses a composite (date_key, entity_id) PK that
+        # children can't FK to, so we skip it. Per-parent-row children
+        # don't get referenced themselves (M18 caps at one level), but
+        # registering their PK is harmless and keeps the dict uniform.
+        if f.row_count_driver is not None or f.parent_table is not None:
+            pk_candidates = [c.name for c in f.columns if c.type == "id"]
+            dim_pk[f.name] = pk_candidates[0] if pk_candidates else f.columns[0].name
 
     # Reference dims (``reference: true``) are static lookups; their FK
     # columns on a fact table do not contribute to the fact's PK because
@@ -1027,15 +1040,53 @@ def _translate_fact(
         for col in f.columns
     ]
     foreign_keys = _foreign_keys(f.columns, dim_pk)
-    pk = _composite_pk_from_refs(f.columns, reference_dims)
+
+    # 0.6-M18: grain dispatch. The builder supports three fact shapes:
+    #   * per_entity_per_period (default — one row per (entity, period))
+    #   * variable (parent of a per_parent_row child; row count derived
+    #     from row_count_driver × row_count_scale)
+    #   * per_parent_row (child of a parent fact; row count = parent
+    #     rows × uniform(children_per_row))
+    # Both new shapes route through dedicated config fields rather
+    # than overloading existing ones, so a fact that sets neither pair
+    # stays byte-identical with pre-M18.
+    grain: Grain
+    if f.parent_table is not None:
+        grain = "per_parent_row"
+        row_count_source = None
+        parent_table = f.parent_table
+        children_per_row = f.children_per_row
+        # Children have an FK to their parent fact, not a (date_key,
+        # entity_id) composite — the inherited entity / period columns
+        # are non-PK on the child. The PK convention defaults to the
+        # ``id``-typed column or first column (mirroring events).
+        pk_candidates = [col.name for col in f.columns if col.type == "id"]
+        pk: str | list[str] = pk_candidates[0] if pk_candidates else f.columns[0].name
+    elif f.row_count_driver is not None:
+        grain = "variable"
+        row_count_source = f"proportional:{f.row_count_driver}:scale:{f.row_count_scale}"
+        parent_table = None
+        children_per_row = None
+        pk_candidates = [col.name for col in f.columns if col.type == "id"]
+        pk = pk_candidates[0] if pk_candidates else f.columns[0].name
+    else:
+        grain = "per_entity_per_period"
+        row_count_source = None
+        parent_table = None
+        children_per_row = None
+        pk = _composite_pk_from_refs(f.columns, reference_dims)
+
     return Table(
         name=f.name,
         type="fact",
-        grain="per_entity_per_period",
+        grain=grain,
         columns=columns,
         primary_key=pk,
         foreign_keys=foreign_keys,
+        row_count_source=row_count_source,
         cdc=f.cdc,
+        parent_table=parent_table,
+        children_per_row=children_per_row,
     )
 
 
@@ -1311,7 +1362,7 @@ def _translate_column(
     if t == "bucket":
         if not col.labels:
             raise ValueError(
-                f"column {col.name!r}: type 'bucket' requires a non-empty " f"`labels` list"
+                f"column {col.name!r}: type 'bucket' requires a non-empty `labels` list"
             )
         labels_str = ", ".join(col.labels)
         return Column(
@@ -1324,8 +1375,7 @@ def _translate_column(
     if t == "scd":
         if not col.tracks or not col.tiers or not col.at:
             raise ValueError(
-                f"column {col.name!r}: type 'scd' requires `tracks`, "
-                f"`tiers`, and `at` sub-fields"
+                f"column {col.name!r}: type 'scd' requires `tracks`, `tiers`, and `at` sub-fields"
             )
         target_fact = metric_to_fact.get(col.tracks)
         if target_fact is None:

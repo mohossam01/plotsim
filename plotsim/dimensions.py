@@ -90,7 +90,7 @@ def _id_pad_width(n_rows: int) -> int:
 def _make_ids(table_name: str, n_rows: int) -> list[str]:
     prefix = _id_prefix(table_name)
     width = _id_pad_width(n_rows)
-    return [f"{prefix}-{i+1:0{width}d}" for i in range(n_rows)]
+    return [f"{prefix}-{i + 1:0{width}d}" for i in range(n_rows)]
 
 
 def _coerce_static(value: str, dtype: str) -> Any:
@@ -429,14 +429,13 @@ def _call_faker(
     if extended is not None:
         if kwargs:
             raise ValueError(
-                f"extended faker provider {method!r} does not accept kwargs; "
-                f"got {sorted(kwargs)}"
+                f"extended faker provider {method!r} does not accept kwargs; got {sorted(kwargs)}"
             )
         return extended(fake)
     fn = getattr(fake, method, None)
     if fn is None or not callable(fn):
         raise ValueError(
-            f"Faker has no provider method {method!r} " f"(source 'generated:faker.{method}')"
+            f"Faker has no provider method {method!r} (source 'generated:faker.{method}')"
         )
     coerced = {k: _coerce_faker_kwarg(v) for k, v in kwargs.items()}
     _check_faker_kwarg_caps(method, coerced)
@@ -532,7 +531,7 @@ def _resolve_derived(field: str, entity: Entity) -> Any:
     if field == "name" or field == "entity_name":
         return entity.name
     raise ValueError(
-        f"unsupported derived field {field!r}: expected one of " f"'size', 'archetype', 'name'"
+        f"unsupported derived field {field!r}: expected one of 'size', 'archetype', 'name'"
     )
 
 
@@ -656,8 +655,7 @@ def _per_entity_pool(parsed: PoolSource, ctx: dict):
 def _per_entity_unsupported(parsed: Any, ctx: dict):
     col = ctx["col"]
     raise ValueError(
-        f"column {col.name!r} source {col.source!r} is not supported on "
-        f"per_entity dimension tables"
+        f"column {col.name!r} source {col.source!r} is not supported on per_entity dimension tables"
     )
 
 
@@ -687,7 +685,7 @@ def _generate_nested_primitive(type_word: str, rng) -> Any:
     if type_word == "boolean":
         return bool(int(rng.integers(0, 2)))
     raise ValueError(
-        f"unknown nested primitive type {type_word!r}; valid: " f"int / float / string / boolean"
+        f"unknown nested primitive type {type_word!r}; valid: int / float / string / boolean"
     )
 
 
@@ -1041,8 +1039,7 @@ def _sub_derived(parsed: DerivedSource, ctx: dict):
 def _sub_unsupported(parsed: Any, ctx: dict):
     col = ctx["col"]
     raise ValueError(
-        f"column {col.name!r} source {col.source!r} is not "
-        f"supported on sub-entity dimension tables"
+        f"column {col.name!r} source {col.source!r} is not supported on sub-entity dimension tables"
     )
 
 
@@ -1161,8 +1158,7 @@ def _ref_fk(parsed: FKSource, ctx: dict):
 def _ref_unsupported(parsed: Any, ctx: dict):
     col = ctx["col"]
     raise ValueError(
-        f"column {col.name!r} source {col.source!r} is not "
-        f"supported on reference dimension tables"
+        f"column {col.name!r} source {col.source!r} is not supported on reference dimension tables"
     )
 
 

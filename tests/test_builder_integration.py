@@ -344,7 +344,7 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     # table name, zero-padded to width=max(3, len(str(N)))).
     n_entities = len(cfg.entities)
     width = max(3, len(str(n_entities)))
-    company_to_archetype = {f"c-{i+1:0{width}d}": e.archetype for i, e in enumerate(cfg.entities)}
+    company_to_archetype = {f"c-{i + 1:0{width}d}": e.archetype for i, e in enumerate(cfg.entities)}
 
     fact_with_arch = fact.assign(
         archetype=fact["company_id"].map(company_to_archetype),

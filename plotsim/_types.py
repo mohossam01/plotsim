@@ -63,6 +63,7 @@ Grain = Literal[
     "per_reference",
     "per_entity_per_period",
     "variable",
+    "per_parent_row",
 ]
 
 Dtype = Literal["int", "float", "string", "date", "boolean", "id", "struct", "array"]

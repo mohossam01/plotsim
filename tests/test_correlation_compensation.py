@@ -499,9 +499,9 @@ class TestEndToEndCompensation:
         # variance ratio between trajectory and copula — the mission's
         # within-archetype formula doesn't aim for exact recovery, only
         # for delivering the configured sign.
-        assert observed < 0.0, (
-            f"compensation ON: expected negative table-wide corr(m0, m1), " f"got {observed:+.4f}"
-        )
+        assert (
+            observed < 0.0
+        ), f"compensation ON: expected negative table-wide corr(m0, m1), got {observed:+.4f}"
 
     def test_compensation_off_lets_trajectory_show_through(self, opposes_pair_cfg):
         cfg = _make_config(compensate=False, **opposes_pair_cfg)

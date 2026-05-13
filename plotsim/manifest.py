@@ -98,7 +98,14 @@ MANIFEST_FILENAME = "manifest.json"
 # Multi-source configs populate the list with one record per
 # (entity, source, dim_table) tuple — the ground-truth answer key for
 # entity-resolution exercises.
-MANIFEST_SCHEMA_VERSION = "1.5"
+# 0.6-M18: bumped 1.5 → 1.6 for the additive ``parent_child_relations``
+# list. Configs without per_parent_row child tables produce an empty
+# list (the default), so 1.5 readers parse 1.6 manifests cleanly except
+# for the new field. Configs with parent/child grain populate the list
+# with one record per (parent_table, child_table) edge — the metadata
+# downstream exercises need to enumerate header/detail pairings without
+# re-scanning column sources.
+MANIFEST_SCHEMA_VERSION = "1.6"
 
 
 class _ManifestBase(BaseModel):
@@ -514,6 +521,35 @@ class SourceEntityMapping(_ManifestBase):
     drifted_fields: list[str]
 
 
+class ParentChildRelation(_ManifestBase):
+    """0.6-M18: one parent-fact / child-fact pairing record.
+
+    Emitted on the manifest only when at least one ``per_parent_row``
+    child table is declared. One record per declared (parent, child)
+    edge in ``config.tables`` — multi-child parents produce one record
+    per child.
+
+      * ``parent_table`` — name of the parent fact table.
+      * ``child_table`` — name of the per_parent_row child fact table.
+      * ``children_per_row_min`` / ``children_per_row_max`` — the
+        inclusive fan-out range declared on the child
+        (``Table.children_per_row``).
+      * ``parent_row_count`` — actual row count of the parent fact in
+        the generated output (populated post-generation).
+      * ``child_row_count`` — actual row count of the child fact.
+        Together with ``parent_row_count`` and the range, downstream
+        consumers can verify "every parent had between min and max
+        children" without re-reading the data.
+    """
+
+    parent_table: str
+    child_table: str
+    children_per_row_min: int
+    children_per_row_max: int
+    parent_row_count: int
+    child_row_count: int
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -632,6 +668,12 @@ class ManifestSchema(_ManifestBase):
     # lane — keeps pre-M13 manifests byte-equivalent modulo the schema
     # version bump and the empty list).
     source_entity_mappings: list[SourceEntityMapping] = []
+    # 0.6-M18: one record per declared (parent, child) edge for
+    # per_parent_row child tables. Empty list when the config has no
+    # per_parent_row tables (the default lane — keeps pre-M18
+    # manifests byte-equivalent modulo the schema version bump and
+    # the empty list).
+    parent_child_relations: list[ParentChildRelation] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1179,6 +1221,32 @@ def build_manifest(
         SourceEntityMapping(**rec) for rec in raw_source_mappings
     ]
 
+    # 0.6-M18: per_parent_row / parent edges. One record per declared
+    # (parent, child) pairing; row counts read off the realized tables
+    # dict so the manifest carries actual generation output (not just
+    # config metadata). Empty list when no per_parent_row table is
+    # declared.
+    parent_child_relations: list[ParentChildRelation] = []
+    for child_tbl in config.tables:
+        if child_tbl.grain != "per_parent_row":
+            continue
+        parent_name = child_tbl.parent_table
+        if parent_name is None or child_tbl.children_per_row is None:
+            continue
+        mn, mx = child_tbl.children_per_row
+        parent_df = tables.get(parent_name)
+        child_df = tables.get(child_tbl.name)
+        parent_child_relations.append(
+            ParentChildRelation(
+                parent_table=parent_name,
+                child_table=child_tbl.name,
+                children_per_row_min=int(mn),
+                children_per_row_max=int(mx),
+                parent_row_count=int(len(parent_df)) if parent_df is not None else 0,
+                child_row_count=int(len(child_df)) if child_df is not None else 0,
+            )
+        )
+
     # 0.6-M5: outlier injection log. ``detect_outlier_injections`` returns
     # ``None`` for the three skip cases (no outlier_rate configured,
     # vectorized mode, cell budget exceeded) and a list otherwise. The
@@ -1209,6 +1277,7 @@ def build_manifest(
         treatment_cohorts=treatment_cohorts,
         correlation_phases=correlation_phases_info,
         source_entity_mappings=source_entity_mappings,
+        parent_child_relations=parent_child_relations,
     )
 
 
@@ -1248,6 +1317,7 @@ __all__ = [
     "HoldoutInfo",
     "ManifestSchema",
     "OutlierInjection",
+    "ParentChildRelation",
     "QualityInjection",
     "SCDEvent",
     "SourceEntityMapping",

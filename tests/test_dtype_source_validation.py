@@ -265,9 +265,9 @@ def test_bundled_templates_load_under_validator(stem):
     for tbl in cfg.tables:
         for col in tbl.columns:
             if col.dtype == "boolean":
-                assert "metric:" not in col.source, (
-                    f"{stem}: {tbl.name}.{col.name} violates F12 " f"(boolean × metric:source)"
-                )
-                assert not col.source.startswith("lag:"), (
-                    f"{stem}: {tbl.name}.{col.name} violates F12 " f"(boolean × lag:source)"
-                )
+                assert (
+                    "metric:" not in col.source
+                ), f"{stem}: {tbl.name}.{col.name} violates F12 (boolean × metric:source)"
+                assert not col.source.startswith(
+                    "lag:"
+                ), f"{stem}: {tbl.name}.{col.name} violates F12 (boolean × lag:source)"

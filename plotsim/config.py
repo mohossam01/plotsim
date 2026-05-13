@@ -129,6 +129,14 @@ TABLE_TYPES: frozenset[str] = frozenset({"dim", "fact", "event"})
 #   per_reference           dim_plan, dim_department: static lookup (no time, no entity)
 #   per_entity_per_period   fct_engagement: entity × time step
 #   variable                evt_login, evt_churn: trajectory-driven row count
+#                           (also allowed on fact tables as a parent of
+#                           per_parent_row children — fct_orders header
+#                           with row count driven by row_count_source)
+#   per_parent_row          fct_order_items: one row per parent fact row
+#                           times a uniform draw in children_per_row.
+#                           Inherits entity + period from parent, carries
+#                           an fk:fct_<parent>.<pk> column and independent
+#                           draws on remaining columns (no trajectory).
 GRAINS: frozenset[str] = frozenset(
     {
         "per_entity",
@@ -136,6 +144,7 @@ GRAINS: frozenset[str] = frozenset(
         "per_reference",
         "per_entity_per_period",
         "variable",
+        "per_parent_row",
     }
 )
 COMPOSITE_GRAINS: frozenset[str] = frozenset({"per_entity_per_period"})
@@ -412,8 +421,7 @@ class NarrativeConfig(_Frozen):
     def _bands_shape(cls, v: tuple[str, ...]) -> tuple[str, ...]:
         if len(v) < 2 or len(v) > 20:
             raise ValueError(
-                f"narrative bands must have between 2 and 20 entries, "
-                f"got {len(v)} ({list(v)!r})"
+                f"narrative bands must have between 2 and 20 entries, got {len(v)} ({list(v)!r})"
             )
         if any(not isinstance(b, str) or not b for b in v):
             raise ValueError(f"narrative bands must all be non-empty strings, got {list(v)!r}")
@@ -653,7 +661,7 @@ def parse_source(source: str) -> ParsedSource:
             consecutive = int(consecutive_str)
         except ValueError as e:
             raise ValueError(
-                f"threshold source {source!r}: non-integer consecutive " f"{consecutive_str!r}"
+                f"threshold source {source!r}: non-integer consecutive {consecutive_str!r}"
             ) from e
         return ThresholdSource(
             metric=metric,
@@ -666,8 +674,7 @@ def parse_source(source: str) -> ParsedSource:
         parts = source.split(":")
         if len(parts) != 4 or parts[0] != "proportional" or parts[2] != "scale":
             raise ValueError(
-                f"proportional source {source!r} must be "
-                f"'proportional:<metric>:scale:<multiplier>'"
+                f"proportional source {source!r} must be 'proportional:<metric>:scale:<multiplier>'"
             )
         _, metric, _, scale_str = parts
         if not metric:
@@ -697,7 +704,7 @@ def parse_source(source: str) -> ParsedSource:
         body = source[len("pool:") :]
         if not body:
             raise ValueError(
-                f"pool source {source!r}: prefix 'pool:' requires a name " f"(e.g. 'pool:industry')"
+                f"pool source {source!r}: prefix 'pool:' requires a name (e.g. 'pool:industry')"
             )
         # Reject embedded colons: ``pool:industry:extra`` would be ambiguous
         # under any future grammar extension. Surface it now.
@@ -1121,7 +1128,7 @@ class CurveSegment(_Frozen):
     def _start_before_end(self) -> "CurveSegment":
         if self.start_pct >= self.end_pct:
             raise ValueError(
-                f"curve segment start_pct ({self.start_pct}) must be " f"< end_pct ({self.end_pct})"
+                f"curve segment start_pct ({self.start_pct}) must be < end_pct ({self.end_pct})"
             )
         return self
 
@@ -1333,7 +1340,7 @@ class SCDType2Config(_Frozen):
     @classmethod
     def _trigger_metric_format(cls, v: str) -> str:
         if not isinstance(v, str) or "." not in v:
-            raise ValueError(f"scd_type2.trigger_metric {v!r} must be " f"'table_name.metric_name'")
+            raise ValueError(f"scd_type2.trigger_metric {v!r} must be 'table_name.metric_name'")
         table, metric = v.split(".", 1)
         if not table or not metric:
             raise ValueError(
@@ -1348,13 +1355,11 @@ class SCDType2Config(_Frozen):
         for t in v:
             if not (0.0 < float(t) < 1.0):
                 raise ValueError(
-                    f"scd_type2.thresholds values must lie in the open " f"interval (0, 1); got {t}"
+                    f"scd_type2.thresholds values must lie in the open interval (0, 1); got {t}"
                 )
         for prev, curr in zip(v, v[1:]):
             if curr <= prev:
-                raise ValueError(
-                    f"scd_type2.thresholds must be strictly increasing; " f"got {list(v)}"
-                )
+                raise ValueError(f"scd_type2.thresholds must be strictly increasing; got {list(v)}")
         return v
 
     @model_validator(mode="after")
@@ -1541,7 +1546,7 @@ class Column(_Frozen):
             for entity_name, values in self.value_pool.items():
                 if not entity_name:
                     raise ValueError(
-                        f"column {self.name!r} value_pool has an empty " f"entity-name key"
+                        f"column {self.name!r} value_pool has an empty entity-name key"
                     )
                 if not values:
                     raise ValueError(
@@ -1616,9 +1621,7 @@ class Column(_Frozen):
                 )
             for field_name, field_type in self.nested_schema.items():
                 if not field_name:
-                    raise ValueError(
-                        f"column {self.name!r} nested_schema has an empty " f"field name"
-                    )
+                    raise ValueError(f"column {self.name!r} nested_schema has an empty field name")
                 if not is_nested_primitive(field_type):
                     raise ValueError(
                         f"column {self.name!r} nested_schema field "
@@ -1721,6 +1724,15 @@ class Table(_Frozen):
     # pre-M14b output byte-for-byte.
     log_format: Optional[str] = None
     log_filename: Optional[str] = None
+    # 0.6-M18: parent/child fact grain. ``parent_table`` names the parent
+    # fact for a ``per_parent_row``-grain child; ``children_per_row`` is
+    # the inclusive ``(min, max)`` fan-out range drawn per parent row.
+    # Both required when ``grain == "per_parent_row"`` and rejected
+    # otherwise (validators below). Default ``None`` keeps every existing
+    # config byte-identical — no validator fires unless a child is
+    # declared.
+    parent_table: Optional[str] = None
+    children_per_row: Optional[tuple[int, int]] = None
 
     @property
     def primary_key_cols(self) -> list[str]:
@@ -1770,13 +1782,23 @@ class Table(_Frozen):
         return self
 
     @model_validator(mode="after")
-    def _row_count_source_only_on_event(self) -> "Table":
-        if self.row_count_source is not None and self.type != "event":
-            raise ValueError(
-                f"table {self.name!r} has row_count_source but type is "
-                f"{self.type!r}; row_count_source is only allowed on event tables"
-            )
-        return self
+    def _row_count_source_only_on_event_or_variable_fact(self) -> "Table":
+        # 0.6-M18: row_count_source is now also valid on variable-grain
+        # fact tables (the parent of a per_parent_row child). Reject on
+        # any other shape so a stray field on a per_entity_per_period
+        # fact fails loud instead of silently no-op'ing.
+        if self.row_count_source is None:
+            return self
+        if self.type == "event":
+            return self
+        if self.type == "fact" and self.grain == "variable":
+            return self
+        raise ValueError(
+            f"table {self.name!r} has row_count_source but type="
+            f"{self.type!r} grain={self.grain!r}; row_count_source is "
+            f"only allowed on event tables and on variable-grain fact "
+            f"tables (parent fact of a per_parent_row child)"
+        )
 
     @model_validator(mode="after")
     def _count_only_on_variable_dim(self) -> "Table":
@@ -1834,6 +1856,103 @@ class Table(_Frozen):
                 f"output. Set log_format (the template string) or drop "
                 f"log_filename."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _per_parent_row_field_pairing(self) -> "Table":
+        # 0.6-M18: ``parent_table`` and ``children_per_row`` are required
+        # on per_parent_row tables and rejected everywhere else. The
+        # paired-fields discipline matches SCD / pool / narrative — the
+        # grain selects the dispatch and the fields parameterize it; one
+        # without the other is a mis-configuration we catch at load.
+        is_child = self.grain == "per_parent_row"
+        has_parent = self.parent_table is not None
+        has_range = self.children_per_row is not None
+        if is_child:
+            if self.type != "fact":
+                raise ValueError(
+                    f"table {self.name!r} has grain='per_parent_row' but "
+                    f"type={self.type!r}; per_parent_row is only valid on "
+                    f"fact tables"
+                )
+            if not has_parent:
+                raise ValueError(
+                    f"table {self.name!r} has grain='per_parent_row' but "
+                    f"parent_table is unset; declare the parent fact name "
+                    f"(e.g. parent_table: 'fct_orders')"
+                )
+            if not has_range:
+                raise ValueError(
+                    f"table {self.name!r} has grain='per_parent_row' but "
+                    f"children_per_row is unset; declare a (min, max) "
+                    f"fan-out range (e.g. children_per_row: [1, 5])"
+                )
+            mn, mx = self.children_per_row  # type: ignore[misc]
+            if mn < 1:
+                raise ValueError(
+                    f"table {self.name!r} children_per_row min={mn} must "
+                    f"be >= 1 (a per_parent_row child fans out at least "
+                    f"one row per parent row)"
+                )
+            if mx < mn:
+                raise ValueError(
+                    f"table {self.name!r} children_per_row max={mx} must be >= min={mn}"
+                )
+            if self.row_count_source is not None:
+                raise ValueError(
+                    f"table {self.name!r} has grain='per_parent_row' but "
+                    f"row_count_source is set; child row count is driven "
+                    f"by (parent rows × children_per_row), not by a "
+                    f"row_count_source. Drop the field."
+                )
+        else:
+            if has_parent:
+                raise ValueError(
+                    f"table {self.name!r} sets parent_table="
+                    f"{self.parent_table!r} but grain={self.grain!r}; "
+                    f"parent_table is only valid on grain='per_parent_row'"
+                )
+            if has_range:
+                raise ValueError(
+                    f"table {self.name!r} sets children_per_row but "
+                    f"grain={self.grain!r}; children_per_row is only "
+                    f"valid on grain='per_parent_row'"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _variable_grain_fact_no_metric_columns(self) -> "Table":
+        # 0.6-M18: variable-grain fact tables are designed for parents
+        # of per_parent_row children (orders/header records). Metric
+        # columns at this grain would mean "one metric value per
+        # discrete instance" which doesn't compose cleanly with the
+        # trajectory-first invariant (multiple rows per (entity, period)
+        # share one trajectory position). M18 forbids ``metric:`` sources
+        # on variable-grain facts; per-instance metrics belong on the
+        # child fact table (one row per discrete instance is exactly
+        # what per_parent_row delivers). Deferred to a future mission
+        # if needed.
+        if self.type != "fact" or self.grain != "variable":
+            return self
+        for col in self.columns:
+            try:
+                parsed = parse_source(col.source)
+            except ValueError:
+                # Bad source format — let the column-level validator
+                # surface the parse error. This validator only checks
+                # the variable-fact / metric pairing.
+                continue
+            if isinstance(parsed, MetricSource):
+                raise ValueError(
+                    f"variable-grain fact column {col.name!r} on table "
+                    f"{self.name!r} has source {col.source!r}; "
+                    f"metric: sources are not supported on variable-grain "
+                    f"fact tables in 0.6 (per-instance metric semantics "
+                    f"are ambiguous when multiple rows share one "
+                    f"trajectory position). Move the metric to a "
+                    f"per_parent_row child table, or use generated:/"
+                    f"static:/derived: on the parent."
+                )
         return self
 
 
@@ -2506,7 +2625,7 @@ class StageSequence(_Frozen):
         for stage in seq[:-1]:
             if stage.threshold_exit is None:
                 raise ValueError(
-                    f"stage {stage.name!r} is not terminal but has " f"threshold_exit: null"
+                    f"stage {stage.name!r} is not terminal but has threshold_exit: null"
                 )
 
         # F8: detect per-stage mode and enforce consistency. Mixing
@@ -2838,7 +2957,7 @@ class PlotsimConfig(_Frozen):
         total = sum(e.size for e in self.entities)
         if total > 100_000:
             raise ValueError(
-                f"Total entity count across all groups is {total:,}. " f"Maximum is 100,000."
+                f"Total entity count across all groups is {total:,}. Maximum is 100,000."
             )
         return self
 
@@ -2955,8 +3074,19 @@ class PlotsimConfig(_Frozen):
         peak_mb = (metrics_bytes + fact_bytes) / 1_000_000 + 100
 
         event_rows_upper = 0
+        # 0.6-M18: estimate per-table row counts for variable-grain
+        # tables (event tables + variable-grain fact tables, both
+        # routed through the proportional builder). Stash per-table
+        # so the per_parent_row child fan-out can multiply against
+        # the parent's row estimate.
+        variable_rows_by_table: dict[str, int] = {}
         for tbl in self.tables:
-            if tbl.type != "event" or tbl.row_count_source is None:
+            if tbl.row_count_source is None:
+                continue
+            is_proportional_owner = tbl.type == "event" or (
+                tbl.type == "fact" and tbl.grain == "variable"
+            )
+            if not is_proportional_owner:
                 continue
             if not tbl.row_count_source.startswith("proportional"):
                 continue
@@ -2972,7 +3102,38 @@ class PlotsimConfig(_Frozen):
             v_max = driver.value_range.max
             if v_max is None:
                 continue
-            event_rows_upper += int(n_entities * n_periods * v_max * parsed_rc.scale)
+            tbl_rows = int(n_entities * n_periods * v_max * parsed_rc.scale)
+            variable_rows_by_table[tbl.name] = tbl_rows
+            event_rows_upper += tbl_rows
+
+        # 0.6-M18: per_parent_row children fan out from parent rows by
+        # the configured (min, max) range. Upper-bound estimate uses
+        # the parent's row estimate × children_per_row_max. Parent
+        # row estimate:
+        #   - parent grain=per_entity_per_period → n_entities × n_periods
+        #   - parent grain=variable → variable_rows_by_table[parent]
+        # Unknown parent (typo or unbuilt estimate) contributes 0 — the
+        # cross-reference validator catches typos at load before this
+        # field is used downstream.
+        child_rows_upper = 0
+        tables_by_name = {t.name: t for t in self.tables}
+        for tbl in self.tables:
+            if tbl.grain != "per_parent_row":
+                continue
+            if tbl.parent_table is None or tbl.children_per_row is None:
+                continue
+            parent_tbl = tables_by_name.get(tbl.parent_table)
+            if parent_tbl is None:
+                continue
+            if parent_tbl.grain == "per_entity_per_period":
+                parent_rows = n_entities * n_periods
+            elif parent_tbl.grain == "variable":
+                parent_rows = variable_rows_by_table.get(parent_tbl.name, 0)
+            else:
+                parent_rows = 0
+            _, mx = tbl.children_per_row
+            child_rows_upper += int(parent_rows * mx)
+        event_rows_upper += child_rows_upper
 
         summary = (
             f"Config summary: {n_entities:,} entities × {n_periods:,} periods "
@@ -3043,6 +3204,7 @@ class PlotsimConfig(_Frozen):
             validate_archetype_refs,
             validate_correlations,
             validate_names,
+            validate_parent_child_facts,
             validate_stages,
             validate_table_schema,
         )
@@ -3051,6 +3213,7 @@ class PlotsimConfig(_Frozen):
             validate_names,
             validate_archetype_refs,
             validate_table_schema,
+            validate_parent_child_facts,
             validate_correlations,
             validate_stages,
             validate_advanced,

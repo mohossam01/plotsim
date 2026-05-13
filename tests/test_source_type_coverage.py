@@ -269,9 +269,9 @@ def test_synthetic_config_produces_byte_identical_csvs_across_runs(synthetic_cfg
         )
     report_a = (run_a / "validation_report.txt").read_bytes()
     report_b = (run_b / "validation_report.txt").read_bytes()
-    assert report_a == report_b, (
-        "validation_report.txt differs across runs — F5's deterministic " "default has regressed."
-    )
+    assert (
+        report_a == report_b
+    ), "validation_report.txt differs across runs — F5's deterministic default has regressed."
 
 
 # --- (5) source-type semantics — values match the dispatch contract ---------
