@@ -180,9 +180,9 @@ def test_sweep_runner_writes_expected_csv_schema(tmp_path: Path) -> None:
     df = pd.read_csv(out_csv)
     assert len(df) == 10
     expected_cols = {"configured", "dist_a", "dist_b", "seed", "n_samples", "observed"}
-    assert set(df.columns) == expected_cols, (
-        f"trivial sweep schema drift: got {set(df.columns)}, " f"expected {expected_cols}"
-    )
+    assert (
+        set(df.columns) == expected_cols
+    ), f"trivial sweep schema drift: got {set(df.columns)}, expected {expected_cols}"
     # Sanity: input columns survive the round-trip unchanged; both correlation
     # signs are present so the sweep covered both magnitudes.
     assert set(df["configured"].unique()) == {-0.4, 0.4}
@@ -425,6 +425,6 @@ def test_claim4_same_process_determinism_on_saas() -> None:
 
     pairs = _same_process_pair()
     differences = [(fn, ha, hb) for fn, (ha, hb) in pairs.items() if ha != hb]
-    assert not differences, (
-        f"Claim 4 smoke regression: same-process determinism broken for: " f"{differences[:3]!r}"
-    )
+    assert (
+        not differences
+    ), f"Claim 4 smoke regression: same-process determinism broken for: {differences[:3]!r}"

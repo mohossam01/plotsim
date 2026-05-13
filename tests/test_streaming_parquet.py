@@ -130,9 +130,9 @@ class TestIterFactChunks:
             if arch == "__per_period__":
                 continue
             for _name, df in chunk.items():
-                assert len(df) == ents_per_arch[arch] * n_periods, (
-                    f"{arch}: expected {ents_per_arch[arch]}×{n_periods} " f"rows, got {len(df)}"
-                )
+                assert (
+                    len(df) == ents_per_arch[arch] * n_periods
+                ), f"{arch}: expected {ents_per_arch[arch]}×{n_periods} rows, got {len(df)}"
 
     def test_chunk_union_equals_unified(self):
         """Concatenating every chunk's fact DataFrame should reconstruct
@@ -153,9 +153,9 @@ class TestIterFactChunks:
                 if fact_name in chunk:
                     collected.append(chunk[fact_name])
             recombined = pd.concat(collected, ignore_index=True)
-            assert len(recombined) == len(unified), (
-                f"{fact_name}: chunks total {len(recombined)} rows, " f"unified has {len(unified)}"
-            )
+            assert len(recombined) == len(
+                unified
+            ), f"{fact_name}: chunks total {len(recombined)} rows, unified has {len(unified)}"
 
     def test_per_period_fact_uses_sentinel(self):
         """Fact tables whose grain isn't ``per_entity_per_period`` (or
@@ -172,9 +172,9 @@ class TestIterFactChunks:
         # should not emit a sentinel chunk for it.
         chunks = list(iter_fact_chunks(cfg, tables))
         sentinel_chunks = [c for c in chunks if c[0] == "__per_period__"]
-        assert sentinel_chunks == [], (
-            "sample_saas has no per_period facts — sentinel chunk should " "not be emitted"
-        )
+        assert (
+            sentinel_chunks == []
+        ), "sample_saas has no per_period facts — sentinel chunk should not be emitted"
 
 
 # --- Round-trip equality (the operator's corrected AC) ---------------------
@@ -416,9 +416,9 @@ class TestRowGroups:
         for fact_name in _streaming_fact_table_names(cfg):
             meta = pq.read_metadata(tmp_path / f"{fact_name}.parquet")
             sizes = [meta.row_group(i).num_rows for i in range(meta.num_row_groups)]
-            assert sizes == expected_sizes, (
-                f"{fact_name}: expected row group sizes {expected_sizes}, " f"got {sizes}"
-            )
+            assert (
+                sizes == expected_sizes
+            ), f"{fact_name}: expected row group sizes {expected_sizes}, got {sizes}"
 
 
 # --- Backward compatibility -------------------------------------------------
@@ -445,9 +445,9 @@ class TestBackwardCompat:
             if tbl.type != "fact":
                 continue
             meta = pq.read_metadata(tmp_path / f"{tbl.name}.parquet")
-            assert meta.num_row_groups == 1, (
-                f"{tbl.name}: serial+parquet expected 1 row group, " f"got {meta.num_row_groups}"
-            )
+            assert (
+                meta.num_row_groups == 1
+            ), f"{tbl.name}: serial+parquet expected 1 row group, got {meta.num_row_groups}"
 
     def test_vectorized_csv_unchanged(self, tmp_path):
         """Vectorized + CSV writes the unified DataFrame as before. No

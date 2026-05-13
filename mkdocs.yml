@@ -81,6 +81,7 @@ nav:
       - Geo hierarchy: user-guide/geo-hierarchy.md
       - Multi-source overlap: user-guide/multi-source.md
       - CDC fact-side: user-guide/cdc-facts.md
+      - Parent/child fact grain: user-guide/parent-child-facts.md
       - Narrative text: user-guide/narrative-source.md
       - Output formats: user-guide/output-formats.md
       - Denormalization: user-guide/denormalization.md

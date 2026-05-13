@@ -360,7 +360,7 @@ def validate_entity_features_config(config: PlotsimConfig) -> list[str]:
         )
 
     if config.quality.quality_issues:
-        errors.append("entity_features cannot be combined with quality_issues in this " "version")
+        errors.append("entity_features cannot be combined with quality_issues in this version")
 
     if cfg.metrics:
         metric_names = {m.name for m in config.metrics}
@@ -683,7 +683,7 @@ def project_correlation_or_issue(
                     severity="error",
                     table=None,
                     message=(
-                        "correlation matrix could not be projected to " f"positive-definite: {exc}"
+                        f"correlation matrix could not be projected to positive-definite: {exc}"
                     ),
                     details={
                         "metrics": [m.name for m in metrics],
@@ -910,7 +910,7 @@ def validate_pk_uniqueness(
                         severity="error",
                         table=tbl.name,
                         message=(
-                            f"composite PK {pk_cols} has {len(dup_tuples)} " f"duplicate tuple(s)"
+                            f"composite PK {pk_cols} has {len(dup_tuples)} duplicate tuple(s)"
                         ),
                         details={
                             "pk_columns": pk_cols,
@@ -1784,7 +1784,7 @@ def validate_scd_integrity(
                     check=CHECK_SCD_INTEGRITY,
                     severity="error",
                     table=tbl.name,
-                    message=(f"SCD dim {tbl.name!r} is missing expansion column(s) " f"{missing}"),
+                    message=(f"SCD dim {tbl.name!r} is missing expansion column(s) {missing}"),
                     details={"missing_columns": missing},
                 )
             )
@@ -1942,7 +1942,7 @@ def validate_bridge_integrity(
                         check=CHECK_BRIDGE_INTEGRITY,
                         severity="error",
                         table=bridge.name,
-                        message=(f"bridge {bridge.name!r} is missing FK column " f"{col_name!r}"),
+                        message=(f"bridge {bridge.name!r} is missing FK column {col_name!r}"),
                     )
                 )
         if first_fk_col not in df.columns or second_fk_col not in df.columns:
@@ -2280,6 +2280,257 @@ def validate_table_schema(config: PlotsimConfig) -> list[str]:
     return errors
 
 
+def validate_parent_child_facts(config: PlotsimConfig) -> list[str]:
+    """0.6-M18: parent/child + sibling-fact reference consistency.
+
+    Checks:
+      1. Every ``per_parent_row`` child's ``parent_table`` references an
+         existing fact table.
+      2. The referenced parent has grain in
+         ``{variable, per_entity_per_period}`` — the two fact grains that
+         expose a row-per-instance shape children can fan out from.
+      3. The combined dependency graph (parent_table edges +
+         ``fk:fct_*`` column edges) has no cycles. The topological
+         build pass in ``build_fact_tables`` assumes acyclic input.
+      4. per_parent_row children must NOT declare an explicit
+         ``fk:fct_*`` column source — following the bridge pattern,
+         ``parent_table`` is the single declaration and the engine
+         synthesizes the FK column at generation time.
+      5. The parent's PK column name must not collide with any
+         user-declared column on the child (the engine emits a column
+         with that name; a collision would silently overwrite the
+         user's data).
+      6. **Sibling-fact references** (0.6-M18 Fix 3). Non-per_parent_row
+         fact tables MAY declare ``fk:fct_<name>.<pk>`` columns. The
+         referenced fact must exist, the referenced column must be the
+         parent's primary key, and the referencing fact must have a
+         per_entity FK column (required for same-entity stochastic
+         draw resolution).
+    """
+    errors: list[str] = []
+    tables_by_name = {t.name: t for t in config.tables}
+    fact_names = {t.name for t in config.tables if t.type == "fact"}
+    per_entity_dim_names = _per_entity_dim_names(config)
+    valid_parent_grains = {"variable", "per_entity_per_period"}
+
+    for tbl in config.tables:
+        if tbl.grain == "per_parent_row":
+            parent_name = tbl.parent_table
+            assert parent_name is not None  # paired-field validator ran
+            if parent_name not in tables_by_name:
+                errors.append(
+                    f"table {tbl.name!r} parent_table={parent_name!r} "
+                    f"does not exist; known tables: "
+                    f"{sorted(tables_by_name.keys())}"
+                )
+                continue
+            parent_tbl = tables_by_name[parent_name]
+            if parent_tbl.type != "fact":
+                errors.append(
+                    f"table {tbl.name!r} parent_table={parent_name!r} "
+                    f"has type={parent_tbl.type!r}; per_parent_row "
+                    f"children can only reference fact tables"
+                )
+                continue
+            if parent_tbl.grain not in valid_parent_grains:
+                errors.append(
+                    f"table {tbl.name!r} parent_table={parent_name!r} "
+                    f"has grain={parent_tbl.grain!r}; per_parent_row "
+                    f"children require parent grain in "
+                    f"{sorted(valid_parent_grains)}"
+                )
+                continue
+            if parent_tbl.grain == "per_parent_row":
+                errors.append(
+                    f"table {tbl.name!r} parent_table={parent_name!r} "
+                    f"is itself per_parent_row; multi-level parent/child "
+                    f"chains are out of scope for 0.6-M18"
+                )
+                continue
+            # Single-column parent PK guard (the auto-synthesized child
+            # FK assumes one column).
+            if len(parent_tbl.primary_key_cols) != 1:
+                errors.append(
+                    f"table {tbl.name!r} parent {parent_name!r} has "
+                    f"composite primary_key {parent_tbl.primary_key_cols!r}; "
+                    f"per_parent_row children require single-column "
+                    f"parent PKs"
+                )
+                continue
+            # Column-name collision: the engine synthesizes a column
+            # named after the parent's PK; a user-declared column with
+            # the same name would be silently overwritten.
+            parent_pk_col = parent_tbl.primary_key_cols[0]
+            child_col_names = {c.name for c in tbl.columns}
+            if parent_pk_col in child_col_names:
+                errors.append(
+                    f"table {tbl.name!r} declares a column "
+                    f"{parent_pk_col!r} that collides with the auto-"
+                    f"synthesized parent FK (matches "
+                    f"{parent_name!r}.{parent_pk_col} primary key); "
+                    f"rename the child column"
+                )
+            # Cycle check — single-level today, but the check generalizes
+            # cleanly when nested chains are enabled.
+            visited: set[str] = set()
+            cursor: Optional[str] = tbl.name
+            while cursor is not None:
+                if cursor in visited:
+                    errors.append(
+                        f"parent/child reference cycle detected starting "
+                        f"at {tbl.name!r}: {' → '.join(visited)} → {cursor}"
+                    )
+                    break
+                visited.add(cursor)
+                cursor_tbl = tables_by_name.get(cursor)
+                cursor = (
+                    cursor_tbl.parent_table
+                    if cursor_tbl and cursor_tbl.grain == "per_parent_row"
+                    else None
+                )
+
+        # Cross-fact FK column rules (fk:fct_<name>.<col>).
+        for col in tbl.columns:
+            try:
+                parsed = parse_source(col.source)
+            except ValueError:
+                continue
+            if not isinstance(parsed, FKSource):
+                continue
+            if parsed.table not in fact_names:
+                # FK to a non-fact target — handled by the existing
+                # validate_table_schema target-table existence rule.
+                continue
+            if tbl.grain == "per_parent_row":
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} has "
+                    f"source {col.source!r} (fk to fact "
+                    f"{parsed.table!r}); per_parent_row children must "
+                    f"not declare an explicit parent FK column. The "
+                    f"engine auto-synthesizes a column named after the "
+                    f"parent's PK at generation time, following the "
+                    f"bridge pattern. Drop the column declaration; "
+                    f"parent_table is the single declaration of the "
+                    f"relationship."
+                )
+                continue
+            # 0.6-M18 Fix 3: sibling-fact reference. Validate the
+            # referenced fact + column + the same-entity-draw
+            # precondition.
+            if tbl.type != "fact":
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} has source "
+                    f"{col.source!r} (fk to fact {parsed.table!r}) but "
+                    f"table type={tbl.type!r}; fact-to-fact FKs are "
+                    f"only valid on fact tables"
+                )
+                continue
+            referenced = tables_by_name.get(parsed.table)
+            if referenced is None:
+                continue  # caught by validate_table_schema
+            if parsed.column not in {c.name for c in referenced.columns}:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} fk to "
+                    f"{parsed.table}.{parsed.column} but the referenced "
+                    f"fact has no column named {parsed.column!r}; "
+                    f"columns: {sorted(c.name for c in referenced.columns)}"
+                )
+                continue
+            if parsed.column not in referenced.primary_key_cols:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} fk to "
+                    f"{parsed.table}.{parsed.column} but that column is "
+                    f"not part of {parsed.table}'s primary_key "
+                    f"({referenced.primary_key!r}); cross-fact FKs must "
+                    f"reference the parent fact's PK"
+                )
+                continue
+            if referenced.grain not in valid_parent_grains:
+                errors.append(
+                    f"table {tbl.name!r} column {col.name!r} fk to "
+                    f"fact {parsed.table!r} with grain="
+                    f"{referenced.grain!r}; cross-fact FKs may only "
+                    f"reference facts with grain in "
+                    f"{sorted(valid_parent_grains)}"
+                )
+                continue
+            # The referencing fact needs a per_entity FK column so the
+            # engine can do same-entity-filtered draws at generation
+            # time. (Same-entity is the only sensible default — a return
+            # for entity X must reference an order placed by entity X.)
+            referencing_entity_fk = any(
+                isinstance(parse_source(c.source), FKSource)
+                and parse_source(c.source).table in per_entity_dim_names  # type: ignore[union-attr]
+                for c in tbl.columns
+            )
+            if not referencing_entity_fk:
+                errors.append(
+                    f"table {tbl.name!r} declares cross-fact FK "
+                    f"column {col.name!r} to {parsed.table!r} but has "
+                    f"no per_entity FK column of its own; same-entity "
+                    f"filtering at FK resolution time is not possible "
+                    f"without one. Add a per_entity dim FK column."
+                )
+
+    # 0.6-M18 Fix 3: combined dependency-graph cycle check (parent_table
+    # edges + fk:fct_* column edges). The per-table cycle check above
+    # only walks parent_table; this catches A.fk→B + B.fk→A and similar.
+    fact_dep_edges: dict[str, set[str]] = {n: set() for n in fact_names}
+    for tbl in config.tables:
+        if tbl.type != "fact":
+            continue
+        if tbl.grain == "per_parent_row" and tbl.parent_table in fact_names:
+            fact_dep_edges[tbl.name].add(tbl.parent_table)
+        for col in tbl.columns:
+            try:
+                parsed = parse_source(col.source)
+            except ValueError:
+                continue
+            if isinstance(parsed, FKSource) and parsed.table in fact_names:
+                fact_dep_edges[tbl.name].add(parsed.table)
+    cycle = _find_cycle(fact_dep_edges)
+    if cycle is not None:
+        errors.append(
+            f"fact dependency cycle detected: {' → '.join(cycle)} → "
+            f"{cycle[0]}. Check parent_table and fk:fct_* column sources."
+        )
+
+    return errors
+
+
+def _find_cycle(edges: dict[str, set[str]]) -> Optional[list[str]]:
+    """DFS-based cycle finder. Returns the cycle node sequence or None."""
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in edges}
+    parent: dict[str, Optional[str]] = {n: None for n in edges}
+    cycle_path: list[str] = []
+
+    def dfs(node: str) -> bool:
+        color[node] = GRAY
+        for neighbor in edges[node]:
+            if color.get(neighbor, WHITE) == GRAY:
+                # Reconstruct cycle from neighbor → node → ... → neighbor.
+                path = [node]
+                cursor = parent[node]
+                while cursor is not None and cursor != neighbor:
+                    path.append(cursor)
+                    cursor = parent[cursor]
+                path.append(neighbor)
+                cycle_path.extend(reversed(path))
+                return True
+            if color.get(neighbor, WHITE) == WHITE:
+                parent[neighbor] = node
+                if dfs(neighbor):
+                    return True
+        color[node] = BLACK
+        return False
+
+    for start in edges:
+        if color[start] == WHITE and dfs(start):
+            return cycle_path
+    return None
+
+
 def validate_correlations(config: PlotsimConfig) -> list[str]:
     """Reject duplicate / unknown-metric correlation entries; flag zero-coef pairs.
 
@@ -2359,7 +2610,7 @@ def validate_correlations(config: PlotsimConfig) -> list[str]:
         curr = lag_graph[start]
         while curr in lag_graph:
             if curr in seen:
-                errors.append(f"circular causal_lag chain detected involving " f"metric {start!r}")
+                errors.append(f"circular causal_lag chain detected involving metric {start!r}")
                 break
             seen.add(curr)
             curr = lag_graph[curr]
@@ -2501,7 +2752,7 @@ def validate_advanced(config: PlotsimConfig) -> list[str]:
     for bridge in config.bridges:
         if bridge.name in bridge_names:
             errors.append(
-                f"duplicate bridge name {bridge.name!r}; each bridge " f"must have a unique name"
+                f"duplicate bridge name {bridge.name!r}; each bridge must have a unique name"
             )
             continue
         if bridge.name in table_names:

@@ -1300,7 +1300,8 @@
             "per_period",
             "per_reference",
             "per_entity_per_period",
-            "variable"
+            "variable",
+            "per_parent_row"
           ],
           "title": "Grain",
           "type": "string"
@@ -1380,6 +1381,40 @@
           ],
           "default": null,
           "title": "Log Filename"
+        },
+        "parent_table": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Table"
+        },
+        "children_per_row": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Children Per Row"
         }
       },
       "required": [

@@ -168,9 +168,9 @@ class TestPerLineValidity:
                 if line.strip()
             ]
             # CSV's first line is the header; subtract it.
-            assert len(jsonl_lines) == len(csv_lines) - 1, (
-                f"{tbl.name}: JSONL rows {len(jsonl_lines)} != " f"CSV rows {len(csv_lines) - 1}"
-            )
+            assert (
+                len(jsonl_lines) == len(csv_lines) - 1
+            ), f"{tbl.name}: JSONL rows {len(jsonl_lines)} != CSV rows {len(csv_lines) - 1}"
 
     def test_column_key_order_matches_config(self, tmp_path):
         """``write_single_table`` reorders DataFrame columns by config

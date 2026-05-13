@@ -66,7 +66,7 @@ def parse_archetype(spec: str, n_periods: int) -> list[CurveSegment]:
 
     if "+" in raw:
         raise ArchetypeParseError(
-            "Layered patterns ship in a future release. " "Use > for sequential composition."
+            "Layered patterns ship in a future release. Use > for sequential composition."
         )
 
     if n_periods < 2:

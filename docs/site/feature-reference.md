@@ -50,6 +50,9 @@ integrity / provenance tooling.
 | `dim_<reference>` | one row per category / plan / region | YAML `dims[]` |
 | `fct_<metric>` | one row per entity per period | trajectory + metric pipeline |
 | `evt_<event>` | variable rows per entity per period (event firings) | trajectory-driven Poisson |
+| Parent fact (`variable` grain) | one row per discrete instance; count driven by a metric × scale | YAML `facts[]` with `row_count_driver` + `row_count_scale` |
+| Child fact (`per_parent_row` grain) | one row per parent row × uniform fan-out; inherits parent's entity + period. Parent FK column auto-synthesized from `parent_table` (bridge pattern). | YAML `facts[]` with `parent_table` + `children_per_row`. See [Parent/child fact grain](./user-guide/parent-child-facts.md). |
+| Sibling-fact reference | A second variable-grain fact references the parent via `ref.<other_fact>` with same-entity FK draw (e.g. `fct_returns` referencing `fct_orders`) | YAML `facts[]` column `{type: ref.<fact_name>}`. See [Parent/child fact grain — sibling references](./user-guide/parent-child-facts.md). |
 | Bridge tables | M:N join tables between entities | YAML `bridges[]` |
 | `_entity_features.csv` | one row per entity, six aggregates per metric | `plotsim.entity_features.build_entity_features` |
 

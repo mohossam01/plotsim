@@ -87,7 +87,7 @@ def test_validate_config_only_runtime_under_500ms(name):
     code, _out, _err = run_cli("validate", "--config-only", str(_template_path(name)))
     elapsed = time.perf_counter() - start
     assert code == 0
-    assert elapsed < 0.5, f"{name}: validate took {elapsed*1000:.1f} ms"
+    assert elapsed < 0.5, f"{name}: validate took {elapsed * 1000:.1f} ms"
 
 
 # --- No filesystem side effects ---------------------------------------------

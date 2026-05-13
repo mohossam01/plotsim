@@ -852,9 +852,9 @@ def test_multi_row_dim_plan_distributes_fks_uniformly():
     expected = [len(plan_ids) / 3.0] * 3
     observed = [counts.get(p, 0) for p in ("p-001", "p-002", "p-003")]
     _, p_value = chisquare(observed, expected)
-    assert p_value > 0.01, (
-        f"plan_id distribution not uniform enough: " f"observed={observed}, p={p_value:.4f}"
-    )
+    assert (
+        p_value > 0.01
+    ), f"plan_id distribution not uniform enough: observed={observed}, p={p_value:.4f}"
 
 
 def test_single_row_dim_preserves_current_behavior(saas_tables, saas_cfg):
@@ -886,9 +886,9 @@ def test_weighted_distribution_honors_config():
     counts = pd.Series(plans).value_counts(normalize=True)
     for pk, expected in [("p-001", 0.7), ("p-002", 0.2), ("p-003", 0.1)]:
         observed = float(counts.get(pk, 0.0))
-        assert abs(observed - expected) < 0.08, (
-            f"weighted plan_id {pk}: observed {observed:.3f} vs " f"expected {expected}"
-        )
+        assert (
+            abs(observed - expected) < 0.08
+        ), f"weighted plan_id {pk}: observed {observed:.3f} vs expected {expected}"
 
 
 def test_entity_level_fk_anchoring():
@@ -905,9 +905,9 @@ def test_entity_level_fk_anchoring():
     first_account = tables["dim_account"]["account_id"].iloc[0]
     first_rows = fct[fct["account_id"] == first_account]
     assert len(first_rows) > 0
-    assert set(first_rows["plan_id"]) == {"p-001"}, (
-        f"anchored cohort should be all p-001, " f"got {set(first_rows['plan_id'])}"
-    )
+    assert set(first_rows["plan_id"]) == {
+        "p-001"
+    }, f"anchored cohort should be all p-001, got {set(first_rows['plan_id'])}"
 
     other_rows = fct[fct["account_id"] != first_account]
     other_plans = set(other_rows["plan_id"])
@@ -1398,16 +1398,16 @@ def test_layer4_reference_fixtures_match(stem, tmp_path):
         _wt(tables, cfg, output_dir=tmp_path)
 
     reference = LAYER4_FIXTURES / stem
-    assert reference.exists(), (
-        f"missing reference fixture for {stem}; run " f"tests/fixtures/_generate_layer4_fixtures.py"
-    )
+    assert (
+        reference.exists()
+    ), f"missing reference fixture for {stem}; run tests/fixtures/_generate_layer4_fixtures.py"
     # Compare every CSV byte-for-byte. config.yaml and validation_report.txt
     # can legitimately drift (timestamps, etc.) so they're not in the diff.
     reference_csvs = sorted(p.name for p in reference.glob("*.csv"))
     actual_csvs = sorted(p.name for p in tmp_path.glob("*.csv"))
-    assert reference_csvs == actual_csvs, (
-        f"{stem}: CSV set mismatch — " f"reference={reference_csvs} actual={actual_csvs}"
-    )
+    assert (
+        reference_csvs == actual_csvs
+    ), f"{stem}: CSV set mismatch — reference={reference_csvs} actual={actual_csvs}"
     for name in reference_csvs:
         ref_bytes = (reference / name).read_bytes()
         out_bytes = (tmp_path / name).read_bytes()

@@ -454,10 +454,9 @@ def test_saas_validity_windows_cover_every_period_per_entity(saas_run):
     for company_id, grp in dim.groupby("company_id"):
         for dk in dks:
             covered = grp[(grp["valid_from"] <= dk) & (dk < grp["valid_to"])]
-            assert len(covered) == 1, (
-                f"company {company_id} period {dk}: expected one active "
-                f"version, got {len(covered)}"
-            )
+            assert (
+                len(covered) == 1
+            ), f"company {company_id} period {dk}: expected one active version, got {len(covered)}"
 
 
 # --- 6. Fact dim_row_id resolution -----------------------------------------

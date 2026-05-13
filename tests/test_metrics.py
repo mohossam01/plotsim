@@ -322,7 +322,8 @@ def test_cholesky_handles_multi_metric_sizes(k):
     ]
     # One chained correlation pair to exercise Cholesky on a k x k matrix.
     correlations = [
-        CorrelationPair(metric_a=f"m{i}", metric_b=f"m{i+1}", coefficient=0.3) for i in range(k - 1)
+        CorrelationPair(metric_a=f"m{i}", metric_b=f"m{i + 1}", coefficient=0.3)
+        for i in range(k - 1)
     ]
     out = generate_entity_metrics(
         trajectory=np.full(50, 0.5),
@@ -1293,6 +1294,6 @@ def test_m127b_poisson_lambda_zero_finite_output():
         rng=rng_b,
     )
     for name in out_a:
-        assert out_a[name] == out_b[name], (
-            f"determinism broken under poisson λ=0: " f"{name} a={out_a[name]} b={out_b[name]}"
-        )
+        assert (
+            out_a[name] == out_b[name]
+        ), f"determinism broken under poisson λ=0: {name} a={out_a[name]} b={out_b[name]}"

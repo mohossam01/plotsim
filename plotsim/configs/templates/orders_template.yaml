@@ -1,0 +1,147 @@
+# ═══════════════════════════════════════════════════════
+#  plotsim — Parent/child fact grain: orders + line items
+# ═══════════════════════════════════════════════════════
+#
+#  Demonstrates the 0.6-M18 parent/child fact pattern. Three
+#  generated fact tables compose into a realistic
+#  order-header / order-detail star:
+#
+#    fct_customer_activity  per_entity_per_period — exposes
+#                            the `order_volume` metric the
+#                            parent fact's row count is
+#                            driven by.
+#    fct_orders             variable-grain parent — one row
+#                            per discrete order. Row count
+#                            per (customer, month) =
+#                            round(order_volume * scale), so
+#                            growth-archetype customers
+#                            generate more orders than
+#                            decliners.
+#    fct_order_items        per_parent_row child — fans out
+#                            1..5 line items per order
+#                            (uniform, independent of
+#                            trajectory). Each line carries
+#                            its own product / quantity /
+#                            unit_price.
+#
+#  Run:
+#    >>> from plotsim import create_from_yaml, generate_tables, write_tables
+#    >>> cfg = create_from_yaml(
+#    ...     "plotsim/configs/templates/orders_template.yaml"
+#    ... )
+#    >>> tables = generate_tables(cfg)
+#    >>> write_tables(tables, cfg, output_dir="./orders_output")
+#
+#  Inspect: `head orders_output/fct_orders.csv` shows the
+#  parent header rows; `head orders_output/fct_order_items.csv`
+#  shows the child line items, each carrying the parent
+#  `order_id` as a foreign key.
+# ═══════════════════════════════════════════════════════
+
+about: "Retail orders with line-item detail (parent/child fact grain)"
+unit: customer
+seed: 18180
+
+window:
+  start: 2024-01
+  end: 2024-06
+  every: monthly
+
+
+# ── metrics ──────────────────────────────────────────────
+# order_volume drives the parent fact's row count. The
+# trajectory-first invariant means a growth customer's
+# order_volume rises across the window while a decliner's
+# falls — and because round(order_volume * 1.2) is the row
+# count per (customer, month), growth customers materialize
+# more order headers.
+
+metrics:
+  - { name: order_volume,   type: count,  polarity: positive }
+  - { name: loyalty_score,  type: score,  polarity: positive }
+  # return_rate drives the sibling fct_returns row count. Decliners
+  # return more often (negative polarity).
+  - { name: return_rate,    type: score,  polarity: negative }
+
+
+connections:
+  - order_volume driven_by loyalty_score
+  - return_rate opposes loyalty_score
+
+
+# ── customers ────────────────────────────────────────────
+
+segments:
+  - { name: regulars,    count: 8,  archetype: growth }
+  - { name: occasional,  count: 6,  archetype: flat }
+  - { name: churning,    count: 4,  archetype: decline }
+
+
+# ── dimensions ───────────────────────────────────────────
+
+dimensions:
+  - name: dim_customer
+    per: unit
+    columns:
+      - { name: customer_id,   type: id }
+      - { name: customer_name, type: faker.name }
+      - { name: customer_email, type: faker.email }
+  - name: dim_product
+    reference: true
+    columns:
+      - { name: product_id,   type: id }
+      - { name: product_name, type: "static.widget,gadget,gizmo,sprocket,lantern,doohickey,thingamajig,whatsit" }
+      - { name: category,     type: "static.hardware,hardware,hardware,hardware,outdoor,misc,misc,misc" }
+
+
+facts:
+  # ── variable-grain parent: one row per order ───────────
+  # row_count_driver names the metric whose value × scale
+  # gives the per-(customer, month) order count. The driver
+  # metric is declared in `metrics:` above; it does NOT need
+  # a fact-column projection — the engine reads the per-
+  # entity-per-period series directly from the metric layer.
+  # No metric columns on this fact either — per-order
+  # amounts live on the child line items.
+  - name: fct_orders
+    row_count_driver: order_volume
+    row_count_scale: 1.2
+    columns:
+      - { name: order_id,       type: id }
+      - { name: customer_id,    type: ref.dim_customer }
+      - { name: order_date,     type: ref.dim_date }
+      - { name: payment_method, type: faker.company }
+
+  # ── per_parent_row child: line items per order ─────────
+  # Each fct_orders row spawns 1..5 fct_order_items rows.
+  # The child inherits customer_id and order_date from its
+  # parent row; product_id / quantity / unit_price are
+  # independent per-line draws.
+  # The parent FK column (named `order_id`, matching fct_orders'
+  # PK) is auto-synthesized by the engine at generation time. Do not
+  # declare it explicitly.
+  - name: fct_order_items
+    parent_table: fct_orders
+    children_per_row: [1, 5]
+    columns:
+      - { name: item_id,     type: id }
+      - { name: customer_id, type: ref.dim_customer }
+      - { name: order_date,  type: ref.dim_date }
+      - { name: product_id,  type: ref.dim_product }
+      - { name: quantity,    type: faker.random_int }
+      - { name: unit_price,  type: faker.pyfloat }
+
+  # ── sibling-fact reference: returns reference orders ────────
+  # fct_returns is its own variable-grain fact (one row per
+  # return, count driven by `return_rate`). Each row references
+  # an order via `ref.fct_orders`; the engine resolves the FK by
+  # drawing same-entity-filtered from the customer's orders.
+  - name: fct_returns
+    row_count_driver: return_rate
+    row_count_scale: 0.6
+    columns:
+      - { name: return_id,     type: id }
+      - { name: order_id,      type: ref.fct_orders }
+      - { name: customer_id,   type: ref.dim_customer }
+      - { name: return_date,   type: ref.dim_date }
+      - { name: return_reason, type: faker.word }

@@ -222,12 +222,11 @@ def analyze_correlation_csv(
                 "observed_minus_target",
                 "p95_error",
             ],
-            title=("Configurations where median observed exceeds the " "effective tolerance"),
+            title=("Configurations where median observed exceeds the effective tolerance"),
         )
     else:
         out["exceeders"] = (
-            "_All measured (dist_a, dist_b, configured) cells land within the "
-            "effective tolerance._"
+            "_All measured (dist_a, dist_b, configured) cells land within the effective tolerance._"
         )
 
     return out

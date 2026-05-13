@@ -259,7 +259,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if args.strict and not report.ok:
         print(
-            f"--strict: validation has {len(report.errors)} error(s); " f"aborting before write.",
+            f"--strict: validation has {len(report.errors)} error(s); aborting before write.",
             file=sys.stderr,
         )
         return 1
@@ -369,12 +369,12 @@ def cmd_info(args: argparse.Namespace) -> int:
     lines = [
         f"Domain: {config.domain.name}",
         f"Entity type: {config.domain.entity_label}",
-        f"Entities: {n_entities} across {len(cohorts)} cohort(s) " f"({', '.join(cohorts)})",
+        f"Entities: {n_entities} across {len(cohorts)} cohort(s) ({', '.join(cohorts)})",
         f"Time window: {config.time_window.start} to {config.time_window.end} "
         f"({n_periods} {_period_label(config.time_window.granularity, n_periods)})",
-        f"Metrics: {len(config.metrics)} " f"({', '.join(m.name for m in config.metrics)})",
-        f"Archetypes: {len(config.archetypes)} defined, " f"{len(archetypes_used)} in use",
-        f"Tables: {len(config.tables)} " f"({n_dim} dim, {n_fact} fact, {n_event} event)",
+        f"Metrics: {len(config.metrics)} ({', '.join(m.name for m in config.metrics)})",
+        f"Archetypes: {len(config.archetypes)} defined, {len(archetypes_used)} in use",
+        f"Tables: {len(config.tables)} ({n_dim} dim, {n_fact} fact, {n_event} event)",
         f"Estimated rows: ~{_estimate_rows(config, n_periods):,}",
         f"Seed: {config.seed}",
     ]
@@ -424,9 +424,7 @@ def cmd_list_templates(_args: argparse.Namespace) -> int:
             print(f"  {name.ljust(width)}  {desc}".rstrip())
         print("")
     first_name = (builder_templates or engine_templates)[0][0]
-    print(
-        f"Usage: plotsim template {first_name} -o my_config.yaml && " f"plotsim run my_config.yaml"
-    )
+    print(f"Usage: plotsim template {first_name} -o my_config.yaml && plotsim run my_config.yaml")
     return 0
 
 
@@ -506,8 +504,7 @@ def cmd_template(args: argparse.Namespace) -> int:
 def _print_validation_report(report) -> None:
     status = "VALID" if report.ok else "INVALID"
     print(
-        f"Validation: {status} - "
-        f"{len(report.errors)} error(s), {len(report.warnings)} warning(s)"
+        f"Validation: {status} - {len(report.errors)} error(s), {len(report.warnings)} warning(s)"
     )
     for issue in report.issues:
         tag = "ERROR" if issue.severity == "error" else "WARN "
@@ -611,7 +608,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         "-o",
         default=None,
-        help=(f"Destination path (default: ./{SCHEMA_FILENAME}). " f"Pass '-' to write to stdout."),
+        help=(f"Destination path (default: ./{SCHEMA_FILENAME}). Pass '-' to write to stdout."),
     )
     schema_p.add_argument(
         "--allow-absolute-output",

@@ -525,9 +525,7 @@ def test_parameterized_faker_date_between_stays_in_range():
             Column(
                 name="hire_date",
                 dtype="date",
-                source=(
-                    "generated:faker.date_between:" "start_date:2022-01-01:end_date:2024-12-31"
-                ),
+                source=("generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31"),
             ),
         ],
         "employee_id",
@@ -565,9 +563,9 @@ def test_hr_template_hire_dates_within_window():
     hire_dates = dims["dim_employee"]["hire_date"].tolist()
     lower, upper = _d(2022, 1, 1), _d(2024, 12, 31)
     for value in hire_dates:
-        assert lower <= value <= upper, (
-            f"hire_date {value!r} is outside HR time_window " f"[2022-01, 2024-12]"
-        )
+        assert (
+            lower <= value <= upper
+        ), f"hire_date {value!r} is outside HR time_window [2022-01, 2024-12]"
 
 
 def test_locale_defaults_to_en_us_faker_output():

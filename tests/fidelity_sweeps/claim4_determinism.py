@@ -258,7 +258,7 @@ def run_claim4(out_csv: Path = RESULT_CSV) -> int:
     df = pd.DataFrame(rows)
     df.to_csv(out_csv, index=False, encoding="utf-8")
     sys.stderr.write(
-        f"[claim4] wrote {len(df)} rows to {out_csv} in " f"{time.monotonic() - t0:.1f}s\n"
+        f"[claim4] wrote {len(df)} rows to {out_csv} in {time.monotonic() - t0:.1f}s\n"
     )
     return len(df)
 

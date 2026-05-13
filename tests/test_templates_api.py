@@ -25,6 +25,7 @@ EXPECTED_TEMPLATES = {
     "latency_skew",
     "marketing",
     "narrative_reviews",
+    "orders",
     "retail",
     "saas",
 }

@@ -716,9 +716,9 @@ class TestEndToEndDeterminism:
         assert fact_names, "saas template should have fact tables"
         for name in fact_names:
             df1, df2 = t1[name], t2[name]
-            assert df1.equals(df2), (
-                f"non-byte-identical fact table {name} across runs with same " f"seed"
-            )
+            assert df1.equals(
+                df2
+            ), f"non-byte-identical fact table {name} across runs with same seed"
 
     @pytest.mark.parametrize("path", [EDU_YAML, RETAIL_YAML])
     def test_pd_bundled_templates_have_no_correlation_adjustments(self, path):

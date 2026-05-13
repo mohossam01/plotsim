@@ -135,9 +135,9 @@ def test_every_entity_has_an_archetype_assignment(saas_run):
     cfg, _tables, _state, manifest, _target = saas_run
     declared = {e.name for e in cfg.entities}
     recorded = {a.entity for a in manifest.archetype_assignments}
-    assert recorded == declared, (
-        f"missing entities: {declared - recorded!r}; " f"extra: {recorded - declared!r}"
-    )
+    assert (
+        recorded == declared
+    ), f"missing entities: {declared - recorded!r}; extra: {recorded - declared!r}"
 
 
 def test_archetype_assignment_matches_config(saas_run):
@@ -163,10 +163,9 @@ def test_trajectory_samples_cover_every_period_for_sampled_entities(saas_run):
 def test_trajectory_sample_positions_are_in_unit_interval(saas_run):
     _cfg, _tables, _state, manifest, _target = saas_run
     for s in manifest.trajectory_samples:
-        assert 0.0 <= s.position <= 1.0, (
-            f"trajectory sample {s.entity}@{s.period_index} position "
-            f"{s.position} outside [0, 1]"
-        )
+        assert (
+            0.0 <= s.position <= 1.0
+        ), f"trajectory sample {s.entity}@{s.period_index} position {s.position} outside [0, 1]"
 
 
 def test_every_event_table_has_a_firing_row_per_entity(saas_run):
@@ -189,12 +188,12 @@ def test_event_firing_period_indices_are_valid_and_sorted(saas_run):
     _cfg, tables, _state, manifest, _target = saas_run
     n_periods = len(tables["dim_date"])
     for f in manifest.event_firings:
-        assert f.period_indices == sorted(f.period_indices), (
-            f"period_indices for {f.entity}@{f.table} is unsorted: " f"{f.period_indices}"
-        )
-        assert all(0 <= p < n_periods for p in f.period_indices), (
-            f"period_indices for {f.entity}@{f.table} out of range: " f"{f.period_indices}"
-        )
+        assert f.period_indices == sorted(
+            f.period_indices
+        ), f"period_indices for {f.entity}@{f.table} is unsorted: {f.period_indices}"
+        assert all(
+            0 <= p < n_periods for p in f.period_indices
+        ), f"period_indices for {f.entity}@{f.table} out of range: {f.period_indices}"
 
 
 # --- Determinism contract ---------------------------------------------------
@@ -366,7 +365,7 @@ def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
 # --- 0.6-M5: causal_graph ---------------------------------------------------
 
 
-def test_schema_version_bumped_to_1_5():
+def test_schema_version_bumped_to_1_6():
     """0.6-M5 added causal_graph / correlations / outlier_injections (1.0 → 1.1).
     0.6-M8a added per-entity ``active_window`` on EntityArchetypeAssignment
     (1.1 → 1.2). 0.6-M8c added per-entity ``treatment`` and the top-level
@@ -375,13 +374,14 @@ def test_schema_version_bumped_to_1_5():
     field on ``CorrelationAdjustment`` / ``CorrelationCompensation`` /
     ``CorrelationEntry`` (1.3 → 1.4). 0.6-M13 added the
     ``source_entity_mappings`` list for the multi-source / overlap mode
-    (1.4 → 1.5).
+    (1.4 → 1.5). 0.6-M18 added the ``parent_child_relations`` list for
+    the parent/child fact grain (1.5 → 1.6).
 
     The version pin lives in this test rather than just the manifest module
-    so a downstream consumer pinning ``schema_version >= "1.5"`` has a
+    so a downstream consumer pinning ``schema_version >= "1.6"`` has a
     direct on-disk contract test it can reference.
     """
-    assert MANIFEST_SCHEMA_VERSION == "1.5"
+    assert MANIFEST_SCHEMA_VERSION == "1.6"
 
 
 def test_causal_graph_emits_one_edge_per_metric_with_lag(saas_run):
