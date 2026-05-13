@@ -6,5 +6,5 @@
 # pydantic, faker) — they install transitively via `pip install .` below.
 
 .
-matplotlib>=3.7
+matplotlib>=3.10.9
 scikit-learn>=1.3
