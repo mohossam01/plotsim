@@ -71,7 +71,7 @@ dev = [
     # Pin faker for CI reproducibility — fixture row counts and string
     # outputs depend on faker's RNG, which can change across minor versions.
     # Runtime keeps faker>=18.0 so library users aren't constrained.
-    "faker==37.1.0",
+    "faker==40.15.0",
 ]
 test = [
     "pytest>=7.0",
