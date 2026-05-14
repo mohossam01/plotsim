@@ -2966,39 +2966,60 @@ class PlotsimConfig(_Frozen):
         """0.6-M16a: cross-table partition-column existence and dtype check.
 
         When ``output.partition_by`` is set, at least one table must
-        declare a column with that name (otherwise the name is a typo
-        and partitioning would silently no-op across the entire write).
-        Every table that *does* declare the column must use a
-        partition-eligible dtype — ``float`` / ``struct`` / ``array``
-        are rejected because Hive-style equality partitioning is
-        ill-defined for them. The remaining dtypes (``int`` /
-        ``string`` / ``date`` / ``boolean`` / ``id``) all work.
+        carry a matching column (otherwise the name is a typo and
+        partitioning would silently no-op across the entire write).
+        A column matches either by literal name OR — 0.6-M19 Fix 5 —
+        by FK target: a column whose source is
+        ``fk:<dim>.<partition_by>`` resolves to ``partition_by`` even
+        though its local name differs (e.g. ``order_date`` on
+        ``fct_orders`` resolves the ``partition_by: date_key``
+        declaration via its FK to ``dim_date.date_key``).
+
+        Every matching column must use a partition-eligible dtype —
+        ``float`` / ``struct`` / ``array`` are rejected because
+        Hive-style equality partitioning is ill-defined for them. The
+        remaining dtypes (``int`` / ``string`` / ``date`` /
+        ``boolean`` / ``id``) all work.
+
+        Precedence: literal name match runs first; FK-target
+        resolution is the fallback when no table declares the literal
+        column. Mixing literal and FK matches across tables is fine —
+        each table independently resolves its own column at write time
+        in :func:`plotsim.output.write_single_table`.
         """
         partition_by = self.output.partition_by
         if partition_by is None:
             return self
         invalid_dtypes = {"float", "struct", "array"}
-        found_anywhere = False
+        matched: list[tuple[Table, Column]] = []
         for tbl in self.tables:
             for col in tbl.columns:
-                if col.name != partition_by:
-                    continue
-                found_anywhere = True
-                if col.dtype in invalid_dtypes:
-                    raise ValueError(
-                        f"output.partition_by={partition_by!r} resolves to "
-                        f"column {tbl.name}.{col.name} with dtype "
-                        f"{col.dtype!r}, which is not a valid partition "
-                        f"key type; use one of int / string / date / "
-                        f"boolean / id"
-                    )
-        if not found_anywhere:
+                if col.name == partition_by:
+                    matched.append((tbl, col))
+        if not matched:
+            for tbl in self.tables:
+                for col in tbl.columns:
+                    parsed = parse_source(col.source)
+                    if isinstance(parsed, FKSource) and parsed.column == partition_by:
+                        matched.append((tbl, col))
+        if not matched:
             table_names = ", ".join(t.name for t in self.tables)
             raise ValueError(
                 f"output.partition_by={partition_by!r} does not match any "
-                f"column on any declared table ({table_names}); check for "
-                f"typos or remove the field to disable partitioning"
+                f"column on any declared table ({table_names}) — neither "
+                f"as a literal column name nor as an FK target column; "
+                f"check for typos or remove the field to disable "
+                f"partitioning"
             )
+        for tbl, col in matched:
+            if col.dtype in invalid_dtypes:
+                raise ValueError(
+                    f"output.partition_by={partition_by!r} resolves to "
+                    f"column {tbl.name}.{col.name} with dtype "
+                    f"{col.dtype!r}, which is not a valid partition "
+                    f"key type; use one of int / string / date / "
+                    f"boolean / id"
+                )
         return self
 
     @model_validator(mode="after")

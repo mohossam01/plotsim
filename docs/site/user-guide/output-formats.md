@@ -141,11 +141,18 @@ output/
 
 - Only applies when `format: parquet`. A `partition_by` paired with
   `format: csv` is rejected at config load.
-- Tables that have a column with the named name are partitioned;
-  tables without it stay as single files. The validator confirms the
-  name resolves on at least one table (typos fail fast) and rejects
-  `float` / `struct` / `array` partition keys (Hive-style equality
-  matching is ill-defined for those types).
+- Tables that carry a matching column are partitioned; tables without
+  one stay as single files. A column matches either by literal name
+  OR by FK target: a column whose source is `fk:<dim>.<partition_by>`
+  resolves the declaration even when its local name differs. So
+  `partition_by: date_key` lands on `fct_orders.order_date` (FK to
+  `dim_date.date_key`) and writes `fct_orders/order_date=<value>/...`
+  partition directories — the directory name reflects the actual local
+  column. Literal name match takes precedence on tables that declare
+  it. The validator confirms at least one table matches by either
+  route (typos fail fast) and rejects `float` / `struct` / `array`
+  partition keys (Hive-style equality matching is ill-defined for
+  those types).
 - Companion files (`config.yaml`, `validation_report.txt`,
   `manifest.json`) are always single top-level files — they are not
   table data.

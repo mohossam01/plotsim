@@ -401,6 +401,37 @@ def _resolve_partition_by(config: Optional[PlotsimConfig]) -> Optional[str]:
     return getattr(output_cfg, "partition_by", None)
 
 
+def _resolve_partition_column_for_table(
+    partition_by: str,
+    tbl: Optional[Table],
+    df: pd.DataFrame,
+) -> Optional[str]:
+    """0.6-M19 Fix 5: return the actual column name on ``tbl`` to
+    partition by, honoring the literal-then-FK-target precedence used
+    by ``PlotsimConfig._validate_partition_column``.
+
+    Literal name match wins: if ``partition_by`` is itself a column on
+    the DataFrame, return it unchanged. Otherwise look for a column on
+    ``tbl`` whose source is ``fk:<dim>.<partition_by>`` and return that
+    column's local name — that's how ``partition_by: date_key`` lands
+    on a table whose date column is called ``order_date``.
+
+    Returns ``None`` when neither resolution applies; callers fall back
+    to single-file Parquet (the "partition where applicable" semantic
+    OutputConfig.partition_by already declared).
+    """
+    if partition_by in df.columns:
+        return partition_by
+    if tbl is None:
+        return None
+    for col in tbl.columns:
+        parsed = parse_source(col.source)
+        if isinstance(parsed, FKSource) and parsed.column == partition_by:
+            if col.name in df.columns:
+                return col.name
+    return None
+
+
 _FORMAT_EXTENSIONS: dict[str, str] = {
     "csv": "csv",
     "parquet": "parquet",
@@ -516,15 +547,22 @@ def write_single_table(
 
     if output_format == "parquet":
         _check_parquet_engine_available()
-        # 0.6-M16a: when ``output.partition_by`` is set AND the column
-        # is present in this DataFrame, route through the partitioned
-        # writer. Tables that don't carry the partition column fall
-        # back to the single-file Parquet path on the next branch —
-        # this is the "partition where applicable" semantic declared
-        # in ``OutputConfig.partition_by``.
+        # 0.6-M16a: when ``output.partition_by`` is set AND a matching
+        # column is present in this DataFrame, route through the
+        # partitioned writer. Tables that don't carry the partition
+        # column fall back to the single-file Parquet path on the next
+        # branch — this is the "partition where applicable" semantic
+        # declared in ``OutputConfig.partition_by``.
+        #
+        # 0.6-M19 Fix 5: column resolution honors FK-target fallback.
+        # ``partition_by: date_key`` lands on a fact whose date column
+        # is named ``order_date`` (FK target ``dim_date.date_key``);
+        # the partition directories then use that local column name.
         partition_by = _resolve_partition_by(config)
-        if partition_by is not None and partition_by in to_write.columns:
-            return _write_partitioned_parquet(to_write, tbl, output_dir, name, partition_by)
+        if partition_by is not None:
+            actual_col = _resolve_partition_column_for_table(partition_by, tbl, to_write)
+            if actual_col is not None:
+                return _write_partitioned_parquet(to_write, tbl, output_dir, name, actual_col)
         # 0.6-M14c: nested columns (struct / array) need an explicit
         # pyarrow schema so dict / list cells write as native nested
         # types instead of being inferred as opaque object columns.

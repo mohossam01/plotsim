@@ -2162,7 +2162,18 @@ def _emit_proportional_rows(
                                     pick = 0
                                 col_arrays[col.name][row_idx] = candidates.iloc[pick][parsed.column]
                                 continue
-                        col_arrays[col.name][row_idx] = parent.iloc[0][parsed.column]
+                        # 0.6-M19 Fix 3: cross-dim FK on a variable-grain
+                        # fact (e.g. dim_payment_method on fct_orders).
+                        # Pre-fix this fell through to row 0, which
+                        # produced a degenerate join where every fact row
+                        # referenced the same dim row. Uniform draw across
+                        # the parent dim mirrors the per_parent_row child
+                        # builder above (~L2546).
+                        if rng is not None:
+                            pick = int(rng.integers(0, len(parent)))
+                        else:
+                            pick = 0
+                        col_arrays[col.name][row_idx] = parent.iloc[pick][parsed.column]
                 row_idx += 1
 
     return pd.DataFrame({col.name: col_arrays[col.name] for col, _ in parsed_cols})
@@ -3995,21 +4006,31 @@ def _apply_cdc_audit_columns(
     if dim_date is None or "period_label" not in dim_date.columns:
         return fact_tables
     period_label_by_dkey = _date_key_to_period_label(dim_date)
+    tables_by_name = {t.name: t for t in config.tables}
 
     out = dict(fact_tables)
     for name, df in fact_tables.items():
         if name not in cdc_facts:
             continue
-        if "date_key" not in df.columns:
-            # Defensive: a fact without date_key has no period anchor for
-            # the audit timestamps. Skip the augmentation rather than
+        # 0.6-M19 Fix 4: resolve the local date-FK column by source
+        # target, not the literal name ``date_key``. A fact may name
+        # its date-FK column ``order_date`` / ``billing_period`` /
+        # whatever — what matters is that the FK target is
+        # ``dim_date.date_key``. Pre-fix, any rename silently broke
+        # CDC by skipping the audit-column augmentation.
+        tbl = tables_by_name.get(name)
+        date_fk = _find_date_fk_column(tbl) if tbl is not None else None
+        date_col = date_fk[0] if date_fk is not None else "date_key"
+        if date_col not in df.columns:
+            # Defensive: a fact without any date FK has no period
+            # anchor for the audit timestamps. Skip rather than
             # emitting nonsense — the load-time validator could be
             # tightened later, but for now we silently no-op.
             continue
         df = df.copy(deep=True)
         period_strs = [
             period_label_by_dkey.get(int(d), "") if pd.notna(d) else ""
-            for d in df["date_key"].tolist()
+            for d in df[date_col].tolist()
         ]
         df["_inserted_at"] = period_strs
         df["_updated_at"] = list(period_strs)
