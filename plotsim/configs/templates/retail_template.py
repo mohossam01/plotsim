@@ -83,7 +83,16 @@ config = create(
             "count": 25,
             "archetype": "growth",
             "label": "Builds loyalty steadily across both years",
-            "attributes": {"tier": ["gold", "platinum"], "channel": ["web", "mobile"]},
+            "attributes": {
+                "tier": ["gold", "platinum"],
+                "channel": ["web", "mobile"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"loyalty_score": "high", "cart_value": "high", "return_rate": "low"},
         },
         {
@@ -91,7 +100,16 @@ config = create(
             "count": 30,
             "archetype": "seasonal",
             "label": "Cyclical demand around holidays — Q4 surges",
-            "attributes": {"tier": ["silver", "gold"], "channel": ["web", "mobile", "marketplace"]},
+            "attributes": {
+                "tier": ["silver", "gold"],
+                "channel": ["web", "mobile", "marketplace"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"cart_value": "mid", "conversion_rate": "mid"},
         },
         {
@@ -99,7 +117,16 @@ config = create(
             "count": 18,
             "archetype": "flat > decline @ 12",
             "label": "Active first year, gradually disengaged in year two",
-            "attributes": {"tier": ["bronze", "silver"], "channel": ["marketplace"]},
+            "attributes": {
+                "tier": ["bronze", "silver"],
+                "channel": ["marketplace"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"loyalty_score": "low", "return_rate": "high"},
         },
         {
@@ -107,7 +134,16 @@ config = create(
             "count": 15,
             "archetype": "growth > spike_then_crash > flat @ 4 @ 8",
             "label": "Tested the brand for a few months, then never returned",
-            "attributes": {"tier": ["bronze"], "channel": ["web"]},
+            "attributes": {
+                "tier": ["bronze"],
+                "channel": ["web"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"loyalty_score": "low", "cart_value": "low"},
         },
         {
@@ -115,7 +151,16 @@ config = create(
             "count": 12,
             "archetype": "decline > flat > growth @ 6 @ 14",
             "label": "Churned, then reactivated by year-two campaign",
-            "attributes": {"tier": ["silver"], "channel": ["email", "web"]},
+            "attributes": {
+                "tier": ["silver"],
+                "channel": ["email", "web"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"loyalty_score": "mid", "conversion_rate": "mid"},
         },
         {
@@ -123,7 +168,16 @@ config = create(
             "count": 10,
             "archetype": "accelerating",
             "label": "Compounding cart values as trust builds",
-            "attributes": {"tier": ["gold", "platinum"], "channel": ["web"]},
+            "attributes": {
+                "tier": ["gold", "platinum"],
+                "channel": ["web"],
+                "churn_reason": [
+                    "account_dormant",
+                    "low_engagement",
+                    "payment_failure",
+                    "service_interruption",
+                ],
+            },
             "baseline": {"cart_value": "high", "loyalty_score": "high"},
         },
     ],
@@ -281,7 +335,7 @@ config = create(
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
-                {"name": "reason", "type": "faker.sentence"},
+                {"name": "reason", "type": "pool.churn_reason"},
                 {"name": "churn_flag", "type": "flag"},
             ],
         },

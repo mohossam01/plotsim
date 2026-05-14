@@ -89,7 +89,16 @@ config = create(
             "count": 15,
             "archetype": "growth",
             "label": "Top-of-funnel brand awareness — steady reach growth",
-            "attributes": {"objective": ["awareness"], "channel": ["paid_social", "display"]},
+            "attributes": {
+                "objective": ["awareness"],
+                "channel": ["paid_social", "display"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
+            },
             "baseline": {"impressions": "high", "ad_spend": "high", "conversion_rate": "low"},
             # 0.6-M15: A/B treatment cohort (M8c) — see
             # ``marketing_template.yaml`` for the ATE recovery exercise.
@@ -106,7 +115,16 @@ config = create(
             "count": 18,
             "archetype": "growth > spike_then_crash @ 12",
             "label": "Heavy paid push, then sharp budget cut after Q4",
-            "attributes": {"objective": ["conversion"], "channel": ["paid_search", "paid_social"]},
+            "attributes": {
+                "objective": ["conversion"],
+                "channel": ["paid_search", "paid_social"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
+            },
             "baseline": {"ad_spend": "high", "impressions": "high", "bounce_rate": "high"},
         },
         {
@@ -117,6 +135,12 @@ config = create(
             "attributes": {
                 "objective": ["conversion", "awareness"],
                 "channel": ["paid_search", "email", "paid_social"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
             },
             "baseline": {"ad_spend": "mid", "revenue": "mid"},
         },
@@ -125,7 +149,16 @@ config = create(
             "count": 12,
             "archetype": "flat > growth @ 10",
             "label": "Quiet ramp-up, breakthrough mid-campaign once creative landed",
-            "attributes": {"objective": ["conversion"], "channel": ["paid_search", "display"]},
+            "attributes": {
+                "objective": ["conversion"],
+                "channel": ["paid_search", "display"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
+            },
             "baseline": {"ad_spend": "mid", "conversion_rate": "mid"},
         },
         {
@@ -136,6 +169,12 @@ config = create(
             "attributes": {
                 "objective": ["awareness", "engagement"],
                 "channel": ["organic_social", "referral"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
             },
             "baseline": {"impressions": "high", "revenue": "high", "roi": "high"},
         },
@@ -144,7 +183,16 @@ config = create(
             "count": 8,
             "archetype": "decline",
             "label": "Sunsetting campaign — winding down spend over the window",
-            "attributes": {"objective": ["retention"], "channel": ["email", "retargeting"]},
+            "attributes": {
+                "objective": ["retention"],
+                "channel": ["email", "retargeting"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
+            },
             "baseline": {"ad_spend": "low", "conversion_rate": "low"},
         },
         {
@@ -155,6 +203,12 @@ config = create(
             "attributes": {
                 "objective": ["retention", "conversion"],
                 "channel": ["retargeting", "email"],
+                "pause_reason": [
+                    "budget_exhausted",
+                    "low_conversion",
+                    "creative_fatigue",
+                    "audience_saturation",
+                ],
             },
             "baseline": {"conversion_rate": "mid", "bounce_rate": "mid"},
         },
@@ -299,7 +353,7 @@ config = create(
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "campaign_id", "type": "ref.dim_campaign"},
-                {"name": "reason", "type": "faker.sentence"},
+                {"name": "reason", "type": "pool.pause_reason"},
                 {"name": "pause_flag", "type": "flag"},
             ],
         },

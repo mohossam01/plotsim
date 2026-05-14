@@ -32,9 +32,33 @@ config = create(
         "return_rate opposes loyalty_score",
     ],
     segments=[
-        {"name": "regulars", "count": 8, "archetype": "growth"},
-        {"name": "occasional", "count": 6, "archetype": "flat"},
-        {"name": "churning", "count": 4, "archetype": "decline"},
+        {
+            "name": "regulars",
+            "count": 8,
+            "archetype": "growth",
+            "attributes": {
+                "payment_method": ["credit", "debit", "cash", "gift_card"],
+                "return_reason": ["damaged", "wrong_size", "defective", "no_longer_needed"],
+            },
+        },
+        {
+            "name": "occasional",
+            "count": 6,
+            "archetype": "flat",
+            "attributes": {
+                "payment_method": ["credit", "debit", "cash", "gift_card"],
+                "return_reason": ["damaged", "wrong_size", "defective", "no_longer_needed"],
+            },
+        },
+        {
+            "name": "churning",
+            "count": 4,
+            "archetype": "decline",
+            "attributes": {
+                "payment_method": ["credit", "debit", "cash", "gift_card"],
+                "return_reason": ["damaged", "wrong_size", "defective", "no_longer_needed"],
+            },
+        },
     ],
     dimensions=[
         {
@@ -71,7 +95,7 @@ config = create(
                 {"name": "order_id", "type": "id"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
                 {"name": "order_date", "type": "ref.dim_date"},
-                {"name": "payment_method", "type": "faker.company"},
+                {"name": "payment_method", "type": "pool.payment_method"},
             ],
         },
         {
@@ -86,8 +110,8 @@ config = create(
                 {"name": "customer_id", "type": "ref.dim_customer"},
                 {"name": "order_date", "type": "ref.dim_date"},
                 {"name": "product_id", "type": "ref.dim_product"},
-                {"name": "quantity", "type": "faker.random_int"},
-                {"name": "unit_price", "type": "faker.pyfloat"},
+                {"name": "quantity", "type": "range", "range": [1, 5]},
+                {"name": "unit_price", "type": "range", "range": [10.0, 500.0]},
             ],
         },
         # ── sibling-fact reference: returns reference orders ────
@@ -104,7 +128,7 @@ config = create(
                 {"name": "order_id", "type": "ref.fct_orders"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
                 {"name": "return_date", "type": "ref.dim_date"},
-                {"name": "return_reason", "type": "faker.word"},
+                {"name": "return_reason", "type": "pool.return_reason"},
             ],
         },
     ],
