@@ -31,7 +31,8 @@ Some types take additional fields (`labels` for `bucket`, `tracks` /
 | `faker.{kind}` | yes | yes | yes | yes |
 | `geo.{field}` | yes (dim only) | — | — | — |
 | `static.{value}` | yes | yes | yes | yes |
-| `pool.{attr}` | yes (per-entity dim only) | — | — | — |
+| `pool.{attr}` | yes (per-entity dim only) | yes (variable-grain + per_parent_row) | yes | — |
+| `range` | — | yes | yes | — |
 | `segment.count` | yes (per-entity dim only) | — | — | — |
 | `timestamp` | — | — | yes | — |
 | `flag` | — | — | yes (threshold trigger only) | — |
@@ -234,9 +235,14 @@ dimensions:
 
 Output dtype is `string`.
 
-**Valid on**: per-entity dimension columns only. Fact, event, and
-reference-dim columns can't pull from per-segment attributes —
-attribute values are an entity-level fact, not a per-row one.
+**Valid on**: per-entity dimension columns, variable-grain fact
+columns, per_parent_row child-fact columns, and event columns. The
+engine reads the row's entity FK and draws from
+`attributes[attr_name]` for that entity's segment.
+Per_entity_per_period and per_period facts, reference dims, and
+sub-entity dims are out of scope — the M19 lift required either a
+per-row entity binding (facts / events) or a 1:1 row-to-entity
+mapping (per_entity dim).
 
 **Coverage** — every segment must declare the attribute. A `pool.region`
 column rejects at construction if even one segment omits `region`. The
@@ -245,6 +251,42 @@ error message lists the attributes declared on every segment.
 **Scalars vs lists** — segments can declare a scalar (`region: "us-east"`)
 or a list (`industry: ["tech", "finance"]`). Scalar values wrap into a
 single-element list; list values are sampled uniformly per row.
+
+---
+
+## `range`
+
+Per-row uniform draw between two numeric bounds. Use it when a
+column needs a bounded random number with explicit limits rather
+than Faker's defaults.
+
+```yaml
+facts:
+  - name: fct_orders
+    row_count_driver: order_volume
+    row_count_scale: 1.0
+    columns:
+      - { name: order_id,    type: id }
+      - { name: customer_id, type: ref.dim_customer }
+      - { name: order_date,  type: ref.dim_date }
+      # Inclusive [1, 5] integer draw — quantity ∈ {1, 2, 3, 4, 5}.
+      - { name: quantity,    type: range, range: [1, 5] }
+      # Uniform float in [10.0, 500.0).
+      - { name: unit_price,  type: range, range: [10.0, 500.0] }
+```
+
+**Bounds dtype** — both bounds in `range: [...]` must be numeric.
+Integer-typed bounds produce `dtype: int` and draw via
+`rng.integers(min, max + 1)` (inclusive upper bound). Any float
+bound produces `dtype: float` and draws via `rng.uniform(min, max)`
+(exclusive upper bound — numpy's continuous-range convention).
+
+**Valid on**: variable-grain fact columns, per_parent_row child
+fact columns, event columns, and per_entity_per_period fact columns.
+Dimension columns are out of scope in this version.
+
+**Deterministic** — every draw goes through the engine RNG so the
+same seed yields the same column.
 
 ---
 

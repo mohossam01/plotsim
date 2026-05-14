@@ -400,3 +400,254 @@ def test_pool_source_re_exported_from_plotsim():
     the ``TextBucketSource`` precedent (M105)."""
     assert plotsim.PoolSource is PoolSource
     assert "PoolSource" in plotsim.__all__
+
+
+# --- 0.6-M19 Fix 1: pool on facts, events, per_parent_row children -----------
+#
+# The original M114 surface only allowed pool sources on per_entity dims.
+# M19 widens it to fact / event tables so authors can curate per-entity
+# value pools directly on transaction rows. Tests below build configs
+# end-to-end via the builder (``create``) so the interpreter path is
+# exercised alongside the engine dispatch.
+
+
+def _create_pool_on_fact_config(*, fact_grain: str = "per_entity_per_period"):
+    """Build a pool-on-fact config via the builder.
+
+    ``fact_grain`` selects which fact shape to exercise:
+      * ``"per_entity_per_period"`` — standard fact, one row per
+        (entity, period).
+      * ``"variable"`` — variable-grain fact with row_count_driver.
+      * ``"per_parent_row"`` — per_parent_row child of a variable parent.
+      * ``"event"`` — proportional event.
+    """
+    from plotsim import create
+
+    base: dict = {
+        "about": "pool-on-fact end-to-end",
+        "unit": "customer",
+        "seed": 19101,
+        "window": ("2024-01", "2024-04", "monthly"),
+        "metrics": [
+            {
+                "name": "purchases",
+                "type": "amount",
+                "polarity": "positive",
+                "range": [1, 20],
+            },
+        ],
+        "segments": [
+            {
+                "name": "loyal",
+                "count": 3,
+                "archetype": "growth",
+                "attributes": {"channel": ["app", "web"]},
+            },
+            {
+                "name": "casual",
+                "count": 3,
+                "archetype": "flat",
+                "attributes": {"channel": ["sms", "email"]},
+            },
+        ],
+        "dimensions": [
+            {
+                "name": "dim_customer",
+                "per": "unit",
+                "columns": [
+                    {"name": "customer_id", "type": "id"},
+                    {"name": "customer_name", "type": "faker.name"},
+                ],
+            },
+        ],
+    }
+    if fact_grain == "per_entity_per_period":
+        base["facts"] = [
+            {
+                "name": "fct_activity",
+                "metrics": ["purchases"],
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "purchases", "type": "metric.purchases"},
+                    {"name": "channel", "type": "pool.channel"},
+                ],
+            }
+        ]
+    elif fact_grain == "variable":
+        base["facts"] = [
+            {
+                "name": "fct_orders",
+                "row_count_driver": "purchases",
+                "row_count_scale": 1.0,
+                "columns": [
+                    {"name": "order_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                    {"name": "channel", "type": "pool.channel"},
+                ],
+            }
+        ]
+    elif fact_grain == "per_parent_row":
+        base["facts"] = [
+            {
+                "name": "fct_orders",
+                "row_count_driver": "purchases",
+                "row_count_scale": 1.0,
+                "columns": [
+                    {"name": "order_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                ],
+            },
+            {
+                "name": "fct_order_items",
+                "parent_table": "fct_orders",
+                "children_per_row": [1, 3],
+                "columns": [
+                    {"name": "item_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                    {"name": "channel", "type": "pool.channel"},
+                ],
+            },
+        ]
+    elif fact_grain == "event":
+        base["facts"] = [
+            {
+                "name": "fct_activity",
+                "metrics": ["purchases"],
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "purchases", "type": "metric.purchases"},
+                ],
+            }
+        ]
+        base["events"] = [
+            {
+                "name": "evt_action",
+                "trigger": "proportional",
+                "driver": "purchases",
+                "scale": 1.0,
+                "columns": [
+                    {"name": "event_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "channel", "type": "pool.channel"},
+                ],
+            }
+        ]
+    else:
+        raise ValueError(f"unknown fact_grain {fact_grain!r}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return create(**base)
+
+
+@pytest.mark.parametrize(
+    "fact_grain,target_table",
+    [
+        ("variable", "fct_orders"),
+        ("per_parent_row", "fct_order_items"),
+        ("event", "evt_action"),
+    ],
+)
+def test_pool_on_fact_or_event_emits_pool_values(fact_grain, target_table):
+    """Every emitted row's ``channel`` value comes from its entity's
+    declared pool — not the other segment's pool. Validates that the
+    M19 lift wires per-row entity lookup correctly through each
+    builder path the mission targeted (variable-grain, per_parent_row,
+    event)."""
+    cfg = _create_pool_on_fact_config(fact_grain=fact_grain)
+    tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    df = tables[target_table]
+    dim_customer = tables["dim_customer"]
+    assert "channel" in df.columns
+    assert len(df) > 0
+    # Loyal entities (loyal_0000 ... loyal_0002) drew customer PKs in
+    # config-entities order via build_dim_entity; they're the first
+    # three customers. Their pool is {app, web}.
+    loyal_pks = set(dim_customer["customer_id"].iloc[:3].tolist())
+    casual_pks = set(dim_customer["customer_id"].iloc[3:].tolist())
+    for _, row in df.iterrows():
+        cid = row["customer_id"]
+        channel = row["channel"]
+        if cid in loyal_pks:
+            assert channel in {"app", "web"}, (
+                f"loyal customer {cid} got channel {channel!r}, " f"expected app/web"
+            )
+        elif cid in casual_pks:
+            assert channel in {"sms", "email"}, (
+                f"casual customer {cid} got channel {channel!r}, " f"expected sms/email"
+            )
+
+
+def test_pool_on_fact_deterministic_under_seed():
+    cfg_a = _create_pool_on_fact_config(fact_grain="variable")
+    cfg_b = _create_pool_on_fact_config(fact_grain="variable")
+    tables_a = generate_tables(cfg_a, np.random.default_rng(cfg_a.seed))
+    tables_b = generate_tables(cfg_b, np.random.default_rng(cfg_b.seed))
+    assert tables_a["fct_orders"]["channel"].tolist() == tables_b["fct_orders"]["channel"].tolist()
+
+
+def test_pool_on_reference_dim_still_rejected():
+    """Reference dims and sub-entity dims have no per-row per-entity
+    binding; the lift in M19 explicitly excluded them. Confirm the
+    existing rejection path still fires."""
+    from plotsim import create
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with pytest.raises(ValueError, match="not a per_entity dim"):
+            create(
+                about="reject pool on ref dim",
+                unit="customer",
+                seed=19102,
+                window=("2024-01", "2024-04", "monthly"),
+                metrics=[
+                    {
+                        "name": "m",
+                        "type": "amount",
+                        "polarity": "positive",
+                        "range": [1, 5],
+                    }
+                ],
+                segments=[
+                    {
+                        "name": "g",
+                        "count": 3,
+                        "archetype": "flat",
+                        "attributes": {"plan_kind": ["starter"]},
+                    },
+                ],
+                dimensions=[
+                    {
+                        "name": "dim_customer",
+                        "per": "unit",
+                        "columns": [
+                            {"name": "customer_id", "type": "id"},
+                        ],
+                    },
+                    {
+                        "name": "dim_plan",
+                        "reference": True,
+                        "columns": [
+                            {"name": "plan_id", "type": "id"},
+                            # pool on a reference dim — must still be rejected.
+                            {"name": "plan_kind", "type": "pool.plan_kind"},
+                        ],
+                    },
+                ],
+                facts=[
+                    {
+                        "name": "fct_m",
+                        "metrics": ["m"],
+                        "columns": [
+                            {"name": "date_key", "type": "ref.dim_date"},
+                            {"name": "customer_id", "type": "ref.dim_customer"},
+                            {"name": "m", "type": "metric.m"},
+                        ],
+                    },
+                ],
+            )

@@ -72,7 +72,9 @@ from plotsim.config import (
     NestedSource,
     PlotsimConfig,
     PKSource,
+    PoolSource,
     ProportionalSource,
+    RangeSource,
     SCDType2Config,
     StaticSource,
     Table,
@@ -82,6 +84,7 @@ from plotsim.config import (
 )
 from plotsim.dimensions import (
     _call_faker,
+    _coerce_static,
     build_all_dimensions,
     sample_fk_values,
 )
@@ -995,6 +998,7 @@ def _build_per_entity_per_period_fact(
         entity_cross_fks,
         parsed_cols,
         metrics_3d,
+        rng=rng,
         trajectories_2d=trajectories_2d,
     )
 
@@ -1072,6 +1076,7 @@ def _vectorized_per_entity_per_period_fact(
     entity_cross_fks: dict[str, dict[str, Any]],
     parsed_cols: list[tuple[Column, Any]],
     metrics_3d: np.ndarray,
+    rng: Optional[np.random.Generator] = None,
     trajectories_2d: Optional[np.ndarray] = None,
 ) -> pd.DataFrame:
     """Column-oriented builder. Each column becomes a single ndarray built via
@@ -1118,6 +1123,10 @@ def _vectorized_per_entity_per_period_fact(
         "entity_pk_repeated": entity_pk_repeated,
         "date_key_tiled": date_key_tiled,
         "period_idx_col": period_idx_col,
+        # 0.6-M19 Fix 2: RangeSource vec handler reads ``rng`` for its
+        # bulk ``rng.uniform`` / ``rng.integers`` draw. Other handlers
+        # ignore the key.
+        "rng": rng,
     }
     for col, parsed in parsed_cols:
         ctx = dict(base_ctx)
@@ -1227,6 +1236,28 @@ def _fact_vec_derived(parsed: DerivedSource, ctx: dict):
     raise ValueError(f"fact column {col.name!r} derived field {parsed.field!r} not supported")
 
 
+def _fact_vec_range(parsed: RangeSource, ctx: dict):
+    """0.6-M19 Fix 2: bulk per-row uniform draw on a vectorized fact.
+
+    Integer columns get ``rng.integers(min, max + 1)`` (inclusive
+    upper bound — matches numpy's semantics for discrete ranges);
+    float columns get ``rng.uniform(min, max)`` (exclusive upper
+    bound — matches numpy's continuous-range convention).
+    """
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"fact column {col.name!r} has source {col.source!r} but no "
+            f"RNG was supplied to the vectorized fact builder; range "
+            f"draws require the per-table RNG"
+        )
+    total_rows = ctx["total_rows"]
+    if col.dtype == "int":
+        return rng.integers(int(parsed.min), int(parsed.max) + 1, size=total_rows)
+    return rng.uniform(parsed.min, parsed.max, size=total_rows)
+
+
 def _fact_vec_text_bucket(parsed: TextBucketSource, ctx: dict):
     # M105: trajectory-position-driven text emission. ``trajectories_2d``
     # is shape (E, P); flatten in the same row-major (entity, period)
@@ -1309,6 +1340,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
     TextBucketSource,
     _fact_vec_text_bucket,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    RangeSource,
+    _fact_vec_range,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
@@ -1562,6 +1598,27 @@ def _fact_scalar_text_bucket(parsed: TextBucketSource, ctx: dict):
     return parsed.buckets[idx]
 
 
+def _fact_scalar_range(parsed: RangeSource, ctx: dict):
+    """0.6-M19 Fix 2: per-cell uniform draw on a scalar fact.
+
+    Mirrors :func:`_fact_vec_range` but emits a single value per cell
+    rather than a bulk array. The scalar path's RNG comes through the
+    caller's per-table generator; absence is a wiring bug (every
+    scalar fact builder threads ``rng`` into the ctx).
+    """
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"fact column {col.name!r} has source {col.source!r} but no "
+            f"RNG was supplied to _resolve_fact_cell; range draws "
+            f"require the per-table RNG"
+        )
+    if col.dtype == "int":
+        return int(rng.integers(int(parsed.min), int(parsed.max) + 1))
+    return float(rng.uniform(parsed.min, parsed.max))
+
+
 def _fact_scalar_unsupported(parsed: Any, ctx: dict):
     col = ctx["col"]
     raise ValueError(
@@ -1627,6 +1684,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
     NestedSource,
     _fact_scalar_nested,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    RangeSource,
+    _fact_scalar_range,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
@@ -2046,15 +2108,43 @@ def _emit_proportional_rows(
     pk_first_char = pk_prefix[0]
 
     # Classify columns. Any FK that points to a non-per_entity, non-dim_date
-    # table may draw RNG; FakerSource always advances faker state.
+    # table may draw RNG; FakerSource always advances faker state;
+    # 0.6-M19 Fix 1: PoolSource needs per-row entity lookup so it lands
+    # in the stochastic loop too.
     def _is_stochastic(col: Column, parsed: Any) -> bool:
         if isinstance(parsed, FakerSource):
             return True
         if isinstance(parsed, FKSource):
             return parsed.table not in per_entity_dims and parsed.table != "dim_date"
+        if isinstance(parsed, PoolSource):
+            return True
         return False
 
     stochastic_cols = {col.name for col, parsed in parsed_cols if _is_stochastic(col, parsed)}
+
+    # 0.6-M19 Fix 1: pre-compute per-column pool lookups keyed by entity
+    # PK. ``value_pool`` is keyed by ``Entity.name``; the stochastic loop
+    # has the entity PK, so we collapse the indirection up-front (config
+    # order matches the unique-PKs-in-entity-major-order convention used
+    # by every variable-grain / proportional-event caller).
+    pool_by_pk_per_col: dict[str, dict[Any, list[str]]] = {}
+    pool_cols = [(col, parsed) for col, parsed in parsed_cols if isinstance(parsed, PoolSource)]
+    if pool_cols:
+        unique_entity_pks = pd.unique(entity_ids_arr)
+        if len(unique_entity_pks) != len(config.entities):
+            raise RuntimeError(
+                f"pool lookup on {tbl.name!r}: {len(unique_entity_pks)} "
+                f"unique entity PKs vs {len(config.entities)} declared "
+                f"entities; build invariant broken"
+            )
+        entity_name_by_pk = {
+            unique_entity_pks[i]: config.entities[i].name for i in range(len(config.entities))
+        }
+        for col, _ in pool_cols:
+            assert col.value_pool is not None  # _pool_pairing
+            pool_by_pk_per_col[col.name] = {
+                pk: col.value_pool[entity_name_by_pk[pk]] for pk in unique_entity_pks
+            }
 
     # 0.6-M18 Fix 3: pre-compute per-entity index for cross-fact FK
     # columns so the stochastic loop draws in O(1) per row. Keyed by
@@ -2092,6 +2182,9 @@ def _emit_proportional_rows(
         "per_entity_dims": per_entity_dims,
         "pk_first_char": pk_first_char,
         "pk_width": pk_width,
+        # 0.6-M19 Fix 2: RangeSource handler reads ``rng`` for the bulk
+        # uniform / integers draw. Other handlers ignore the key.
+        "rng": rng,
     }
     for col, parsed in parsed_cols:
         if col.name in stochastic_cols:
@@ -2128,6 +2221,17 @@ def _emit_proportional_rows(
                             parsed.method,
                             parsed.kwargs,
                         )
+                    elif isinstance(parsed, PoolSource):
+                        # 0.6-M19 Fix 1: per-row draw from the entity's
+                        # pool. ``pool_by_pk_per_col`` was pre-computed
+                        # above so the per-row work is one rng draw +
+                        # one list index.
+                        choices = pool_by_pk_per_col[col.name][entity_pk_value]
+                        if rng is not None:
+                            pick = int(rng.integers(0, len(choices)))
+                        else:
+                            pick = 0
+                        col_arrays[col.name][row_idx] = _coerce_static(choices[pick], col.dtype)
                     elif isinstance(parsed, FKSource):
                         # 0.6-M18 Fix 3: cross-fact reference. Same-entity
                         # filtered draw from the referenced fact's PK
@@ -2354,6 +2458,30 @@ def _prop_evt_derived(parsed: DerivedSource, ctx: dict):
     )
 
 
+def _prop_evt_range(parsed: RangeSource, ctx: dict):
+    """0.6-M19 Fix 2: bulk per-row uniform draw on a proportional /
+    variable-grain event row builder.
+
+    Same shape as :func:`_fact_vec_range` but consumed by the cell-
+    major proportional pipeline. Total row count is fixed at the
+    point this handler runs, so a single bulk draw of size
+    ``total_rows`` keeps RNG consumption proportional to the output
+    size.
+    """
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"event/fact column {col.name!r} has source {col.source!r} "
+            f"but no RNG was supplied to _emit_proportional_rows; "
+            f"range draws require the per-table RNG"
+        )
+    total_rows = ctx["total_rows"]
+    if col.dtype == "int":
+        return rng.integers(int(parsed.min), int(parsed.max) + 1, size=total_rows)
+    return rng.uniform(parsed.min, parsed.max, size=total_rows)
+
+
 def _prop_evt_unsupported(parsed: Any, ctx: dict):
     # F14 (M102): explicit raise on unhandled source type.
     col = ctx["col"]
@@ -2387,6 +2515,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PROPORTIONAL_EVENT,
     DerivedSource,
     _prop_evt_derived,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PROPORTIONAL_EVENT,
+    RangeSource,
+    _prop_evt_range,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PROPORTIONAL_EVENT,
@@ -2625,6 +2758,45 @@ def _build_per_parent_row_fact(
                 [_call_faker(fake, parsed.method, parsed.kwargs) for _ in range(total_rows)],
                 dtype=object,
             )
+        elif isinstance(parsed, RangeSource):
+            # 0.6-M19 Fix 2: bulk uniform draw, integer or float per
+            # column dtype. Independent of trajectory and parent row
+            # — same draw shape as the per_parent_row cross-dim FK
+            # above.
+            if col.dtype == "int":
+                col_arrays[col.name] = rng.integers(
+                    int(parsed.min), int(parsed.max) + 1, size=total_rows
+                )
+            else:
+                col_arrays[col.name] = rng.uniform(parsed.min, parsed.max, size=total_rows)
+        elif isinstance(parsed, PoolSource):
+            # 0.6-M19 Fix 1: per-row pool draw on a child fact. The
+            # child inherits its parent's entity, so ``entity_repeated``
+            # gives the entity PK per row; map back to ``Entity.name``
+            # to index ``value_pool``.
+            if entity_repeated is None:
+                raise ValueError(
+                    f"child {tbl.name!r} column {col.name!r} declares a "
+                    f"pool source but parent {parent_name!r} has no "
+                    f"per_entity FK to attribute pool entries to"
+                )
+            assert col.value_pool is not None  # _pool_pairing
+            # Build entity_name lookup from per_entity dim PK ordering.
+            entity_dim_name = next(iter(per_entity_dims))
+            entity_dim_df = dim_tables[entity_dim_name]
+            entity_dim_tbl = next(t for t in config.tables if t.name == entity_dim_name)
+            entity_pk_col = entity_dim_tbl.primary_key_cols[0]
+            unique_pks = entity_dim_df[entity_pk_col].drop_duplicates().tolist()
+            entity_name_by_pk = {
+                unique_pks[i]: config.entities[i].name for i in range(len(config.entities))
+            }
+            pool_by_pk = {pk: col.value_pool[entity_name_by_pk[pk]] for pk in unique_pks}
+            row_values = np.empty(total_rows, dtype=object)
+            for i, entity_pk_value in enumerate(entity_repeated):
+                choices = pool_by_pk[entity_pk_value]
+                pool_idx = int(rng.integers(0, len(choices)))
+                row_values[i] = _coerce_static(choices[pool_idx], col.dtype)
+            col_arrays[col.name] = row_values
         else:
             raise TypeError(
                 f"child {tbl.name!r} column {col.name!r} source "
@@ -2633,7 +2805,8 @@ def _build_per_parent_row_fact(
                 f"Supported: pk, fk:<dim>.<col>, "
                 f"static:, derived:entity_id/date_key, "
                 f"generated:date_key/timestamp/period_label, "
-                f"generated:faker.<method>. "
+                f"generated:faker.<method>, range:<min>:<max>, "
+                f"pool:<name>. "
                 f"(The parent FK column is auto-synthesized from "
                 f"parent_table; do not declare it explicitly.)"
             )
@@ -2839,6 +3012,58 @@ def _evt_row_derived(parsed: DerivedSource, ctx: dict):
     return None
 
 
+def _evt_row_range(parsed: RangeSource, ctx: dict):
+    """0.6-M19 Fix 2: per-cell uniform draw on a threshold-event row."""
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"event column {col.name!r} has source {col.source!r} but no "
+            f"RNG was supplied to _resolve_event_row; range draws require "
+            f"the per-table RNG"
+        )
+    if col.dtype == "int":
+        return int(rng.integers(int(parsed.min), int(parsed.max) + 1))
+    return float(rng.uniform(parsed.min, parsed.max))
+
+
+def _evt_row_pool(parsed: PoolSource, ctx: dict):
+    """0.6-M19 Fix 1: per-row pool draw on a threshold-event row.
+
+    Threshold events emit at most one row per entity, so the per-row
+    entity_name lookup is one pass over the per_entity dim. Performance
+    is not a concern at this row volume.
+    """
+    col = ctx["col"]
+    rng = ctx["rng"]
+    assert col.value_pool is not None  # _pool_pairing
+    entity_pk_value = ctx["entity_pk_value"]
+    config = ctx["config"]
+    dim_tables = ctx["dim_tables"]
+    entity_name: Optional[str] = None
+    for dim_name in ctx["per_entity_dims"]:
+        dim_df = dim_tables.get(dim_name)
+        if dim_df is None or dim_df.empty:
+            continue
+        dim_tbl = next(t for t in config.tables if t.name == dim_name)
+        pk_col = dim_tbl.primary_key_cols[0]
+        unique_pks = dim_df[pk_col].drop_duplicates().tolist()
+        for i, pk in enumerate(unique_pks):
+            if pk == entity_pk_value and i < len(config.entities):
+                entity_name = config.entities[i].name
+                break
+        if entity_name is not None:
+            break
+    if entity_name is None or entity_name not in col.value_pool:
+        return None
+    choices = col.value_pool[entity_name]
+    if rng is not None:
+        pick = int(rng.integers(0, len(choices)))
+    else:
+        pick = 0
+    return _coerce_static(choices[pick], col.dtype)
+
+
 def _evt_row_unsupported(parsed: Any, ctx: dict):
     # The pre-M127b ladder fell through to ``None`` for any source type
     # outside the seven explicit branches; this preserves that contract.
@@ -2871,6 +3096,16 @@ COLUMN_DISPATCH.register(
     BuilderKind.THRESHOLD_EVENT_ROW,
     DerivedSource,
     _evt_row_derived,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    RangeSource,
+    _evt_row_range,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.THRESHOLD_EVENT_ROW,
+    PoolSource,
+    _evt_row_pool,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.THRESHOLD_EVENT_ROW,

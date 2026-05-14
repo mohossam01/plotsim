@@ -895,10 +895,11 @@ def _build_tables(
                 dim_pk,
                 metric_by_name,
                 reference_dims,
+                attribute_value_pools,
             )
         )
     for e in user_input.events:
-        tables.append(_translate_event(e, dim_pk))
+        tables.append(_translate_event(e, dim_pk, attribute_value_pools))
 
     # M124: auto-fill ``dim_date`` when the user declared an explicit schema
     # but omitted it. The fact/event builders unconditionally key on the
@@ -1019,6 +1020,7 @@ def _translate_fact(
     dim_pk: dict[str, str],
     metric_by_name: dict[str, Metric],
     reference_dims: set[str],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> Table:
     metric_to_fact: dict[str, str] = {f.name: f.name}  # not used for SCD on facts
     columns = [
@@ -1028,14 +1030,17 @@ def _translate_fact(
             dim_pk=dim_pk,
             metric_to_fact=metric_to_fact,
             metric_by_name=metric_by_name,
-            # Fact columns can't legitimately use ``segment.count`` /
-            # ``pool.{attr}`` (column types are dim-only); empty pools
-            # keep the signature uniform and the ``pool_columns_allowed``
-            # flag flips the error message from "attribute not declared"
-            # to "dim-only" when a user declares either here.
+            # ``segment.count`` stays dim-only (cohort population is a
+            # per-entity-dim concept); pass an empty pool so the
+            # segment.count branch keeps its existing rejection on
+            # facts.
             segment_count_value_pool={},
-            attribute_value_pools={},
-            pool_columns_allowed=False,
+            # 0.6-M19 Fix 1: pool.{attr} columns are now valid on
+            # facts. Thread the per-attribute pools and flip the gate
+            # so ``pool.tier`` / ``pool.region`` on a fact resolves
+            # the same way it already does on dims.
+            attribute_value_pools=attribute_value_pools,
+            pool_columns_allowed=True,
         )
         for col in f.columns
     ]
@@ -1116,10 +1121,11 @@ def _composite_pk_from_refs(
 def _translate_event(
     e: EventInput,
     dim_pk: dict[str, str],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> Table:
     columns: list[Column] = []
     for col in e.columns:
-        columns.append(_translate_event_column(col, e, dim_pk))
+        columns.append(_translate_event_column(col, e, dim_pk, attribute_value_pools))
     foreign_keys = _foreign_keys(e.columns, dim_pk)
 
     # Event PK convention: column with type=id. Falls back to first col.
@@ -1149,6 +1155,7 @@ def _translate_event_column(
     col: ColumnInput,
     e: EventInput,
     dim_pk: dict[str, str],
+    attribute_value_pools: dict[str, dict[str, list[str]]],
 ) -> Column:
     """Event columns add the ``flag`` type for threshold trigger columns."""
     if col.type == "flag":
@@ -1167,14 +1174,15 @@ def _translate_event_column(
         owning_table=e.name,
         dim_pk=dim_pk,
         metric_to_fact={},  # events don't host SCDs
-        # ``segment.count`` / ``pool.{attr}`` columns are only valid on
-        # per_entity dims (PoolSource validation rejects them elsewhere);
-        # ``pool_columns_allowed=False`` flips the error message to the
-        # dim-only path if a user declares either type on an event
-        # column.
+        # ``segment.count`` stays dim-only — empty pool keeps that
+        # rejection path on event columns.
         segment_count_value_pool={},
-        attribute_value_pools={},
-        pool_columns_allowed=False,
+        # 0.6-M19 Fix 1: pool.{attr} is now valid on event columns
+        # for the same reason it's valid on facts — every row resolves
+        # to a single entity via the per_entity FK chain, so
+        # ``value_pool[entity_name]`` is indexable.
+        attribute_value_pools=attribute_value_pools,
+        pool_columns_allowed=True,
     )
 
 
@@ -1369,6 +1377,32 @@ def _translate_column(
             name=col.name,
             dtype="string",
             source=f"text:bucket:[{labels_str}]",
+        )
+
+    # ─── range → range:<min>:<max> ──────────────────────────────────────
+    # 0.6-M19 Fix 2: explicit numeric range with engine-side per-row
+    # uniform draw. The column's ``dtype`` (defaulted to ``int`` here
+    # when omitted by the user — matches Faker's ``random_int`` shape
+    # for the common case) decides whether the engine emits integers
+    # or floats. Author intent comes from ``range: [min, max]`` on
+    # ColumnInput; the source string carries the bounds.
+    if t == "range":
+        if col.range is None or len(col.range) != 2:
+            raise ValueError(
+                f"column {col.name!r}: type 'range' requires a `range: "
+                f"[min, max]` two-element list"
+            )
+        lo, hi = col.range
+        if hi < lo:
+            raise ValueError(f"column {col.name!r}: range [{lo}, {hi}] has max < min")
+        # Both bounds in {int, float}. Use int dtype when both bounds
+        # are integers (preserves author intent); otherwise float.
+        both_int = isinstance(lo, int) and isinstance(hi, int) and not isinstance(lo, bool)
+        range_dtype: Dtype = "int" if both_int else "float"
+        return Column(
+            name=col.name,
+            dtype=range_dtype,
+            source=f"range:{lo}:{hi}",
         )
 
     # ─── scd ────────────────────────────────────────────────────────────

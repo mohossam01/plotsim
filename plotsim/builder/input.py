@@ -661,11 +661,12 @@ class ColumnInput(BaseModel):
     The ``type`` field uses the builder's plain-language vocabulary
     (``id``, ``ref.{table}``, ``metric.{name}``, ``faker.{which}``,
     ``geo.{field}``, ``static.{value}``, ``segment.count``,
-    ``pool.{attr}``, ``timestamp``, ``flag``, ``date``, ``int``,
-    ``string``, ``float``, ``bucket``, ``scd``, ``narrative``).
-    Sub-fields are present only for the shape they target:
-    ``tracks``/``tiers``/``at`` for SCD columns, ``labels`` for buckets,
-    ``template`` / ``lexicons`` / ``bands`` for narratives.
+    ``pool.{attr}``, ``range``, ``timestamp``, ``flag``, ``date``,
+    ``int``, ``string``, ``float``, ``bucket``, ``scd``,
+    ``narrative``). Sub-fields are present only for the shape they
+    target: ``tracks``/``tiers``/``at`` for SCD columns, ``labels``
+    for buckets, ``template`` / ``lexicons`` / ``bands`` for
+    narratives, ``range: [min, max]`` for range columns.
 
     The interpreter (Phase 3) translates ``type`` into the engine's
     ``Column.dtype`` + ``Column.source`` pair. Per friction-item #3
@@ -710,6 +711,19 @@ class ColumnInput(BaseModel):
     nested_schema: Optional[dict[str, str]] = None
     array_element_type: Optional[str] = None
     array_length: Optional[int] = Field(default=None, ge=1, le=100)
+    # 0.6-M19 Fix 2: per-row uniform draw between numeric bounds.
+    # Required when ``type: range``; rejected on every other type by
+    # the interpreter so the field is structurally tied to ``range``.
+    # Two-element ``[min, max]``; both ints → integer draw, anything
+    # else → float draw (see interpreter's ``range`` branch). The
+    # bounds are encoded into the engine column's
+    # ``source="range:<min>:<max>"`` string at translate time so this
+    # builder-level field never reaches the engine config directly.
+    range: Optional[list[Union[int, float]]] = Field(
+        default=None,
+        min_length=2,
+        max_length=2,
+    )
 
 
 class DimInput(BaseModel):

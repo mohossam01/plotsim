@@ -303,7 +303,7 @@ class TextBucketSource(_Frozen):
 
 
 class PoolSource(_Frozen):
-    """Per-entity value pool on a dimension column.
+    """Per-entity value pool on a column.
 
     Grammar: ``pool:<name>``. ``<name>`` is a free-form identifier that
     distinguishes multiple pool columns on the same table (e.g. ``industry``
@@ -316,14 +316,61 @@ class PoolSource(_Frozen):
     as the SCD Type 2 pairing.
 
     Architectural firewall: pools resolve entity-membership only, never
-    trajectory-derived. The dim layer never sees a trajectory; pool
-    selection consumes one RNG draw per row, deterministic under the
-    engine's single-seed contract.
+    trajectory-derived. The dim/fact/event layers never read a
+    trajectory at pool dispatch time; pool selection consumes one RNG
+    draw per row, deterministic under the engine's single-seed contract.
+
+    0.6-M19 Fix 1: pool sources work on per_entity dims (the original
+    M114 surface), variable-grain facts, per_parent_row child facts,
+    and event tables. The per-row pool lookup uses the row's entity
+    PK → entity-name → ``value_pool[entity_name]`` chain; rows whose
+    entity is not in ``value_pool.keys()`` cause a load-time error
+    (``validate_value_pool_coverage`` requires the key set to cover
+    every entity that produces rows in this table).
     """
 
     name: str
 
     _name_is_identifier = field_validator("name")(_identifier_field_validator("pool name"))
+
+
+class RangeSource(_Frozen):
+    """Per-row uniform draw between bounds.
+
+    Grammar: ``range:<min>:<max>``. Both bounds parse as ``float``;
+    the engine derives the draw mode from the column's ``dtype``:
+
+      * ``dtype: int`` → ``rng.integers(int(min), int(max) + 1)`` —
+        inclusive upper bound, integer output.
+      * ``dtype: float`` → ``rng.uniform(min, max)`` — exclusive
+        upper bound by numpy convention, float output.
+
+    Valid on every table type — per_entity dims, sub-entity dims,
+    reference dims, per_entity_per_period facts, per_period facts,
+    variable-grain facts, per_parent_row child facts, and event
+    tables. Each per-row draw consumes one RNG call so output stays
+    deterministic under the engine's single-seed contract.
+
+    Bounds validation: ``max >= min``. Equal bounds produce a
+    constant column (single draw collapses to ``min``); the validator
+    permits this rather than error, matching numpy's behavior.
+
+    0.6-M19 Fix 2: introduced as a structured alternative to
+    ``faker.pyfloat`` / ``faker.random_int`` for cases where the
+    author wants an explicit numeric range rather than Faker's
+    default bounds. Use ``faker.random_int`` for the legacy unbounded
+    default; use ``range`` for ``quantity ∈ [1, 5]``, ``unit_price
+    ∈ [10.0, 500.0]`` and similar shape constraints.
+    """
+
+    min: float
+    max: float
+
+    @model_validator(mode="after")
+    def _max_not_less_than_min(self) -> "RangeSource":
+        if self.max < self.min:
+            raise ValueError(f"range source: max ({self.max}) must be >= min ({self.min})")
+        return self
 
 
 # Placeholder pattern for narrative templates. ``{slot}`` literals where
@@ -552,6 +599,7 @@ ParsedSource = (
     | TextBucketSource
     | SCDType2Source
     | PoolSource
+    | RangeSource
     | NarrativeSource
     | NestedSource
 )
@@ -566,6 +614,7 @@ _SOURCE_FORMAT_HELP = (
     "'text:bucket:[<label1>, <label2>, ...]', "
     "'scd_type2', "
     "'pool:<name>', "
+    "'range:<min>:<max>', "
     "'narrative:<key>', "
     "'nested'"
 )
@@ -714,6 +763,21 @@ def parse_source(source: str) -> ParsedSource:
                 f"colons; the actual values live on Column.value_pool"
             )
         return PoolSource(name=body)
+
+    if source.startswith("range:"):
+        parts = source.split(":")
+        if len(parts) != 3 or parts[0] != "range":
+            raise ValueError(f"range source {source!r} must be 'range:<min>:<max>'")
+        _, min_str, max_str = parts
+        try:
+            min_val = float(min_str)
+        except ValueError as e:
+            raise ValueError(f"range source {source!r}: non-numeric min {min_str!r}") from e
+        try:
+            max_val = float(max_str)
+        except ValueError as e:
+            raise ValueError(f"range source {source!r}: non-numeric max {max_str!r}") from e
+        return RangeSource(min=min_val, max=max_val)
 
     if source.startswith("narrative:"):
         body = source[len("narrative:") :]
@@ -1562,6 +1626,24 @@ class Column(_Frozen):
                             f"value {v!r}; pool values must be non-empty "
                             f"strings"
                         )
+        return self
+
+    @model_validator(mode="after")
+    def _range_dtype(self) -> "Column":
+        """0.6-M19 Fix 2: ``range:<min>:<max>`` source requires
+        ``dtype: int`` or ``dtype: float`` — string / id / date /
+        boolean / struct / array columns have no meaningful uniform
+        draw between numeric bounds. Fail at load rather than emit
+        coerced nonsense at generation time.
+        """
+        if not self.source.startswith("range:"):
+            return self
+        if self.dtype not in ("int", "float"):
+            raise ValueError(
+                f"column {self.name!r} declares source {self.source!r} but "
+                f"dtype={self.dtype!r}; range sources require dtype 'int' or "
+                f"'float' so the per-row draw produces the right cell type"
+            )
         return self
 
     @model_validator(mode="after")
