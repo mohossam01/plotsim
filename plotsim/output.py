@@ -767,13 +767,21 @@ def _sql_quote_identifier(name: str, dialect: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _sql_quote_string(s: str) -> str:
+def _sql_quote_string(s: str, dialect: str = "postgresql") -> str:
     """SQL string literal: single quotes with embedded ``'`` doubled.
 
-    All three target dialects (PG / MySQL / SQLite) accept the SQL
-    standard doubled-single-quote escaping, so the function is
-    dialect-agnostic.
+    PG and SQLite follow the SQL standard — single quotes are doubled
+    and backslashes have no special meaning inside string literals.
+    MySQL, however, interprets backslashes as escape characters by
+    default (the ``NO_BACKSLASH_ESCAPES`` SQL_MODE is opt-in and not
+    universally set), so a cell value like ``\\'; DROP TABLE x; --``
+    would parse the embedded ``\\'`` as a single quote and break out of
+    the literal. For MySQL we double backslashes BEFORE doubling
+    single quotes; for the other two dialects the backslash pass is a
+    no-op and the standard SQL escape suffices.
     """
+    if dialect == "mysql":
+        s = s.replace("\\", "\\\\")
     return "'" + s.replace("'", "''") + "'"
 
 
@@ -870,20 +878,20 @@ def _sql_format_value(cell: object, dialect: str) -> str:
     if isinstance(cell, float):
         return repr(cell)
     if isinstance(cell, (dict, list)):
-        return _sql_quote_string(json.dumps(cell, ensure_ascii=False))
+        return _sql_quote_string(json.dumps(cell, ensure_ascii=False), dialect)
     if isinstance(cell, pd.Timestamp):
         if pd.isna(cell):
             return "NULL"
-        return _sql_quote_string(cell.isoformat(sep=" "))
+        return _sql_quote_string(cell.isoformat(sep=" "), dialect)
     if hasattr(cell, "isoformat"):
-        return _sql_quote_string(cell.isoformat())
+        return _sql_quote_string(cell.isoformat(), dialect)
     # Defensive: pandas Int64 NA arrives here as <NA>.
     try:
         if pd.isna(cell):
             return "NULL"
     except (TypeError, ValueError):
         pass
-    return _sql_quote_string(str(cell))
+    return _sql_quote_string(str(cell), dialect)
 
 
 def _sql_table_order(config: PlotsimConfig) -> list[str]:

@@ -581,6 +581,55 @@ class TestBuilderPassthrough:
 # --- CSV regression guard --------------------------------------------------
 
 
+class TestMysqlBackslashEscape:
+    """Hardening: MySQL parses backslashes inside single-quoted string
+    literals as escape characters (unless ``NO_BACKSLASH_ESCAPES`` is
+    set in SQL_MODE, which is opt-in and not universally configured).
+    A cell value like ``\\'; DROP TABLE x; --`` would, under standard
+    SQL-only escaping, become ``'\\''; DROP TABLE x; --'`` — MySQL
+    reads the ``\\'`` as a single quote, closes the literal, and starts
+    executing the trailing payload. The MySQL branch of
+    ``_sql_quote_string`` doubles backslashes BEFORE doubling the
+    single quotes so the literal stays sealed.
+
+    PG and SQLite are not vulnerable (backslash has no special meaning
+    in their string literals), so the same input under those dialects
+    keeps the pre-fix behavior.
+    """
+
+    PAYLOAD = "\\'; DROP TABLE x; --"
+
+    def test_mysql_doubles_backslashes_and_quotes(self):
+        out = _sql_quote_string(self.PAYLOAD, "mysql")
+        # Backslash doubled, then single quote doubled. The payload's
+        # closing-quote bid never reaches the parser as a literal close.
+        assert out == "'\\\\''; DROP TABLE x; --'"
+        # Sanity: exactly one opening + one closing single quote at the
+        # outer boundaries; the inner doubled quote stays escaped.
+        assert out.startswith("'") and out.endswith("'")
+        # Two backslashes in the body (the doubled pair) + zero stray
+        # unescaped backslashes.
+        body = out[1:-1]
+        assert "\\\\" in body
+        assert body.count("\\") == 2
+
+    def test_postgresql_and_sqlite_leave_backslashes_alone(self):
+        # SQL standard: backslash is just a regular character inside a
+        # string literal. Only the embedded single quote is doubled.
+        for dialect in ("postgresql", "sqlite"):
+            out = _sql_quote_string(self.PAYLOAD, dialect)
+            assert (
+                out == "'\\''; DROP TABLE x; --'"
+            ), f"{dialect} unexpectedly escaped a backslash: {out!r}"
+
+    def test_format_value_propagates_dialect(self):
+        # ``_sql_format_value`` is the engine entry point — must pass
+        # the dialect down so a string cell with the payload renders
+        # safely.
+        out = _sql_format_value(self.PAYLOAD, "mysql")
+        assert out == "'\\\\''; DROP TABLE x; --'"
+
+
 class TestCsvUnchanged:
     """Adding the SQL writer branch must not perturb CSV output —
     a config with ``format: csv`` produces byte-identical files to a
