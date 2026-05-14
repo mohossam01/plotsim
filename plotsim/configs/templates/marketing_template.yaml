@@ -90,6 +90,7 @@ segments:
     attributes:
       objective: [awareness]
       channel: [paid_social, display]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       impressions: high
       ad_spend: high
@@ -114,6 +115,7 @@ segments:
     attributes:
       objective: [conversion]
       channel: [paid_search, paid_social]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       ad_spend: high
       impressions: high
@@ -126,6 +128,7 @@ segments:
     attributes:
       objective: [conversion, awareness]
       channel: [paid_search, email, paid_social]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       ad_spend: mid
       revenue: mid
@@ -137,6 +140,7 @@ segments:
     attributes:
       objective: [conversion]
       channel: [paid_search, display]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       ad_spend: mid
       conversion_rate: mid
@@ -148,6 +152,7 @@ segments:
     attributes:
       objective: [awareness, engagement]
       channel: [organic_social, referral]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       impressions: high
       revenue: high
@@ -160,6 +165,7 @@ segments:
     attributes:
       objective: [retention]
       channel: [email, retargeting]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       ad_spend: low
       conversion_rate: low
@@ -171,6 +177,7 @@ segments:
     attributes:
       objective: [retention, conversion]
       channel: [retargeting, email]
+      pause_reason: [budget_exhausted, low_conversion, creative_fatigue, audience_saturation]
     baseline:
       conversion_rate: mid
       bounce_rate: mid
@@ -289,7 +296,7 @@ events:
       - {name: event_id,    type: id}
       - {name: date_key,    type: ref.dim_date}
       - {name: campaign_id, type: ref.dim_campaign}
-      - {name: reason,      type: faker.sentence}
+      - {name: reason,      type: pool.pause_reason}
       - {name: pause_flag,  type: flag}
 
 

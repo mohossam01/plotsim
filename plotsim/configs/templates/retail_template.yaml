@@ -95,6 +95,7 @@ segments:
     attributes:
       tier: [gold, platinum]
       channel: [web, mobile]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       loyalty_score: high
       cart_value: high
@@ -107,6 +108,7 @@ segments:
     attributes:
       tier: [silver, gold]
       channel: [web, mobile, marketplace]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       cart_value: mid
       conversion_rate: mid
@@ -118,6 +120,7 @@ segments:
     attributes:
       tier: [bronze, silver]
       channel: [marketplace]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       loyalty_score: low
       return_rate: high
@@ -129,6 +132,7 @@ segments:
     attributes:
       tier: [bronze]
       channel: [web]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       loyalty_score: low
       cart_value: low
@@ -140,6 +144,7 @@ segments:
     attributes:
       tier: [silver]
       channel: [email, web]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       loyalty_score: mid
       conversion_rate: mid
@@ -151,6 +156,7 @@ segments:
     attributes:
       tier: [gold, platinum]
       channel: [web]
+      churn_reason: [account_dormant, low_engagement, payment_failure, service_interruption]
     baseline:
       cart_value: high
       loyalty_score: high
@@ -286,7 +292,7 @@ events:
       - {name: event_id,    type: id}
       - {name: date_key,    type: ref.dim_date}
       - {name: customer_id, type: ref.dim_customer}
-      - {name: reason,      type: faker.sentence}
+      - {name: reason,      type: pool.churn_reason}
       - {name: churn_flag,  type: flag}
 
 
