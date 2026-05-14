@@ -1,4 +1,4 @@
 "event_id","date_key","company_id","churn_reason","churn_flag","dim_row_id"
-"c-00001",20230301,"c-001","State source third fly its series institution thing.",True,1
-"c-00002",20230301,"c-002","Top together cell but can.",True,4
-"c-00003",20230501,"c-003","Increase contain into.",True,7
+"churn-00001",20230301,"company-001","State source third fly its series institution thing.",True,1
+"churn-00002",20230301,"company-002","Top together cell but can.",True,4
+"churn-00003",20230501,"company-003","Increase contain into.",True,7

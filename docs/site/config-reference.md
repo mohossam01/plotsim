@@ -446,6 +446,12 @@ See [`column-types.md`](./column-types.md) for every supported `type`.
 
 `above` and `below` are mutually exclusive on a single event.
 
+### Shared field — `pk_prefix`
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `pk_prefix` | `str` / `null` | no | `null` | Override for the per-row sequential PK prefix (e.g. `c-001`, `orders-001`). When unset the engine derives the prefix from the table's stripped name — first character when unique, full stripped name when two tables would otherwise collide (`dim_company` + `evt_churn`, `fct_orders` + `fct_order_items`). Set explicitly to pin a custom short code; format is 1-12 chars starting with a letter, letters/digits/underscores only. Available on every dim, fact, and event table. |
+
 ---
 
 ## `bridges`

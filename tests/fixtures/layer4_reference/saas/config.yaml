@@ -45,6 +45,9 @@ metrics:
     driver: engagement
     lag_periods: 2
     blend_weight: 1.0
+    decay: false
+    decay_window: null
+    decay_kernel: geometric
   seasonal_sensitivity: 1.0
 - name: feature_adoption
   label: Feature adoption rate
@@ -172,18 +175,30 @@ entities:
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: globex_cohort
   archetype: steady_grower
   size: 30
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: hooli_cohort
   archetype: zombie_account
   size: 10
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 tables:
 - name: dim_date
   type: dim
@@ -197,6 +212,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -205,6 +224,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -213,6 +236,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -221,6 +248,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: quarter
     dtype: int
     source: generated:date_key
@@ -229,10 +260,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_company
   type: dim
   grain: per_entity
@@ -245,6 +286,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_name
     dtype: string
     source: generated:faker.company
@@ -253,6 +298,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: industry
     dtype: string
     source: generated:faker.industry
@@ -261,6 +310,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: founded_year
     dtype: int
     source: generated:faker.year
@@ -269,6 +322,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cohort_size
     dtype: int
     source: derived:size
@@ -277,6 +334,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: plan_tier
     dtype: string
     source: scd_type2
@@ -293,10 +354,20 @@ tables:
       - growth
       - enterprise
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: company_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_user
   type: dim
   grain: variable
@@ -309,6 +380,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -317,6 +392,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: user_name
     dtype: string
     source: generated:faker.name
@@ -325,6 +404,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: role
     dtype: string
     source: static:member
@@ -333,11 +416,21 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: user_id
   foreign_keys:
   - dim_company.company_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_plan
   type: dim
   grain: per_reference
@@ -350,6 +443,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: plan_name
     dtype: string
     source: static:starter
@@ -358,6 +455,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: monthly_price
     dtype: float
     source: static:99.00
@@ -366,10 +467,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: plan_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_engagement
   type: fact
   grain: per_entity_per_period
@@ -382,6 +493,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -390,6 +505,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: engagement_score
     dtype: float
     source: metric:engagement
@@ -398,6 +517,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: feature_adoption
     dtype: float
     source: metric:feature_adoption
@@ -406,6 +529,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: customer_sentiment
     dtype: string
     source: text:bucket:[at_risk, lukewarm, satisfied, delighted]
@@ -414,6 +541,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - company_id
@@ -422,6 +553,12 @@ tables:
   - dim_company.company_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_revenue
   type: fact
   grain: per_entity_per_period
@@ -434,6 +571,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -442,6 +583,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: plan_id
     dtype: id
     source: fk:dim_plan.plan_id
@@ -450,6 +595,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: mrr
     dtype: float
     source: metric:mrr
@@ -458,6 +607,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - company_id
@@ -467,6 +620,12 @@ tables:
   - dim_plan.plan_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_support_tickets
   type: fact
   grain: per_entity_per_period
@@ -479,6 +638,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -487,6 +650,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: ticket_count
     dtype: int
     source: metric:support_tickets
@@ -495,6 +662,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: churn_risk
     dtype: float
     source: metric:churn_risk
@@ -503,6 +674,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: nps
     dtype: float
     source: metric:nps
@@ -511,6 +686,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - company_id
@@ -519,6 +698,12 @@ tables:
   - dim_company.company_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: evt_login
   type: event
   grain: variable
@@ -531,6 +716,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -539,6 +728,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: user_id
     dtype: id
     source: fk:dim_user.user_id
@@ -547,6 +740,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -555,6 +752,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: event_ts
     dtype: date
     source: generated:timestamp
@@ -563,6 +764,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
@@ -570,6 +775,12 @@ tables:
   - dim_company.company_id
   row_count_source: proportional:engagement:scale:5
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: evt_churn
   type: event
   grain: variable
@@ -582,6 +793,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -590,6 +805,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: company_id
     dtype: id
     source: fk:dim_company.company_id
@@ -598,6 +817,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: churn_reason
     dtype: string
     source: generated:faker.sentence
@@ -606,6 +829,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: churn_flag
     dtype: boolean
     source: threshold:churn_risk:above:0.7:for:3
@@ -614,12 +841,22 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_company.company_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 correlations:
 - metric_a: engagement
   metric_b: mrr
@@ -630,6 +867,7 @@ correlations:
 - metric_a: support_tickets
   metric_b: churn_risk
   coefficient: 0.68
+correlation_phases: []
 noise:
   gaussian_sigma: 0.05
   outlier_rate: 0.02
@@ -637,6 +875,10 @@ noise:
 output:
   format: csv
   directory: out/saas
+  cell_budget: null
+  denormalized: false
+  partition_by: null
+  sql_dialect: postgresql
 manifest:
   include: true
   trajectory_sample_rate: 1.0
@@ -671,5 +913,6 @@ holdout:
   min_training_periods: 3
 locale: en_US
 seasonal_effects: []
+multi_source: null
 compensate_correlations: false
 generation_mode: auto

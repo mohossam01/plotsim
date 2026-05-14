@@ -87,8 +87,19 @@ def _id_pad_width(n_rows: int) -> int:
     return max(3, len(str(max(n_rows, 1))))
 
 
-def _make_ids(table_name: str, n_rows: int) -> list[str]:
-    prefix = _id_prefix(table_name)
+def _make_ids(
+    table_name: str,
+    n_rows: int,
+    explicit_prefix: Optional[str] = None,
+) -> list[str]:
+    """Generate ``<prefix>-NNNN`` sequential PK strings.
+
+    ``explicit_prefix`` overrides the first-char default — used by the
+    orchestrator to thread ``PlotsimConfig.pk_prefix_for(table_name)``
+    so two tables with the same first character (M19 Fix 8) emit
+    distinguishable PKs.
+    """
+    prefix = _id_prefix(table_name, explicit=explicit_prefix)
     width = _id_pad_width(n_rows)
     return [f"{prefix}-{i + 1:0{width}d}" for i in range(n_rows)]
 
@@ -854,10 +865,18 @@ def build_dim_entity(
     entities: list[Entity],
     rng: np.random.Generator,
     locale: str | list[str] = "en_US",
+    pk_prefix: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Build a per_entity dim: one row per Entity, static attributes from Faker/derived."""
+    """Build a per_entity dim: one row per Entity, static attributes from Faker/derived.
+
+    ``pk_prefix`` overrides the first-char default for the sequential
+    PK column (0.6-M19 Fix 8). The orchestrator threads
+    ``PlotsimConfig.pk_prefix_for(table_config.name)``; programmatic
+    callers can leave it ``None`` to keep the pre-M19 behavior on
+    non-colliding configs.
+    """
     fake = _make_faker(rng, locale)
-    ids = _make_ids(table_config.name, len(entities))
+    ids = _make_ids(table_config.name, len(entities), explicit_prefix=pk_prefix)
     geo_bundles = _assign_geo_bundles(table_config.columns, len(entities), rng)
 
     rows: list[dict[str, Any]] = []
@@ -912,12 +931,16 @@ def build_dim_subentity(
     parent_pk_column: Optional[str] = None,
     local_fk_column: Optional[str] = None,
     locale: str | list[str] = "en_US",
+    pk_prefix: Optional[str] = None,
 ) -> pd.DataFrame:
     """Build a sub-entity dim: sum(entity.size) rows keyed back to dim_entity.
 
     The parent FK column on this table is auto-detected (first FK whose target
     is a per_entity dim). Callers who already know the parent can pass it
     explicitly via ``local_fk_column`` / ``parent_pk_column``.
+
+    ``pk_prefix`` overrides the first-char default for the sequential
+    PK column (0.6-M19 Fix 8) — same semantic as ``build_dim_entity``.
     """
     if len(entities) != len(dim_entity):
         raise ValueError(
@@ -950,7 +973,7 @@ def build_dim_subentity(
     # builder configs (Entity.size=1, Table.count=K) resolve to 1×K=K. The
     # multiplication handles both paths without branching.
     total_rows = sum(e.size * table_config.count for e in entities)
-    ids = _make_ids(table_config.name, total_rows)
+    ids = _make_ids(table_config.name, total_rows, explicit_prefix=pk_prefix)
     geo_bundles = _assign_geo_bundles(table_config.columns, total_rows, rng)
 
     rows: list[dict[str, Any]] = []
@@ -1074,8 +1097,13 @@ def build_dim_reference(
     table_config: Table,
     rng: np.random.Generator,
     locale: str | list[str] = "en_US",
+    pk_prefix: Optional[str] = None,
 ) -> pd.DataFrame:
-    """Build a static reference/lookup dim. Row count = longest static-CSV column."""
+    """Build a static reference/lookup dim. Row count = longest static-CSV column.
+
+    ``pk_prefix`` overrides the first-char default for the sequential
+    PK column (0.6-M19 Fix 8) — same semantic as ``build_dim_entity``.
+    """
     fake = _make_faker(rng, locale)
 
     # Determine row count: max count across static columns; default 1 if none.
@@ -1085,7 +1113,7 @@ def build_dim_reference(
         if isinstance(parsed, StaticSource):
             n_rows = max(n_rows, len(_split_static(parsed.value)))
 
-    ids = _make_ids(table_config.name, n_rows)
+    ids = _make_ids(table_config.name, n_rows, explicit_prefix=pk_prefix)
     geo_bundles = _assign_geo_bundles(table_config.columns, n_rows, rng)
 
     rows: list[dict[str, Any]] = []
@@ -1371,7 +1399,12 @@ def build_all_dimensions(
         if tbl.type != "dim" or tbl.name == "dim_date":
             continue
         if tbl.grain == "per_reference":
-            dims[tbl.name] = build_dim_reference(tbl, rng, locale=config.locale)
+            dims[tbl.name] = build_dim_reference(
+                tbl,
+                rng,
+                locale=config.locale,
+                pk_prefix=config.pk_prefix_for(tbl.name),
+            )
 
     # 3. per_entity dims — FK backfill from any reference dims built above.
     # Pass entities so per-cohort cross_dim_fks anchoring takes effect.
@@ -1382,6 +1415,7 @@ def build_all_dimensions(
                 list(config.entities),
                 rng,
                 locale=config.locale,
+                pk_prefix=config.pk_prefix_for(tbl.name),
             )
             dims[tbl.name] = _backfill_fks(
                 df,
@@ -1415,6 +1449,7 @@ def build_all_dimensions(
             parent_pk_column=parent_pk,
             local_fk_column=local_fk,
             locale=config.locale,
+            pk_prefix=config.pk_prefix_for(tbl.name),
         )
 
     return dims
