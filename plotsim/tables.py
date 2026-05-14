@@ -2100,12 +2100,13 @@ def _emit_proportional_rows(
     # 0.6-M18: variable-grain fact tables (e.g. ``fct_orders``) route through
     # this builder too; strip the ``fct_`` prefix the same way so a fact PK
     # reads ``o-0001`` (orders) rather than ``f-0001``.
-    if tbl.name.startswith(("evt_", "fct_")):
-        pk_prefix = tbl.name[4:]
-    else:
-        pk_prefix = tbl.name
+    #
+    # 0.6-M19 Fix 8: route the prefix through ``config.pk_prefix_for``
+    # so two tables that would otherwise collide on the same first
+    # character (e.g. ``fct_orders`` and ``fct_order_items`` both →
+    # ``o``) get distinguishable prefixes ("orders" / "order_items").
     pk_width = _id_pad(_EVENT_PK_WIDTH_HINT)
-    pk_first_char = pk_prefix[0]
+    pk_first_char = config.pk_prefix_for(tbl.name)
 
     # Classify columns. Any FK that points to a non-per_entity, non-dim_date
     # table may draw RNG; FakerSource always advances faker state;
@@ -2639,11 +2640,11 @@ def _build_per_parent_row_fact(
             count=total_rows,
         )
 
-    if tbl.name.startswith(("evt_", "fct_")):
-        pk_prefix = tbl.name[4:]
-    else:
-        pk_prefix = tbl.name
-    pk_first = pk_prefix[0]
+    # 0.6-M19 Fix 8: route through ``config.pk_prefix_for`` so a
+    # per_parent_row child fact whose first character collides with
+    # another sequential-PK table gets a distinguishable prefix
+    # (e.g. ``fct_order_items`` → ``order_items`` instead of ``o``).
+    pk_first = config.pk_prefix_for(tbl.name)
     pk_width = _id_pad(_EVENT_PK_WIDTH_HINT)
 
     col_arrays: dict[str, np.ndarray] = {}
@@ -2945,8 +2946,10 @@ def _resolve_event_row(
 def _evt_row_pk(parsed: PKSource, ctx: dict):
     tbl = ctx["tbl"]
     width = ctx["width"]
-    prefix = tbl.name[4:] if tbl.name.startswith("evt_") else tbl.name
-    return f"{prefix[0]}-{ctx['pk_counter'] + 1:0{width}d}"
+    # 0.6-M19 Fix 8: resolve via config so same-first-char tables
+    # (e.g. ``evt_login`` + ``evt_logout``) get distinguishable PKs.
+    prefix = ctx["config"].pk_prefix_for(tbl.name)
+    return f"{prefix}-{ctx['pk_counter'] + 1:0{width}d}"
 
 
 def _evt_row_fk(parsed: FKSource, ctx: dict):

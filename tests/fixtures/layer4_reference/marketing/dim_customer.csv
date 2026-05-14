@@ -1,14 +1,14 @@
 "customer_id","segment_name","cohort_size","customer_tier","dim_row_id","valid_from","valid_to","is_current"
-"c-001","Williams, Young and Allen",20,"prospect",1,20230101,20230901,False
-"c-001","Williams, Young and Allen",20,"active",2,20230901,20240601,False
-"c-001","Williams, Young and Allen",20,"vip",3,20240601,99991231,True
-"c-002","Wang-Mason",30,"active",4,20230101,20230901,False
-"c-002","Wang-Mason",30,"vip",5,20230901,99991231,True
-"c-003","Lopez, Bennett and Norman",25,"prospect",6,20230101,20231101,False
-"c-003","Lopez, Bennett and Norman",25,"active",7,20231101,20240601,False
-"c-003","Lopez, Bennett and Norman",25,"vip",8,20240601,99991231,True
-"c-004","Cooper Ltd",15,"prospect",9,20230101,20230301,False
-"c-004","Cooper Ltd",15,"active",10,20230301,20230401,False
-"c-004","Cooper Ltd",15,"vip",11,20230401,99991231,True
-"c-005","Collier Ltd",10,"prospect",12,20230101,20240301,False
-"c-005","Collier Ltd",10,"active",13,20240301,99991231,True
+"customer-001","Williams, Young and Allen",20,"prospect",1,20230101,20230901,False
+"customer-001","Williams, Young and Allen",20,"active",2,20230901,20240601,False
+"customer-001","Williams, Young and Allen",20,"vip",3,20240601,99991231,True
+"customer-002","Wang-Mason",30,"active",4,20230101,20230901,False
+"customer-002","Wang-Mason",30,"vip",5,20230901,99991231,True
+"customer-003","Lopez, Bennett and Norman",25,"prospect",6,20230101,20231101,False
+"customer-003","Lopez, Bennett and Norman",25,"active",7,20231101,20240601,False
+"customer-003","Lopez, Bennett and Norman",25,"vip",8,20240601,99991231,True
+"customer-004","Cooper Ltd",15,"prospect",9,20230101,20230301,False
+"customer-004","Cooper Ltd",15,"active",10,20230301,20230401,False
+"customer-004","Cooper Ltd",15,"vip",11,20230401,99991231,True
+"customer-005","Collier Ltd",10,"prospect",12,20230101,20240301,False
+"customer-005","Collier Ltd",10,"active",13,20240301,99991231,True

@@ -1,8 +1,8 @@
 "company_id","company_name","industry","founded_year","cohort_size","plan_tier","dim_row_id","valid_from","valid_to","is_current"
-"c-001","Powell Ltd","Retail",1966,50,"starter",1,20230101,20230501,False
-"c-001","Powell Ltd","Retail",1966,50,"growth",2,20230501,20230601,False
-"c-001","Powell Ltd","Retail",1966,50,"enterprise",3,20230601,99991231,True
-"c-002","Silva, Garrett and Smith","Consulting",1977,30,"starter",4,20230101,20231201,False
-"c-002","Silva, Garrett and Smith","Consulting",1977,30,"growth",5,20231201,20240401,False
-"c-002","Silva, Garrett and Smith","Consulting",1977,30,"enterprise",6,20240401,99991231,True
-"c-003","Hughes-Grant","Consulting",1993,10,"starter",7,20230101,99991231,True
+"company-001","Powell Ltd","Retail",1966,50,"starter",1,20230101,20230501,False
+"company-001","Powell Ltd","Retail",1966,50,"growth",2,20230501,20230601,False
+"company-001","Powell Ltd","Retail",1966,50,"enterprise",3,20230601,99991231,True
+"company-002","Silva, Garrett and Smith","Consulting",1977,30,"starter",4,20230101,20231201,False
+"company-002","Silva, Garrett and Smith","Consulting",1977,30,"growth",5,20231201,20240401,False
+"company-002","Silva, Garrett and Smith","Consulting",1977,30,"enterprise",6,20240401,99991231,True
+"company-003","Hughes-Grant","Consulting",1993,10,"starter",7,20230101,99991231,True

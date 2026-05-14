@@ -112,18 +112,30 @@ entities:
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: transfer_students
   archetype: steady_learner
   size: 20
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: at_risk_cohort
   archetype: burnout_trajectory
   size: 15
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 tables:
 - name: dim_date
   type: dim
@@ -137,6 +149,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -145,6 +161,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -153,6 +173,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -161,10 +185,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_student
   type: dim
   grain: per_entity
@@ -177,6 +211,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cohort_name
     dtype: string
     source: generated:faker.company
@@ -185,6 +223,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cohort_size
     dtype: int
     source: derived:size
@@ -193,6 +235,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: academic_standing
     dtype: string
     source: scd_type2
@@ -209,10 +255,20 @@ tables:
       - good_standing
       - honors
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: student_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_course
   type: dim
   grain: per_reference
@@ -225,6 +281,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: course_name
     dtype: string
     source: static:intro_cs,calculus,history,physics,literature,statistics
@@ -233,6 +293,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: credits
     dtype: int
     source: static:3,4,3,4,3,4
@@ -241,10 +305,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: course_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_grades
   type: fact
   grain: per_entity_per_period
@@ -257,6 +331,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -265,6 +343,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: course_id
     dtype: id
     source: fk:dim_course.course_id
@@ -273,6 +355,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: assignment_score
     dtype: float
     source: metric:assignment_score
@@ -281,6 +367,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: participation_index
     dtype: float
     source: metric:participation_index
@@ -289,6 +379,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - student_id
@@ -298,6 +392,12 @@ tables:
   - dim_course.course_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_engagement
   type: fact
   grain: per_entity_per_period
@@ -310,6 +410,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -318,6 +422,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: attendance_rate
     dtype: float
     source: metric:attendance_rate
@@ -326,6 +434,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: study_hours
     dtype: float
     source: metric:study_hours
@@ -334,6 +446,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: dropout_risk
     dtype: float
     source: metric:dropout_risk
@@ -342,6 +458,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - student_id
@@ -350,6 +470,12 @@ tables:
   - dim_student.student_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: evt_dropout
   type: event
   grain: variable
@@ -362,6 +488,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -370,6 +500,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: student_id
     dtype: id
     source: fk:dim_student.student_id
@@ -378,6 +512,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
@@ -386,6 +524,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: dropout_flag
     dtype: boolean
     source: threshold:dropout_risk:above:0.6:for:2
@@ -394,12 +536,22 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_student.student_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 correlations:
 - metric_a: attendance_rate
   metric_b: assignment_score
@@ -410,6 +562,7 @@ correlations:
 - metric_a: participation_index
   metric_b: dropout_risk
   coefficient: -0.4
+correlation_phases: []
 noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.01
@@ -417,6 +570,10 @@ noise:
 output:
   format: csv
   directory: out/education
+  cell_budget: null
+  denormalized: false
+  partition_by: null
+  sql_dialect: postgresql
 manifest:
   include: true
   trajectory_sample_rate: 1.0
@@ -467,5 +624,6 @@ holdout:
   min_training_periods: 3
 locale: en_US
 seasonal_effects: []
+multi_source: null
 compensate_correlations: false
 generation_mode: auto

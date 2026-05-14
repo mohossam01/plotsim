@@ -1767,6 +1767,46 @@ class Column(_Frozen):
         return v
 
 
+_TABLE_TYPE_PREFIXES: tuple[str, ...] = ("dim_", "fct_", "evt_")
+
+
+def _strip_table_type_prefix(name: str) -> str:
+    """0.6-M19 Fix 8: drop the ``dim_`` / ``fct_`` / ``evt_`` prefix
+    so PK-prefix derivation works off the semantic name (``orders``
+    rather than ``fct_orders``)."""
+    for prefix in _TABLE_TYPE_PREFIXES:
+        if name.startswith(prefix):
+            return name[len(prefix) :]
+    return name
+
+
+def _table_uses_sequential_pk(tbl: "Table") -> bool:
+    """0.6-M19 Fix 8: whether a table's PK column gets a sequential
+    ``<prefix>-NNNN`` value at generation time.
+
+    Excludes:
+
+      * ``dim_date`` — calendar-derived ``date_key`` values, not
+        ``_make_ids``.
+      * per_entity_per_period and per_period facts — composite /
+        column-name surrogate PKs (``date_key``+``entity_id`` or
+        ``<col>-<period>-<entity>``).
+      * Bridge tables — composite from the two connected entity FKs.
+
+    Includes every other dim, every event, and variable-grain /
+    per_parent_row facts (the M18 child-grain).
+    """
+    if tbl.name == "dim_date":
+        return False
+    if tbl.type == "dim":
+        return True
+    if tbl.type == "event":
+        return True
+    if tbl.type == "fact":
+        return tbl.grain in ("variable", "per_parent_row")
+    return False
+
+
 class Table(_Frozen):
     name: str
     type: TableType
@@ -1815,6 +1855,19 @@ class Table(_Frozen):
     # declared.
     parent_table: Optional[str] = None
     children_per_row: Optional[tuple[int, int]] = None
+    # 0.6-M19 Fix 8: explicit override for the per-row sequential PK
+    # prefix. When ``None`` (default), the engine derives the prefix
+    # from the table name's first character after stripping the
+    # ``dim_`` / ``fct_`` / ``evt_`` type prefix. If two tables would
+    # otherwise share the same first character (e.g. ``fct_orders``
+    # and ``fct_order_items`` both → ``o``), ``PlotsimConfig``'s
+    # ``_resolve_pk_prefixes`` validator auto-promotes both to their
+    # full stripped names (``orders`` / ``order_items``) so the
+    # emitted PKs are distinguishable. Set ``pk_prefix`` explicitly
+    # to pin a custom value — useful when the auto-derived name is
+    # long or you want SQL-friendly short codes. Validated as a short
+    # alphanumeric identifier (start with a letter, 1–12 chars).
+    pk_prefix: Optional[str] = None
 
     @property
     def primary_key_cols(self) -> list[str]:
@@ -1822,6 +1875,24 @@ class Table(_Frozen):
         return [self.primary_key] if isinstance(self.primary_key, str) else list(self.primary_key)
 
     _name_is_identifier = field_validator("name")(_identifier_field_validator("table name"))
+
+    @field_validator("pk_prefix")
+    @classmethod
+    def _pk_prefix_format(cls, v: Optional[str]) -> Optional[str]:
+        """0.6-M19 Fix 8: validate explicit ``pk_prefix`` is a short
+        alphanumeric token. Leading letter avoids ID-as-number
+        ambiguity in CSV/SQL; the 12-char cap keeps emitted PKs
+        readable (``orders-0001`` is fine; ``some_really_long_thing-
+        0001`` is not).
+        """
+        if v is None:
+            return v
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9_]{0,11}$", v):
+            raise ValueError(
+                f"pk_prefix {v!r} must start with a letter and contain "
+                f"only letters / digits / underscores (1-12 characters)"
+            )
+        return v
 
     @field_validator("row_count_source")
     @classmethod
@@ -3034,6 +3105,13 @@ class PlotsimConfig(_Frozen):
     # reasoning as the sibling adjustment / compensation stashes above.
     _source_entity_mappings: Optional[list[dict]] = PrivateAttr(default=None)
 
+    # 0.6-M19 Fix 8: cached map of ``table_name → resolved PK prefix``,
+    # populated by ``_resolve_pk_prefixes`` at load. Engine call sites
+    # read via ``pk_prefix_for(table_name)`` rather than re-deriving
+    # the prefix inline (avoids the pre-fix collision pattern where
+    # ``fct_orders`` and ``fct_order_items`` both rendered ``o-0001``).
+    _pk_prefixes: dict[str, str] = PrivateAttr(default_factory=dict)
+
     @model_validator(mode="after")
     def _total_entity_size_within_limit(self) -> "PlotsimConfig":
         total = sum(e.size for e in self.entities)
@@ -3042,6 +3120,91 @@ class PlotsimConfig(_Frozen):
                 f"Total entity count across all groups is {total:,}. Maximum is 100,000."
             )
         return self
+
+    @model_validator(mode="after")
+    def _resolve_pk_prefixes(self) -> "PlotsimConfig":
+        """0.6-M19 Fix 8: compute the per-table PK prefix used by the
+        engine's sequential-PK builders. Two paths:
+
+        * **Explicit** — ``Table.pk_prefix`` set on the table model.
+          Used verbatim.
+        * **Auto-derive** — first character of the table name after
+          stripping the ``dim_`` / ``fct_`` / ``evt_`` type prefix. If
+          two tables would land on the same first character, both
+          (the whole colliding group) promote to their full stripped
+          names so the emitted PKs stay distinguishable.
+
+        Cross-collision check runs after both paths resolve — if an
+        explicit value lands on the same string as an auto-derived
+        one (or two explicit values overlap), raise so the user picks.
+
+        Only sequential-PK tables participate: per_entity_per_period
+        and per_period facts use column-name surrogate PKs that don't
+        share the prefix scheme; ``dim_date`` is calendar-derived;
+        bridge tables compose their PK from two FK columns.
+        """
+        prefix_eligible_tables = [t for t in self.tables if _table_uses_sequential_pk(t)]
+        explicit: dict[str, str] = {}
+        auto_candidates: list["Table"] = []
+        for tbl in prefix_eligible_tables:
+            if tbl.pk_prefix is not None:
+                explicit[tbl.name] = tbl.pk_prefix
+            else:
+                auto_candidates.append(tbl)
+
+        # Group auto-derived candidates by first-character default.
+        by_first_char: dict[str, list["Table"]] = {}
+        for tbl in auto_candidates:
+            stripped = _strip_table_type_prefix(tbl.name)
+            if not stripped:
+                raise ValueError(
+                    f"table {tbl.name!r}: cannot derive a PK prefix from "
+                    f"an empty stripped name; set ``pk_prefix`` explicitly"
+                )
+            by_first_char.setdefault(stripped[0], []).append(tbl)
+
+        resolved: dict[str, str] = dict(explicit)
+        for _first, group in by_first_char.items():
+            if len(group) == 1:
+                resolved[group[0].name] = _strip_table_type_prefix(group[0].name)[0]
+            else:
+                # Collision in the auto-derived bucket — promote every
+                # colliding table to its full stripped name so the
+                # emitted PKs disambiguate without user intervention.
+                for tbl in group:
+                    resolved[tbl.name] = _strip_table_type_prefix(tbl.name)
+
+        # Final cross-collision detection. The auto promotion above is
+        # safe in isolation (full stripped names of distinct tables
+        # can't collide because table names are unique), but an
+        # explicit override might collide with an auto-derived prefix
+        # on another table — surface that here so the user picks.
+        prefix_to_tables: dict[str, list[str]] = {}
+        for tname, prefix in resolved.items():
+            prefix_to_tables.setdefault(prefix, []).append(tname)
+        for prefix, names in prefix_to_tables.items():
+            if len(names) > 1:
+                raise ValueError(
+                    f"PK prefix {prefix!r} resolves to multiple tables "
+                    f"{sorted(names)!r}; set ``Table.pk_prefix`` "
+                    f"explicitly on at least one to disambiguate"
+                )
+
+        object.__setattr__(self, "_pk_prefixes", resolved)
+        return self
+
+    def pk_prefix_for(self, table_name: str) -> str:
+        """Return the resolved sequential-PK prefix for ``table_name``.
+
+        Populated by :meth:`_resolve_pk_prefixes` at config load. Falls
+        back to the first character of the stripped table name when
+        the table isn't in the resolved map (defensive — every dim /
+        fact / event the validator considered should be present).
+        """
+        if table_name in self._pk_prefixes:
+            return self._pk_prefixes[table_name]
+        stripped = _strip_table_type_prefix(table_name)
+        return stripped[0] if stripped else "x"
 
     @model_validator(mode="after")
     def _validate_partition_column(self) -> "PlotsimConfig":
