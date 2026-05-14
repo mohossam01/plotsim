@@ -578,21 +578,36 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
     is the one ``PlotsimConfig._value_pool_gates`` raises.
 
     Gates (in order):
-      1. ``PoolSource`` columns are only meaningful on ``per_entity``
-         dim tables. Sub-entity (variable-grain) and reference dims have
-         no per-entity 1:1 binding to look up against.
+      1. ``PoolSource`` columns are only meaningful on tables where
+         every row resolves to exactly one entity and where the
+         engine has wired the per-row entity → pool lookup: per_entity
+         dims (M114), variable-grain fact tables, per_parent_row
+         child facts, and event tables. Per_entity_per_period facts,
+         per_period facts, reference dims, and sub-entity dims are
+         out of scope — either no per-row entity binding or no
+         dispatch handler is registered for the grain.
       2. The ``value_pool`` dict's keys must cover every ``Entity.name``
-         that produces rows in this dim table. Per-entity dims emit
-         exactly one row per entity, so the key set must equal the
-         entity set. Missing keys → error naming each missing entity.
+         that could produce rows in this table. Missing keys → error
+         naming each missing entity.
       3. Extra keys (entities present in ``value_pool`` but not in
          ``config.entities``) are flagged as a separate error so the
          author notices stale-after-edit pool entries.
+
+    0.6-M19 Fix 1 widened gate (1) from "per_entity dim only" to
+    add variable-grain facts, per_parent_row child facts, and event
+    tables so authors can curate per-entity value pools on the fact
+    / event rows directly (e.g. ``payment_method`` on ``fct_orders``)
+    without the indirection of a separate dim-row lookup.
     """
     errors: list[str] = []
     entity_names = {e.name for e in config.entities}
     per_entity_dim_names = {
         t.name for t in config.tables if t.type == "dim" and t.grain == "per_entity"
+    }
+    pool_capable_tables = per_entity_dim_names | {
+        t.name
+        for t in config.tables
+        if (t.type == "fact" and t.grain in ("variable", "per_parent_row")) or t.type == "event"
     }
 
     for tbl in config.tables:
@@ -600,13 +615,14 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
             parsed = parse_source(col.source)
             if not isinstance(parsed, PoolSource):
                 continue
-            if tbl.name not in per_entity_dim_names:
+            if tbl.name not in pool_capable_tables:
                 errors.append(
                     f"table {tbl.name!r} column {col.name!r} declares a "
-                    f"'pool:' source but the table is not a per_entity dim "
-                    f"(type={tbl.type!r}, grain={tbl.grain!r}); pool sources "
-                    f"are only supported on per_entity dim tables in this "
-                    f"version"
+                    f"'pool:' source but the table is not a per_entity "
+                    f"dim, a variable-grain fact, a per_parent_row child "
+                    f"fact, or an event (type={tbl.type!r}, "
+                    f"grain={tbl.grain!r}); pool sources need a per-row "
+                    f"per-entity binding the engine can dispatch against"
                 )
                 continue
             if col.value_pool is None:
@@ -620,9 +636,9 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
             if missing:
                 errors.append(
                     f"table {tbl.name!r} column {col.name!r} value_pool "
-                    f"is missing entries for entities {missing}; per_entity "
-                    f"dim {tbl.name!r} emits one row per entity, so every "
-                    f"entity must appear in value_pool"
+                    f"is missing entries for entities {missing}; every "
+                    f"entity that could produce a row in {tbl.name!r} must "
+                    f"appear in value_pool"
                 )
             if extra:
                 errors.append(

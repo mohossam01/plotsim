@@ -367,3 +367,215 @@ def test_faker_source_values_are_non_empty_strings(synthetic_tables):
     notes = synthetic_tables["fct_scalar"]["note"]
     assert notes.notna().all(), "fct_scalar.note has nulls — FakerSource silent-failed"
     assert (notes.str.len() > 0).all(), "fct_scalar.note has empty strings"
+
+
+# --- 0.6-M19 Fix 2: RangeSource coverage across grains ----------------------
+#
+# ``range:<min>:<max>`` is registered on every fact and event builder
+# kind. These tests build a per-grain config via the public builder
+# and assert (a) the engine emits values within bounds, (b) the column
+# dtype matches the Column.dtype declaration, and (c) the same seed
+# reproduces the same draws.
+
+
+def _range_config_for_grain(grain: str):
+    """Builder config exercising ``type: range`` on the requested grain.
+
+    grain ∈ {per_entity_per_period, variable, per_parent_row, event,
+             threshold_event}.
+    """
+    from plotsim import create
+
+    base: dict = {
+        "about": "range source coverage",
+        "unit": "customer",
+        "seed": 19201,
+        "window": ("2024-01", "2024-04", "monthly"),
+        "metrics": [
+            {
+                "name": "purchases",
+                "type": "amount",
+                "polarity": "positive",
+                "range": [1, 20],
+            },
+        ],
+        "segments": [
+            {"name": "g", "count": 4, "archetype": "growth"},
+        ],
+        "dimensions": [
+            {
+                "name": "dim_customer",
+                "per": "unit",
+                "columns": [
+                    {"name": "customer_id", "type": "id"},
+                ],
+            },
+        ],
+    }
+    if grain == "per_entity_per_period":
+        base["facts"] = [
+            {
+                "name": "fct_activity",
+                "metrics": ["purchases"],
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "purchases", "type": "metric.purchases"},
+                    {"name": "quantity", "type": "range", "range": [1, 5]},
+                    {"name": "unit_price", "type": "range", "range": [10.0, 100.0]},
+                ],
+            }
+        ]
+    elif grain == "variable":
+        base["facts"] = [
+            {
+                "name": "fct_orders",
+                "row_count_driver": "purchases",
+                "row_count_scale": 1.0,
+                "columns": [
+                    {"name": "order_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                    {"name": "quantity", "type": "range", "range": [1, 5]},
+                    {"name": "unit_price", "type": "range", "range": [10.0, 100.0]},
+                ],
+            }
+        ]
+    elif grain == "per_parent_row":
+        base["facts"] = [
+            {
+                "name": "fct_orders",
+                "row_count_driver": "purchases",
+                "row_count_scale": 1.0,
+                "columns": [
+                    {"name": "order_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                ],
+            },
+            {
+                "name": "fct_order_items",
+                "parent_table": "fct_orders",
+                "children_per_row": [1, 3],
+                "columns": [
+                    {"name": "item_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "order_date", "type": "ref.dim_date"},
+                    {"name": "quantity", "type": "range", "range": [1, 5]},
+                    {"name": "unit_price", "type": "range", "range": [10.0, 100.0]},
+                ],
+            },
+        ]
+    elif grain == "event":
+        base["facts"] = [
+            {
+                "name": "fct_activity",
+                "metrics": ["purchases"],
+                "columns": [
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "purchases", "type": "metric.purchases"},
+                ],
+            }
+        ]
+        base["events"] = [
+            {
+                "name": "evt_action",
+                "trigger": "proportional",
+                "driver": "purchases",
+                "scale": 1.0,
+                "columns": [
+                    {"name": "event_id", "type": "id"},
+                    {"name": "customer_id", "type": "ref.dim_customer"},
+                    {"name": "date_key", "type": "ref.dim_date"},
+                    {"name": "quantity", "type": "range", "range": [1, 5]},
+                    {"name": "unit_price", "type": "range", "range": [10.0, 100.0]},
+                ],
+            }
+        ]
+    else:
+        raise ValueError(f"unknown grain {grain!r}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return create(**base)
+
+
+@pytest.mark.parametrize(
+    "grain,target_table",
+    [
+        ("per_entity_per_period", "fct_activity"),
+        ("variable", "fct_orders"),
+        ("per_parent_row", "fct_order_items"),
+        ("event", "evt_action"),
+    ],
+)
+def test_range_source_within_bounds_per_grain(grain, target_table):
+    cfg = _range_config_for_grain(grain)
+    tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    df = tables[target_table]
+    assert len(df) > 0
+    qty = df["quantity"]
+    assert (
+        qty.min() >= 1 and qty.max() <= 5
+    ), f"quantity drew outside [1, 5]: min={qty.min()}, max={qty.max()}"
+    price = df["unit_price"]
+    assert (
+        price.min() >= 10.0 and price.max() <= 100.0
+    ), f"unit_price drew outside [10, 100]: min={price.min()}, max={price.max()}"
+
+
+@pytest.mark.parametrize(
+    "grain,target_table",
+    [
+        ("per_entity_per_period", "fct_activity"),
+        ("variable", "fct_orders"),
+        ("per_parent_row", "fct_order_items"),
+        ("event", "evt_action"),
+    ],
+)
+def test_range_source_dtype_per_grain(grain, target_table):
+    """Integer ``range`` produces integers; float range produces floats."""
+    cfg = _range_config_for_grain(grain)
+    tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
+    df = tables[target_table]
+    qty_dtype = df["quantity"].dtype
+    price_dtype = df["unit_price"].dtype
+    # Quantity is integer — pandas may use Int64/int64 depending on the
+    # write path; both are integer-like.
+    assert pd.api.types.is_integer_dtype(
+        qty_dtype
+    ), f"quantity dtype is {qty_dtype}, expected integer"
+    assert pd.api.types.is_float_dtype(
+        price_dtype
+    ), f"unit_price dtype is {price_dtype}, expected float"
+
+
+def test_range_source_deterministic_under_seed():
+    cfg_a = _range_config_for_grain("variable")
+    cfg_b = _range_config_for_grain("variable")
+    tables_a = generate_tables(cfg_a, np.random.default_rng(cfg_a.seed))
+    tables_b = generate_tables(cfg_b, np.random.default_rng(cfg_b.seed))
+    np.testing.assert_array_equal(
+        tables_a["fct_orders"]["quantity"].to_numpy(),
+        tables_b["fct_orders"]["quantity"].to_numpy(),
+    )
+    np.testing.assert_array_equal(
+        tables_a["fct_orders"]["unit_price"].to_numpy(),
+        tables_b["fct_orders"]["unit_price"].to_numpy(),
+    )
+
+
+def test_range_source_rejected_on_string_column():
+    """``range:<min>:<max>`` with a non-numeric dtype is rejected at
+    config load — fail fast rather than emit coerced nonsense."""
+    from plotsim.config import Column
+
+    with pytest.raises(ValueError, match="range sources require dtype"):
+        Column(name="bad", dtype="string", source="range:1:5")
+
+
+def test_range_source_rejects_max_less_than_min():
+    from plotsim.config import RangeSource
+
+    with pytest.raises(ValueError, match="max"):
+        RangeSource(min=10.0, max=5.0)

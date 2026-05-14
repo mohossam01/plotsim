@@ -248,11 +248,14 @@ def test_pool_attr_missing_on_some_segments_raises():
         )
 
 
-def test_pool_attr_on_fact_column_rejected():
-    """``pool.{attr}`` is dim-only — fact / event paths supply an empty
-    pool dict so the column-translate step raises a clear error.
+def test_pool_attr_on_per_entity_per_period_fact_rejected():
+    """``pool.{attr}`` is now valid on variable-grain facts,
+    per_parent_row child facts, and event tables (0.6-M19 Fix 1), but
+    the per_entity_per_period fact grain stays out of scope — the
+    engine has no per-row pool dispatch handler registered for that
+    grain. The engine validator surfaces the gap at config load.
     """
-    with pytest.raises(ValueError, match="per_entity dim columns"):
+    with pytest.raises(ValueError, match="variable-grain fact"):
         interpret(
             _input(
                 segments=[
