@@ -320,13 +320,20 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     M117: post-expansion ``cfg.entities`` is one Entity per simulated company
     (not one per cohort), so a company-level groupby would pick the two
     lowest individuals of 95 instead of the low-baseline cohorts. The test
-    aggregates company means up to archetype using ``cfg.entities`` order
-    + the dim builder's deterministic ID convention (``c-001``..``c-095``)
-    so each company maps to its archetype, then takes top-2 vs bottom-2
+    aggregates company means up to archetype by reading the dim_company
+    PK column directly (row i corresponds to ``cfg.entities[i]`` per
+    ``build_dim_entity``'s contract), then takes top-2 vs bottom-2
     archetype means.
+
+    0.6-M19 Fix 8 note: the previous version of this test recomputed
+    PKs as ``c-001``..``c-095`` inline, which broke once ``dim_company``
+    + ``evt_churn`` first-character collision auto-promoted dim_company's
+    prefix from ``c`` to ``company``. Reading the dim's actual PK
+    column is robust to that promotion.
     """
     cfg: PlotsimConfig = saas_dataset["cfg"]
     fact = saas_dataset["tables"]["fct_revenue"]
+    dim_company = saas_dataset["tables"]["dim_company"]
 
     n_high = sum(
         1
@@ -339,12 +346,17 @@ def test_high_baseline_group_mean_exceeds_low_baseline_group_mean(saas_dataset):
     if n_high == 0:
         pytest.skip("template has no high-baseline cohorts")
 
-    # Build company_id → archetype using the dim builder's predictable PK
-    # convention (one row per Entity in cfg.entities order, prefix from
-    # table name, zero-padded to width=max(3, len(str(N)))).
-    n_entities = len(cfg.entities)
-    width = max(3, len(str(n_entities)))
-    company_to_archetype = {f"c-{i + 1:0{width}d}": e.archetype for i, e in enumerate(cfg.entities)}
+    # Read PKs from dim_company directly — robust to the M19 Fix 8
+    # auto-disambiguation that promotes colliding first-character
+    # prefixes to full stripped names. SCD2 may produce multiple rows
+    # per entity; drop_duplicates collapses to one PK per entity in
+    # build_dim_entity's config-order convention.
+    company_pks = dim_company["company_id"].drop_duplicates().tolist()
+    assert len(company_pks) == len(cfg.entities), (
+        f"dim_company PK count {len(company_pks)} != entity count "
+        f"{len(cfg.entities)}; build_dim_entity convention broke"
+    )
+    company_to_archetype = {pk: cfg.entities[i].archetype for i, pk in enumerate(company_pks)}
 
     fact_with_arch = fact.assign(
         archetype=fact["company_id"].map(company_to_archetype),

@@ -82,6 +82,9 @@ metrics:
     driver: loyalty_score
     lag_periods: 1
     blend_weight: 1.0
+    decay: false
+    decay_window: null
+    decay_kernel: geometric
   seasonal_sensitivity: 1.0
 archetypes:
 - name: holiday_surge
@@ -154,24 +157,40 @@ entities:
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: holiday_shoppers
   archetype: holiday_surge
   size: 30
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: browsers
   archetype: one_and_done
   size: 15
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: deal_seekers
   archetype: bargain_hunter
   size: 20
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 tables:
 - name: dim_date
   type: dim
@@ -185,6 +204,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -193,6 +216,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -201,6 +228,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -209,6 +240,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: quarter
     dtype: int
     source: generated:date_key
@@ -217,10 +252,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_customer
   type: dim
   grain: per_entity
@@ -233,6 +278,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: segment_name
     dtype: string
     source: generated:faker.company
@@ -241,6 +290,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cohort_size
     dtype: int
     source: derived:size
@@ -249,6 +302,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: customer_tier
     dtype: string
     source: scd_type2
@@ -265,10 +322,20 @@ tables:
       - casual
       - loyal
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: segment_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_product_category
   type: dim
   grain: per_reference
@@ -281,6 +348,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: category_name
     dtype: string
     source: static:electronics,apparel,home,grocery,beauty
@@ -289,6 +360,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: margin_tier
     dtype: string
     source: static:high,standard,standard,low,high
@@ -297,10 +372,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: category_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_store_type
   type: dim
   grain: per_reference
@@ -313,6 +398,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: store_type
     dtype: string
     source: static:online,physical,marketplace
@@ -321,6 +410,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: channel
     dtype: string
     source: static:digital,brick_and_mortar,third_party
@@ -329,10 +422,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: store_type_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_promotion
   type: dim
   grain: per_reference
@@ -345,6 +448,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: promo_name
     dtype: string
     source: static:clearance,seasonal_sale,loyalty_reward,flash_sale
@@ -353,6 +460,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: discount_type
     dtype: string
     source: static:percentage,percentage,points,percentage
@@ -361,10 +472,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: promotion_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_sessions
   type: fact
   grain: per_entity_per_period
@@ -377,6 +498,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
@@ -385,6 +510,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: session_count
     dtype: int
     source: metric:session_count
@@ -393,6 +522,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: conversion_rate
     dtype: float
     source: metric:conversion_rate
@@ -401,6 +534,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: shopping_intent
     dtype: string
     source: text:bucket:[browsing, comparing, purchasing, loyal_repeat]
@@ -409,6 +546,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - segment_id
@@ -417,6 +558,12 @@ tables:
   - dim_customer.segment_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_purchases
   type: fact
   grain: per_entity_per_period
@@ -429,6 +576,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
@@ -437,6 +588,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: category_id
     dtype: id
     source: fk:dim_product_category.category_id
@@ -445,6 +600,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cart_value
     dtype: float
     source: metric:cart_value
@@ -453,6 +612,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: return_rate
     dtype: float
     source: metric:return_rate
@@ -461,6 +624,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: loyalty_score
     dtype: float
     source: metric:loyalty_score
@@ -469,6 +636,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: repeat_purchase_rate
     dtype: float
     source: metric:repeat_purchase_rate
@@ -477,6 +648,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - segment_id
@@ -486,6 +661,12 @@ tables:
   - dim_product_category.category_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: evt_cart_abandonment
   type: event
   grain: variable
@@ -498,6 +679,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -506,6 +691,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: segment_id
     dtype: id
     source: fk:dim_customer.segment_id
@@ -514,6 +703,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: event_ts
     dtype: date
     source: generated:timestamp
@@ -522,12 +715,22 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_customer.segment_id
   row_count_source: proportional:return_rate:scale:3
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 correlations:
 - metric_a: session_count
   metric_b: conversion_rate
@@ -541,6 +744,7 @@ correlations:
 - metric_a: cart_value
   metric_b: repeat_purchase_rate
   coefficient: 0.4
+correlation_phases: []
 noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
@@ -548,6 +752,10 @@ noise:
 output:
   format: csv
   directory: out/retail
+  cell_budget: null
+  denormalized: false
+  partition_by: null
+  sql_dialect: postgresql
 manifest:
   include: true
   trajectory_sample_rate: 1.0
@@ -611,5 +819,6 @@ holdout:
   min_training_periods: 3
 locale: en_US
 seasonal_effects: []
+multi_source: null
 compensate_correlations: false
 generation_mode: auto

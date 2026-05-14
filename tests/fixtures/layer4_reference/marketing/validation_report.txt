@@ -1,6 +1,6 @@
 Plotsim Validation Report
 ==========================
-Generated: deterministic (config-sha256[:16]=bf741cd9c5fe1bb4)
+Generated: deterministic (config-sha256[:16]=a587fd59317fe0db)
 Errors: 0 | Warnings: 2 | Total: 2
 Status: VALID
 
@@ -15,4 +15,4 @@ Status: VALID
         parent: dim_customer.customer_id
         parent_row_count: 13
         child_unique_count: 1
-        child_unique_sample: ['c-003']
+        child_unique_sample: ['customer-003']

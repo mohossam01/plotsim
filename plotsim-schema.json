@@ -1415,6 +1415,18 @@
           ],
           "default": null,
           "title": "Children Per Row"
+        },
+        "pk_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pk Prefix"
         }
       },
       "required": [

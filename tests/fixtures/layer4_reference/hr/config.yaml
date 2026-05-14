@@ -57,6 +57,9 @@ metrics:
     driver: engagement_index
     lag_periods: 1
     blend_weight: 1.0
+    decay: false
+    decay_window: null
+    decay_kernel: geometric
   seasonal_sensitivity: 1.0
 - name: attrition_risk
   label: Attrition risk score
@@ -143,24 +146,40 @@ entities:
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: core_team
   archetype: steady_performer
   size: 50
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: disengaged_pool
   archetype: quiet_quitter
   size: 10
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 - name: burnout_cohort
   archetype: burnout_risk
   size: 5
   overrides: null
   cross_dim_fks: {}
   seasonal_sensitivity: 1.0
+  start_period: 0
+  treatment_group: null
+  treatment_lift_log_odds: null
+  treatment_start_period: 0
 tables:
 - name: dim_date
   type: dim
@@ -174,6 +193,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date
     dtype: date
     source: generated:date_key
@@ -182,6 +205,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: year
     dtype: int
     source: generated:date_key
@@ -190,6 +217,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: month
     dtype: int
     source: generated:date_key
@@ -198,10 +229,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: date_key
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_department
   type: dim
   grain: per_reference
@@ -214,6 +255,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: dept_name
     dtype: string
     source: static:engineering
@@ -222,6 +267,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: cost_center
     dtype: string
     source: static:R&D
@@ -230,10 +279,20 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: dept_id
   foreign_keys: []
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: dim_employee
   type: dim
   grain: per_entity
@@ -246,6 +305,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: dept_id
     dtype: id
     source: fk:dim_department.dept_id
@@ -254,6 +317,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: full_name
     dtype: string
     source: generated:faker.name
@@ -262,6 +329,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: hire_date
     dtype: date
     source: generated:faker.date_between:start_date:2022-01-01:end_date:2024-12-31
@@ -270,6 +341,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: level
     dtype: string
     source: static:IC
@@ -278,11 +353,21 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: employee_id
   foreign_keys:
   - dim_department.dept_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_performance
   type: fact
   grain: per_entity_per_period
@@ -295,6 +380,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -303,6 +392,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: performance_score
     dtype: float
     source: metric:performance_score
@@ -311,6 +404,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: engagement_index
     dtype: float
     source: metric:engagement_index
@@ -319,6 +416,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - employee_id
@@ -327,6 +428,12 @@ tables:
   - dim_employee.employee_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_training
   type: fact
   grain: per_entity_per_period
@@ -339,6 +446,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -347,6 +458,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: training_hours
     dtype: float
     source: metric:training_hours
@@ -355,6 +470,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - employee_id
@@ -363,6 +482,12 @@ tables:
   - dim_employee.employee_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: fct_attendance
   type: fact
   grain: per_entity_per_period
@@ -375,6 +500,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -383,6 +512,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: absence_rate
     dtype: float
     source: metric:absence_rate
@@ -391,6 +524,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: attrition_risk
     dtype: float
     source: metric:attrition_risk
@@ -399,6 +536,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key:
   - date_key
   - employee_id
@@ -407,6 +548,12 @@ tables:
   - dim_employee.employee_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 - name: evt_attrition
   type: event
   grain: variable
@@ -419,6 +566,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: date_key
     dtype: id
     source: fk:dim_date.date_key
@@ -427,6 +578,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: employee_id
     dtype: id
     source: fk:dim_employee.employee_id
@@ -435,6 +590,10 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   - name: reason
     dtype: string
     source: generated:faker.sentence
@@ -443,12 +602,22 @@ tables:
     allow_outside_window: false
     scd_type2: null
     value_pool: null
+    narrative: null
+    nested_schema: null
+    array_element_type: null
+    array_length: null
   primary_key: event_id
   foreign_keys:
   - dim_date.date_key
   - dim_employee.employee_id
   row_count_source: null
   count: 1
+  cdc: false
+  log_format: null
+  log_filename: null
+  parent_table: null
+  children_per_row: null
+  pk_prefix: null
 correlations:
 - metric_a: engagement_index
   metric_b: attrition_risk
@@ -459,6 +628,7 @@ correlations:
 - metric_a: absence_rate
   metric_b: attrition_risk
   coefficient: 0.61
+correlation_phases: []
 noise:
   gaussian_sigma: 0.04
   outlier_rate: 0.015
@@ -466,6 +636,10 @@ noise:
 output:
   format: csv
   directory: out/hr
+  cell_budget: null
+  denormalized: false
+  partition_by: null
+  sql_dialect: postgresql
 manifest:
   include: true
   trajectory_sample_rate: 1.0
@@ -500,5 +674,6 @@ holdout:
   min_training_periods: 3
 locale: en_US
 seasonal_effects: []
+multi_source: null
 compensate_correlations: false
 generation_mode: auto
