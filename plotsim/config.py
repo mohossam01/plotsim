@@ -226,6 +226,17 @@ class FakerSource(_Frozen):
     method: str
     kwargs: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("kwargs")
+    @classmethod
+    def _kwargs_size_capped(cls, v: dict[str, str]) -> dict[str, str]:
+        if len(v) > 20:
+            raise ValueError(
+                f"FakerSource.kwargs has {len(v)} entries; the per-call "
+                f"kwargs dict is capped at 20 to keep config-load and "
+                f"per-row faker dispatch bounded"
+            )
+        return v
+
 
 class StaticSource(_Frozen):
     value: str
@@ -459,7 +470,7 @@ class NarrativeConfig(_Frozen):
         ``grain == "per_entity_per_period"``.
     """
 
-    template: str = Field(min_length=1)
+    template: str = Field(min_length=1, max_length=1000)
     lexicons: dict[str, dict[str, dict[str, list[str]]]]
     bands: tuple[str, ...] = ("low", "mid", "high")
 
@@ -543,6 +554,13 @@ class NarrativeConfig(_Frozen):
                         raise ValueError(
                             f"narrative lexicons[{archetype!r}][{slot!r}]"
                             f"[{band!r}]: phrase list must be a non-empty list"
+                        )
+                    if len(phrases) > 100:
+                        raise ValueError(
+                            f"narrative lexicons[{archetype!r}][{slot!r}]"
+                            f"[{band!r}] has {len(phrases)} phrases; the "
+                            f"per-band phrase list is capped at 100 to keep "
+                            f"config-load memory bounded"
                         )
                     for phrase in phrases:
                         if not isinstance(phrase, str) or not phrase:
@@ -1618,6 +1636,13 @@ class Column(_Frozen):
                         f"{entity_name!r} is empty; provide at least one "
                         f"value to sample from"
                     )
+                if len(values) > 1000:
+                    raise ValueError(
+                        f"column {self.name!r} value_pool for entity "
+                        f"{entity_name!r} has {len(values)} entries; the "
+                        f"per-entity pool is capped at 1000 to keep "
+                        f"config-load memory and per-row draw bounded"
+                    )
                 for v in values:
                     if not isinstance(v, str) or not v:
                         raise ValueError(
@@ -1694,6 +1719,13 @@ class Column(_Frozen):
                     f"column {self.name!r} has dtype 'struct' but no "
                     f"nested_schema; declare 'nested_schema: {{<field>: "
                     f"<int|float|string|boolean>, ...}}'"
+                )
+            if len(self.nested_schema) > 20:
+                raise ValueError(
+                    f"column {self.name!r} nested_schema has "
+                    f"{len(self.nested_schema)} fields; struct columns are "
+                    f"capped at 20 fields to keep per-row materialization "
+                    f"bounded"
                 )
             if self.array_element_type is not None or self.array_length is not None:
                 raise ValueError(
