@@ -240,7 +240,7 @@ columns, per_parent_row child-fact columns, and event columns. The
 engine reads the row's entity FK and draws from
 `attributes[attr_name]` for that entity's segment.
 Per_entity_per_period and per_period facts, reference dims, and
-sub-entity dims are out of scope — the M19 lift required either a
+sub-entity dims are out of scope — pool dispatch requires either a
 per-row entity binding (facts / events) or a 1:1 row-to-entity
 mapping (per_entity dim).
 
@@ -251,6 +251,11 @@ error message lists the attributes declared on every segment.
 **Scalars vs lists** — segments can declare a scalar (`region: "us-east"`)
 or a list (`industry: ["tech", "finance"]`). Scalar values wrap into a
 single-element list; list values are sampled uniformly per row.
+
+**Cap** — each entity's value list is capped at 1000 entries. The
+limit keeps config-load memory and per-row draw bounded; the
+rejection names the offending entity so the source is easy to
+find.
 
 ---
 
@@ -478,6 +483,9 @@ inside a struct are short deterministic tokens (`"v00042"`).
 
 **Valid on**: dim and fact tables. Not supported on event or bridge
 tables in the current release.
+
+**Cap** — `nested_schema` is capped at 20 fields. The limit keeps
+per-row struct materialization bounded.
 
 ---
 

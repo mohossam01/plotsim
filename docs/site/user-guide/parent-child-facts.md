@@ -293,7 +293,7 @@ and the engine rejects the config at load.
 
 - **Single level of parent/child only.** Grandchild chains
   (`fct_orders → fct_order_items → fct_returns_per_item`) are
-  not supported in 0.6-M18.
+  not supported in the current release.
 - **Single-column parent PKs only.** Composite parent PKs would
   need a multi-column FK on the child; out of scope.
 - **No metric columns on variable-grain facts.** Per-instance
