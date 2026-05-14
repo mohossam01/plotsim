@@ -276,6 +276,46 @@ class TestEstimateTrajectoryCovariance:
         cov = estimate_trajectory_covariance(cfg)
         assert abs(cov[0, 1]) < 1e-12
 
+    def test_flat_archetype_builder_api_returns_identity(self):
+        # Regression for the ``_safe_corrcoef`` precision defect: a flat
+        # archetype built via the public ``plotsim.create(...)`` API
+        # produces centers like ``0.15`` (score-type defaults), which
+        # are NOT exactly representable in float. ``centers.std()`` then
+        # returns ~2.78e-17 rather than exact zero, defeating a strict
+        # ``stds > 0.0`` guard and causing ``np.corrcoef`` to return
+        # ``[[1, 1], [1, 1]]`` on numerically identical columns. The
+        # ``loc=1.0, scale=5.0`` lognorm fixture above happens to land
+        # on the exactly-representable value 3.5, masking the bug.
+        #
+        # With the tolerance guard, the off-diagonal must be exactly 0.0
+        # — a flat trajectory contributes no cross-metric correlation
+        # regardless of the centers' magnitude.
+        from plotsim import create
+
+        cfg = create(
+            about="flat archetype precision regression",
+            unit="customer",
+            seed=42,
+            window=("2024-01", "2024-12", "monthly"),
+            metrics=[
+                {"name": "a", "type": "score", "polarity": "positive"},
+                {"name": "b", "type": "score", "polarity": "positive"},
+            ],
+            connections=[("a", 0.5, "b")],
+            segments=[{"name": "pool", "count": 50, "archetype": "flat"}],
+        )
+        cov = estimate_trajectory_covariance(cfg)
+        # Identity: 1.0 on the diagonal, exactly 0.0 elsewhere. The
+        # tolerance-based guard short-circuits before ``np.corrcoef``
+        # runs, so the off-diagonal is the initial ``np.eye`` value.
+        assert cov.shape == (2, 2)
+        np.testing.assert_allclose(np.diag(cov), 1.0)
+        assert cov[0, 1] == 0.0, (
+            f"flat archetype must produce identity trajectory covariance; "
+            f"off-diagonal {cov[0, 1]} indicates the precision guard was bypassed"
+        )
+        assert cov[1, 0] == 0.0
+
     def test_seasonal_modulation_changes_estimate(self):
         # With distinct per-metric seasonal_sensitivity values, adding a
         # seasonal effect must shift the off-diagonal covariance entries —
