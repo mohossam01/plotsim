@@ -581,9 +581,9 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
       1. ``PoolSource`` columns are only meaningful on tables where
          every row resolves to exactly one entity and where the
          engine has wired the per-row entity → pool lookup: per_entity
-         dims (M114), variable-grain fact tables, per_parent_row
-         child facts, and event tables. Per_entity_per_period facts,
-         per_period facts, reference dims, and sub-entity dims are
+         dims (M114), per_entity_per_period facts, variable-grain
+         fact tables, per_parent_row child facts, and event tables.
+         Per_period facts, reference dims, and sub-entity dims are
          out of scope — either no per-row entity binding or no
          dispatch handler is registered for the grain.
       2. The ``value_pool`` dict's keys must cover every ``Entity.name``
@@ -597,7 +597,10 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
     add variable-grain facts, per_parent_row child facts, and event
     tables so authors can curate per-entity value pools on the fact
     / event rows directly (e.g. ``payment_method`` on ``fct_orders``)
-    without the indirection of a separate dim-row lookup.
+    without the indirection of a separate dim-row lookup. A follow-up
+    widened it again to include per_entity_per_period facts once
+    ``_fact_scalar_pool`` / ``_fact_vec_pool`` landed in the column
+    dispatch registry.
     """
     errors: list[str] = []
     entity_names = {e.name for e in config.entities}
@@ -607,7 +610,8 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
     pool_capable_tables = per_entity_dim_names | {
         t.name
         for t in config.tables
-        if (t.type == "fact" and t.grain in ("variable", "per_parent_row")) or t.type == "event"
+        if (t.type == "fact" and t.grain in ("per_entity_per_period", "variable", "per_parent_row"))
+        or t.type == "event"
     }
 
     for tbl in config.tables:
@@ -619,10 +623,11 @@ def validate_value_pool_coverage(config: PlotsimConfig) -> list[str]:
                 errors.append(
                     f"table {tbl.name!r} column {col.name!r} declares a "
                     f"'pool:' source but the table is not a per_entity "
-                    f"dim, a variable-grain fact, a per_parent_row child "
-                    f"fact, or an event (type={tbl.type!r}, "
-                    f"grain={tbl.grain!r}); pool sources need a per-row "
-                    f"per-entity binding the engine can dispatch against"
+                    f"dim, a per_entity_per_period fact, a variable-grain "
+                    f"fact, a per_parent_row child fact, or an event "
+                    f"(type={tbl.type!r}, grain={tbl.grain!r}); pool "
+                    f"sources need a per-row per-entity binding the "
+                    f"engine can dispatch against"
                 )
                 continue
             if col.value_pool is None:

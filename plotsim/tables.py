@@ -1259,6 +1259,50 @@ def _fact_vec_range(parsed: RangeSource, ctx: dict):
     return rng.uniform(parsed.min, parsed.max, size=total_rows)
 
 
+def _fact_vec_pool(parsed: PoolSource, ctx: dict):
+    """Bulk per-row pool draw on a vectorized per_entity_per_period fact.
+
+    Output is entity-major (matches ``entity_pk_repeated`` /
+    ``date_key_tiled`` layout). One bulk ``rng.integers`` draw per
+    entity sized to ``n_periods``, scattered into the contiguous
+    entity block. Per-entity draws keep ordering stable when entities
+    have heterogeneous pool sizes.
+    """
+    del parsed  # PoolSource carries only a marker name; data is on col.value_pool.
+    col = ctx["col"]
+    rng = ctx["rng"]
+    if rng is None:
+        raise ValueError(
+            f"fact column {col.name!r} has source {col.source!r} but no "
+            f"RNG was supplied to the vectorized fact builder; pool "
+            f"draws require the per-table RNG"
+        )
+    if col.value_pool is None:
+        raise ValueError(
+            f"fact column {col.name!r} declares pool source {col.source!r} "
+            f"but Column.value_pool is None; Column._pool_pairing should "
+            f"have rejected this at load"
+        )
+    config = ctx["config"]
+    n_periods = ctx["n_periods"]
+    total_rows = ctx["total_rows"]
+    out = np.empty(total_rows, dtype=object)
+    cursor = 0
+    for entity in config.entities:
+        choices = col.value_pool.get(entity.name)
+        if choices is None:
+            raise ValueError(
+                f"fact column {col.name!r} value_pool has no entry for "
+                f"entity {entity.name!r}; validate_value_pool_coverage "
+                f"should have caught this at load"
+            )
+        indices = rng.integers(0, len(choices), size=n_periods)
+        for k in range(n_periods):
+            out[cursor + k] = _coerce_static(choices[int(indices[k])], col.dtype)
+        cursor += n_periods
+    return out
+
+
 def _fact_vec_text_bucket(parsed: TextBucketSource, ctx: dict):
     # M105: trajectory-position-driven text emission. ``trajectories_2d``
     # is shape (E, P); flatten in the same row-major (entity, period)
@@ -1346,6 +1390,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
     RangeSource,
     _fact_vec_range,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
+    PoolSource,
+    _fact_vec_pool,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_VECTORIZED,
@@ -1620,6 +1669,43 @@ def _fact_scalar_range(parsed: RangeSource, ctx: dict):
     return float(rng.uniform(parsed.min, parsed.max))
 
 
+def _fact_scalar_pool(parsed: PoolSource, ctx: dict):
+    """Per-cell pool draw on a scalar per_entity_per_period fact.
+
+    Looks up the per-entity choice list on ``col.value_pool`` keyed by
+    the current row's entity name, then draws one index from the
+    seeded RNG. Same shape as ``_evt_row_pool`` but the entity is
+    already in ctx (no PK reverse-lookup needed on the per-entity
+    dim).
+    """
+    del parsed  # PoolSource carries only a marker name; data is on col.value_pool.
+    col = ctx["col"]
+    rng = ctx["rng"]
+    entity = ctx["entity"]
+    if rng is None or entity is None:
+        raise ValueError(
+            f"fact column {col.name!r} pool source needs both `entity` and "
+            f"`rng` in ctx (got entity={entity!r}, "
+            f"rng={'set' if rng is not None else 'None'}); this is an "
+            f"internal wiring bug, not a config error"
+        )
+    if col.value_pool is None:
+        raise ValueError(
+            f"fact column {col.name!r} declares pool source {col.source!r} "
+            f"but Column.value_pool is None; Column._pool_pairing should "
+            f"have rejected this at load"
+        )
+    choices = col.value_pool.get(entity.name)
+    if choices is None:
+        raise ValueError(
+            f"fact column {col.name!r} value_pool has no entry for entity "
+            f"{entity.name!r}; validate_value_pool_coverage should have "
+            f"caught this at load"
+        )
+    pick = int(rng.integers(0, len(choices)))
+    return _coerce_static(choices[pick], col.dtype)
+
+
 def _fact_scalar_unsupported(parsed: Any, ctx: dict):
     col = ctx["col"]
     raise ValueError(
@@ -1690,6 +1776,11 @@ COLUMN_DISPATCH.register(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
     RangeSource,
     _fact_scalar_range,
+)
+COLUMN_DISPATCH.register(
+    BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
+    PoolSource,
+    _fact_scalar_pool,
 )
 COLUMN_DISPATCH.register_unsupported(
     BuilderKind.PER_ENTITY_PER_PERIOD_FACT_SCALAR,
