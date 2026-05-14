@@ -1594,9 +1594,13 @@ def test_proportional_event_fk_integrity_post_vectorization():
 
 
 def test_proportional_event_timestamp_matches_date_key_row():
-    """Layer 5: the ``event_ts`` GeneratedSource column maps 1:1 to the row's
-    date_key via dim_date. Every emitted event_ts must be the month anchor
-    for its date_key.
+    """The ``event_ts`` GeneratedSource column lives inside the period
+    its row's ``date_key`` names. Pre-event-timestamp-distribution the
+    contract was stricter — ``event_ts`` always equalled the period
+    anchor (``day == 1`` on monthly granularity). Now each row gets a
+    uniform within-period draw, so the assertion is the in-period
+    containment: same year + month as the date_key's anchor, any day
+    within the month.
     """
     cfg = load_config(ROOT / "plotsim" / "configs" / "sample_saas.yaml")
     tables = generate_tables(cfg, _rng(cfg.seed))
@@ -1611,7 +1615,9 @@ def test_proportional_event_timestamp_matches_date_key_row():
         ts = row["event_ts"]
         assert ts.year == expected_date.year
         assert ts.month == expected_date.month
-        assert ts.day == expected_date.day
+        # Day must fall inside the period (monthly here → 1..31).
+        # Dedicated within-period spread checks live in test_event_timestamp.py.
+        assert 1 <= ts.day <= 31
 
 
 def test_proportional_event_empty_when_counts_zero():

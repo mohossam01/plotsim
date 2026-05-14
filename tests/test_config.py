@@ -1973,6 +1973,79 @@ def test_estimator_rejects_above_2m_cells():
         PlotsimConfig(**raw)
 
 
+def test_estimator_rejects_when_quality_injection_pushes_over_budget():
+    """Hardening: a config whose base cell count fits the soft budget
+    but whose quality_issues inflate row counts past it must reject at
+    load. Pre-fix the cell-budget check ignored quality injection
+    growth, so a 1.8M-cell config with ``duplicate_rows: rate=0.5``
+    (post-injection ~2.7M cells) silently slipped past the 2M
+    default. Now estimated with explicit attribution.
+    """
+    # 1_800_000 base cells (50 cohorts × 360 = 18_000 entities × 100 periods).
+    raw = _cells(n_entities_total=18_000, n_periods=100)
+    raw["quality"] = {
+        "quality_issues": [
+            {
+                "type": "duplicate_rows",
+                "target_table": "fct_m1",
+                "target_columns": ["*"],
+                "rate": 0.5,  # adds 50% rows → 2.7M post-injection
+            }
+        ],
+    }
+    with pytest.raises(
+        ValidationError,
+        match=r"quality_issues grow the estimate to ~2,700,000",
+    ):
+        PlotsimConfig(**raw)
+
+
+def test_estimator_quality_injection_summary_line_emitted(capsys):
+    # Below-budget config: the summary line should still mention the
+    # quality-injection extra rows so operators see the growth even
+    # when it doesn't trip a budget rejection.
+    raw = _cells(n_entities_total=10_000, n_periods=50)  # 500k base cells
+    raw["quality"] = {
+        "quality_issues": [
+            {
+                "type": "duplicate_rows",
+                "target_table": "fct_m1",
+                "target_columns": ["*"],
+                "rate": 0.2,
+            }
+        ],
+    }
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Quality injection adds" in err
+    assert "post-injection cells" in err
+
+
+def test_estimator_volume_anomaly_spike_grows_cell_estimate(capsys):
+    # volume_anomaly spike on 5 target periods at rate=0.5 inflates
+    # by 5 × (rows_per_period × 0.5). Below-budget config — verify the
+    # summary line reflects the extra rows.
+    raw = _cells(n_entities_total=10_000, n_periods=50)  # 500k base cells
+    raw["quality"] = {
+        "quality_issues": [
+            {
+                "type": "volume_anomaly",
+                "target_table": "fct_m1",
+                "target_columns": ["*"],
+                "rate": 0.5,
+                "mode": "spike",
+                "target_periods": [0, 1, 2, 3, 4],
+            }
+        ],
+    }
+    PlotsimConfig(**raw)
+    err = capsys.readouterr().err
+    assert "Quality injection adds" in err
+    # rows_per_period == 10_000 (1 row per entity per period); spike
+    # adds 0.5 × 10_000 × 5 = 25_000 extra rows.
+    assert "25,000" in err
+
+
 def test_estimator_env_var_raises_soft_budget(monkeypatch, capsys):
     # 2_100_000 cells under a 5M soft budget should pass with no opt-in.
     monkeypatch.setenv("PLOTSIM_CELL_BUDGET", "5000000")
