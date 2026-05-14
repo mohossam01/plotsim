@@ -80,6 +80,34 @@ integrity / provenance tooling.
 | Causal lag (cause → effect) | Metric A at *t-k* drives metric B at *t* | YAML `metrics[].causal_lag` |
 | Seasonality | Period-of-year multipliers on metrics (`oscillating` curve + `seasonal_effects:`) | YAML `metrics[].seasonal_effects` |
 
+#### Trajectory coupling and realized correlation magnitude
+
+Two metrics that ride the same archetype trajectory share variance
+from the trajectory itself, on top of whatever the copula injects.
+A declared `connections: [a driven_by b: 0.5]` therefore realizes a
+table-wide Pearson somewhat **higher** than 0.5 when the entity body
+is concentrated in a single archetype, and closer to 0.5 as the
+archetype mix broadens.
+
+Plotsim exposes `compensate_correlations` (see
+[Config fields](./config-reference.md#compensate_correlations))
+to pre-subtract the trajectory contribution from declared targets
+before the copula runs. Defaults are split by entry point:
+
+| Entry point | `compensate_correlations` default | Realized magnitude vs. declared |
+|---|---|---|
+| Builder (`create` / `create_from_yaml`) | `True` | Within ±0.15 across documented distribution pairs |
+| Engine-direct (`load_config` on a YAML) | `False` | Higher than declared on mono-archetype configs; widens to ±0.20–0.25 on mixed sweeps |
+
+Each compensation is recorded in `manifest.correlation_compensations`
+so the realized-vs-declared delta is auditable per pair. The
+compensation cap is 20 metrics — configs with more metrics skip
+compensation (with a `UserWarning`) because the additive
+trajectory + copula decomposition gets noisy above that count.
+Engine-direct configs that need the tight magnitude envelope can
+opt in by setting `compensate_correlations: true` in YAML; output
+is no longer byte-identical to a pre-flag run of the same file.
+
 ### 5. Entity lifecycle
 
 | Feature | What it produces | Public API |
