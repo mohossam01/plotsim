@@ -722,10 +722,22 @@ def _archetype_centers(
 def _safe_corrcoef(centers: np.ndarray) -> np.ndarray:
     """Pearson correlation across columns of ``centers`` (period axis = rows).
 
-    Constant-column metrics (std == 0) make ``np.corrcoef`` return NaN for
-    the affected pairs. Treat those as "no trajectory contribution" — sub a
+    Near-constant columns (std ≈ 0) make ``np.corrcoef`` return NaN for the
+    affected pairs. Treat those as "no trajectory contribution" — sub a
     zero off-diagonal so the compensation step doesn't propagate NaN into
     the user matrix. Diagonal is forced to 1.0 regardless.
+
+    The constant-column guard uses a tolerance of ``1e-12`` rather than a
+    strict ``> 0.0`` test. Float-mean accumulation on numerically
+    identical inputs produces stds on the order of ``2.78e-17`` (e.g.
+    centers all equal to ``0.15`` from a flat-archetype + score-type
+    metric pipeline), well above zero but well below any legitimate
+    trajectory variance. A strict ``> 0.0`` test misclassifies those
+    columns as non-constant, runs ``np.corrcoef`` on numerically
+    identical inputs, and returns ``[[1, 1], [1, 1]]`` — which then
+    flows through ``compensate_correlation_matrix`` as a phantom +1.0
+    trajectory contribution and silently over-corrects every declared
+    coefficient on the affected config.
     """
     n_metrics = centers.shape[1]
     if n_metrics == 0:
@@ -738,7 +750,7 @@ def _safe_corrcoef(centers: np.ndarray) -> np.ndarray:
     stds = centers.std(axis=0, ddof=0)
     n = n_metrics
     out = np.eye(n, dtype=np.float64)
-    nonconst = np.where(stds > 0.0)[0]
+    nonconst = np.where(stds > 1e-12)[0]
     if len(nonconst) >= 2:
         sub = np.corrcoef(centers[:, nonconst], rowvar=False)
         # ``np.corrcoef`` on a degenerate input may still emit NaNs; scrub.
