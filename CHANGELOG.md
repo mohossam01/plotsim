@@ -9,6 +9,18 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`pool.<attr>` source on per_entity_per_period facts.** Widens the
+  per-entity value-pool surface to the most common fact grain (one
+  row per entity per period). Two new dispatch handlers —
+  `_fact_scalar_pool` and `_fact_vec_pool` — register against
+  `BuilderKind.PER_ENTITY_PER_PERIOD_FACT_{SCALAR,VECTORIZED}` and
+  draw uniformly from the row's entity's pool list. Pool sources
+  remain rejected on per_period facts (no per-row entity binding),
+  reference dims, and sub-entity dims. Pairs naturally with `cdc:
+  true` on the same fact, so a column like `payment_type:
+  pool.payment_method` now works alongside SCD2 and CDC on a single
+  transactional table.
+
 - **Parent/child fact grain + sibling-fact references.** Three
   composable patterns for multi-fact stars:
   - **Header / detail** — a `per_parent_row` child fact fans out

@@ -31,7 +31,7 @@ Some types take additional fields (`labels` for `bucket`, `tracks` /
 | `faker.{kind}` | yes | yes | yes | yes |
 | `geo.{field}` | yes (dim only) | — | — | — |
 | `static.{value}` | yes | yes | yes | yes |
-| `pool.{attr}` | yes (per-entity dim only) | yes (variable-grain + per_parent_row) | yes | — |
+| `pool.{attr}` | yes (per-entity dim only) | yes (per_entity_per_period + variable-grain + per_parent_row) | yes | — |
 | `range` | — | yes | yes | — |
 | `segment.count` | yes (per-entity dim only) | — | — | — |
 | `timestamp` | — | — | yes | — |
@@ -235,11 +235,11 @@ dimensions:
 
 Output dtype is `string`.
 
-**Valid on**: per-entity dimension columns, variable-grain fact
-columns, per_parent_row child-fact columns, and event columns. The
-engine reads the row's entity FK and draws from
-`attributes[attr_name]` for that entity's segment.
-Per_entity_per_period and per_period facts, reference dims, and
+**Valid on**: per-entity dimension columns, per_entity_per_period
+fact columns, variable-grain fact columns, per_parent_row child-fact
+columns, and event columns. The engine reads the row's entity FK
+and draws from `attributes[attr_name]` for that entity's segment.
+Per_period facts (the `dim_date`-style grain), reference dims, and
 sub-entity dims are out of scope — pool dispatch requires either a
 per-row entity binding (facts / events) or a 1:1 row-to-entity
 mapping (per_entity dim).

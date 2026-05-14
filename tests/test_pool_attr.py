@@ -248,62 +248,73 @@ def test_pool_attr_missing_on_some_segments_raises():
         )
 
 
-def test_pool_attr_on_per_entity_per_period_fact_rejected():
-    """``pool.{attr}`` is now valid on variable-grain facts,
-    per_parent_row child facts, and event tables (0.6-M19 Fix 1), but
-    the per_entity_per_period fact grain stays out of scope — the
-    engine has no per-row pool dispatch handler registered for that
-    grain. The engine validator surfaces the gap at config load.
+def test_pool_attr_on_per_entity_per_period_fact_accepted():
+    """``pool.{attr}`` on a per_entity_per_period fact column now
+    interprets cleanly and wires through ``_fact_scalar_pool`` /
+    ``_fact_vec_pool``. The widening over the M19-Fix-1 baseline
+    (which accepted variable-grain facts, per_parent_row children,
+    and events) covers the most common fact grain — one row per
+    (entity, period).
     """
-    with pytest.raises(ValueError, match="variable-grain fact"):
-        interpret(
-            _input(
-                segments=[
-                    {
-                        "name": "alpha",
-                        "count": 3,
-                        "archetype": "growth",
-                        "attributes": {"industry": ["Tech"]},
-                    },
-                    {
-                        "name": "beta",
-                        "count": 3,
-                        "archetype": "flat",
-                        "attributes": {"industry": ["Healthcare"]},
-                    },
-                ],
-                dimensions=[
-                    {
-                        "name": "dim_date",
-                        "per": "period",
-                        "columns": [
-                            {"name": "date_key", "type": "id"},
-                            {"name": "date", "type": "date"},
-                        ],
-                    },
-                    {
-                        "name": "dim_company",
-                        "per": "unit",
-                        "columns": [
-                            {"name": "company_id", "type": "id"},
-                        ],
-                    },
-                ],
-                facts=[
-                    {
-                        "name": "fct_company",
-                        "metrics": ["engagement"],
-                        "columns": [
-                            {"name": "date_key", "type": "ref.dim_date"},
-                            {"name": "company_id", "type": "ref.dim_company"},
-                            {"name": "engagement", "type": "metric.engagement"},
-                            # Illegal: pool.{attr} on a fact column
-                            {"name": "industry", "type": "pool.industry"},
-                        ],
-                    },
-                ],
-            )
+    cfg = interpret(
+        _input(
+            segments=[
+                {
+                    "name": "alpha",
+                    "count": 3,
+                    "archetype": "growth",
+                    "attributes": {"industry": ["Tech", "Finance"]},
+                },
+                {
+                    "name": "beta",
+                    "count": 3,
+                    "archetype": "flat",
+                    "attributes": {"industry": ["Healthcare"]},
+                },
+            ],
+            dimensions=[
+                {
+                    "name": "dim_date",
+                    "per": "period",
+                    "columns": [
+                        {"name": "date_key", "type": "id"},
+                        {"name": "date", "type": "date"},
+                    ],
+                },
+                {
+                    "name": "dim_company",
+                    "per": "unit",
+                    "columns": [
+                        {"name": "company_id", "type": "id"},
+                    ],
+                },
+            ],
+            facts=[
+                {
+                    "name": "fct_company",
+                    "metrics": ["engagement"],
+                    "columns": [
+                        {"name": "date_key", "type": "ref.dim_date"},
+                        {"name": "company_id", "type": "ref.dim_company"},
+                        {"name": "engagement", "type": "metric.engagement"},
+                        {"name": "industry", "type": "pool.industry"},
+                    ],
+                },
+            ],
         )
+    )
+    fct = next(t for t in cfg.tables if t.name == "fct_company")
+    industry_col = next(c for c in fct.columns if c.name == "industry")
+    assert industry_col.source == "pool:industry"
+    # Builder expands each segment into per-entity rows (alpha_0000, ...).
+    # Every entity in a segment shares that segment's attribute pool.
+    pool = industry_col.value_pool
+    assert pool is not None
+    alpha_keys = sorted(k for k in pool if k.startswith("alpha"))
+    beta_keys = sorted(k for k in pool if k.startswith("beta"))
+    assert len(alpha_keys) == 3 and len(beta_keys) == 3
+    assert all(pool[k] == ["Tech", "Finance"] for k in alpha_keys)
+    assert all(pool[k] == ["Healthcare"] for k in beta_keys)
 
 
 # ── Auto-schema attribute columns ──────────────────────────────────────────
