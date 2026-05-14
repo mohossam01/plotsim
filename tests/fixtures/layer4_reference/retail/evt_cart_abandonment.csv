@@ -1,117 +1,117 @@
 "event_id","date_key","segment_id","event_ts","dim_row_id"
-"cart_abandonment-00001",20230101,"customer-001","2023-01-01",1
-"cart_abandonment-00002",20230101,"customer-001","2023-01-01",1
-"cart_abandonment-00003",20230101,"customer-001","2023-01-01",1
-"cart_abandonment-00004",20230201,"customer-001","2023-02-01",1
-"cart_abandonment-00005",20230201,"customer-001","2023-02-01",1
-"cart_abandonment-00006",20230201,"customer-001","2023-02-01",1
-"cart_abandonment-00007",20230301,"customer-001","2023-03-01",1
-"cart_abandonment-00008",20230301,"customer-001","2023-03-01",1
-"cart_abandonment-00009",20230301,"customer-001","2023-03-01",1
-"cart_abandonment-00010",20230401,"customer-001","2023-04-01",1
-"cart_abandonment-00011",20230401,"customer-001","2023-04-01",1
-"cart_abandonment-00012",20230401,"customer-001","2023-04-01",1
-"cart_abandonment-00013",20230501,"customer-001","2023-05-01",1
-"cart_abandonment-00014",20230501,"customer-001","2023-05-01",1
-"cart_abandonment-00015",20230501,"customer-001","2023-05-01",1
-"cart_abandonment-00016",20230601,"customer-001","2023-06-01",1
-"cart_abandonment-00017",20230601,"customer-001","2023-06-01",1
-"cart_abandonment-00018",20230701,"customer-001","2023-07-01",1
-"cart_abandonment-00019",20230701,"customer-001","2023-07-01",1
-"cart_abandonment-00020",20230801,"customer-001","2023-08-01",1
-"cart_abandonment-00021",20230801,"customer-001","2023-08-01",1
-"cart_abandonment-00022",20230901,"customer-001","2023-09-01",1
-"cart_abandonment-00023",20230901,"customer-001","2023-09-01",1
-"cart_abandonment-00024",20231001,"customer-001","2023-10-01",2
-"cart_abandonment-00025",20231001,"customer-001","2023-10-01",2
-"cart_abandonment-00026",20231101,"customer-001","2023-11-01",2
-"cart_abandonment-00027",20231101,"customer-001","2023-11-01",2
-"cart_abandonment-00028",20231201,"customer-001","2023-12-01",2
-"cart_abandonment-00029",20240101,"customer-001","2024-01-01",2
-"cart_abandonment-00030",20240101,"customer-001","2024-01-01",2
-"cart_abandonment-00031",20240201,"customer-001","2024-02-01",2
-"cart_abandonment-00032",20240301,"customer-001","2024-03-01",2
-"cart_abandonment-00033",20240401,"customer-001","2024-04-01",3
-"cart_abandonment-00034",20240501,"customer-001","2024-05-01",3
-"cart_abandonment-00035",20230101,"customer-002","2023-01-01",4
-"cart_abandonment-00036",20230201,"customer-002","2023-02-01",4
-"cart_abandonment-00037",20230301,"customer-002","2023-03-01",4
-"cart_abandonment-00038",20230401,"customer-002","2023-04-01",4
-"cart_abandonment-00039",20230501,"customer-002","2023-05-01",4
-"cart_abandonment-00040",20230601,"customer-002","2023-06-01",5
-"cart_abandonment-00041",20230701,"customer-002","2023-07-01",5
-"cart_abandonment-00042",20230701,"customer-002","2023-07-01",5
-"cart_abandonment-00043",20230701,"customer-002","2023-07-01",5
-"cart_abandonment-00044",20230801,"customer-002","2023-08-01",5
-"cart_abandonment-00045",20230901,"customer-002","2023-09-01",5
-"cart_abandonment-00046",20240301,"customer-002","2024-03-01",5
-"cart_abandonment-00047",20240501,"customer-002","2024-05-01",5
-"cart_abandonment-00048",20240601,"customer-002","2024-06-01",5
-"cart_abandonment-00049",20240701,"customer-002","2024-07-01",5
-"cart_abandonment-00050",20240801,"customer-002","2024-08-01",5
-"cart_abandonment-00051",20240901,"customer-002","2024-09-01",5
-"cart_abandonment-00052",20241001,"customer-002","2024-10-01",5
-"cart_abandonment-00053",20241101,"customer-002","2024-11-01",5
-"cart_abandonment-00054",20241201,"customer-002","2024-12-01",5
-"cart_abandonment-00055",20241201,"customer-002","2024-12-01",5
-"cart_abandonment-00056",20230101,"customer-003","2023-01-01",6
-"cart_abandonment-00057",20230101,"customer-003","2023-01-01",6
-"cart_abandonment-00058",20230101,"customer-003","2023-01-01",6
-"cart_abandonment-00059",20230201,"customer-003","2023-02-01",6
-"cart_abandonment-00060",20230201,"customer-003","2023-02-01",6
-"cart_abandonment-00061",20230301,"customer-003","2023-03-01",7
-"cart_abandonment-00062",20230401,"customer-003","2023-04-01",7
-"cart_abandonment-00063",20231101,"customer-003","2023-11-01",7
-"cart_abandonment-00064",20231101,"customer-003","2023-11-01",7
-"cart_abandonment-00065",20231101,"customer-003","2023-11-01",7
-"cart_abandonment-00066",20231201,"customer-003","2023-12-01",7
-"cart_abandonment-00067",20231201,"customer-003","2023-12-01",7
-"cart_abandonment-00068",20231201,"customer-003","2023-12-01",7
-"cart_abandonment-00069",20240101,"customer-003","2024-01-01",7
-"cart_abandonment-00070",20240101,"customer-003","2024-01-01",7
-"cart_abandonment-00071",20240201,"customer-003","2024-02-01",7
-"cart_abandonment-00072",20240201,"customer-003","2024-02-01",7
-"cart_abandonment-00073",20240301,"customer-003","2024-03-01",7
-"cart_abandonment-00074",20240301,"customer-003","2024-03-01",7
-"cart_abandonment-00075",20240401,"customer-003","2024-04-01",7
-"cart_abandonment-00076",20240401,"customer-003","2024-04-01",7
-"cart_abandonment-00077",20240401,"customer-003","2024-04-01",7
-"cart_abandonment-00078",20240501,"customer-003","2024-05-01",7
-"cart_abandonment-00079",20240501,"customer-003","2024-05-01",7
-"cart_abandonment-00080",20240501,"customer-003","2024-05-01",7
-"cart_abandonment-00081",20240601,"customer-003","2024-06-01",7
-"cart_abandonment-00082",20240601,"customer-003","2024-06-01",7
-"cart_abandonment-00083",20240601,"customer-003","2024-06-01",7
-"cart_abandonment-00084",20240701,"customer-003","2024-07-01",7
-"cart_abandonment-00085",20240701,"customer-003","2024-07-01",7
-"cart_abandonment-00086",20240801,"customer-003","2024-08-01",7
-"cart_abandonment-00087",20240801,"customer-003","2024-08-01",7
-"cart_abandonment-00088",20240801,"customer-003","2024-08-01",7
-"cart_abandonment-00089",20240901,"customer-003","2024-09-01",7
-"cart_abandonment-00090",20240901,"customer-003","2024-09-01",7
-"cart_abandonment-00091",20240901,"customer-003","2024-09-01",7
-"cart_abandonment-00092",20241001,"customer-003","2024-10-01",7
-"cart_abandonment-00093",20241001,"customer-003","2024-10-01",7
-"cart_abandonment-00094",20241001,"customer-003","2024-10-01",7
-"cart_abandonment-00095",20241101,"customer-003","2024-11-01",7
-"cart_abandonment-00096",20241101,"customer-003","2024-11-01",7
-"cart_abandonment-00097",20241201,"customer-003","2024-12-01",7
-"cart_abandonment-00098",20241201,"customer-003","2024-12-01",7
-"cart_abandonment-00099",20230101,"customer-004","2023-01-01",8
-"cart_abandonment-00100",20230101,"customer-004","2023-01-01",8
-"cart_abandonment-00101",20230201,"customer-004","2023-02-01",8
-"cart_abandonment-00102",20230201,"customer-004","2023-02-01",8
-"cart_abandonment-00103",20230301,"customer-004","2023-03-01",8
-"cart_abandonment-00104",20230401,"customer-004","2023-04-01",8
-"cart_abandonment-00105",20230501,"customer-004","2023-05-01",8
-"cart_abandonment-00106",20230601,"customer-004","2023-06-01",8
-"cart_abandonment-00107",20230701,"customer-004","2023-07-01",8
-"cart_abandonment-00108",20230801,"customer-004","2023-08-01",8
-"cart_abandonment-00109",20230901,"customer-004","2023-09-01",9
-"cart_abandonment-00110",20231001,"customer-004","2023-10-01",9
-"cart_abandonment-00111",20231101,"customer-004","2023-11-01",9
-"cart_abandonment-00112",20231201,"customer-004","2023-12-01",9
-"cart_abandonment-00113",20240201,"customer-004","2024-02-01",9
-"cart_abandonment-00114",20240401,"customer-004","2024-04-01",9
-"cart_abandonment-00115",20241001,"customer-004","2024-10-01",9
-"cart_abandonment-00116",20241101,"customer-004","2024-11-01",9
+"cart_abandonment-00001",20230101,"customer-001","2023-01-01 10:06:26.839164",1
+"cart_abandonment-00002",20230101,"customer-001","2023-01-23 04:20:38.602480",1
+"cart_abandonment-00003",20230101,"customer-001","2023-01-11 14:58:36.456001",1
+"cart_abandonment-00004",20230201,"customer-001","2023-02-20 12:33:09.532557",1
+"cart_abandonment-00005",20230201,"customer-001","2023-02-22 20:07:27.415489",1
+"cart_abandonment-00006",20230201,"customer-001","2023-02-24 09:19:26.635883",1
+"cart_abandonment-00007",20230301,"customer-001","2023-03-20 02:10:37.272293",1
+"cart_abandonment-00008",20230301,"customer-001","2023-03-27 05:58:21.107126",1
+"cart_abandonment-00009",20230301,"customer-001","2023-03-21 10:11:56.827691",1
+"cart_abandonment-00010",20230401,"customer-001","2023-04-28 19:38:30.896788",1
+"cart_abandonment-00011",20230401,"customer-001","2023-04-27 21:43:54.598332",1
+"cart_abandonment-00012",20230401,"customer-001","2023-04-02 07:09:46.411120",1
+"cart_abandonment-00013",20230501,"customer-001","2023-05-09 07:07:47.269269",1
+"cart_abandonment-00014",20230501,"customer-001","2023-05-13 01:17:11.879499",1
+"cart_abandonment-00015",20230501,"customer-001","2023-05-08 19:38:10.091363",1
+"cart_abandonment-00016",20230601,"customer-001","2023-06-06 07:21:42.286049",1
+"cart_abandonment-00017",20230601,"customer-001","2023-06-27 04:54:03.038484",1
+"cart_abandonment-00018",20230701,"customer-001","2023-07-01 18:36:04.028753",1
+"cart_abandonment-00019",20230701,"customer-001","2023-07-06 15:18:12.329820",1
+"cart_abandonment-00020",20230801,"customer-001","2023-08-24 13:37:14.998917",1
+"cart_abandonment-00021",20230801,"customer-001","2023-08-07 22:08:35.811307",1
+"cart_abandonment-00022",20230901,"customer-001","2023-09-08 18:00:51.263204",1
+"cart_abandonment-00023",20230901,"customer-001","2023-09-30 00:34:46.580198",1
+"cart_abandonment-00024",20231001,"customer-001","2023-10-24 15:24:47.346643",2
+"cart_abandonment-00025",20231001,"customer-001","2023-10-14 21:48:24.657969",2
+"cart_abandonment-00026",20231101,"customer-001","2023-11-05 02:03:55.052876",2
+"cart_abandonment-00027",20231101,"customer-001","2023-11-09 01:42:48.738637",2
+"cart_abandonment-00028",20231201,"customer-001","2023-12-31 09:59:07.169994",2
+"cart_abandonment-00029",20240101,"customer-001","2024-01-25 12:33:43.433024",2
+"cart_abandonment-00030",20240101,"customer-001","2024-01-03 03:59:23.555196",2
+"cart_abandonment-00031",20240201,"customer-001","2024-02-21 11:57:45.170207",2
+"cart_abandonment-00032",20240301,"customer-001","2024-03-12 15:46:00.494299",2
+"cart_abandonment-00033",20240401,"customer-001","2024-04-22 14:19:52.678330",3
+"cart_abandonment-00034",20240501,"customer-001","2024-05-10 03:48:42.880525",3
+"cart_abandonment-00035",20230101,"customer-002","2023-01-05 00:50:34.007924",4
+"cart_abandonment-00036",20230201,"customer-002","2023-02-01 13:14:17.964628",4
+"cart_abandonment-00037",20230301,"customer-002","2023-03-10 03:59:24.667892",4
+"cart_abandonment-00038",20230401,"customer-002","2023-04-26 19:26:51.917815",4
+"cart_abandonment-00039",20230501,"customer-002","2023-05-28 15:04:32.693555",4
+"cart_abandonment-00040",20230601,"customer-002","2023-06-21 11:53:02.513281",5
+"cart_abandonment-00041",20230701,"customer-002","2023-07-24 04:25:38.801612",5
+"cart_abandonment-00042",20230701,"customer-002","2023-07-07 00:48:13.548785",5
+"cart_abandonment-00043",20230701,"customer-002","2023-07-11 23:34:15.693533",5
+"cart_abandonment-00044",20230801,"customer-002","2023-08-28 21:01:46.337888",5
+"cart_abandonment-00045",20230901,"customer-002","2023-09-30 14:07:18.190367",5
+"cart_abandonment-00046",20240301,"customer-002","2024-03-14 17:37:58.162126",5
+"cart_abandonment-00047",20240501,"customer-002","2024-05-25 01:19:30.445761",5
+"cart_abandonment-00048",20240601,"customer-002","2024-06-29 00:04:53.933506",5
+"cart_abandonment-00049",20240701,"customer-002","2024-07-31 21:46:10.857187",5
+"cart_abandonment-00050",20240801,"customer-002","2024-08-10 04:02:33.328504",5
+"cart_abandonment-00051",20240901,"customer-002","2024-09-20 14:55:51.090362",5
+"cart_abandonment-00052",20241001,"customer-002","2024-10-13 02:08:41.306612",5
+"cart_abandonment-00053",20241101,"customer-002","2024-11-14 22:51:36.678150",5
+"cart_abandonment-00054",20241201,"customer-002","2024-12-15 07:40:02.808674",5
+"cart_abandonment-00055",20241201,"customer-002","2024-12-09 15:12:55.407977",5
+"cart_abandonment-00056",20230101,"customer-003","2023-01-01 14:11:03.714620",6
+"cart_abandonment-00057",20230101,"customer-003","2023-01-24 18:17:58.006414",6
+"cart_abandonment-00058",20230101,"customer-003","2023-01-22 13:47:59.417734",6
+"cart_abandonment-00059",20230201,"customer-003","2023-02-24 12:52:52.500595",6
+"cart_abandonment-00060",20230201,"customer-003","2023-02-05 07:01:13.479435",6
+"cart_abandonment-00061",20230301,"customer-003","2023-03-08 08:21:17.222201",7
+"cart_abandonment-00062",20230401,"customer-003","2023-04-18 21:12:48.947678",7
+"cart_abandonment-00063",20231101,"customer-003","2023-11-29 02:22:16.528863",7
+"cart_abandonment-00064",20231101,"customer-003","2023-11-15 03:40:39.824605",7
+"cart_abandonment-00065",20231101,"customer-003","2023-11-07 00:35:44.576474",7
+"cart_abandonment-00066",20231201,"customer-003","2023-12-19 10:26:59.010366",7
+"cart_abandonment-00067",20231201,"customer-003","2023-12-30 16:23:00.306200",7
+"cart_abandonment-00068",20231201,"customer-003","2023-12-27 21:50:53.479377",7
+"cart_abandonment-00069",20240101,"customer-003","2024-01-28 20:49:25.559627",7
+"cart_abandonment-00070",20240101,"customer-003","2024-01-13 17:25:42.266891",7
+"cart_abandonment-00071",20240201,"customer-003","2024-02-08 14:33:25.647100",7
+"cart_abandonment-00072",20240201,"customer-003","2024-02-26 05:55:33.281625",7
+"cart_abandonment-00073",20240301,"customer-003","2024-03-25 10:20:12.537893",7
+"cart_abandonment-00074",20240301,"customer-003","2024-03-27 09:25:28.762745",7
+"cart_abandonment-00075",20240401,"customer-003","2024-04-12 17:41:00.100824",7
+"cart_abandonment-00076",20240401,"customer-003","2024-04-09 14:02:01.452481",7
+"cart_abandonment-00077",20240401,"customer-003","2024-04-08 05:00:56.467568",7
+"cart_abandonment-00078",20240501,"customer-003","2024-05-27 23:44:29.612170",7
+"cart_abandonment-00079",20240501,"customer-003","2024-05-29 12:03:00.671205",7
+"cart_abandonment-00080",20240501,"customer-003","2024-05-12 09:10:12.770582",7
+"cart_abandonment-00081",20240601,"customer-003","2024-06-27 05:40:11.335736",7
+"cart_abandonment-00082",20240601,"customer-003","2024-06-12 10:36:10.024985",7
+"cart_abandonment-00083",20240601,"customer-003","2024-06-14 10:29:39.673261",7
+"cart_abandonment-00084",20240701,"customer-003","2024-07-18 13:27:44.072700",7
+"cart_abandonment-00085",20240701,"customer-003","2024-07-07 20:38:52.923958",7
+"cart_abandonment-00086",20240801,"customer-003","2024-08-09 06:58:56.636349",7
+"cart_abandonment-00087",20240801,"customer-003","2024-08-09 06:23:18.407977",7
+"cart_abandonment-00088",20240801,"customer-003","2024-08-09 01:29:33.053276",7
+"cart_abandonment-00089",20240901,"customer-003","2024-09-16 11:10:29.933520",7
+"cart_abandonment-00090",20240901,"customer-003","2024-09-04 00:21:40.744550",7
+"cart_abandonment-00091",20240901,"customer-003","2024-09-24 09:52:23.381008",7
+"cart_abandonment-00092",20241001,"customer-003","2024-10-06 10:02:59.510662",7
+"cart_abandonment-00093",20241001,"customer-003","2024-10-14 18:18:41.369742",7
+"cart_abandonment-00094",20241001,"customer-003","2024-10-20 21:30:57.140646",7
+"cart_abandonment-00095",20241101,"customer-003","2024-11-05 03:22:37.490226",7
+"cart_abandonment-00096",20241101,"customer-003","2024-11-13 06:37:05.623083",7
+"cart_abandonment-00097",20241201,"customer-003","2024-12-18 10:59:32.665820",7
+"cart_abandonment-00098",20241201,"customer-003","2024-12-18 01:25:46.231934",7
+"cart_abandonment-00099",20230101,"customer-004","2023-01-28 16:02:16.307432",8
+"cart_abandonment-00100",20230101,"customer-004","2023-01-25 08:02:47.430746",8
+"cart_abandonment-00101",20230201,"customer-004","2023-02-04 09:15:04.627618",8
+"cart_abandonment-00102",20230201,"customer-004","2023-02-24 07:55:34.438779",8
+"cart_abandonment-00103",20230301,"customer-004","2023-03-18 01:02:47.096608",8
+"cart_abandonment-00104",20230401,"customer-004","2023-04-21 08:16:39.339268",8
+"cart_abandonment-00105",20230501,"customer-004","2023-05-05 23:01:20.441770",8
+"cart_abandonment-00106",20230601,"customer-004","2023-06-15 03:49:34.118899",8
+"cart_abandonment-00107",20230701,"customer-004","2023-07-22 16:44:14.499571",8
+"cart_abandonment-00108",20230801,"customer-004","2023-08-25 17:18:17.278630",8
+"cart_abandonment-00109",20230901,"customer-004","2023-09-25 04:11:03.145461",9
+"cart_abandonment-00110",20231001,"customer-004","2023-10-07 17:32:44.678955",9
+"cart_abandonment-00111",20231101,"customer-004","2023-11-25 23:33:45.115110",9
+"cart_abandonment-00112",20231201,"customer-004","2023-12-18 14:54:35.510355",9
+"cart_abandonment-00113",20240201,"customer-004","2024-02-20 09:24:24.184185",9
+"cart_abandonment-00114",20240401,"customer-004","2024-04-26 13:07:03.590100",9
+"cart_abandonment-00115",20241001,"customer-004","2024-10-13 13:40:05.534866",9
+"cart_abandonment-00116",20241101,"customer-004","2024-11-28 14:08:20.448424",9

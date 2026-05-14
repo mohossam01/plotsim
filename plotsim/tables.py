@@ -43,6 +43,7 @@ Notes on the public surface:
 
 from __future__ import annotations
 
+import calendar
 import datetime as _dt
 import warnings
 from dataclasses import dataclass, field
@@ -1817,6 +1818,72 @@ COLUMN_DISPATCH.register(BuilderKind.PER_PERIOD_FACT, StaticSource, _per_period_
 COLUMN_DISPATCH.register_unsupported(BuilderKind.PER_PERIOD_FACT, _per_period_unsupported)
 
 
+def _days_in_period(anchor_date: _dt.date, granularity: str) -> int:
+    """Number of days in the period that starts at ``anchor_date``.
+
+    monthly: ``calendar.monthrange(anchor.year, anchor.month)[1]``
+    weekly:  7
+    daily:   1
+    """
+    if granularity == "monthly":
+        return calendar.monthrange(anchor_date.year, anchor_date.month)[1]
+    if granularity == "weekly":
+        return 7
+    if granularity == "daily":
+        return 1
+    raise ValueError(f"unknown granularity {granularity!r}")
+
+
+def _within_period_timestamp(
+    anchor_date: _dt.date,
+    granularity: str,
+    rng: np.random.Generator,
+) -> _dt.datetime:
+    """Draw one uniform timestamp inside the period starting at ``anchor_date``.
+
+    Period extent by granularity:
+      * monthly — 1st-of-month through end-of-month (variable days).
+      * weekly  — Monday through Sunday (7 days).
+      * daily   — the anchor day (24 hours).
+
+    One rng draw per call. Callers share a single rng; downstream rng
+    consumption order shifts when a table adds or removes a timestamp
+    column, but is deterministic for a fixed config + seed.
+    """
+    seconds_in_period = _days_in_period(anchor_date, granularity) * 86400
+    offset_seconds = float(rng.uniform(0.0, seconds_in_period))
+    base = _dt.datetime(anchor_date.year, anchor_date.month, anchor_date.day)
+    return base + _dt.timedelta(seconds=offset_seconds)
+
+
+def _coerce_anchor_date(d: Any) -> _dt.date:
+    """Promote a ``dim_date.date`` cell to a plain :class:`datetime.date`."""
+    if isinstance(d, _dt.datetime):
+        return d.date()
+    return cast(_dt.date, d)
+
+
+def _within_period_timestamps_for_indices(
+    dim_date: pd.DataFrame,
+    indices: np.ndarray,
+    granularity: str,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Vectorized within-period timestamp draw.
+
+    For each ``i`` in ``indices``, returns a timestamp drawn uniformly
+    within the period anchored at ``dim_date.iloc[i]["date"]``. One rng
+    draw per row, in ``indices`` iteration order.
+    """
+    dates = dim_date["date"].tolist()
+    n_rows = len(indices)
+    out = np.empty(n_rows, dtype=object)
+    for i in range(n_rows):
+        anchor = _coerce_anchor_date(dates[indices[i]])
+        out[i] = _within_period_timestamp(anchor, granularity, rng)
+    return out
+
+
 def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, fake: Faker):
     """Resolve a non-faker ``generated:<provider>`` cell.
 
@@ -1827,6 +1894,11 @@ def _resolve_generated(provider: str, period_idx: int, dim_date: pd.DataFrame, f
 
     ``fake`` is retained in the signature for callers that still pass it
     (it's harmless here).
+
+    Anchor-only timestamp: used by per_entity_per_period and per_period
+    facts where the row's date is the period anchor by construction.
+    Event and variable-grain paths route through
+    :func:`_within_period_timestamp` instead.
     """
     del fake
     if provider == "timestamp":
@@ -2186,6 +2258,9 @@ def _emit_proportional_rows(
         # 0.6-M19 Fix 2: RangeSource handler reads ``rng`` for the bulk
         # uniform / integers draw. Other handlers ignore the key.
         "rng": rng,
+        # 0.6-M19 Fix 6: GeneratedSource timestamp handler reads
+        # ``granularity`` to size the within-period draw range.
+        "granularity": config.time_window.granularity,
     }
     for col, parsed in parsed_cols:
         if col.name in stochastic_cols:
@@ -2424,14 +2499,17 @@ def _prop_evt_generated(parsed: GeneratedSource, ctx: dict):
     dim_date = ctx["dim_date"]
     event_date_idx = ctx["event_date_idx"]
     if provider == "timestamp":
-        dates = dim_date["date"].tolist()
-        promoted: list[Any] = []
-        for d in dates:
-            if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
-                promoted.append(_dt.datetime(d.year, d.month, d.day))
-            else:
-                promoted.append(d)
-        return np.asarray([promoted[i] for i in event_date_idx], dtype=object)
+        # 0.6-M19 Fix 6: distribute timestamps uniformly within each
+        # period instead of anchoring to the period start. Event and
+        # variable-grain fact rows now span the full month / week /
+        # day they belong to. Per_entity_per_period and per_period
+        # facts keep anchor-only behavior via :func:`_resolve_generated`.
+        return _within_period_timestamps_for_indices(
+            dim_date,
+            event_date_idx,
+            ctx["granularity"],
+            ctx["rng"],
+        )
     if provider == "date_key":
         dk = dim_date["date_key"].tolist()
         return np.asarray([dk[i] for i in event_date_idx], dtype=object)
@@ -2729,15 +2807,14 @@ def _build_per_parent_row_fact(
                         f"generated:timestamp but parent has no "
                         f"dim_date FK to derive period dates from"
                     )
-                dates = dim_date["date"].tolist()
-                promoted: list[Any] = []
-                for d in dates:
-                    if isinstance(d, _dt.date) and not isinstance(d, _dt.datetime):
-                        promoted.append(_dt.datetime(d.year, d.month, d.day))
-                    else:
-                        promoted.append(d)
-                col_arrays[col.name] = np.asarray(
-                    [promoted[i] for i in date_idx_repeated], dtype=object
+                # 0.6-M19 Fix 6: distribute child timestamps uniformly
+                # across each parent row's period. Per-parent-row
+                # children are variable-grain per the mission spec.
+                col_arrays[col.name] = _within_period_timestamps_for_indices(
+                    dim_date,
+                    date_idx_repeated,
+                    config.time_window.granularity,
+                    rng,
                 )
             elif provider == "period_label":
                 if date_idx_repeated is None or dim_date is None:
@@ -2991,6 +3068,22 @@ def _evt_row_threshold(parsed: ThresholdSource, ctx: dict):
 
 def _evt_row_generated(parsed: GeneratedSource, ctx: dict):
     date_idx = ctx["date_idx"]
+    if parsed.provider == "timestamp" and date_idx is not None:
+        # 0.6-M19 Fix 6: distribute the threshold-event timestamp
+        # uniformly within the period anchored at ``date_idx`` rather
+        # than emitting the period anchor itself. The fact-row's date
+        # is the period anchor by construction (per_entity_per_period
+        # parent), so without this the firing row's event_ts would
+        # always land on day 1 of the month/week.
+        dim_date = ctx["dim_date"]
+        rng = ctx["rng"]
+        if rng is not None:
+            anchor = _coerce_anchor_date(dim_date.iloc[date_idx]["date"])
+            return _within_period_timestamp(
+                anchor,
+                ctx["config"].time_window.granularity,
+                rng,
+            )
     return _resolve_generated(
         parsed.provider,
         date_idx if date_idx is not None else 0,
