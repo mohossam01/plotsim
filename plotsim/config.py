@@ -3433,6 +3433,44 @@ class PlotsimConfig(_Frozen):
             child_rows_upper += int(parent_rows * mx)
         event_rows_upper += child_rows_upper
 
+        # Estimate row-count growth from post-generation quality
+        # injection. Two issue types inflate row counts:
+        #   * ``duplicate_rows`` — inserts ``rate`` of the target
+        #     table's existing rows as exact copies.
+        #   * ``volume_anomaly`` with ``mode='spike'`` — duplicates
+        #     ``rate`` of the rows whose period matches each entry in
+        #     ``target_period`` / ``target_periods``.
+        # Other issue types either replace cells (null_injection,
+        # type_mismatch, schema_drift), append a column (late_arrival),
+        # or remove rows (volume_anomaly drop) — none of those grow
+        # the cell count, so they're not in the estimate.
+        tables_by_name_for_quality = {t.name: t for t in self.tables}
+
+        def _table_row_estimate(name: str) -> int:
+            tbl = tables_by_name_for_quality.get(name)
+            if tbl is None:
+                return cell_count  # conservative — caught by other validators
+            if tbl.type == "fact" and tbl.grain == "per_entity_per_period":
+                return cell_count
+            if tbl.name in variable_rows_by_table:
+                return variable_rows_by_table[tbl.name]
+            return cell_count
+
+        quality_extra_rows = 0
+        for issue in self.quality.quality_issues:
+            target_rows = _table_row_estimate(issue.target_table)
+            if issue.type == "duplicate_rows":
+                quality_extra_rows += int(target_rows * issue.rate)
+            elif issue.type == "volume_anomaly" and issue.mode == "spike":
+                if issue.target_period is not None:
+                    n_target_periods = 1
+                else:
+                    n_target_periods = len(issue.target_periods or ())
+                rows_per_period = target_rows // max(n_periods, 1)
+                quality_extra_rows += int(rows_per_period * n_target_periods * issue.rate)
+
+        post_quality_cells = cell_count + quality_extra_rows
+
         summary = (
             f"Config summary: {n_entities:,} entities × {n_periods:,} periods "
             f"= {cell_count:,} cells, {len(self.metrics)} metrics, "
@@ -3440,6 +3478,11 @@ class PlotsimConfig(_Frozen):
         )
         if event_rows_upper > 0:
             summary += f" Expected event rows (upper bound): ~{event_rows_upper:,}."
+        if quality_extra_rows > 0:
+            summary += (
+                f" Quality injection adds ~{quality_extra_rows:,} rows "
+                f"(post-injection cells: ~{post_quality_cells:,})."
+            )
         sys.stderr.write(summary + "\n")
 
         soft_budget = _resolve_cell_budget(self.output.cell_budget)
@@ -3452,6 +3495,24 @@ class PlotsimConfig(_Frozen):
                 f"Reduce entity count, time window span, or coarsen "
                 f"granularity. The hard ceiling is not configurable; configs "
                 f"this large should be split or chunked."
+            )
+
+        if (
+            soft_budget > 0
+            and post_quality_cells > soft_budget
+            and cell_count <= soft_budget
+            and not allow_large
+        ):
+            raise ValueError(
+                f"Config produces {cell_count:,} cells before quality "
+                f"injection but the configured quality_issues grow the "
+                f"estimate to ~{post_quality_cells:,} cells, which exceeds "
+                f"the soft budget of {soft_budget:,}. Lower the "
+                f"`rate` on any `duplicate_rows` / `volume_anomaly` issue, "
+                f"raise the budget in your config (output.cell_budget: N, "
+                f"or 0 to disable), set PLOTSIM_CELL_BUDGET=N in the "
+                f"environment, or pass --allow-large-dataset on the CLI / "
+                f"set PLOTSIM_ALLOW_LARGE_DATASET=1."
             )
 
         if soft_budget > 0 and cell_count > soft_budget and not allow_large:
