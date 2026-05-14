@@ -884,3 +884,19 @@ runs well below the threshold:
 ```
 Config summary: 80 entities × 24 periods = 1,920 cells, 4 metrics, 6 tables. Estimated peak memory: ~100 MB.
 ```
+
+### Quality-injection row growth in the budget
+
+`quality.quality_issues` of type `duplicate_rows` (and
+`volume_anomaly` with `mode: spike`) grow the post-injection row
+count of their target table. The scale estimator now factors that
+growth into the soft-budget check: a config whose base
+`entities × periods` count sits under the budget but whose
+configured injections would push the post-injection total over it
+rejects at load with a message naming the post-injection estimate.
+Configs with no `duplicate_rows` or `volume_anomaly: spike` issues
+are unaffected. When growth is present the summary line appends:
+
+```
+Quality injection adds ~25,000 rows (post-injection cells: ~525,000).
+```
