@@ -46,7 +46,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.6",
+  "schema_version": "1.7",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -63,13 +63,14 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
   "causal_graph": [...],
   "correlations": [...],
   "outlier_injections": [...] | null,
-  "parent_child_relations": [...]
+  "parent_child_relations": [...],
+  "noise_config": {...} | null
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.6"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations` — landed) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.7"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -86,6 +87,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `causal_graph` | array | One `CausalEdge` per metric with a non-None `causal_lag`. Empty list when no metric uses `causal_lag` |
 | `correlations` | array | One entry per user-declared `config.correlations` pair, with the realized (post-Higham, post-compensation) coefficient. Empty list when no correlations are configured |
 | `outlier_injections` | array or `null` | Per-cell outlier-fire log. `null` when skipped (no `outlier_rate`, vectorized mode, or cell budget exceeded). `[]` when the detector ran and observed no firings |
+| `noise_config` | object or `null` | Noise-model record. `null` when the run uses the default magnitude-scaled gaussian lane; populated only when `noise.scale_with_trajectory` is `true` |
 
 ---
 
@@ -620,6 +622,38 @@ trajectory-driven row counts; `child_row_count` reflects the
 configured `children_per_row` range × parent rows. A divergent
 `child_row_count / parent_row_count` ratio across runs at the same
 seed signals a generation regression.
+
+---
+
+## `noise_config`
+
+Noise-model record — emitted only when the run opted into
+heteroscedastic gaussian noise via `noise.scale_with_trajectory: true`.
+`null` for the default magnitude-scaled lane (and absent from manifests
+produced before `schema_version: "1.7"`).
+
+```json
+{
+  "noise_config": {
+    "gaussian_sigma": 0.20,
+    "outlier_rate": 0.0,
+    "mcar_rate": 0.0,
+    "scale_with_trajectory": true
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `gaussian_sigma` | `float` | The σ multiplier from `config.noise.gaussian_sigma`. Under the heteroscedastic lane the realized scale at a cell is `gaussian_sigma × trajectory_position` |
+| `outlier_rate` | `float` | Mirrors `config.noise.outlier_rate`. Unaffected by the heteroscedastic flag — recorded here for completeness so the manifest fully describes the noise model |
+| `mcar_rate` | `float` | Mirrors `config.noise.mcar_rate`. Unaffected by the heteroscedastic flag |
+| `scale_with_trajectory` | `bool` | Always `true` when this record is present (the field exists for forward compatibility in case the manifest later starts recording the default-off lane as well) |
+
+**Use case** — distinguish a run that opted into position-scaled
+gaussian noise from one that didn't, without re-reading the YAML
+config. Anomaly-detection scoring that assumes uniform noise variance
+can read this field to switch to a position-aware likelihood model.
 
 ---
 

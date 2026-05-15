@@ -9,6 +9,17 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Heteroscedastic gaussian noise.** Optional `scale_with_trajectory`
+  flag on `NoiseConfig` (mirror on the builder's `NoiseInput`). When
+  `true`, each cell's gaussian standard deviation becomes
+  `gaussian_sigma × trajectory_position` instead of
+  `gaussian_sigma × |value|` — position-zero cells receive zero
+  gaussian noise, position-one cells receive the full σ. Outlier and
+  MCAR rates are unaffected. Default `false` keeps engine output
+  byte-identical to the magnitude-scaled lane. Manifest schema bumps
+  1.6 → 1.7 with a new optional `noise_config` field populated only
+  when the flag is enabled.
+
 - **`pool.<attr>` source on per_entity_per_period facts.** Widens the
   per-entity value-pool surface to the most common fact grain (one
   row per entity per period). Two new dispatch handlers —
