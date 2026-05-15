@@ -237,13 +237,14 @@ Use this when you need the ground-truth trajectory positions — the
 the primary consumers. Recovering positions from noisy fact-table cells
 is impossible in general; this function exposes them directly.
 
-`GenerationState` is a frozen dataclass with three fields:
+`GenerationState` is a frozen dataclass with four fields:
 
 | Field | Type | Contents |
 |---|---|---|
 | `trajectories` | `dict[str, ndarray]` | Per-entity position array, length `n_periods`, values in `[0, 1]` |
 | `scd` | `SCDState` | Per-dim SCD Type 2 versioning (empty when no SCD columns are configured) |
 | `bridges` | `BridgeAssociations` | Per-bridge association ground truth (empty when no bridges are configured) |
+| `entity_metrics` | `dict[str, dict[str, ndarray]]` | Per-entity, per-metric realized series — the noise-free, distribution-shaped values the fact tables were built from. Consumed by `build_manifest` for the regression-pair sections; downstream feature pipelines pick it up here when they need the same arrays without re-running the engine |
 
 **Returns** — `(tables, state)`.
 
@@ -255,8 +256,11 @@ is impossible in general; this function exposes them directly.
 from plotsim import generate_tables_with_state, build_manifest
 
 tables, state = generate_tables_with_state(cfg)
-manifest = build_manifest(cfg, state.trajectories, tables,
-                          scd_state=state.scd, bridge_state=state.bridges)
+manifest = build_manifest(
+    cfg, state.trajectories, tables,
+    scd_state=state.scd, bridge_state=state.bridges,
+    entity_metrics=state.entity_metrics,
+)
 ```
 
 ---
@@ -393,8 +397,11 @@ are still written so you can inspect the broken data. Block on
 from plotsim import generate_tables_with_state, build_manifest, write_tables
 
 tables, state = generate_tables_with_state(cfg)
-manifest = build_manifest(cfg, state.trajectories, tables,
-                          scd_state=state.scd, bridge_state=state.bridges)
+manifest = build_manifest(
+    cfg, state.trajectories, tables,
+    scd_state=state.scd, bridge_state=state.bridges,
+    entity_metrics=state.entity_metrics,
+)
 out = write_tables(tables, cfg, manifest=manifest)
 print(f"Wrote to {out}")
 ```
@@ -496,13 +503,15 @@ def build_manifest(
     sample_rate: float | None = None,
     scd_state: SCDState | None = None,
     bridge_state: BridgeAssociations | None = None,
+    entity_metrics: dict[str, dict[str, numpy.ndarray]] | None = None,
 ) -> ManifestSchema
 ```
 
 The manifest captures the *signal layer* a noisy fact table can't
 recover: archetype assignments, trajectory positions, event-firing
-periods, SCD band crossings, bridge associations, and reproducibility
-metadata.
+periods, SCD band crossings, bridge associations, the engine's
+seasonal-strength inputs, per-pair regression summaries for declared
+correlations, and reproducibility metadata.
 
 **Parameters**
 
@@ -514,6 +523,7 @@ metadata.
 | `sample_rate` | Override for `config.manifest.trajectory_sample_rate`. `None` reads the config value. |
 | `scd_state` | Pass `state.scd` to record SCD Type 2 band crossings. `None` leaves `manifest.scd_events` empty. |
 | `bridge_state` | Pass `state.bridges` to record M:N associations. `None` leaves `manifest.bridge_associations` empty. |
+| `entity_metrics` | Pass `state.entity_metrics` to populate `manifest.regression_pairs_global` and `manifest.regression_pairs_by_archetype` with pair-wise OLS summaries for every declared correlation pair. `None` leaves both sections at their empty defaults. |
 
 The function is pure — same inputs produce a byte-identical manifest.
 No RNG, no clock, no filesystem.
@@ -531,6 +541,7 @@ tables, state = generate_tables_with_state(cfg)
 manifest = build_manifest(
     cfg, state.trajectories, tables,
     scd_state=state.scd, bridge_state=state.bridges,
+    entity_metrics=state.entity_metrics,
 )
 write_manifest(manifest, Path("output"))
 ```

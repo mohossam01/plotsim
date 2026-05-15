@@ -190,11 +190,26 @@ combined with windows shorter than 24 periods.
 
 Seasonal modulation is a deterministic function of the config — same
 `(config, seed)` produces the same `seasonal_factor` at every cell. The
-manifest doesn't record per-cell seasonal factors directly; you can
-reconstruct them from the config alone.
+manifest's `seasonal_decomposition` section captures the three inputs
+the engine consumed so a consumer can reproduce the effective lift at
+any cell without re-reading the YAML:
 
-If you need per-cell verification, [`trace_metric_cell`](../api-reference.md#trace_metric_cell)
-returns the `seasonal_factor` and `modulated_center` for any single
+- `seasonal_factors` — the length-`n_periods` global strength array
+  (entry `t` is the summed strength of every effect whose `months`
+  set contains period `t`'s calendar month).
+- `metric_seasonal_sensitivities` — per-metric multipliers
+  (`Metric.seasonal_sensitivity`).
+- `entity_seasonal_sensitivities` — per-entity multipliers
+  (`Entity.seasonal_sensitivity`).
+
+The effective lift at cell `(entity, period, metric)` is the product
+of those three values — the same multiplication the engine applies
+during metric generation. Configs without any `seasonal_effects`
+declared get the empty-sentinel shape (empty list and empty dicts).
+
+If you need per-cell verification rather than reconstruction,
+[`trace_metric_cell`](../api-reference.md#trace_metric_cell) returns
+the `seasonal_factor` and `modulated_center` for any single
 `(entity, period, metric)` triple.
 
 ---

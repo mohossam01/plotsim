@@ -245,6 +245,17 @@ records the adjustments in `manifest.correlation_adjustments`. Strong
 mirrors (`mirrors`, `inverts`) on lots of metrics tends to over-constrain
 the matrix — a warning fires.
 
+Beyond the correlation target itself, the manifest emits a pair-wise
+OLS fit (slope, intercept, r², residual variance) for every declared
+correlation in `manifest.regression_pairs_global` (pooled across all
+entities) and `manifest.regression_pairs_by_archetype` (grouped by
+archetype). The pooled fit answers "given the realized output, what
+linear relationship do these metrics actually follow"; the
+per-archetype fit answers "is that relationship the same in every
+sub-population, or is the pooled correlation a mixture artefact?"
+See [`manifest-reference.md`](../manifest-reference.md#regression_pairs_global)
+for the field layout.
+
 ---
 
 ## Causal lag — `follows` + `delay`

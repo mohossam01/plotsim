@@ -384,12 +384,17 @@ def test_schema_version_bumped_to_1_9():
     both per-entity ``TreatmentAssignment`` and per-cohort
     ``TreatmentCohort`` records (1.8 → 1.9); ``None`` default preserves
     byte-equivalence for pre-M24 configs modulo the version string.
+    Schema 1.10 added three additive sections — ``seasonal_decomposition``
+    (always emitted with an empty sentinel on configs without
+    seasonality), ``regression_pairs_global``, and
+    ``regression_pairs_by_archetype`` — for per-pair OLS summaries and a
+    snapshot of the engine's seasonal-strength inputs.
 
     The version pin lives in this test rather than just the manifest module
-    so a downstream consumer pinning ``schema_version >= "1.9"`` has a
+    so a downstream consumer pinning ``schema_version >= "1.10"`` has a
     direct on-disk contract test it can reference.
     """
-    assert MANIFEST_SCHEMA_VERSION == "1.9"
+    assert MANIFEST_SCHEMA_VERSION == "1.10"
 
 
 def test_causal_graph_emits_one_edge_per_metric_with_lag(saas_run):

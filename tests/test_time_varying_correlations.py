@@ -686,8 +686,10 @@ class TestManifestIntegration:
         # bumped 1.7 → 1.8 for ``noise_family`` / ``degrees_of_freedom``
         # on ``NoiseConfigInfo`` and broadened its emission criterion;
         # 0.6-M24 bumped 1.8 → 1.9 for the additive ``target_metric``
-        # field on ``TreatmentAssignment`` / ``TreatmentCohort``.
-        assert MANIFEST_SCHEMA_VERSION == "1.9"
+        # field on ``TreatmentAssignment`` / ``TreatmentCohort``;
+        # the 1.9 → 1.10 bump added the ``seasonal_decomposition``
+        # snapshot plus per-pair OLS summary sections.
+        assert MANIFEST_SCHEMA_VERSION == "1.10"
 
     def test_no_phases_yields_empty_correlation_phases_list(self):
         cfg = _two_metric_config(
