@@ -111,7 +111,13 @@ MANIFEST_FILENAME = "manifest.json"
 # readers parse 1.7 manifests cleanly. Populated only when the
 # heteroscedastic-noise feature is enabled — keeps default-off runs
 # byte-equivalent to pre-M22 modulo the schema version string.
-MANIFEST_SCHEMA_VERSION = "1.7"
+# 0.6-M23: bumped 1.7 → 1.8 for ``noise_family`` and ``degrees_of_freedom``
+# on ``NoiseConfigInfo``. Emission criterion widens to also cover
+# non-gaussian families (``noise_family != "gaussian"``) so the manifest
+# records the realized noise family whenever it diverges from the
+# historical lane, not only when heteroscedastic amplitude is on.
+# Default-family default-amplitude runs still emit ``noise_config=None``.
+MANIFEST_SCHEMA_VERSION = "1.8"
 
 
 class _ManifestBase(BaseModel):
@@ -557,30 +563,43 @@ class ParentChildRelation(_ManifestBase):
 
 
 class NoiseConfigInfo(_ManifestBase):
-    """0.6-M22: ground-truth record of the noise model.
+    """0.6-M22 / 0.6-M23: ground-truth record of the noise model.
 
-    Emitted on the manifest only when
-    ``config.noise.scale_with_trajectory=True`` — i.e. when the engine ran
-    the heteroscedastic-noise lane. ``None`` otherwise. Carries the four
-    declared ``NoiseConfig`` knobs so a downstream consumer knows exactly
-    how the gaussian standard deviation was parameterized at each cell
-    without re-reading the YAML config.
+    Emitted on the manifest when EITHER
+    ``config.noise.scale_with_trajectory=True`` (M22 heteroscedastic lane)
+    OR ``config.noise.noise_family != "gaussian"`` (M23 heavy-tailed lane).
+    ``None`` otherwise — default-family default-amplitude runs stay
+    byte-equivalent to the historical pre-M22 manifest modulo the schema
+    version string. Carries the declared ``NoiseConfig`` knobs so a
+    downstream consumer can fully describe the noise model without
+    re-reading the YAML config.
 
       * ``gaussian_sigma`` — the σ multiplier; the realized scale at a cell
         is ``gaussian_sigma * trajectory_position`` under the
-        heteroscedastic lane.
-      * ``outlier_rate`` / ``mcar_rate`` — unchanged by the M22 flag;
-        recorded here for completeness so the manifest fully describes the
-        noise model.
-      * ``scale_with_trajectory`` — always ``True`` when this record is
-        emitted (the field exists for forward compatibility in case the
-        manifest later starts recording the default-off lane as well).
+        heteroscedastic lane and ``gaussian_sigma * abs(value)`` (with the
+        zero-value fallback) otherwise. Used by every family as the scale
+        parameter — Gaussian σ, Laplace scale, Student-t scale multiplier.
+      * ``outlier_rate`` / ``mcar_rate`` — recorded for completeness so the
+        manifest fully describes the noise model.
+      * ``scale_with_trajectory`` — ``True`` when the heteroscedastic lane
+        was engaged, ``False`` otherwise (e.g. when the record was emitted
+        purely because ``noise_family`` diverged from the default).
+      * ``noise_family`` — the additive-jitter distribution; one of
+        ``"gaussian"``, ``"student_t"``, ``"laplace"``.
+      * ``degrees_of_freedom`` — populated only when
+        ``noise_family == "student_t"``; ``None`` otherwise.
     """
 
     gaussian_sigma: float
     outlier_rate: float
     mcar_rate: float
     scale_with_trajectory: bool
+    # 0.6-M23: distribution family for the additive jitter branch.
+    # Default ``"gaussian"`` keeps the field readable on pre-M23 manifests
+    # on disk (they reparse cleanly with this as the inferred value).
+    noise_family: str = "gaussian"
+    # 0.6-M23: only populated when ``noise_family == "student_t"``.
+    degrees_of_freedom: Optional[float] = None
 
 
 class HoldoutInfo(_ManifestBase):
@@ -1298,18 +1317,28 @@ def build_manifest(
 
     outlier_injections = detect_outlier_injections(config)
 
-    # 0.6-M22: emit the noise-model record only when the heteroscedastic
-    # lane is engaged. Default-off configs leave ``noise_config=None`` so
-    # the manifest stays byte-equivalent to pre-M22 modulo the schema
-    # version bump.
+    # 0.6-M22 / 0.6-M23: emit the noise-model record when EITHER the
+    # heteroscedastic lane is engaged (M22) OR a non-default noise family
+    # is configured (M23). Default-family default-amplitude configs leave
+    # ``noise_config=None`` so the manifest stays byte-equivalent to
+    # pre-M22 modulo the schema version bump.
     noise_config_info: Optional[NoiseConfigInfo] = None
-    if config.noise is not None and getattr(config.noise, "scale_with_trajectory", False):
-        noise_config_info = NoiseConfigInfo(
-            gaussian_sigma=float(config.noise.gaussian_sigma),
-            outlier_rate=float(config.noise.outlier_rate),
-            mcar_rate=float(config.noise.mcar_rate),
-            scale_with_trajectory=True,
-        )
+    if config.noise is not None:
+        heteroscedastic = getattr(config.noise, "scale_with_trajectory", False)
+        family = getattr(config.noise, "noise_family", "gaussian")
+        if heteroscedastic or family != "gaussian":
+            noise_config_info = NoiseConfigInfo(
+                gaussian_sigma=float(config.noise.gaussian_sigma),
+                outlier_rate=float(config.noise.outlier_rate),
+                mcar_rate=float(config.noise.mcar_rate),
+                scale_with_trajectory=bool(heteroscedastic),
+                noise_family=str(family),
+                degrees_of_freedom=(
+                    float(config.noise.degrees_of_freedom)
+                    if config.noise.degrees_of_freedom is not None
+                    else None
+                ),
+            )
 
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,

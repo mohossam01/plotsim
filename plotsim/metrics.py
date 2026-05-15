@@ -1133,6 +1133,14 @@ def apply_noise(
     ``noise.gaussian_sigma * trajectory_position`` (replacing the ``abs(v)``
     factor). Position-zero cells receive zero gaussian noise. Outlier and
     MCAR branches are unchanged regardless of the flag.
+
+    0.6-M23: ``noise.noise_family`` selects the additive-jitter distribution:
+    ``"gaussian"`` (default; ``rng.normal``), ``"student_t"`` (``rng.standard_t``
+    times the resolved scale; requires ``degrees_of_freedom``), or ``"laplace"``
+    (``rng.laplace``). Family dispatch is orthogonal to ``scale_with_trajectory``
+    — the resolved ``scale`` is identical regardless of family. The gaussian
+    lane preserves the historical ``rng.normal(loc=0.0, scale=scale)`` call
+    byte-for-byte; default-family configs see no RNG-consumption change.
     """
     v = value
     if noise.gaussian_sigma > 0.0:
@@ -1143,7 +1151,13 @@ def apply_noise(
             # so a metric that legitimately sits at 0 still receives noise.
             mag = abs(v) if v != 0.0 else 1.0
             scale = noise.gaussian_sigma * mag
-        v = v + float(rng.normal(loc=0.0, scale=scale))
+        if noise.noise_family == "gaussian":
+            v = v + float(rng.normal(loc=0.0, scale=scale))
+        elif noise.noise_family == "student_t":
+            df = float(noise.degrees_of_freedom)  # type: ignore[arg-type]
+            v = v + float(rng.standard_t(df)) * scale
+        else:  # "laplace"
+            v = v + float(rng.laplace(loc=0.0, scale=scale))
 
     if noise.outlier_rate > 0.0 and rng.random() < noise.outlier_rate:
         sign = 1.0 if v >= 0.0 else -1.0
@@ -1659,6 +1673,14 @@ def _apply_noise_batch(
     the gaussian standard deviation becomes
     ``noise.gaussian_sigma * trajectory_position``, replacing the
     ``abs(value)`` factor for every cell in the batch.
+
+    0.6-M23: ``noise.noise_family`` selects the additive-jitter family
+    identically to the scalar path. Family dispatch is orthogonal to
+    ``scale_with_trajectory``: the resolved ``scale`` (per-cell array under
+    multiplicative jitter, scalar under heteroscedastic) is the same value
+    for every family. The gaussian lane preserves the historical
+    ``rng.normal(..., size=n)`` call, so default-family runs are
+    byte-identical to pre-M23.
     """
     n = values.shape[0]
     v = values.astype(np.float64, copy=True)
@@ -1671,7 +1693,13 @@ def _apply_noise_batch(
             # Multiplicative jitter. Where v==0, fall back to absolute sigma.
             mag = np.where(v != 0.0, np.abs(v), 1.0)
             scale = noise.gaussian_sigma * mag
-        v = v + rng.normal(loc=0.0, scale=scale, size=n)
+        if noise.noise_family == "gaussian":
+            v = v + rng.normal(loc=0.0, scale=scale, size=n)
+        elif noise.noise_family == "student_t":
+            df = float(noise.degrees_of_freedom)  # type: ignore[arg-type]
+            v = v + rng.standard_t(df, size=n) * scale
+        else:  # "laplace"
+            v = v + rng.laplace(loc=0.0, scale=scale, size=n)
 
     if noise.outlier_rate > 0.0:
         coin = rng.random(size=n)

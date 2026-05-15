@@ -2470,6 +2470,38 @@ class NoiseConfig(_Frozen):
     # MCAR rates are unaffected. Default False preserves the multiplicative-
     # on-magnitude behavior bit-for-bit.
     scale_with_trajectory: bool = False
+    # 0.6-M23: distribution family for the additive jitter branch. ``"gaussian"``
+    # (default) preserves the historical ``rng.normal`` draw byte-for-byte.
+    # ``"student_t"`` draws from a Student-t distribution scaled by ``scale``
+    # (heavier tails — outlier-prone residuals without explicit outlier
+    # injection). ``"laplace"`` draws from a Laplace distribution scaled by
+    # ``scale`` (sharper peak + heavier tails than Gaussian). Composes
+    # orthogonally with ``scale_with_trajectory``: in both lanes the realized
+    # scale is the same value the gaussian branch would have used, just
+    # parameterizing a different family.
+    noise_family: Literal["gaussian", "student_t", "laplace"] = "gaussian"
+    # 0.6-M23: degrees-of-freedom parameter for ``noise_family="student_t"``.
+    # Lower values produce heavier tails; ``df=1`` is the Cauchy limit (no
+    # finite mean). Validator below requires this be set (and >= 1.0) when
+    # the family is ``student_t``, and absent for every other family.
+    degrees_of_freedom: Optional[float] = Field(default=None, ge=1.0)
+
+    @model_validator(mode="after")
+    def _validate_noise_family_params(self) -> "NoiseConfig":
+        if self.noise_family == "student_t":
+            if self.degrees_of_freedom is None:
+                raise ValueError(
+                    "noise_family='student_t' requires degrees_of_freedom to be set "
+                    "(float >= 1.0; lower values mean heavier tails)"
+                )
+        else:
+            if self.degrees_of_freedom is not None:
+                raise ValueError(
+                    f"degrees_of_freedom is only valid when noise_family='student_t'; "
+                    f"got noise_family={self.noise_family!r} with "
+                    f"degrees_of_freedom={self.degrees_of_freedom}"
+                )
+        return self
 
 
 class ManifestConfig(_Frozen):

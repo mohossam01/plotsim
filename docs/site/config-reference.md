@@ -25,7 +25,7 @@ bridges: [ ... ]
 quality: [ ... ]
 holdout: { target, periods, min_training_periods }
 entity_features: true | false | { metrics, include_labels }
-noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate, scale_with_trajectory }
+noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate, scale_with_trajectory, noise_family, degrees_of_freedom }
 output: csv | parquet | jsonl | sql | { format, directory, cell_budget, denormalized, partition_by, sql_dialect }
 locale: <faker locale or list of locales>
 seed: <int>
@@ -644,14 +644,18 @@ noise:
   outlier_rate: 0.02
   mcar_rate: 0.01
   scale_with_trajectory: false
+  noise_family: gaussian
+  degrees_of_freedom: null  # required when noise_family is "student_t"
 ```
 
 | Field | Type | Default | Range | Effect |
 |---|---|---|---|---|
-| `gaussian_sigma` | `float` | `0.0` | `0.0`–`5.0` | Multiplicative log-normal jitter on each draw — `value *= exp(N(0, σ²))`. Bigger σ = wider spread |
+| `gaussian_sigma` | `float` | `0.0` | `0.0`–`5.0` | Multiplicative log-normal jitter on each draw — `value *= exp(N(0, σ²))`. Bigger σ = wider spread. Used by every `noise_family` as the scale parameter |
 | `outlier_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of replacing the value with a 3-σ tail draw |
 | `mcar_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of dropping the value to NaN (missing-completely-at-random) |
-| `scale_with_trajectory` | `bool` | `false` | — | When `true`, the gaussian standard deviation at each cell becomes `gaussian_sigma × trajectory_position` instead of `gaussian_sigma × \|value\|`. Position-zero cells receive zero gaussian noise; position-one cells receive the full σ. Outlier and MCAR branches are unchanged. Use when the dataset's noise model should be heteroscedastic — e.g. high-engagement entities exhibit larger observation variance — rather than proportional to the value magnitude |
+| `scale_with_trajectory` | `bool` | `false` | — | When `true`, the gaussian standard deviation at each cell becomes `gaussian_sigma × trajectory_position` instead of `gaussian_sigma × \|value\|`. Position-zero cells receive zero gaussian noise; position-one cells receive the full σ. Outlier and MCAR branches are unchanged. Use when the dataset's noise model should be heteroscedastic — e.g. high-engagement entities exhibit larger observation variance — rather than proportional to the value magnitude. Composes orthogonally with `noise_family` |
+| `noise_family` | `str` | `"gaussian"` | `"gaussian"` / `"student_t"` / `"laplace"` | Distribution of the additive jitter. `"gaussian"` (default) preserves the historical behavior byte-for-byte. `"student_t"` draws from a Student-t with `degrees_of_freedom` and produces heavier tails (outlier-prone residuals without explicit `outlier_rate`). `"laplace"` draws from a Laplace distribution — sharper peak, heavier tails than Gaussian. Composes with `scale_with_trajectory`: the resolved scale is the same for every family |
+| `degrees_of_freedom` | `float` or `null` | `null` | ≥ `1.0` | Required when `noise_family: student_t`; forbidden otherwise (a non-null value with any other family raises at load time). Lower values yield heavier tails; `df = 1` is the Cauchy limit (no finite mean). Typical values: `df = 3`–`5` for visibly heavy tails, `df = 10`–`30` for mild Gaussian-like residuals |
 
 Four named presets accept the lower-case canonical name OR a friendly
 alias — pick whichever reads naturally:
@@ -665,8 +669,33 @@ alias — pick whichever reads naturally:
 
 The same constants are exported from `plotsim` for engine-direct
 mutation: `PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`.
-Presets always set `scale_with_trajectory: false`; opt into the
-heteroscedastic lane by passing the explicit dict form.
+Presets always set `scale_with_trajectory: false` and
+`noise_family: gaussian`; opt into the heteroscedastic lane or a
+heavy-tailed family by passing the explicit dict form.
+
+**Picking a heavy-tailed family.** `student_t` with low `df` (3–5)
+models occasional large deviations driven by a heavy-tailed underlying
+process — sensor failures, financial return spikes, support-ticket
+volume after an outage. `laplace` is similar but with a sharper peak
+around the center and exponential (rather than power-law) tails — a
+good fit when most residuals are small but a non-negligible minority
+are several scales out. Both compose with `outlier_rate` if you also
+want explicit "blow up the value by 3–10×" injection on top of the
+heavy-tailed jitter.
+
+```yaml
+# Heavy-tailed noise from a Student-t
+noise:
+  gaussian_sigma: 0.10
+  noise_family: student_t
+  degrees_of_freedom: 4
+
+# Laplace residuals, heteroscedastic amplitude
+noise:
+  gaussian_sigma: 0.05
+  scale_with_trajectory: true
+  noise_family: laplace
+```
 
 `noise` is independent of the `quality` block — `noise` perturbs metric
 values *during* generation (correlations and trajectory still hold);

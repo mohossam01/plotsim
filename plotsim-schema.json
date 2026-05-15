@@ -921,6 +921,29 @@
           "default": false,
           "title": "Scale With Trajectory",
           "type": "boolean"
+        },
+        "noise_family": {
+          "default": "gaussian",
+          "enum": [
+            "gaussian",
+            "student_t",
+            "laplace"
+          ],
+          "title": "Noise Family",
+          "type": "string"
+        },
+        "degrees_of_freedom": {
+          "anyOf": [
+            {
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Degrees Of Freedom"
         }
       },
       "title": "NoiseConfig",
