@@ -722,6 +722,115 @@ class RegressionPair(_ManifestBase):
     n_observations: int
 
 
+class VariancePartition(_ManifestBase):
+    """Mission 026: nested-ANOVA variance partition for one metric.
+
+    A three-level decomposition of the realized metric series:
+
+      * ``ss_between`` — variance attributable to the grouping axis. For
+        ``scope="archetype"`` the axis is ``Entity.archetype`` (variance
+        between archetype means around the grand mean). For
+        ``scope="segment"`` the axis is the curve segment index within
+        ``scope_name``'s archetype (variance between segment means
+        around the archetype's grand mean).
+      * ``ss_within_entity`` — variance between entity means within the
+        same group. Captures entity-to-entity dispersion that the
+        grouping axis does not explain.
+      * ``ss_residual`` — within-entity variance over time, residual to
+        the entity's own mean within its group. The unexplained
+        time-series noise floor.
+
+    The three sum to ``ss_total = Σ (y - grand_mean)²`` exactly modulo
+    floating-point rounding (rtol ≈ 1e-10 holds in practice).
+    ``fraction_*`` fields are each ``ss_* / ss_total`` (or zero when
+    ``ss_total == 0``).
+
+    Degrees of freedom follow the standard nested-ANOVA convention:
+
+      * ``degrees_of_freedom_between = n_groups - 1``
+      * ``degrees_of_freedom_within = n_cells - n_groups`` (cells =
+        unique ``(group, entity)`` pairs that contributed observations)
+      * ``degrees_of_freedom_residual = n_observations - n_cells``
+
+    Cold-start entities (those with ``Entity.start_period > 0``) and
+    other NaN-cell sources are excluded cell-by-cell — only finite
+    observations contribute. ``cold_start_entities_excluded`` counts
+    entities that had at least one NaN cell in this partition's
+    domain; it surfaces "this section dropped data" to the consumer
+    without forcing them to re-derive the NaN count.
+
+    ``scope_name`` semantics:
+
+      * ``scope="archetype"`` — single record per metric covering every
+        archetype. ``scope_name`` is the literal sentinel ``"all"``.
+      * ``scope="segment"`` — one record per ``(metric, archetype)``.
+        ``scope_name`` is the archetype name, and ``ss_between`` /
+        DOF reflect the segments within that archetype only. Segments
+        are NEVER pooled across archetypes — the manifest guarantees
+        the archetype-locality of every segment-scope record.
+    """
+
+    metric: str
+    scope: str
+    scope_name: str
+    ss_between: float
+    ss_within_entity: float
+    ss_residual: float
+    fraction_between: float
+    fraction_within_entity: float
+    fraction_residual: float
+    degrees_of_freedom_between: int
+    degrees_of_freedom_within: int
+    degrees_of_freedom_residual: int
+    n_observations: int
+    cold_start_entities_excluded: int = 0
+
+
+class GPKernelFit(_ManifestBase):
+    """Mission 026: RBF Gaussian-process fit summary for one trajectory shape.
+
+    Emitted with ``scope_type="archetype"`` (one record per declared
+    archetype, fitted against the archetype's clean trajectory) plus
+    additional ``scope_type="entity"`` records for any entity carrying
+    a non-None ``overrides`` field (the entity's specific trajectory
+    diverges from the archetype baseline and warrants its own fit).
+
+      * ``scope_name`` — the archetype name (for archetype scope) or
+        the entity name (for entity scope).
+      * ``kernel_type`` — currently always ``"rbf"``. Reserved for a
+        future multi-kernel extension; consumers should still gate on
+        the value for forward compatibility.
+      * ``hyperparameters`` — three keys when ``converged=True``:
+        ``length_scale``, ``signal_variance``, ``noise_variance``. All
+        three are in the natural (unstandardized) scale —
+        ``length_scale`` is in units of period indices, so a value of
+        ``10.0`` means the kernel correlation length spans ten periods.
+        Empty dict when ``converged=False``.
+      * ``log_marginal_likelihood`` — the maximized value (positive
+        sign; the fitter minimizes the negative log likelihood
+        internally and negates before reporting). ``None`` when
+        ``converged=False``.
+      * ``n_train`` — count of finite ``(period, position)`` training
+        pairs used. NaN cells (cold-start prefix periods) are
+        excluded.
+      * ``converged`` — ``True`` when the optimizer reported success
+        AND produced finite hyperparameters. ``False`` for flat
+        trajectories (variance below ``1e-12``), trajectories with
+        fewer than three finite training points, optimizer failures,
+        and Cholesky-blow-up paths. Consumers should gate downstream
+        usage on this flag rather than inspecting hyperparameters
+        directly.
+    """
+
+    scope_type: str
+    scope_name: str
+    kernel_type: str
+    hyperparameters: dict[str, float] = Field(default_factory=dict)
+    log_marginal_likelihood: Optional[float] = None
+    n_train: int
+    converged: bool
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -883,6 +992,24 @@ class ManifestSchema(_ManifestBase):
     # OLS (rare; a single-entity archetype with cold-start NaN can
     # produce ``n_observations < 2``).
     regression_pairs_by_archetype: dict[str, list[RegressionPair]] = {}
+    # Mission 026: nested-ANOVA variance partitions with archetype as
+    # the between-group axis. One record per metric. Empty list when
+    # ``entity_metrics`` was not threaded or the config declares no
+    # metrics — matches the empty-section contract on no-metric runs.
+    variance_partitions: list[VariancePartition] = []
+    # Mission 026: nested-ANOVA variance partitions with curve segment
+    # as the between-group axis, computed per archetype (never pooled
+    # across archetypes). One record per ``(metric, archetype)`` pair
+    # whose entities contributed at least one finite observation.
+    # Empty list under the same conditions as ``variance_partitions``.
+    variance_partitions_by_segment: list[VariancePartition] = []
+    # Mission 026: per-archetype (and per-entity for entities with
+    # ``overrides``) RBF GP kernel fits over the trajectory shape.
+    # Empty list when ``config.metrics`` is empty (the section
+    # piggybacks on metric presence so no-metric configs stay
+    # byte-equivalent to the pre-026 lane modulo the schema version
+    # string and the new empty containers).
+    gp_kernel_fits: list[GPKernelFit] = []
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1348,6 +1475,388 @@ def _build_regression_pairs_by_archetype(
     return out
 
 
+# --- Variance partition / GP helpers (Mission 026) ---------------------------
+
+
+def _entity_segment_membership(
+    config: PlotsimConfig,
+    n_periods: int,
+) -> dict[str, list[int]]:
+    """Per-entity ``(period_index → segment_index)`` lookup table.
+
+    Returns one length-``n_periods`` list per entity. Entry ``p`` is the
+    curve segment index that period maps to under that entity's own
+    boundary computation (overrides + ``start_period`` applied), or
+    ``-1`` for periods before the entity's arrival (cold-start prefix)
+    and for entities whose archetype is unresolvable.
+
+    Reuses ``trajectory._segment_boundaries`` / ``_resolve_shift`` so
+    the segment definition is byte-equivalent to the trajectory the
+    engine actually generated.
+    """
+    # Local imports: ``plotsim.trajectory`` already imports from
+    # ``plotsim.config``, so importing it at module top wouldn't cycle —
+    # but keeping the imports local matches the pattern M25 used for
+    # ``_build_seasonal_factors``.
+    from plotsim.trajectory import _resolve_shift, _segment_boundaries
+
+    arch_by_name = {a.name: a for a in config.archetypes}
+    out: dict[str, list[int]] = {}
+    for entity in config.entities:
+        archetype = arch_by_name.get(entity.archetype)
+        membership = [-1] * n_periods
+        if archetype is None:
+            out[entity.name] = membership
+            continue
+        active_n = n_periods - entity.start_period
+        if active_n < 1:
+            out[entity.name] = membership
+            continue
+        overrides_dict = entity.overrides.model_dump() if entity.overrides is not None else None
+        shift = _resolve_shift(archetype, active_n, overrides_dict)
+        boundaries = _segment_boundaries(archetype, active_n, shift)
+        for seg_idx in range(len(archetype.curve_segments)):
+            local_start = boundaries[seg_idx]
+            local_end = boundaries[seg_idx + 1]
+            absolute_start = entity.start_period + local_start
+            absolute_end = entity.start_period + local_end
+            for p in range(absolute_start, absolute_end):
+                if 0 <= p < n_periods:
+                    membership[p] = seg_idx
+        out[entity.name] = membership
+    return out
+
+
+def _three_level_anova(
+    cells: list[tuple[str, str, np.ndarray]],
+) -> Optional[dict[str, float]]:
+    """Compute the three-level nested-ANOVA SS / DOF decomposition.
+
+    ``cells`` is a list of ``(group_label, entity_label, values)``
+    tuples. Each tuple represents one ``(group, entity)`` cell with at
+    least one finite observation. The decomposition is:
+
+        ss_total = ss_between + ss_within_entity + ss_residual
+
+    where
+
+      * ``ss_between`` is the variance between group means around the
+        grand mean (weighted by per-group N);
+      * ``ss_within_entity`` is the variance between entity means
+        around their group mean (weighted by per-cell N);
+      * ``ss_residual`` is the within-cell residual variance.
+
+    Returns ``None`` when ``cells`` is empty or carries zero
+    observations in total. The caller filters those out — the manifest
+    section omits records with no data rather than emitting zero-only
+    entries.
+    """
+    if not cells:
+        return None
+    all_values = np.concatenate([c[2] for c in cells])
+    n_total = int(all_values.size)
+    if n_total == 0:
+        return None
+    grand_mean = float(np.mean(all_values))
+    ss_total = float(np.sum((all_values - grand_mean) ** 2))
+
+    cell_n: list[int] = []
+    cell_mean: list[float] = []
+    cell_ss_residual: list[float] = []
+    group_labels: list[str] = []
+    for group_label, _entity_label, values in cells:
+        n = int(values.size)
+        if n == 0:
+            continue
+        mean = float(np.mean(values))
+        cell_n.append(n)
+        cell_mean.append(mean)
+        cell_ss_residual.append(float(np.sum((values - mean) ** 2)))
+        group_labels.append(group_label)
+
+    if not cell_n:
+        return None
+
+    group_totals: dict[str, tuple[float, int]] = {}
+    for label, n, mean in zip(group_labels, cell_n, cell_mean):
+        prev_sum, prev_n = group_totals.get(label, (0.0, 0))
+        group_totals[label] = (prev_sum + n * mean, prev_n + n)
+    group_mean_by_label: dict[str, float] = {
+        label: (s / n if n > 0 else 0.0) for label, (s, n) in group_totals.items()
+    }
+
+    ss_between = 0.0
+    for label, (_, n) in group_totals.items():
+        diff = group_mean_by_label[label] - grand_mean
+        ss_between += float(n) * diff * diff
+
+    ss_within_entity = 0.0
+    for label, n, mean in zip(group_labels, cell_n, cell_mean):
+        diff = mean - group_mean_by_label[label]
+        ss_within_entity += float(n) * diff * diff
+
+    ss_residual = float(sum(cell_ss_residual))
+
+    n_groups = len(group_totals)
+    n_cells = len(cell_n)
+    df_between = max(n_groups - 1, 0)
+    df_within = max(n_cells - n_groups, 0)
+    df_residual = max(n_total - n_cells, 0)
+
+    return {
+        "ss_total": ss_total,
+        "ss_between": ss_between,
+        "ss_within_entity": ss_within_entity,
+        "ss_residual": ss_residual,
+        "df_between": float(df_between),
+        "df_within": float(df_within),
+        "df_residual": float(df_residual),
+        "n_observations": float(n_total),
+    }
+
+
+def _make_variance_partition(
+    metric: str,
+    scope: str,
+    scope_name: str,
+    anova: dict[str, float],
+    cold_start_entities_excluded: int,
+) -> VariancePartition:
+    """Translate an ``_three_level_anova`` result dict into a manifest record."""
+    ss_total = anova["ss_total"]
+    if ss_total > 0.0:
+        f_between = anova["ss_between"] / ss_total
+        f_within = anova["ss_within_entity"] / ss_total
+        f_residual = anova["ss_residual"] / ss_total
+    else:
+        f_between = 0.0
+        f_within = 0.0
+        f_residual = 0.0
+    return VariancePartition(
+        metric=metric,
+        scope=scope,
+        scope_name=scope_name,
+        ss_between=float(anova["ss_between"]),
+        ss_within_entity=float(anova["ss_within_entity"]),
+        ss_residual=float(anova["ss_residual"]),
+        fraction_between=float(f_between),
+        fraction_within_entity=float(f_within),
+        fraction_residual=float(f_residual),
+        degrees_of_freedom_between=int(anova["df_between"]),
+        degrees_of_freedom_within=int(anova["df_within"]),
+        degrees_of_freedom_residual=int(anova["df_residual"]),
+        n_observations=int(anova["n_observations"]),
+        cold_start_entities_excluded=int(cold_start_entities_excluded),
+    )
+
+
+def _build_variance_partitions_archetype(
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+) -> list[VariancePartition]:
+    """One ``VariancePartition`` per metric with archetype as the group axis.
+
+    Groups every finite ``(entity, period)`` observation by
+    ``Entity.archetype``. Drops metrics with no finite observations
+    entirely — the section omits records with no data rather than
+    emitting zero-only entries (mirrors the pre-existing manifest
+    convention for sparse derived sections).
+    """
+    if not config.metrics or not entity_metrics:
+        return []
+    out: list[VariancePartition] = []
+    for metric in config.metrics:
+        cells: list[tuple[str, str, np.ndarray]] = []
+        cold_start = 0
+        for entity in config.entities:
+            per_metric = entity_metrics.get(entity.name)
+            if per_metric is None:
+                continue
+            arr = per_metric.get(metric.name)
+            if arr is None:
+                continue
+            arr64 = np.asarray(arr, dtype=np.float64)
+            mask = np.isfinite(arr64)
+            n_kept = int(np.sum(mask))
+            if n_kept < int(arr64.size):
+                cold_start += 1
+            if n_kept == 0:
+                continue
+            cells.append((entity.archetype, entity.name, arr64[mask]))
+        anova = _three_level_anova(cells)
+        if anova is None:
+            continue
+        out.append(
+            _make_variance_partition(
+                metric.name,
+                scope="archetype",
+                scope_name="all",
+                anova=anova,
+                cold_start_entities_excluded=cold_start,
+            )
+        )
+    out.sort(key=lambda v: v.metric)
+    return out
+
+
+def _build_variance_partitions_by_segment(
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    n_periods: int,
+) -> list[VariancePartition]:
+    """One ``VariancePartition`` per ``(metric, archetype)`` with segment as the group axis.
+
+    Restricted to entities of one archetype at a time — the section
+    never pools observations across archetypes. The segment index is
+    derived from each entity's own boundary computation
+    (``_entity_segment_membership``), so cold-start entities and
+    override-bearing entities contribute observations to the segment
+    they actually occupied at each period, not to the archetype
+    baseline segment.
+    """
+    if not config.metrics or not entity_metrics:
+        return []
+    arch_by_name = {a.name: a for a in config.archetypes}
+    entities_by_archetype: dict[str, list[Any]] = {}
+    for entity in config.entities:
+        entities_by_archetype.setdefault(entity.archetype, []).append(entity)
+
+    membership = _entity_segment_membership(config, n_periods)
+
+    out: list[VariancePartition] = []
+    for metric in config.metrics:
+        for archetype_name in sorted(entities_by_archetype.keys()):
+            if archetype_name not in arch_by_name:
+                continue
+            entities = entities_by_archetype[archetype_name]
+            grouped: dict[tuple[int, str], list[float]] = {}
+            cold_start = 0
+            for entity in entities:
+                per_metric = entity_metrics.get(entity.name)
+                if per_metric is None:
+                    continue
+                arr = per_metric.get(metric.name)
+                if arr is None:
+                    continue
+                arr64 = np.asarray(arr, dtype=np.float64)
+                seg_map = membership.get(entity.name, [-1] * n_periods)
+                has_nan = False
+                n_periods_local = int(arr64.size)
+                for p in range(n_periods_local):
+                    val = arr64[p]
+                    if not np.isfinite(val):
+                        has_nan = True
+                        continue
+                    seg_idx = seg_map[p] if p < len(seg_map) else -1
+                    if seg_idx < 0:
+                        continue
+                    grouped.setdefault((seg_idx, entity.name), []).append(float(val))
+                if has_nan:
+                    cold_start += 1
+            if not grouped:
+                continue
+            cells = [
+                (
+                    f"segment_{seg_idx}",
+                    entity_name,
+                    np.asarray(values, dtype=np.float64),
+                )
+                for (seg_idx, entity_name), values in grouped.items()
+            ]
+            anova = _three_level_anova(cells)
+            if anova is None:
+                continue
+            out.append(
+                _make_variance_partition(
+                    metric.name,
+                    scope="segment",
+                    scope_name=archetype_name,
+                    anova=anova,
+                    cold_start_entities_excluded=cold_start,
+                )
+            )
+    out.sort(key=lambda v: (v.metric, v.scope_name))
+    return out
+
+
+def _build_gp_kernel_fits(
+    config: PlotsimConfig,
+    n_periods: int,
+) -> list[GPKernelFit]:
+    """Per-archetype (and per-override-entity) RBF GP fits.
+
+    ``scope_type="archetype"`` for every archetype: fit against the
+    archetype's clean trajectory (no overrides, no cold-start shift).
+    ``scope_type="entity"`` for every entity carrying a non-None
+    ``overrides`` field — those entities have trajectories that diverge
+    from their archetype baseline, so a per-entity record captures the
+    actual shape the engine generated.
+
+    The piggyback on ``config.metrics`` (an empty list skips emission
+    entirely) matches the byte-equivalence contract: configs with no
+    metrics emit no GP records.
+
+    Records are emitted even when the fit fails to converge — the
+    ``converged=False`` path carries null hyperparameters / likelihood
+    so consumers can distinguish "fit failed" from "fit not attempted."
+    """
+    if not config.metrics or n_periods < 1:
+        return []
+    # Local imports: ``plotsim.gp`` is a leaf analytical module that
+    # depends on scipy; importing at module top would force scipy load
+    # on every manifest build, including no-metric runs.
+    from plotsim.gp import fit_rbf
+    from plotsim.trajectory import compute_trajectory
+
+    out: list[GPKernelFit] = []
+    arch_by_name = {a.name: a for a in config.archetypes}
+    x = np.arange(n_periods, dtype=np.float64)
+
+    for archetype_name in sorted(arch_by_name.keys()):
+        archetype = arch_by_name[archetype_name]
+        traj = compute_trajectory(archetype, n_periods)
+        result = fit_rbf(x, traj)
+        out.append(
+            GPKernelFit(
+                scope_type="archetype",
+                scope_name=archetype_name,
+                kernel_type="rbf",
+                hyperparameters=result.hyperparameters or {},
+                log_marginal_likelihood=result.log_marginal_likelihood,
+                n_train=result.n_train,
+                converged=result.converged,
+            )
+        )
+
+    for entity in config.entities:
+        if entity.overrides is None:
+            continue
+        entity_archetype = arch_by_name.get(entity.archetype)
+        if entity_archetype is None:
+            continue
+        overrides_dict = entity.overrides.model_dump()
+        traj = compute_trajectory(
+            entity_archetype,
+            n_periods,
+            overrides_dict,
+            entity.start_period,
+        )
+        result = fit_rbf(x, traj)
+        out.append(
+            GPKernelFit(
+                scope_type="entity",
+                scope_name=entity.name,
+                kernel_type="rbf",
+                hyperparameters=result.hyperparameters or {},
+                log_marginal_likelihood=result.log_marginal_likelihood,
+                n_train=result.n_train,
+                converged=result.converged,
+            )
+        )
+
+    return out
+
+
 # --- Build / write -----------------------------------------------------------
 
 
@@ -1736,6 +2245,27 @@ def build_manifest(
         regression_pairs_global = []
         regression_pairs_by_archetype = {}
 
+    # Mission 026: nested-ANOVA variance partitions (archetype-level and
+    # segment-within-archetype) plus per-archetype / per-override-entity
+    # GP kernel fits. All three sections piggyback on the same call-site
+    # contract: variance partitions need ``entity_metrics``; GP fits
+    # piggyback on ``config.metrics`` being non-empty so a no-metric
+    # config emits empty sections (the byte-equivalence contract).
+    if entity_metrics is not None:
+        variance_partitions = _build_variance_partitions_archetype(
+            config,
+            entity_metrics,
+        )
+        variance_partitions_by_segment = _build_variance_partitions_by_segment(
+            config,
+            entity_metrics,
+            n_periods,
+        )
+    else:
+        variance_partitions = []
+        variance_partitions_by_segment = []
+    gp_kernel_fits = _build_gp_kernel_fits(config, n_periods)
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -1761,6 +2291,9 @@ def build_manifest(
         seasonal_decomposition=seasonal_decomposition,
         regression_pairs_global=regression_pairs_global,
         regression_pairs_by_archetype=regression_pairs_by_archetype,
+        variance_partitions=variance_partitions,
+        variance_partitions_by_segment=variance_partitions_by_segment,
+        gp_kernel_fits=gp_kernel_fits,
     )
 
 
@@ -1794,6 +2327,7 @@ __all__ = [
     "CorrelationCompensation",
     "CorrelationEntry",
     "EntityArchetypeAssignment",
+    "GPKernelFit",
     "TreatmentAssignment",
     "TreatmentCohort",
     "EventFiring",
@@ -1808,6 +2342,7 @@ __all__ = [
     "SeasonalDecomposition",
     "SourceEntityMapping",
     "TrajectorySample",
+    "VariancePartition",
     "build_manifest",
     "config_sha256",
     "write_manifest",
