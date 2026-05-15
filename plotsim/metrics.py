@@ -1116,6 +1116,7 @@ def apply_noise(
     value: float,
     noise: NoiseConfig,
     rng: np.random.Generator,
+    trajectory_position: Optional[float] = None,
 ) -> Optional[float]:
     """Inject gaussian jitter, outliers, and MCAR nulls.
 
@@ -1126,13 +1127,23 @@ def apply_noise(
 
     value_range clamping happens in the caller, AFTER noise, so outliers that
     escape the range get clipped appropriately.
+
+    0.6-M22: when ``noise.scale_with_trajectory`` is True AND
+    ``trajectory_position`` is provided, the gaussian standard deviation is
+    ``noise.gaussian_sigma * trajectory_position`` (replacing the ``abs(v)``
+    factor). Position-zero cells receive zero gaussian noise. Outlier and
+    MCAR branches are unchanged regardless of the flag.
     """
     v = value
     if noise.gaussian_sigma > 0.0:
-        # Multiplicative jitter. For |v|=0 we fall back to absolute sigma so
-        # a metric that legitimately sits at 0 still receives some noise.
-        mag = abs(v) if v != 0.0 else 1.0
-        v = v + float(rng.normal(loc=0.0, scale=noise.gaussian_sigma * mag))
+        if noise.scale_with_trajectory and trajectory_position is not None:
+            scale = noise.gaussian_sigma * float(trajectory_position)
+        else:
+            # Multiplicative jitter. For |v|=0 we fall back to absolute sigma
+            # so a metric that legitimately sits at 0 still receives noise.
+            mag = abs(v) if v != 0.0 else 1.0
+            scale = noise.gaussian_sigma * mag
+        v = v + float(rng.normal(loc=0.0, scale=scale))
 
     if noise.outlier_rate > 0.0 and rng.random() < noise.outlier_rate:
         sign = 1.0 if v >= 0.0 else -1.0
@@ -1327,7 +1338,7 @@ def generate_metrics_for_period(
             out[em.name] = None
             continue
         if noise is not None:
-            maybe_v = apply_noise(v, noise, rng)
+            maybe_v = apply_noise(v, noise, rng, trajectory_position=trajectory_position)
             if maybe_v is None:
                 out[em.name] = None
                 continue
@@ -1627,6 +1638,7 @@ def _apply_noise_batch(
     values: np.ndarray,
     noise: NoiseConfig,
     rng: np.random.Generator,
+    trajectory_position: Optional[float] = None,
 ) -> np.ndarray:
     """Vectorized gaussian → outlier → MCAR pipeline across a 1-D batch.
 
@@ -1640,14 +1652,26 @@ def _apply_noise_batch(
     replaced values can still be MCAR-nulled in the same step. Each
     branch consumes RNG only when its rate/sigma is non-zero, so a
     fully-zero ``NoiseConfig`` is a pass-through.
+
+    0.6-M22: ``trajectory_position`` is a per-batch scalar (all entities in
+    a vectorized batch share one archetype hence one trajectory). When
+    ``noise.scale_with_trajectory`` is True AND the position is supplied,
+    the gaussian standard deviation becomes
+    ``noise.gaussian_sigma * trajectory_position``, replacing the
+    ``abs(value)`` factor for every cell in the batch.
     """
     n = values.shape[0]
     v = values.astype(np.float64, copy=True)
 
     if noise.gaussian_sigma > 0.0:
-        # Multiplicative jitter. Where v==0, fall back to absolute sigma.
-        mag = np.where(v != 0.0, np.abs(v), 1.0)
-        v = v + rng.normal(loc=0.0, scale=noise.gaussian_sigma * mag, size=n)
+        scale: float | np.ndarray
+        if noise.scale_with_trajectory and trajectory_position is not None:
+            scale = noise.gaussian_sigma * float(trajectory_position)
+        else:
+            # Multiplicative jitter. Where v==0, fall back to absolute sigma.
+            mag = np.where(v != 0.0, np.abs(v), 1.0)
+            scale = noise.gaussian_sigma * mag
+        v = v + rng.normal(loc=0.0, scale=scale, size=n)
 
     if noise.outlier_rate > 0.0:
         coin = rng.random(size=n)
@@ -1923,10 +1947,11 @@ def generate_archetype_batch(
                 )
 
         # 5+6+7. Noise + clamp/round per metric column.
+        traj_pos_t = float(traj[t])
         for j, em in enumerate(effective):
             col = correlated[:, j]
             if noise is not None:
-                col = _apply_noise_batch(col, noise, rng)
+                col = _apply_noise_batch(col, noise, rng, trajectory_position=traj_pos_t)
             col = _clamp_and_round_batch(col, em)
             for i, ent in enumerate(batch_entities):
                 series[ent.name][em.name][t] = col[i]

@@ -112,6 +112,7 @@ def detect_outlier_injections(config: PlotsimConfig) -> Optional[list[OutlierInj
         value: float,
         noise: Any,
         rng: np.random.Generator,
+        trajectory_position: Optional[float] = None,
     ) -> Optional[float]:
         nonlocal call_counter
         # Snapshot BEFORE the real call — _detect_noise_branches replays
@@ -120,9 +121,18 @@ def detect_outlier_injections(config: PlotsimConfig) -> Optional[list[OutlierInj
         # would advance the engine RNG and the snapshot would no longer
         # match what the noise pipeline saw.
         snapshot = rng.bit_generator.state
-        result = original_apply_noise(value, noise, rng)
+        # 0.6-M22: forward ``trajectory_position`` so the wrapper preserves
+        # the engine's heteroscedastic-noise contract end-to-end. The
+        # detection replay needs the same position to reproduce the
+        # gaussian draw byte-for-byte and keep the side RNG aligned.
+        result = original_apply_noise(value, noise, rng, trajectory_position=trajectory_position)
         if noise is not None and noise.outlier_rate > 0.0:
-            outlier_fired, _ = _detect_noise_branches(value, noise, snapshot)
+            outlier_fired, _ = _detect_noise_branches(
+                value,
+                noise,
+                snapshot,
+                trajectory_position=trajectory_position,
+            )
             if outlier_fired:
                 idx = call_counter
                 entity_idx, rem = divmod(idx, cells_per_entity)

@@ -916,6 +916,11 @@
           "minimum": 0.0,
           "title": "Mcar Rate",
           "type": "number"
+        },
+        "scale_with_trajectory": {
+          "default": false,
+          "title": "Scale With Trajectory",
+          "type": "boolean"
         }
       },
       "title": "NoiseConfig",

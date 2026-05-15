@@ -105,7 +105,13 @@ MANIFEST_FILENAME = "manifest.json"
 # with one record per (parent_table, child_table) edge — the metadata
 # downstream exercises need to enumerate header/detail pairings without
 # re-scanning column sources.
-MANIFEST_SCHEMA_VERSION = "1.6"
+# 0.6-M22: bumped 1.6 → 1.7 for the optional ``noise_config`` field.
+# ``None`` by default and on every config that runs with
+# ``noise.scale_with_trajectory=False`` (the historical lane), so 1.6
+# readers parse 1.7 manifests cleanly. Populated only when the
+# heteroscedastic-noise feature is enabled — keeps default-off runs
+# byte-equivalent to pre-M22 modulo the schema version string.
+MANIFEST_SCHEMA_VERSION = "1.7"
 
 
 class _ManifestBase(BaseModel):
@@ -550,6 +556,33 @@ class ParentChildRelation(_ManifestBase):
     child_row_count: int
 
 
+class NoiseConfigInfo(_ManifestBase):
+    """0.6-M22: ground-truth record of the noise model.
+
+    Emitted on the manifest only when
+    ``config.noise.scale_with_trajectory=True`` — i.e. when the engine ran
+    the heteroscedastic-noise lane. ``None`` otherwise. Carries the four
+    declared ``NoiseConfig`` knobs so a downstream consumer knows exactly
+    how the gaussian standard deviation was parameterized at each cell
+    without re-reading the YAML config.
+
+      * ``gaussian_sigma`` — the σ multiplier; the realized scale at a cell
+        is ``gaussian_sigma * trajectory_position`` under the
+        heteroscedastic lane.
+      * ``outlier_rate`` / ``mcar_rate`` — unchanged by the M22 flag;
+        recorded here for completeness so the manifest fully describes the
+        noise model.
+      * ``scale_with_trajectory`` — always ``True`` when this record is
+        emitted (the field exists for forward compatibility in case the
+        manifest later starts recording the default-off lane as well).
+    """
+
+    gaussian_sigma: float
+    outlier_rate: float
+    mcar_rate: float
+    scale_with_trajectory: bool
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -674,6 +707,14 @@ class ManifestSchema(_ManifestBase):
     # manifests byte-equivalent modulo the schema version bump and
     # the empty list).
     parent_child_relations: list[ParentChildRelation] = []
+    # 0.6-M22: noise-model record. ``None`` for the historical lane
+    # (``noise.scale_with_trajectory=False``) so default-off runs stay
+    # byte-equivalent to pre-M22 modulo the schema version bump.
+    # Populated only when the heteroscedastic-noise feature is enabled,
+    # so a downstream consumer can distinguish a run that opted into
+    # position-scaled gaussian noise from one that didn't without
+    # re-reading the config.
+    noise_config: Optional[NoiseConfigInfo] = None
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1257,6 +1298,19 @@ def build_manifest(
 
     outlier_injections = detect_outlier_injections(config)
 
+    # 0.6-M22: emit the noise-model record only when the heteroscedastic
+    # lane is engaged. Default-off configs leave ``noise_config=None`` so
+    # the manifest stays byte-equivalent to pre-M22 modulo the schema
+    # version bump.
+    noise_config_info: Optional[NoiseConfigInfo] = None
+    if config.noise is not None and getattr(config.noise, "scale_with_trajectory", False):
+        noise_config_info = NoiseConfigInfo(
+            gaussian_sigma=float(config.noise.gaussian_sigma),
+            outlier_rate=float(config.noise.outlier_rate),
+            mcar_rate=float(config.noise.mcar_rate),
+            scale_with_trajectory=True,
+        )
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -1278,6 +1332,7 @@ def build_manifest(
         correlation_phases=correlation_phases_info,
         source_entity_mappings=source_entity_mappings,
         parent_child_relations=parent_child_relations,
+        noise_config=noise_config_info,
     )
 
 
@@ -1316,6 +1371,7 @@ __all__ = [
     "EventFiring",
     "HoldoutInfo",
     "ManifestSchema",
+    "NoiseConfigInfo",
     "OutlierInjection",
     "ParentChildRelation",
     "QualityInjection",

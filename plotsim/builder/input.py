@@ -1139,6 +1139,12 @@ class NoiseInput(BaseModel):
     gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    # 0.6-M22: mirrors ``NoiseConfig.scale_with_trajectory``. When True,
+    # the gaussian standard deviation scales with each entity's trajectory
+    # position instead of with the cell magnitude. Preset shorthand
+    # (``"clean"`` / ``"slightly_messy"`` / ...) always leaves this False;
+    # users opt in by passing the explicit dict form.
+    scale_with_trajectory: bool = False
 
 
 class OutputInput(BaseModel):
