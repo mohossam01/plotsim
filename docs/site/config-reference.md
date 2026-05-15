@@ -25,7 +25,7 @@ bridges: [ ... ]
 quality: [ ... ]
 holdout: { target, periods, min_training_periods }
 entity_features: true | false | { metrics, include_labels }
-noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate }
+noise: <preset_name> | { gaussian_sigma, outlier_rate, mcar_rate, scale_with_trajectory }
 output: csv | parquet | jsonl | sql | { format, directory, cell_budget, denormalized, partition_by, sql_dialect }
 locale: <faker locale or list of locales>
 seed: <int>
@@ -643,6 +643,7 @@ noise:
   gaussian_sigma: 0.05
   outlier_rate: 0.02
   mcar_rate: 0.01
+  scale_with_trajectory: false
 ```
 
 | Field | Type | Default | Range | Effect |
@@ -650,6 +651,7 @@ noise:
 | `gaussian_sigma` | `float` | `0.0` | `0.0`–`5.0` | Multiplicative log-normal jitter on each draw — `value *= exp(N(0, σ²))`. Bigger σ = wider spread |
 | `outlier_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of replacing the value with a 3-σ tail draw |
 | `mcar_rate` | `float` | `0.0` | `0.0`–`1.0` | Probability per cell of dropping the value to NaN (missing-completely-at-random) |
+| `scale_with_trajectory` | `bool` | `false` | — | When `true`, the gaussian standard deviation at each cell becomes `gaussian_sigma × trajectory_position` instead of `gaussian_sigma × \|value\|`. Position-zero cells receive zero gaussian noise; position-one cells receive the full σ. Outlier and MCAR branches are unchanged. Use when the dataset's noise model should be heteroscedastic — e.g. high-engagement entities exhibit larger observation variance — rather than proportional to the value magnitude |
 
 Four named presets accept the lower-case canonical name OR a friendly
 alias — pick whichever reads naturally:
@@ -663,6 +665,8 @@ alias — pick whichever reads naturally:
 
 The same constants are exported from `plotsim` for engine-direct
 mutation: `PERFECTLY_CLEAN`, `SLIGHTLY_MESSY`, `REALISTIC`, `DIRTY`.
+Presets always set `scale_with_trajectory: false`; opt into the
+heteroscedastic lane by passing the explicit dict form.
 
 `noise` is independent of the `quality` block — `noise` perturbs metric
 values *during* generation (correlations and trajectory still hold);
