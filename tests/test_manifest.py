@@ -365,7 +365,7 @@ def test_all_bundled_templates_produce_valid_manifest(template, tmp_path):
 # --- 0.6-M5: causal_graph ---------------------------------------------------
 
 
-def test_schema_version_bumped_to_1_8():
+def test_schema_version_bumped_to_1_9():
     """0.6-M5 added causal_graph / correlations / outlier_injections (1.0 → 1.1).
     0.6-M8a added per-entity ``active_window`` on EntityArchetypeAssignment
     (1.1 → 1.2). 0.6-M8c added per-entity ``treatment`` and the top-level
@@ -380,13 +380,16 @@ def test_schema_version_bumped_to_1_8():
     (1.6 → 1.7). 0.6-M23 extended ``NoiseConfigInfo`` with ``noise_family``
     and ``degrees_of_freedom`` for heavy-tailed noise families and
     broadened the emission criterion to cover non-default families
-    (1.7 → 1.8).
+    (1.7 → 1.8). 0.6-M24 added the optional ``target_metric`` field on
+    both per-entity ``TreatmentAssignment`` and per-cohort
+    ``TreatmentCohort`` records (1.8 → 1.9); ``None`` default preserves
+    byte-equivalence for pre-M24 configs modulo the version string.
 
     The version pin lives in this test rather than just the manifest module
-    so a downstream consumer pinning ``schema_version >= "1.8"`` has a
+    so a downstream consumer pinning ``schema_version >= "1.9"`` has a
     direct on-disk contract test it can reference.
     """
-    assert MANIFEST_SCHEMA_VERSION == "1.8"
+    assert MANIFEST_SCHEMA_VERSION == "1.9"
 
 
 def test_causal_graph_emits_one_edge_per_metric_with_lag(saas_run):

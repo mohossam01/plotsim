@@ -1332,6 +1332,14 @@ class Entity(_Frozen):
     #     out a baseline window where treatment and control entities share
     #     identical metric distributions (the AC for "pre-treatment baseline
     #     is identical across groups").
+    #   * ``treatment_target_metric`` — optional name of a single metric.
+    #     When set, the logit shift only applies to that metric's
+    #     effective-position evaluation; every other metric in the same
+    #     period sees ``treatment_shift=0.0`` and is byte-identical to its
+    #     control-arm draw. ``None`` (default) = trajectory-wide application
+    #     (every metric sees the lift, the pre-M24 behaviour). The named
+    #     metric must exist in ``config.metrics``; the validator
+    #     ``validate_treatment_assignments`` enforces this at load time.
     #
     # The label is decoupled from the lift so a "control" entity can carry
     # a label without applying a shift, AND so the user can opt out of
@@ -1342,6 +1350,7 @@ class Entity(_Frozen):
     treatment_group: Optional[str] = None
     treatment_lift_log_odds: Optional[float] = None
     treatment_start_period: int = Field(default=0, ge=0)
+    treatment_target_metric: Optional[str] = None
 
 
 class FKDistribution(_Frozen):
