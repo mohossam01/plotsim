@@ -2463,6 +2463,13 @@ class NoiseConfig(_Frozen):
     gaussian_sigma: float = Field(default=0.0, ge=0.0, le=5.0)
     outlier_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     mcar_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    # 0.6-M22: when True, the gaussian branch scales its standard deviation
+    # by the entity's current trajectory position (in [0, 1]) instead of by
+    # ``abs(value)``. Higher-position cells receive proportionally larger
+    # noise; position-zero cells receive zero gaussian noise. Outlier and
+    # MCAR rates are unaffected. Default False preserves the multiplicative-
+    # on-magnitude behavior bit-for-bit.
+    scale_with_trajectory: bool = False
 
 
 class ManifestConfig(_Frozen):

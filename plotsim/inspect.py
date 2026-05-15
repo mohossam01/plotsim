@@ -442,12 +442,18 @@ def trace_metric_cell(
                 clamped_value = float(_clamp_and_round(v_after, em))
             continue
         rng_state_snapshot = replay_rng.bit_generator.state
-        noised = apply_noise(float(v), config.noise, replay_rng)
+        noised = apply_noise(
+            float(v),
+            config.noise,
+            replay_rng,
+            trajectory_position=pos_target,
+        )
         if em.name == metric_name:
             outlier_fired, mcar_fired = _detect_noise_branches(
                 float(v),
                 config.noise,
                 rng_state_snapshot,
+                trajectory_position=pos_target,
             )
             noised_value = None if noised is None else float(noised)
             if noised is None:
@@ -599,6 +605,7 @@ def _detect_noise_branches(
     value: float,
     noise,
     rng_state_snapshot: Mapping[str, Any],
+    trajectory_position: Optional[float] = None,
 ) -> tuple[bool, bool]:
     """Replay apply_noise's RNG draws to detect which branches fired.
 
@@ -606,13 +613,23 @@ def _detect_noise_branches(
     initialized from a snapshot of the engine's RNG state taken just before
     the real ``apply_noise`` call. Mirrors apply_noise's RNG consumption
     order: gaussian → outlier check → optional uniform → mcar check.
+
+    0.6-M22: when the engine ran with ``noise.scale_with_trajectory=True``,
+    the gaussian branch must replay the same trajectory-scaled scale to keep
+    the side RNG in lockstep — same number of bytes consumed, same value
+    drawn. Callers must pass the same ``trajectory_position`` the engine
+    saw at this cell.
     """
     side = np.random.default_rng()
     side.bit_generator.state = rng_state_snapshot
     v = value
     if noise.gaussian_sigma > 0.0:
-        mag = abs(v) if v != 0.0 else 1.0
-        v = v + float(side.normal(loc=0.0, scale=noise.gaussian_sigma * mag))
+        if getattr(noise, "scale_with_trajectory", False) and trajectory_position is not None:
+            scale = noise.gaussian_sigma * float(trajectory_position)
+        else:
+            mag = abs(v) if v != 0.0 else 1.0
+            scale = noise.gaussian_sigma * mag
+        v = v + float(side.normal(loc=0.0, scale=scale))
     outlier_fired = False
     if noise.outlier_rate > 0.0:
         if side.random() < noise.outlier_rate:

@@ -193,6 +193,7 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
             gaussian_sigma=user_input.noise.gaussian_sigma,
             outlier_rate=user_input.noise.outlier_rate,
             mcar_rate=user_input.noise.mcar_rate,
+            scale_with_trajectory=user_input.noise.scale_with_trajectory,
         )
     else:
         noise_cfg = NoiseConfig()
