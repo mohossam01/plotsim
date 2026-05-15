@@ -1145,6 +1145,18 @@ class NoiseInput(BaseModel):
     # (``"clean"`` / ``"slightly_messy"`` / ...) always leaves this False;
     # users opt in by passing the explicit dict form.
     scale_with_trajectory: bool = False
+    # 0.6-M23: mirrors ``NoiseConfig.noise_family``. Selects the additive
+    # jitter distribution — ``"gaussian"`` (default, byte-identical to
+    # pre-M23 behavior), ``"student_t"`` (heavy-tailed; requires
+    # ``degrees_of_freedom``), or ``"laplace"`` (heavy-tailed, sharper
+    # peak). Preset shorthand always resolves to ``"gaussian"``.
+    noise_family: Literal["gaussian", "student_t", "laplace"] = "gaussian"
+    # 0.6-M23: mirrors ``NoiseConfig.degrees_of_freedom``. Required when
+    # ``noise_family="student_t"``; forbidden otherwise. The engine-side
+    # validator on ``NoiseConfig`` raises with a clear message if the
+    # combination is incoherent — the builder simply passes the field
+    # through.
+    degrees_of_freedom: Optional[float] = Field(default=None, ge=1.0)
 
 
 class OutputInput(BaseModel):

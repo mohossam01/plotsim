@@ -20,6 +20,24 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
   1.6 → 1.7 with a new optional `noise_config` field populated only
   when the flag is enabled.
 
+- **Heavy-tailed noise families (Student-t, Laplace).** New
+  `noise_family` field on `NoiseConfig` accepts `"gaussian"` (default,
+  byte-identical to prior behavior), `"student_t"` (with required
+  `degrees_of_freedom`), or `"laplace"`. Heavy-tailed families produce
+  outlier-prone residuals without explicit outlier injection — useful
+  for modeling sensor noise, financial returns, or any domain with
+  fat-tailed observation error. Family dispatch composes orthogonally
+  with `scale_with_trajectory`: the resolved scale is the same for
+  every family, only the sampling distribution differs. Config-time
+  validation rejects `student_t` without `degrees_of_freedom`, rejects
+  `degrees_of_freedom` on other families, and rejects `df < 1`.
+  Builder mirror on `NoiseInput`; preset shorthand always resolves to
+  gaussian. Manifest schema bumps 1.7 → 1.8 — `NoiseConfigInfo` gains
+  `noise_family` and `degrees_of_freedom`, and its emission criterion
+  broadens to "heteroscedastic OR non-default family" so the manifest
+  records the realized noise family whenever it diverges from the
+  historical lane.
+
 - **`pool.<attr>` source on per_entity_per_period facts.** Widens the
   per-entity value-pool surface to the most common fact grain (one
   row per entity per period). Two new dispatch handlers —

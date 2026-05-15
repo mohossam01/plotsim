@@ -70,7 +70,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.7"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.8"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed; 1.7 → 1.8 extended `noise_config` with `noise_family` / `degrees_of_freedom`) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -87,7 +87,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `causal_graph` | array | One `CausalEdge` per metric with a non-None `causal_lag`. Empty list when no metric uses `causal_lag` |
 | `correlations` | array | One entry per user-declared `config.correlations` pair, with the realized (post-Higham, post-compensation) coefficient. Empty list when no correlations are configured |
 | `outlier_injections` | array or `null` | Per-cell outlier-fire log. `null` when skipped (no `outlier_rate`, vectorized mode, or cell budget exceeded). `[]` when the detector ran and observed no firings |
-| `noise_config` | object or `null` | Noise-model record. `null` when the run uses the default magnitude-scaled gaussian lane; populated only when `noise.scale_with_trajectory` is `true` |
+| `noise_config` | object or `null` | Noise-model record. `null` when the run uses the default magnitude-scaled gaussian lane; populated when EITHER `noise.scale_with_trajectory` is `true` OR `noise.noise_family` is non-default (`"student_t"` / `"laplace"`) |
 
 ---
 
@@ -627,10 +627,12 @@ seed signals a generation regression.
 
 ## `noise_config`
 
-Noise-model record — emitted only when the run opted into
-heteroscedastic gaussian noise via `noise.scale_with_trajectory: true`.
-`null` for the default magnitude-scaled lane (and absent from manifests
-produced before `schema_version: "1.7"`).
+Noise-model record — emitted whenever the run diverges from the
+historical magnitude-scaled gaussian lane. Two triggers, either
+sufficient: `noise.scale_with_trajectory: true` (heteroscedastic
+amplitude) OR `noise.noise_family` is non-default (heavy-tailed
+family — `"student_t"` or `"laplace"`). `null` for the default lane
+(and absent from manifests produced before `schema_version: "1.7"`).
 
 ```json
 {
@@ -638,22 +640,29 @@ produced before `schema_version: "1.7"`).
     "gaussian_sigma": 0.20,
     "outlier_rate": 0.0,
     "mcar_rate": 0.0,
-    "scale_with_trajectory": true
+    "scale_with_trajectory": true,
+    "noise_family": "student_t",
+    "degrees_of_freedom": 4.0
   }
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `gaussian_sigma` | `float` | The σ multiplier from `config.noise.gaussian_sigma`. Under the heteroscedastic lane the realized scale at a cell is `gaussian_sigma × trajectory_position` |
-| `outlier_rate` | `float` | Mirrors `config.noise.outlier_rate`. Unaffected by the heteroscedastic flag — recorded here for completeness so the manifest fully describes the noise model |
-| `mcar_rate` | `float` | Mirrors `config.noise.mcar_rate`. Unaffected by the heteroscedastic flag |
-| `scale_with_trajectory` | `bool` | Always `true` when this record is present (the field exists for forward compatibility in case the manifest later starts recording the default-off lane as well) |
+| `gaussian_sigma` | `float` | The σ multiplier from `config.noise.gaussian_sigma`. Under the heteroscedastic lane the realized scale at a cell is `gaussian_sigma × trajectory_position`; otherwise `gaussian_sigma × \|value\|`. Used by every family as the scale parameter |
+| `outlier_rate` | `float` | Mirrors `config.noise.outlier_rate`. Unaffected by the family or heteroscedastic flag — recorded here for completeness so the manifest fully describes the noise model |
+| `mcar_rate` | `float` | Mirrors `config.noise.mcar_rate`. Unaffected by the family or heteroscedastic flag |
+| `scale_with_trajectory` | `bool` | `true` when the heteroscedastic lane was engaged. `false` when the record was emitted purely because `noise_family` diverged from the default |
+| `noise_family` | `str` | The additive-jitter distribution — one of `"gaussian"`, `"student_t"`, `"laplace"`. Mirrors `config.noise.noise_family` |
+| `degrees_of_freedom` | `float` or `null` | Populated only when `noise_family == "student_t"`; `null` otherwise |
 
-**Use case** — distinguish a run that opted into position-scaled
-gaussian noise from one that didn't, without re-reading the YAML
-config. Anomaly-detection scoring that assumes uniform noise variance
-can read this field to switch to a position-aware likelihood model.
+**Use case** — distinguish a run that opted into position-scaled or
+heavy-tailed gaussian noise from one that didn't, without re-reading
+the YAML config. Anomaly-detection scoring that assumes uniform
+gaussian noise variance can read this record to switch to a
+position-aware or family-aware likelihood model — e.g., switching to
+a t-distribution likelihood when `noise_family == "student_t"` keeps
+the scorer well-calibrated under the heavier-tailed residuals.
 
 ---
 

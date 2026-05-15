@@ -619,6 +619,12 @@ def _detect_noise_branches(
     the side RNG in lockstep — same number of bytes consumed, same value
     drawn. Callers must pass the same ``trajectory_position`` the engine
     saw at this cell.
+
+    0.6-M23: when ``noise.noise_family`` is non-default, the replay must
+    invoke the same family on the side generator so the post-jitter RNG
+    state matches the engine's. Otherwise the subsequent ``random()`` calls
+    for outlier and MCAR checks would read from a different byte position,
+    yielding garbage outlier-injection records in the manifest.
     """
     side = np.random.default_rng()
     side.bit_generator.state = rng_state_snapshot
@@ -629,7 +635,14 @@ def _detect_noise_branches(
         else:
             mag = abs(v) if v != 0.0 else 1.0
             scale = noise.gaussian_sigma * mag
-        v = v + float(side.normal(loc=0.0, scale=scale))
+        family = getattr(noise, "noise_family", "gaussian")
+        if family == "gaussian":
+            v = v + float(side.normal(loc=0.0, scale=scale))
+        elif family == "student_t":
+            df = float(noise.degrees_of_freedom)
+            v = v + float(side.standard_t(df)) * scale
+        else:  # "laplace"
+            v = v + float(side.laplace(loc=0.0, scale=scale))
     outlier_fired = False
     if noise.outlier_rate > 0.0:
         if side.random() < noise.outlier_rate:

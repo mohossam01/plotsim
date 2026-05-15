@@ -194,6 +194,8 @@ def interpret(user_input: UserInput) -> PlotsimConfig:
             outlier_rate=user_input.noise.outlier_rate,
             mcar_rate=user_input.noise.mcar_rate,
             scale_with_trajectory=user_input.noise.scale_with_trajectory,
+            noise_family=user_input.noise.noise_family,
+            degrees_of_freedom=user_input.noise.degrees_of_freedom,
         )
     else:
         noise_cfg = NoiseConfig()
