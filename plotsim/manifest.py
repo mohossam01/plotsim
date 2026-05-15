@@ -57,7 +57,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from plotsim.config import (
     FKSource,
@@ -125,7 +125,24 @@ MANIFEST_FILENAME = "manifest.json"
 # the new field's null default. Populated when the entity's
 # ``treatment_target_metric`` names a metric — the lift then applies
 # only to that metric's effective-position evaluation.
-MANIFEST_SCHEMA_VERSION = "1.9"
+# Bumped 1.9 → 1.10 for three additive sections summarizing the engine's
+# realized signal layer alongside the existing trajectory tape:
+#   * ``seasonal_decomposition`` — the global per-period seasonal-strength
+#     array plus the per-metric / per-entity sensitivities used to scale
+#     it. Defaults to empty list + empty dicts on configs without
+#     seasonality, which matches the engine no-op lane.
+#   * ``regression_pairs_global`` — ordinary-least-squares β + intercept
+#     in both directions for every declared correlation pair, pooled
+#     across entities, paired with r² and per-direction residual
+#     variances. Empty list when the config declares no correlations.
+#   * ``regression_pairs_by_archetype`` — the same OLS surface grouped by
+#     ``Entity.archetype`` so consumers can see which archetypes carry
+#     the correlation. Empty dict when correlations are absent or when
+#     ``entity_metrics`` was not threaded.
+# Configs without correlations or seasonality emit a 1.10 manifest
+# byte-equivalent to 1.9 modulo the schema version string and the three
+# new empty containers.
+MANIFEST_SCHEMA_VERSION = "1.10"
 
 
 class _ManifestBase(BaseModel):
@@ -627,6 +644,84 @@ class NoiseConfigInfo(_ManifestBase):
     degrees_of_freedom: Optional[float] = None
 
 
+class SeasonalDecomposition(_ManifestBase):
+    """Per-run snapshot of the seasonal-strength inputs.
+
+    Three fields describing the deterministic seasonal layer applied to
+    every cell at metric-generation time:
+
+      * ``seasonal_factors`` — the length-``n_periods`` global strength
+        array produced by ``_build_seasonal_factors``. Entry ``t`` is the
+        sum of every ``SeasonalEffect.strength`` whose ``months`` set
+        contains period ``t``'s calendar month. Empty list when the config
+        declares no seasonal effects (the engine's short-circuit lane);
+        a populated list otherwise.
+      * ``metric_seasonal_sensitivities`` — one entry per metric, keyed by
+        ``Metric.name`` and valued by ``Metric.seasonal_sensitivity``. The
+        per-metric multiplier the engine applies on top of the global
+        strength. Empty dict when no seasonal effects are configured —
+        the values are inert in that lane and recording them would just
+        be noise.
+      * ``entity_seasonal_sensitivities`` — one entry per entity, keyed by
+        ``Entity.name`` and valued by ``Entity.seasonal_sensitivity``. The
+        per-entity multiplier the engine applies on top of the global
+        strength. Empty dict under the same condition as
+        ``metric_seasonal_sensitivities``.
+
+    A downstream consumer can reconstruct the effective seasonal lift at
+    cell ``(entity, period, metric)`` exactly as the engine did:
+    ``seasonal_factors[period] * metric_seasonal_sensitivities[metric] *
+    entity_seasonal_sensitivities[entity]``.
+    """
+
+    seasonal_factors: list[float]
+    metric_seasonal_sensitivities: dict[str, float]
+    entity_seasonal_sensitivities: dict[str, float]
+
+
+class RegressionPair(_ManifestBase):
+    """Pair-wise OLS summary for one declared correlation edge.
+
+    Computed pair-wise from the realized ``entity_metrics`` arrays (the
+    noise-free, distribution-shaped per-cell values, pre-MCAR / outlier
+    rewrites). Emitted only for pairs declared in ``config.correlations``
+    — undeclared pairs are auto-zero and don't contribute. Both directions
+    are surfaced so consumers don't have to re-derive one from the other.
+
+      * ``metric_a`` / ``metric_b`` — the pair, in the order the user
+        declared them. Bidirectional fields read as ``a → b`` / ``b → a``.
+      * ``beta_a_to_b`` / ``intercept_a_to_b`` — OLS slope and intercept
+        for the regression ``b = beta * a + intercept`` over the pooled
+        ``(a, b)`` observations.
+      * ``beta_b_to_a`` / ``intercept_b_to_a`` — the reverse regression
+        ``a = beta * b + intercept``.
+      * ``r_squared`` — direction-invariant coefficient of determination.
+        Equal to ``corr(a, b) ** 2`` on the pooled observations.
+      * ``residual_variance_a_to_b`` — variance of ``b - (beta_a_to_b * a
+        + intercept_a_to_b)``; the unexplained-noise scale for the
+        ``a → b`` direction.
+      * ``residual_variance_b_to_a`` — same for the reverse direction.
+      * ``n_observations`` — count of finite ``(a, b)`` pairs used. Cells
+        with NaN in either metric (cold-start lead-ins, MCAR-rewritten
+        values that leak into the realized series) are excluded.
+
+    ``n_observations < 2`` produces a degenerate record (all β / intercept
+    / variances are ``0.0``, ``r_squared`` is ``0.0``); downstream consumers
+    should gate on the count before using the coefficients.
+    """
+
+    metric_a: str
+    metric_b: str
+    beta_a_to_b: float
+    intercept_a_to_b: float
+    beta_b_to_a: float
+    intercept_b_to_a: float
+    r_squared: float
+    residual_variance_a_to_b: float
+    residual_variance_b_to_a: float
+    n_observations: int
+
+
 class HoldoutInfo(_ManifestBase):
     """M109: ground-truth record of the temporal holdout split.
 
@@ -759,6 +854,35 @@ class ManifestSchema(_ManifestBase):
     # position-scaled gaussian noise from one that didn't without
     # re-reading the config.
     noise_config: Optional[NoiseConfigInfo] = None
+    # Schema 1.10: seasonal-decomposition snapshot. Always emitted —
+    # configs without ``seasonal_effects`` get an empty list + empty
+    # dicts (no seasonal layer was active). Configs with seasonality
+    # carry the global strength array plus the per-metric / per-entity
+    # multipliers so a consumer can reconstruct the effective seasonal
+    # lift at any (entity, period, metric) cell without re-reading
+    # the YAML config.
+    seasonal_decomposition: SeasonalDecomposition = Field(
+        default_factory=lambda: SeasonalDecomposition(
+            seasonal_factors=[],
+            metric_seasonal_sensitivities={},
+            entity_seasonal_sensitivities={},
+        ),
+    )
+    # Schema 1.10: pooled OLS summary for every declared correlation
+    # pair. Empty list when no correlations are configured or when
+    # ``entity_metrics`` was not threaded to ``build_manifest`` — the
+    # builder degrades gracefully when called by older callers that
+    # haven't been updated to pass the realized arrays. One entry per
+    # ``config.correlations`` pair otherwise.
+    regression_pairs_global: list[RegressionPair] = []
+    # Schema 1.10: same OLS summary grouped by ``Entity.archetype``.
+    # Each entry's value list mirrors ``regression_pairs_global`` but
+    # restricted to entities of one archetype. Empty dict when no
+    # correlations are configured, when ``entity_metrics`` was not
+    # threaded, or when no archetype had enough observations to fit
+    # OLS (rare; a single-entity archetype with cold-start NaN can
+    # produce ``n_observations < 2``).
+    regression_pairs_by_archetype: dict[str, list[RegressionPair]] = {}
 
 
 # --- Helpers -----------------------------------------------------------------
@@ -1019,6 +1143,211 @@ def _build_treatment_cohorts(entities: list) -> list[TreatmentCohort]:
     return cohorts
 
 
+# --- Decomposition / regression helpers --------------------------------------
+
+
+def _build_seasonal_decomposition(
+    config: PlotsimConfig,
+    n_periods: int,
+) -> SeasonalDecomposition:
+    """Snapshot the seasonal-strength inputs into a manifest record.
+
+    Reuses ``_build_seasonal_factors`` for the global per-period strength
+    array so the manifest carries the exact lookup the engine consumed.
+    Configs without ``seasonal_effects`` get the empty-sentinel shape
+    (empty list + empty dicts) — the engine short-circuits on those
+    configs and the sensitivities are inert, so recording them would
+    just be noise.
+    """
+    # Local import: ``plotsim.tables`` transitively imports
+    # ``plotsim.manifest`` via the validation chain, so top-level would
+    # introduce a cycle on cold load.
+    from plotsim.tables import _build_seasonal_factors
+
+    if not config.seasonal_effects:
+        return SeasonalDecomposition(
+            seasonal_factors=[],
+            metric_seasonal_sensitivities={},
+            entity_seasonal_sensitivities={},
+        )
+
+    factors = _build_seasonal_factors(config, n_periods)
+    factor_list: list[float] = [float(x) for x in factors] if factors is not None else []
+    return SeasonalDecomposition(
+        seasonal_factors=factor_list,
+        metric_seasonal_sensitivities={
+            m.name: float(m.seasonal_sensitivity) for m in config.metrics
+        },
+        entity_seasonal_sensitivities={
+            e.name: float(e.seasonal_sensitivity) for e in config.entities
+        },
+    )
+
+
+def _ols_pair(
+    a: np.ndarray,
+    b: np.ndarray,
+    metric_a: str,
+    metric_b: str,
+) -> RegressionPair:
+    """Compute the bidirectional OLS summary for one ``(a, b)`` pair.
+
+    Strips non-finite cells in either array before fitting; the count of
+    surviving cells is the ``n_observations`` reported. ``n < 2`` short-
+    circuits to a zero-filled record (no β / variance is well-defined on
+    one observation) — downstream consumers should gate on the count.
+    Zero-variance inputs (a degenerate column constant across every
+    entity-period) also short-circuit, since β is undefined when
+    ``var(x) == 0``.
+    """
+    mask = np.isfinite(a) & np.isfinite(b)
+    a_f = a[mask]
+    b_f = b[mask]
+    n_obs = int(a_f.size)
+    if n_obs < 2:
+        return RegressionPair(
+            metric_a=metric_a,
+            metric_b=metric_b,
+            beta_a_to_b=0.0,
+            intercept_a_to_b=0.0,
+            beta_b_to_a=0.0,
+            intercept_b_to_a=0.0,
+            r_squared=0.0,
+            residual_variance_a_to_b=0.0,
+            residual_variance_b_to_a=0.0,
+            n_observations=n_obs,
+        )
+    var_a = float(np.var(a_f))
+    var_b = float(np.var(b_f))
+    if var_a == 0.0 or var_b == 0.0:
+        return RegressionPair(
+            metric_a=metric_a,
+            metric_b=metric_b,
+            beta_a_to_b=0.0,
+            intercept_a_to_b=float(np.mean(b_f)),
+            beta_b_to_a=0.0,
+            intercept_b_to_a=float(np.mean(a_f)),
+            r_squared=0.0,
+            residual_variance_a_to_b=float(var_b),
+            residual_variance_b_to_a=float(var_a),
+            n_observations=n_obs,
+        )
+    mean_a = float(np.mean(a_f))
+    mean_b = float(np.mean(b_f))
+    cov_ab = float(np.mean((a_f - mean_a) * (b_f - mean_b)))
+    beta_a_to_b = cov_ab / var_a
+    intercept_a_to_b = mean_b - beta_a_to_b * mean_a
+    beta_b_to_a = cov_ab / var_b
+    intercept_b_to_a = mean_a - beta_b_to_a * mean_b
+    resid_a_to_b = b_f - (beta_a_to_b * a_f + intercept_a_to_b)
+    resid_b_to_a = a_f - (beta_b_to_a * b_f + intercept_b_to_a)
+    # r² is direction-invariant; equal to corr² on the same observations.
+    corr = cov_ab / np.sqrt(var_a * var_b)
+    r_squared = float(corr * corr)
+    return RegressionPair(
+        metric_a=metric_a,
+        metric_b=metric_b,
+        beta_a_to_b=float(beta_a_to_b),
+        intercept_a_to_b=float(intercept_a_to_b),
+        beta_b_to_a=float(beta_b_to_a),
+        intercept_b_to_a=float(intercept_b_to_a),
+        r_squared=r_squared,
+        residual_variance_a_to_b=float(np.var(resid_a_to_b)),
+        residual_variance_b_to_a=float(np.var(resid_b_to_a)),
+        n_observations=n_obs,
+    )
+
+
+def _pool_metric_arrays(
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    entity_names: list[str],
+    metric: str,
+) -> np.ndarray:
+    """Flatten ``entity_metrics[e][metric]`` across ``entity_names``.
+
+    Missing entities or missing metric keys are skipped silently — the
+    caller passes a deliberately-narrowed entity list (global = every
+    entity, by-archetype = entities matching one archetype label), and
+    cells with NaN are filtered downstream by ``_ols_pair``'s mask.
+    """
+    chunks: list[np.ndarray] = []
+    for ename in entity_names:
+        per_metric = entity_metrics.get(ename)
+        if per_metric is None:
+            continue
+        arr = per_metric.get(metric)
+        if arr is None:
+            continue
+        chunks.append(np.asarray(arr, dtype=np.float64))
+    if not chunks:
+        return np.empty(0, dtype=np.float64)
+    return np.concatenate(chunks)
+
+
+def _build_regression_pairs(
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+    entity_names: list[str],
+) -> list[RegressionPair]:
+    """One ``RegressionPair`` per declared correlation, pooled over a subset.
+
+    Scope is intentionally narrowed to ``config.correlations`` (D1: declared
+    pairs only — avoids O(n_metrics²) bloat and matches the existing
+    ``correlations`` manifest section's scope). Pairs whose pooled
+    observation count is < 2 still emit a record (zero-filled β), so the
+    section's entry list mirrors ``config.correlations`` 1:1 — downstream
+    consumers don't have to fall back when an archetype subset is sparse.
+
+    Output is sorted by ``(metric_a, metric_b)`` to match the
+    ``correlations`` section's stable-ordering contract.
+    """
+    if not config.correlations or not entity_metrics or not entity_names:
+        return []
+    out: list[RegressionPair] = []
+    for pair in config.correlations:
+        a = _pool_metric_arrays(entity_metrics, entity_names, pair.metric_a)
+        b = _pool_metric_arrays(entity_metrics, entity_names, pair.metric_b)
+        if a.size != b.size:
+            # Defensive: would indicate a metric-series-length mismatch
+            # upstream. Surface as an empty record rather than crash —
+            # the n_observations=0 gate handles the rest.
+            n = min(a.size, b.size)
+            a = a[:n]
+            b = b[:n]
+        out.append(_ols_pair(a, b, pair.metric_a, pair.metric_b))
+    out.sort(key=lambda r: (r.metric_a, r.metric_b))
+    return out
+
+
+def _build_regression_pairs_by_archetype(
+    config: PlotsimConfig,
+    entity_metrics: dict[str, dict[str, np.ndarray]],
+) -> dict[str, list[RegressionPair]]:
+    """Group ``_build_regression_pairs`` output by ``Entity.archetype``.
+
+    Archetypes whose entity subset has no matching arrays in
+    ``entity_metrics`` are omitted entirely (rather than mapped to an
+    empty list) — the dict reflects archetypes that actually contributed
+    observations. The within-archetype pair list is sorted the same way
+    as the global one.
+    """
+    if not config.correlations or not entity_metrics:
+        return {}
+    by_archetype: dict[str, list[str]] = {}
+    for e in config.entities:
+        by_archetype.setdefault(e.archetype, []).append(e.name)
+    out: dict[str, list[RegressionPair]] = {}
+    for archetype in sorted(by_archetype.keys()):
+        pairs = _build_regression_pairs(
+            config,
+            entity_metrics,
+            by_archetype[archetype],
+        )
+        if pairs:
+            out[archetype] = pairs
+    return out
+
+
 # --- Build / write -----------------------------------------------------------
 
 
@@ -1029,6 +1358,7 @@ def build_manifest(
     sample_rate: Optional[float] = None,
     scd_state: Optional[Any] = None,
     bridge_state: Optional[Any] = None,
+    entity_metrics: Optional[dict[str, dict[str, np.ndarray]]] = None,
 ) -> ManifestSchema:
     """Assemble the manifest from config + generation state + tables.
 
@@ -1048,6 +1378,14 @@ def build_manifest(
     produced. When supplied, each first-dim entity's association set on
     each bridge becomes one ``BridgeAssociationRecord``. ``None`` leaves
     ``manifest.bridge_associations`` as ``[]``.
+
+    Schema 1.10: ``entity_metrics`` (the ``GenerationState.entity_metrics``
+    field) carries the per-entity, per-metric realized series the engine
+    built fact tables from. When supplied, ``regression_pairs_global``
+    and ``regression_pairs_by_archetype`` are populated with pair-wise
+    OLS summaries for every declared correlation pair. ``None`` (older
+    callers, or callers deliberately skipping the regression section)
+    leaves both manifest fields at their empty defaults.
 
     The function is pure and stateless — same inputs → same output. No
     RNG, no clock, no filesystem.
@@ -1378,6 +1716,26 @@ def build_manifest(
                 ),
             )
 
+    # Schema 1.10: seasonal-decomposition snapshot + per-pair OLS
+    # summaries. Seasonal always emits (empty sentinel when no effects);
+    # regression sections emit only when both declared correlations and
+    # realized ``entity_metrics`` are present.
+    seasonal_decomposition = _build_seasonal_decomposition(config, n_periods)
+    if entity_metrics is not None:
+        every_entity = [e.name for e in config.entities]
+        regression_pairs_global = _build_regression_pairs(
+            config,
+            entity_metrics,
+            every_entity,
+        )
+        regression_pairs_by_archetype = _build_regression_pairs_by_archetype(
+            config,
+            entity_metrics,
+        )
+    else:
+        regression_pairs_global = []
+        regression_pairs_by_archetype = {}
+
     return ManifestSchema(
         schema_version=MANIFEST_SCHEMA_VERSION,
         seed=int(config.seed),
@@ -1400,6 +1758,9 @@ def build_manifest(
         source_entity_mappings=source_entity_mappings,
         parent_child_relations=parent_child_relations,
         noise_config=noise_config_info,
+        seasonal_decomposition=seasonal_decomposition,
+        regression_pairs_global=regression_pairs_global,
+        regression_pairs_by_archetype=regression_pairs_by_archetype,
     )
 
 
@@ -1442,7 +1803,9 @@ __all__ = [
     "OutlierInjection",
     "ParentChildRelation",
     "QualityInjection",
+    "RegressionPair",
     "SCDEvent",
+    "SeasonalDecomposition",
     "SourceEntityMapping",
     "TrajectorySample",
     "build_manifest",

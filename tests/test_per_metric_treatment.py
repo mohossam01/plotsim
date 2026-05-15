@@ -518,8 +518,11 @@ def test_manifest_schema_version_bumped_for_m24():
     schema. Pre-M24 readers see a 1.9 manifest's new ``target_metric``
     field default to ``None`` so they parse cleanly — but the schema
     string itself must advance to signal that the new field exists.
+    Subsequent additive sections continue to advance the pin
+    (1.9 → 1.10 for the seasonal-decomposition snapshot plus per-pair
+    regression summaries).
     """
-    assert MANIFEST_SCHEMA_VERSION == "1.9"
+    assert MANIFEST_SCHEMA_VERSION == "1.10"
 
 
 # --- Builder propagation ---------------------------------------------------

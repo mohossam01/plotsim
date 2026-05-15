@@ -4377,6 +4377,15 @@ class GenerationState:
     bridge DataFrames. ``BridgeAssociations(bridges={})`` is the empty
     sentinel for configs without a ``bridges`` block.
 
+    ``entity_metrics`` carries the per-entity, per-metric realized series
+    produced by ``_compute_entity_metrics`` — the noise-free, distribution-
+    shaped values the fact tables were built from (before MCAR / outlier
+    injection rewrites cells). The manifest builder reads this for the
+    seasonal-decomposition and regression-pair sections; downstream
+    consumers that need the same arrays without re-running the engine
+    pick them up here. Empty dict for configs that never realized any
+    metric series (an edge case not produced by ``generate_tables_with_state``).
+
     Future fields extend this dataclass; existing callers that
     destructure ``(tables, state)`` keep working because Python
     dataclass fields are accessed by name.
@@ -4387,6 +4396,7 @@ class GenerationState:
     bridges: BridgeAssociations = field(
         default_factory=lambda: BridgeAssociations(bridges={}),
     )
+    entity_metrics: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
 
 
 def _date_key_to_period_label(dim_date: pd.DataFrame) -> dict[int, str]:
@@ -4794,4 +4804,5 @@ def generate_tables_with_state(
         trajectories=trajectories,
         scd=scd_state,
         bridges=bridge_associations,
+        entity_metrics=entity_metrics,
     )

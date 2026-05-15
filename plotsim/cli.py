@@ -280,6 +280,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             tables,
             scd_state=gen_state.scd,
             bridge_state=gen_state.bridges,
+            entity_metrics=gen_state.entity_metrics,
         )
 
     output_dir = Path(args.output_dir) if args.output_dir else None

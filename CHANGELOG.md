@@ -9,6 +9,24 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Manifest decomposition + regression sections.** The manifest sidecar
+  now records two additional summaries of the engine's realized signal
+  layer. `seasonal_decomposition` snapshots the global per-period
+  seasonal-strength array plus the per-metric and per-entity sensitivity
+  multipliers — a downstream consumer can reproduce the effective
+  seasonal lift at any `(entity, period, metric)` cell without
+  re-reading the source config. `regression_pairs_global` carries
+  pair-wise OLS β + intercept (both directions), r², per-direction
+  residual variance, and the finite-observation count for every
+  declared correlation pair, pooled across all entities;
+  `regression_pairs_by_archetype` provides the same OLS surface
+  restricted to each archetype's entity subset, so consumers can see
+  which archetypes carry the correlation. Configs without
+  `seasonal_effects` emit an empty-sentinel `seasonal_decomposition`
+  (empty list and empty dicts); configs without `correlations` emit
+  empty regression sections. Manifest schema bumps 1.9 → 1.10 for the
+  three additive sections.
+
 - **Per-metric treatment effects.** New optional `target_metric` field
   on the treatment surface (set on `SegmentInput.treatment` in the
   builder; mirrored as `Entity.treatment_target_metric` in the engine).

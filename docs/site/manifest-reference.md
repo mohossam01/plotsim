@@ -32,6 +32,7 @@ tables, state = generate_tables_with_state(cfg)
 manifest = build_manifest(
     cfg, state.trajectories, tables,
     scd_state=state.scd, bridge_state=state.bridges,
+    entity_metrics=state.entity_metrics,
 )
 write_tables(tables, cfg, manifest=manifest)
 ```
@@ -46,7 +47,7 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 
 ```json
 {
-  "schema_version": "1.7",
+  "schema_version": "1.10",
   "seed": 42,
   "config_sha256": "<64-char hex>",
   "archetype_assignments": [...],
@@ -64,13 +65,16 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
   "correlations": [...],
   "outlier_injections": [...] | null,
   "parent_child_relations": [...],
-  "noise_config": {...} | null
+  "noise_config": {...} | null,
+  "seasonal_decomposition": {...},
+  "regression_pairs_global": [...],
+  "regression_pairs_by_archetype": {...}
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.9"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed; 1.7 → 1.8 extended `noise_config` with `noise_family` / `degrees_of_freedom`; 1.8 → 1.9 added the optional `target_metric` field on the per-entity `treatment` and per-cohort `treatment_cohorts` records) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.10"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed; 1.7 → 1.8 extended `noise_config` with `noise_family` / `degrees_of_freedom`; 1.8 → 1.9 added the optional `target_metric` field on the per-entity `treatment` and per-cohort `treatment_cohorts` records; 1.9 → 1.10 added the `seasonal_decomposition` snapshot plus per-pair OLS summaries in `regression_pairs_global` / `regression_pairs_by_archetype`) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -88,6 +92,9 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `correlations` | array | One entry per user-declared `config.correlations` pair, with the realized (post-Higham, post-compensation) coefficient. Empty list when no correlations are configured |
 | `outlier_injections` | array or `null` | Per-cell outlier-fire log. `null` when skipped (no `outlier_rate`, vectorized mode, or cell budget exceeded). `[]` when the detector ran and observed no firings |
 | `noise_config` | object or `null` | Noise-model record. `null` when the run uses the default magnitude-scaled gaussian lane; populated when EITHER `noise.scale_with_trajectory` is `true` OR `noise.noise_family` is non-default (`"student_t"` / `"laplace"`) |
+| `seasonal_decomposition` | object | Snapshot of the seasonal-strength inputs the engine consumed. Always emitted; configs without `seasonal_effects` get the empty-sentinel shape (empty list / empty dicts) |
+| `regression_pairs_global` | array | Pair-wise OLS summary (slope, intercept, r², residual variance) for every declared correlation pair, pooled across every entity. Empty list when no correlations are configured |
+| `regression_pairs_by_archetype` | object | Same OLS summary as `regression_pairs_global` but grouped by `Entity.archetype`. Keys are archetype names; values mirror the global list shape. Empty dict when no correlations are configured |
 
 ---
 
@@ -663,6 +670,181 @@ gaussian noise variance can read this record to switch to a
 position-aware or family-aware likelihood model — e.g., switching to
 a t-distribution likelihood when `noise_family == "student_t"` keeps
 the scorer well-calibrated under the heavier-tailed residuals.
+
+---
+
+## `seasonal_decomposition`
+
+Snapshot of the seasonal-strength inputs the engine consumed during
+metric generation.
+
+```json
+{
+  "seasonal_decomposition": {
+    "seasonal_factors": [0.0, 0.8, 0.8, 0.0, 0.0, -0.3, -0.3, 0.0, 0.0, 0.0, 0.0, 0.8],
+    "metric_seasonal_sensitivities": {
+      "engagement": 1.0,
+      "mrr": 0.6
+    },
+    "entity_seasonal_sensitivities": {
+      "growers_001": 1.0,
+      "decliners_002": 0.0
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `seasonal_factors` | array of `float` | Length-`n_periods` global strength array. Entry `t` is the sum of every `SeasonalEffect.strength` whose `months` set contains period `t`'s calendar month |
+| `metric_seasonal_sensitivities` | object | One entry per metric, keyed by `Metric.name` and valued by `Metric.seasonal_sensitivity`. The per-metric multiplier the engine applies on top of the global strength |
+| `entity_seasonal_sensitivities` | object | One entry per entity, keyed by `Entity.name` and valued by `Entity.seasonal_sensitivity`. The per-entity multiplier the engine applies on top of the global strength |
+
+### When the section is the empty sentinel
+
+Configs without any `seasonal_effects` declared get the empty-sentinel
+shape — `seasonal_factors: []`, `metric_seasonal_sensitivities: {}`,
+`entity_seasonal_sensitivities: {}` — rather than `null`. The
+sensitivity multipliers are inert in that lane (the engine short-
+circuits before applying them), so recording them would just be noise.
+Always present so a downstream consumer can iterate the section without
+a None-check.
+
+**Use case** — reconstruct the engine's effective seasonal lift at any
+cell without re-reading the YAML config. For an `(entity, period, metric)`
+triple:
+
+```python
+lift = (
+    manifest["seasonal_decomposition"]["seasonal_factors"][period]
+    * manifest["seasonal_decomposition"]["metric_seasonal_sensitivities"][metric]
+    * manifest["seasonal_decomposition"]["entity_seasonal_sensitivities"][entity]
+)
+```
+
+A seasonality-aware anomaly detector can subtract this lift before
+scoring; a feature pipeline can expose `seasonal_factor` as a regressor
+that exactly mirrors the engine's modulation.
+
+---
+
+## `regression_pairs_global`
+
+Pair-wise ordinary-least-squares fit for every declared correlation,
+pooled across every entity and period.
+
+```json
+{
+  "regression_pairs_global": [
+    {
+      "metric_a": "engagement",
+      "metric_b": "mrr",
+      "beta_a_to_b": 0.84,
+      "intercept_a_to_b": 12.3,
+      "beta_b_to_a": 0.71,
+      "intercept_b_to_a": -4.1,
+      "r_squared": 0.6,
+      "residual_variance_a_to_b": 18.7,
+      "residual_variance_b_to_a": 0.04,
+      "n_observations": 720
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `metric_a` / `metric_b` | `str` | The pair, in the order the user declared them in `config.correlations` |
+| `beta_a_to_b` | `float` | OLS slope for `b = beta * a + intercept` over the pooled `(a, b)` observations |
+| `intercept_a_to_b` | `float` | OLS intercept for the same regression |
+| `beta_b_to_a` | `float` | OLS slope for the reverse regression `a = beta * b + intercept` |
+| `intercept_b_to_a` | `float` | OLS intercept for the reverse regression |
+| `r_squared` | `float` | Direction-invariant coefficient of determination. Equal to `corr(a, b) ** 2` on the same observations |
+| `residual_variance_a_to_b` | `float` | Variance of `b - (beta_a_to_b * a + intercept_a_to_b)` — the unexplained-noise scale for the `a → b` direction |
+| `residual_variance_b_to_a` | `float` | Same for the reverse direction |
+| `n_observations` | `int` | Count of finite `(a, b)` pairs used. Cells with NaN in either metric (cold-start lead-ins, MCAR-rewritten values) are excluded |
+
+One entry per pair in `config.correlations`. Auto-zero off-diagonals
+(pairs the user did not declare) are not recorded. Sorted by
+`(metric_a, metric_b)` for stable JSON output.
+
+**Distinct from** `correlations` (which records the realized Pearson
+coefficient the copula targeted). `regression_pairs_global` describes
+the *fitted linear relationship* between the realized series — slope
+and intercept, plus the unexplained variance. A high `r_squared`
+combined with a small `residual_variance` says the pair moves
+tightly together along a straight line; a high `r_squared` with
+asymmetric residual variances says one direction predicts the other
+better than vice-versa (which is normal under unequal metric scales).
+
+`n_observations < 2` is a degenerate case (sparse cold-start, no
+overlap between metric domains); the record's β / intercept / variance
+fields are all `0.0` and downstream consumers should gate on the count
+before reading the coefficients.
+
+**Use case** — score a regression baseline. A predictor of `mrr` from
+`engagement` should land near `beta_a_to_b` with residual variance
+close to `residual_variance_a_to_b`. Larger deviations flag either
+model misspecification or that the consumer is over-fitting noise the
+manifest already attributes to residuals.
+
+---
+
+## `regression_pairs_by_archetype`
+
+The same OLS surface as `regression_pairs_global`, but restricted to
+each archetype's entity subset so a consumer can see which archetypes
+carry the declared correlations.
+
+```json
+{
+  "regression_pairs_by_archetype": {
+    "growth": [
+      {
+        "metric_a": "engagement",
+        "metric_b": "mrr",
+        "beta_a_to_b": 0.91,
+        "intercept_a_to_b": 9.2,
+        "beta_b_to_a": 0.86,
+        "intercept_b_to_a": -7.0,
+        "r_squared": 0.78,
+        "residual_variance_a_to_b": 10.4,
+        "residual_variance_b_to_a": 0.02,
+        "n_observations": 360
+      }
+    ],
+    "decline": [
+      {
+        "metric_a": "engagement",
+        "metric_b": "mrr",
+        "beta_a_to_b": 0.62,
+        "intercept_a_to_b": 15.8,
+        "beta_b_to_a": 0.41,
+        "intercept_b_to_a": 1.2,
+        "r_squared": 0.31,
+        "residual_variance_a_to_b": 25.6,
+        "residual_variance_b_to_a": 0.08,
+        "n_observations": 360
+      }
+    ]
+  }
+}
+```
+
+The top-level object's keys are archetype names (matching
+`Entity.archetype`); each value list mirrors the
+`regression_pairs_global` shape, one entry per declared pair.
+Archetypes that contribute no finite observations are omitted entirely
+(rather than mapped to an empty list) — the dict reflects archetypes
+that actually contributed to the fit.
+
+Empty `{}` when no correlations are declared.
+
+**Use case** — diagnose where in the population a declared correlation
+is strongest. A pair with a high pooled `r_squared` but per-archetype
+values that swing widely is a signal that the correlation is a mixture
+artefact, not a within-archetype relationship — a model trained on the
+pooled fit will mispredict for the archetype whose β diverges most.
 
 ---
 

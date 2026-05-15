@@ -313,10 +313,12 @@ def test_manifest_schema_bumped_to_1_9():
     # with ``noise_family`` / ``degrees_of_freedom`` and broadens its
     # emission criterion to cover non-gaussian families (0.6-M23); 1.9
     # adds the optional ``target_metric`` field on ``TreatmentAssignment``
-    # / ``TreatmentCohort`` for per-metric treatment effects (0.6-M24).
+    # / ``TreatmentCohort`` for per-metric treatment effects (0.6-M24);
+    # 1.10 adds the ``seasonal_decomposition`` snapshot plus
+    # ``regression_pairs_global`` / ``regression_pairs_by_archetype``.
     # This module's contract tracks the pin at the schema level, not the
     # field semantics.
-    assert MANIFEST_SCHEMA_VERSION == "1.9"
+    assert MANIFEST_SCHEMA_VERSION == "1.10"
 
 
 # ── AC6: single-source configs unchanged (no multi_source block) ──────────
@@ -406,7 +408,7 @@ def test_bundled_template_loads_and_validates(tmp_path: Path):
     assert (out_dir / "dim_company_crm.csv").is_file()
     assert (out_dir / "dim_company_billing.csv").is_file()
     manifest_payload = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest_payload["schema_version"] == "1.9"
+    assert manifest_payload["schema_version"] == "1.10"
     # 20 entities × 2 sources = 40 mapping records.
     assert len(manifest_payload["source_entity_mappings"]) == 40
 

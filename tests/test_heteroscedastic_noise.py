@@ -277,7 +277,7 @@ def test_manifest_schema_version_pins_1_9():
         warnings.simplefilter("ignore")
         cfg = _build_small_config(scale_with_trajectory=True)
         _tables, manifest = _generate_and_manifest(cfg)
-    assert manifest.schema_version == "1.9"
+    assert manifest.schema_version == "1.10"
 
 
 # --- End-to-end byte-identity for default-off engine path -------------------
