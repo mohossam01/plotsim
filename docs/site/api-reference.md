@@ -511,7 +511,9 @@ The manifest captures the *signal layer* a noisy fact table can't
 recover: archetype assignments, trajectory positions, event-firing
 periods, SCD band crossings, bridge associations, the engine's
 seasonal-strength inputs, per-pair regression summaries for declared
-correlations, and reproducibility metadata.
+correlations, nested-ANOVA variance partitions per metric, RBF
+Gaussian-process kernel fits over each archetype's trajectory shape,
+and reproducibility metadata.
 
 **Parameters**
 
@@ -523,7 +525,7 @@ correlations, and reproducibility metadata.
 | `sample_rate` | Override for `config.manifest.trajectory_sample_rate`. `None` reads the config value. |
 | `scd_state` | Pass `state.scd` to record SCD Type 2 band crossings. `None` leaves `manifest.scd_events` empty. |
 | `bridge_state` | Pass `state.bridges` to record M:N associations. `None` leaves `manifest.bridge_associations` empty. |
-| `entity_metrics` | Pass `state.entity_metrics` to populate `manifest.regression_pairs_global` and `manifest.regression_pairs_by_archetype` with pair-wise OLS summaries for every declared correlation pair. `None` leaves both sections at their empty defaults. |
+| `entity_metrics` | Pass `state.entity_metrics` to populate `manifest.regression_pairs_global` / `manifest.regression_pairs_by_archetype` with pair-wise OLS summaries for every declared correlation pair AND `manifest.variance_partitions` / `manifest.variance_partitions_by_segment` with nested-ANOVA decompositions per metric. `None` leaves all four sections at their empty defaults. (`manifest.gp_kernel_fits` is populated independently from `config.archetypes` whenever the config declares at least one metric — the section does not need `entity_metrics` threaded.) |
 
 The function is pure — same inputs produce a byte-identical manifest.
 No RNG, no clock, no filesystem.

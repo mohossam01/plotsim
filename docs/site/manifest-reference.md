@@ -68,13 +68,16 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
   "noise_config": {...} | null,
   "seasonal_decomposition": {...},
   "regression_pairs_global": [...],
-  "regression_pairs_by_archetype": {...}
+  "regression_pairs_by_archetype": {...},
+  "variance_partitions": [...],
+  "variance_partitions_by_segment": [...],
+  "gp_kernel_fits": [...]
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `schema_version` | `str` | Wire-shape version. Currently `"1.10"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed; 1.7 → 1.8 extended `noise_config` with `noise_family` / `degrees_of_freedom`; 1.8 → 1.9 added the optional `target_metric` field on the per-entity `treatment` and per-cohort `treatment_cohorts` records; 1.9 → 1.10 added the `seasonal_decomposition` snapshot plus per-pair OLS summaries in `regression_pairs_global` / `regression_pairs_by_archetype`) |
+| `schema_version` | `str` | Wire-shape version. Currently `"1.10"` (bumped over time as new additive sections — `causal_graph`, `correlations`, `outlier_injections`, multi-source mappings, `parent_child_relations`, `noise_config` — landed; 1.7 → 1.8 extended `noise_config` with `noise_family` / `degrees_of_freedom`; 1.8 → 1.9 added the optional `target_metric` field on the per-entity `treatment` and per-cohort `treatment_cohorts` records; 1.9 → 1.10 added the `seasonal_decomposition` snapshot plus per-pair OLS summaries in `regression_pairs_global` / `regression_pairs_by_archetype`; the `variance_partitions` / `variance_partitions_by_segment` / `gp_kernel_fits` sections landed additively on 1.10 with no version bump) |
 | `seed` | `int` | The seed used for generation — `config.seed` |
 | `config_sha256` | `str` | Full SHA-256 hex of the JSON-serialized config. Detects config drift between generation and consumption |
 | `archetype_assignments` | array | One entry per entity; see below |
@@ -95,6 +98,9 @@ produces a byte-identical `manifest.json`. Encoding: UTF-8,
 | `seasonal_decomposition` | object | Snapshot of the seasonal-strength inputs the engine consumed. Always emitted; configs without `seasonal_effects` get the empty-sentinel shape (empty list / empty dicts) |
 | `regression_pairs_global` | array | Pair-wise OLS summary (slope, intercept, r², residual variance) for every declared correlation pair, pooled across every entity. Empty list when no correlations are configured |
 | `regression_pairs_by_archetype` | object | Same OLS summary as `regression_pairs_global` but grouped by `Entity.archetype`. Keys are archetype names; values mirror the global list shape. Empty dict when no correlations are configured |
+| `variance_partitions` | array | Nested-ANOVA variance decomposition per metric, with `Entity.archetype` as the between-group axis. One record per metric. Empty list when the config declares no metrics |
+| `variance_partitions_by_segment` | array | Same nested-ANOVA decomposition with curve segment as the between-group axis, computed per archetype. One record per `(metric, archetype)` pair. Segments are never pooled across archetypes. Empty list when the config declares no metrics |
+| `gp_kernel_fits` | array | RBF Gaussian-process kernel fits over each archetype's trajectory shape, plus per-entity records for entities that carry trajectory `overrides`. Empty list when the config declares no metrics |
 
 ---
 
@@ -845,6 +851,220 @@ is strongest. A pair with a high pooled `r_squared` but per-archetype
 values that swing widely is a signal that the correlation is a mixture
 artefact, not a within-archetype relationship — a model trained on the
 pooled fit will mispredict for the archetype whose β diverges most.
+
+---
+
+## `variance_partitions`
+
+Nested-ANOVA variance decomposition per metric, with `Entity.archetype`
+as the between-group axis.
+
+```json
+{
+  "variance_partitions": [
+    {
+      "metric": "engagement",
+      "scope": "archetype",
+      "scope_name": "all",
+      "ss_between": 12.4,
+      "ss_within_entity": 6.8,
+      "ss_residual": 41.0,
+      "fraction_between": 0.206,
+      "fraction_within_entity": 0.113,
+      "fraction_residual": 0.681,
+      "degrees_of_freedom_between": 1,
+      "degrees_of_freedom_within": 18,
+      "degrees_of_freedom_residual": 220,
+      "n_observations": 240,
+      "cold_start_entities_excluded": 0
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `metric` | `str` | The metric this record decomposes (matches `config.metrics[i].name`) |
+| `scope` | `str` | Always `"archetype"` for this section |
+| `scope_name` | `str` | Always the literal sentinel `"all"` for this section — the partition spans every archetype the config declares |
+| `ss_between` | `float` | Sum-of-squares attributable to the grouping axis (variance between archetype means around the grand mean) |
+| `ss_within_entity` | `float` | Sum-of-squares between entity means within the same archetype |
+| `ss_residual` | `float` | Within-entity sum-of-squares over time (residual to each entity's own mean) |
+| `fraction_between` / `fraction_within_entity` / `fraction_residual` | `float` | Each `ss_*` divided by `ss_total = ss_between + ss_within_entity + ss_residual`. The three fractions sum to `1.0` (or to `0.0` for a fully constant metric) |
+| `degrees_of_freedom_between` | `int` | `n_groups - 1` where `n_groups` is the number of archetypes that contributed observations |
+| `degrees_of_freedom_within` | `int` | `n_cells - n_groups` where `n_cells` is the number of distinct `(archetype, entity)` pairs |
+| `degrees_of_freedom_residual` | `int` | `n_observations - n_cells` |
+| `n_observations` | `int` | Count of finite `(entity, period)` cells used. Cells with NaN (cold-start lead-ins, MCAR-rewritten values) are excluded |
+| `cold_start_entities_excluded` | `int` | Count of entities that contributed at least one NaN cell to this partition. Surfaces "this section dropped data" without forcing a re-derivation of the NaN tally |
+
+The three sums-of-squares satisfy `ss_between + ss_within_entity +
+ss_residual == ss_total` exactly (modulo floating-point rounding at
+`rtol≈1e-10`). One record per metric, sorted by `metric` for stable JSON
+output.
+
+**Use case** — diagnose how much of a metric's spread is explained by
+the latent archetype label vs. by entity-level idiosyncrasy vs. by
+within-entity time-series noise. A high `fraction_between` says the
+archetype is the dominant driver of metric values; a high
+`fraction_residual` with a low `fraction_between` says metric values
+are essentially noise on top of an entity-specific mean.
+
+---
+
+## `variance_partitions_by_segment`
+
+The same nested-ANOVA decomposition with curve segment as the between-
+group axis, computed per archetype.
+
+```json
+{
+  "variance_partitions_by_segment": [
+    {
+      "metric": "engagement",
+      "scope": "segment",
+      "scope_name": "growth",
+      "ss_between": 8.1,
+      "ss_within_entity": 4.6,
+      "ss_residual": 22.3,
+      "fraction_between": 0.231,
+      "fraction_within_entity": 0.131,
+      "fraction_residual": 0.638,
+      "degrees_of_freedom_between": 2,
+      "degrees_of_freedom_within": 27,
+      "degrees_of_freedom_residual": 90,
+      "n_observations": 120,
+      "cold_start_entities_excluded": 0
+    }
+  ]
+}
+```
+
+The schema is identical to `variance_partitions`. The differences:
+
+| Field | Difference |
+|---|---|
+| `scope` | Always `"segment"` |
+| `scope_name` | The archetype name. Each archetype's segments are decomposed in isolation; the section never pools observations across archetypes |
+| `degrees_of_freedom_between` | `n_curve_segments - 1` for the named archetype |
+| `n_observations` | Restricted to entities of `scope_name`'s archetype only |
+
+One record per `(metric, archetype)` pair whose entities contributed at
+least one finite observation. Sorted by `(metric, scope_name)` for
+stable JSON output.
+
+Each entity's segment membership is derived from its own boundary
+computation — entities with `start_period > 0` (cold-start) or with
+trajectory `overrides` contribute observations to the segment they
+actually occupied at each period, not to the archetype baseline
+segment. Period membership is reported as `segment_0`, `segment_1`, …
+internally and rolls up into the per-segment SS terms; downstream
+consumers see only the partition totals.
+
+**Use case** — locate where in an archetype's curve a metric's
+variance spreads most. A high `ss_between` for an archetype with three
+distinct curve segments says the metric tracks the curve; a low
+`ss_between` says the metric is decoupled from the archetype's
+narrative phase structure.
+
+---
+
+## `gp_kernel_fits`
+
+RBF Gaussian-process kernel fits over each archetype's trajectory
+shape. Surfaces a smoothness characterization the trajectory tape
+itself doesn't directly expose.
+
+```json
+{
+  "gp_kernel_fits": [
+    {
+      "scope_type": "archetype",
+      "scope_name": "growth",
+      "kernel_type": "rbf",
+      "hyperparameters": {
+        "length_scale": 4.7,
+        "signal_variance": 0.31,
+        "noise_variance": 0.0008
+      },
+      "log_marginal_likelihood": -3.2,
+      "n_train": 12,
+      "converged": true
+    },
+    {
+      "scope_type": "archetype",
+      "scope_name": "flat",
+      "kernel_type": "rbf",
+      "hyperparameters": {},
+      "log_marginal_likelihood": null,
+      "n_train": 12,
+      "converged": false
+    },
+    {
+      "scope_type": "entity",
+      "scope_name": "growers_001",
+      "kernel_type": "rbf",
+      "hyperparameters": {
+        "length_scale": 6.1,
+        "signal_variance": 0.28,
+        "noise_variance": 0.0012
+      },
+      "log_marginal_likelihood": -2.9,
+      "n_train": 10,
+      "converged": true
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `scope_type` | `str` | Either `"archetype"` (one fit per declared archetype, against the archetype's clean trajectory) or `"entity"` (one fit per override-bearing entity, against that entity's specific trajectory) |
+| `scope_name` | `str` | The archetype name or the entity name, depending on `scope_type` |
+| `kernel_type` | `str` | Always `"rbf"` for now. Reserved as a discriminator for future kernel families |
+| `hyperparameters` | object | Three keys when `converged=true`: `length_scale`, `signal_variance`, `noise_variance`. All in the natural (unstandardized) scale — `length_scale` is in units of period indices. Empty `{}` when `converged=false` |
+| `log_marginal_likelihood` | `float` or `null` | The maximized value (positive sign — the fitter minimizes the negative log likelihood internally and negates before reporting). `null` when `converged=false` |
+| `n_train` | `int` | Count of finite `(period, position)` training pairs used. NaN cells (cold-start prefix periods) are excluded |
+| `converged` | `bool` | `true` when the optimizer reported success AND produced finite hyperparameters. `false` otherwise — see below for the failure modes |
+
+### Records emitted
+
+* One `scope_type="archetype"` record per archetype the config
+  declares. The fit consumes the archetype's *clean* trajectory (no
+  overrides, no cold-start shift) so the kernel characterizes the
+  archetype's intrinsic shape, not any individual entity's realized
+  data.
+* One `scope_type="entity"` record per entity carrying a non-`None`
+  `overrides` field. Default-trajectory entities do *not* produce
+  per-entity records — only override-bearing entities do.
+
+### When `converged=false`
+
+The optimizer's failure paths are surfaced as a non-fatal record (the
+manifest build never raises on a failed fit):
+
+* **Flat trajectory** — variance below the floor (≈ `1e-12`). The RBF
+  likelihood surface is degenerate when the signal has no variance to
+  fit.
+* **Sparse data** — fewer than three finite training points (the
+  kernel has three hyperparameters; under-determined fits are
+  short-circuited).
+* **Optimizer failure** — `scipy.optimize.minimize` reports
+  non-success or returns a non-finite NLL.
+* **Numerical blow-up** — Cholesky factorization fails on the
+  covariance matrix despite the noise-variance floor.
+
+`converged=false` records carry an empty `hyperparameters` dict and a
+`null` log marginal likelihood. Consumers should gate downstream
+usage on the flag rather than inspecting `hyperparameters` directly.
+
+**Use case** — characterize trajectory smoothness without re-fitting a
+GP downstream. A short `length_scale` (≪ `n_periods`) says the
+archetype oscillates or has fast transitions; a long `length_scale`
+(≈ `n_periods`) says it's gradual or monotone. Compare per-entity
+records against their parent archetype to detect override-driven
+shape divergence — a per-entity `length_scale` that disagrees with
+the archetype baseline is direct evidence that the override pushed
+the entity's curve onto a different smoothness regime.
 
 ---
 

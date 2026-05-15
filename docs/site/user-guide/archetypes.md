@@ -231,6 +231,35 @@ controls peak height above `base`. Each cycle ramps from `base` to
 
 ---
 
+## What the manifest records about archetypes
+
+Every run emits three archetype-shaped sections in `manifest.json`
+([reference](../manifest-reference.md)) so a downstream consumer can
+characterize the engine's archetype mix without re-running it:
+
+* **`variance_partitions`** — one nested-ANOVA record per metric, with
+  `Entity.archetype` as the between-group axis. The
+  `fraction_between` value answers "how much of this metric's spread
+  comes from the latent archetype label vs. entity-level idiosyncrasy
+  vs. within-entity time-series noise?"
+* **`variance_partitions_by_segment`** — the same decomposition with
+  curve segment as the axis, computed per archetype (segments are
+  never pooled across archetypes). Surfaces which curve phases
+  contribute most to a metric's spread within an archetype.
+* **`gp_kernel_fits`** — RBF Gaussian-process fit over each
+  archetype's clean trajectory. The recovered `length_scale`
+  characterizes the archetype's smoothness — short for oscillating /
+  fast-transition shapes, long for monotone or gradual ones. Entities
+  carrying trajectory `overrides` (per-entity inflection shifts) get
+  their own per-entity record alongside the archetype baseline so
+  override-driven shape divergence is directly visible.
+
+Configs without metrics emit empty containers for all three sections.
+Flat trajectories produce a `converged: false` GP record with null
+hyperparameters — the build never aborts on a degenerate fit.
+
+---
+
 ## What to read next
 
 - [Metrics and connections](./metrics-and-connections.md) — the metric
