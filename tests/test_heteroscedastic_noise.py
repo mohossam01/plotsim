@@ -264,9 +264,11 @@ def test_manifest_omits_noise_config_when_off():
     assert manifest.noise_config is None
 
 
-def test_manifest_schema_version_pins_1_8():
+def test_manifest_schema_version_pins_1_9():
     """0.6-M22 bumped the manifest schema version 1.6 → 1.7; 0.6-M23 bumped
-    1.7 → 1.8. The test_schema_version_bumped_to_1_8 test in
+    1.7 → 1.8; 0.6-M24 bumped 1.8 → 1.9 for the additive
+    ``target_metric`` field on ``TreatmentAssignment`` /
+    ``TreatmentCohort``. The test_schema_version_bumped_to_1_9 test in
     tests/test_manifest.py is the authoritative pin; this assertion is a
     load-bearing reminder that the heteroscedastic-emitting path participates
     in the schema-version contract too (so a future mission that adds a
@@ -275,7 +277,7 @@ def test_manifest_schema_version_pins_1_8():
         warnings.simplefilter("ignore")
         cfg = _build_small_config(scale_with_trajectory=True)
         _tables, manifest = _generate_and_manifest(cfg)
-    assert manifest.schema_version == "1.8"
+    assert manifest.schema_version == "1.9"
 
 
 # --- End-to-end byte-identity for default-off engine path -------------------

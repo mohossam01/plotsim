@@ -269,6 +269,12 @@ def validate_treatment_assignments(config: PlotsimConfig) -> list[str]:
       2. ``treatment_lift_log_odds`` must be finite when set. ``inf``
          or ``nan`` would propagate through the logit shift to NaN cell
          values for every post-treatment row.
+      3. ``treatment_target_metric`` must match a metric name declared
+         in ``config.metrics`` when set. A typo'd or stale metric name
+         would silently fall through the per-metric gate (no metric
+         matches, so the shift never applies) and produce a dataset
+         where the lift is invisible — the same silent-dead-weight
+         failure mode that gate 1 closes for ``treatment_start_period``.
 
     Note on ``treatment_start_period < entity.start_period``: this is
     NOT a gate. An entity that arrives at period 6 with
@@ -287,11 +293,13 @@ def validate_treatment_assignments(config: PlotsimConfig) -> list[str]:
     """
     errors: list[str] = []
     n_periods = config.time_window.period_count()
+    metric_names = {m.name for m in config.metrics}
     for entity in config.entities:
         if (
             entity.treatment_lift_log_odds is None
             and entity.treatment_group is None
             and entity.treatment_start_period == 0
+            and entity.treatment_target_metric is None
         ):
             # No treatment fields set — the no-op default. Skip every
             # gate so a config that doesn't use the M8c surface is
@@ -311,6 +319,16 @@ def validate_treatment_assignments(config: PlotsimConfig) -> list[str]:
                     f"{lift} is non-finite; the logit shift would "
                     f"propagate NaN into every post-treatment cell"
                 )
+        if (
+            entity.treatment_target_metric is not None
+            and entity.treatment_target_metric not in metric_names
+        ):
+            errors.append(
+                f"entity {entity.name!r}: treatment_target_metric="
+                f"{entity.treatment_target_metric!r} does not match any "
+                f"declared metric in config.metrics; the per-metric gate "
+                f"would never fire and the lift would be invisible"
+            )
     return errors
 
 

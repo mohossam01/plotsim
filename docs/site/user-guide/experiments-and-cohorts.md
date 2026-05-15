@@ -171,6 +171,7 @@ segments:
       start_period: 6            # rollout date
       treatment_label: new_onboarding
       control_label: original_onboarding
+      target_metric: mrr         # optional — see below
 ```
 
 ### What the lift does
@@ -187,6 +188,36 @@ Working in log-odds space gives the right diminishing-returns
 behaviour: a `+0.5` lift moves `p=0.5` to ~0.62, but only moves
 `p=0.9` to ~0.94. Same intervention, less impact when the metric is
 already near saturation.
+
+### Targeting a single metric (`target_metric`)
+
+By default the lift applies to **every** metric for the treatment arm —
+useful when modelling an intervention that shifts overall trajectory
+position (a global engagement boost, a churn-reduction programme).
+Add `target_metric: <metric_name>` to restrict the lift to a single
+named metric. Every other metric in the same period is drawn
+identically to the control arm, even for entities in the treatment
+cohort.
+
+```yaml
+treatment:
+  fraction: 0.5
+  lift_log_odds: 0.6
+  start_period: 6
+  target_metric: mrr   # only mrr shifts; engagement, churn_risk, etc. stay flat
+```
+
+Use the targeted form when the experimental hypothesis names one
+outcome metric ("the pricing experiment lifts revenue, not
+engagement"), or when you want a placebo metric in the dataset whose
+mean must be statistically identical across arms. Omit it for a
+trajectory-wide intervention.
+
+Correlated metrics: if `target_metric` names a metric that participates
+in a `connections` correlation, the copula still operates on residuals
+around each metric's own (un-shifted) centre — so the lift does **not**
+propagate to the correlated metric's mean. The targeted metric shifts,
+the correlated metric stays at its control distribution.
 
 ### Pre-treatment baseline
 
@@ -218,15 +249,22 @@ changing one feature's shape doesn't shift another feature's outputs.
 
 ### Manifest
 
-Two new manifest fields land at schema version `1.5`:
+Two manifest fields surface treatment ground-truth:
 
 - `EntityArchetypeAssignment.treatment` — per-entity assignment
   record. Carries the entity's group label, lift (or `None` for
-  control), and `start_period`. `null` for entities with no treatment
+  control), `start_period`, and `target_metric` (`null` for the
+  trajectory-wide default). `null` for entities with no treatment
   fields set.
 - `ManifestSchema.treatment_cohorts` — aggregate per-cohort records.
   One entry per distinct `treatment_group` label. Reports the cohort
-  size, mean lift, and modal `start_period`.
+  size, mean lift, modal `start_period`, and modal `target_metric`
+  (`null` when every entity in the cohort uses the trajectory-wide
+  default).
+
+The `target_metric` field on both records is additive; manifests
+emitted for configs that do not set `target_metric` keep the field
+`null`, so older readers continue to parse cleanly.
 
 ### Validator
 
@@ -234,6 +272,10 @@ Rejected at config load:
 
 - `treatment_start_period >= n_periods` (the lift would never apply).
 - `treatment_lift_log_odds = ±inf` or `nan` (would propagate NaN cells).
+- `target_metric` set to a name that doesn't match any declared metric.
+  Without this check a typo would silently fall through the per-metric
+  gate (no metric matches → the lift is never applied) and the
+  treatment would be invisible in the generated data.
 
 **NOT** rejected (intentionally):
 

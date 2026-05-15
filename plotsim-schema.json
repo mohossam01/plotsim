@@ -560,6 +560,18 @@
           "minimum": 0,
           "title": "Treatment Start Period",
           "type": "integer"
+        },
+        "treatment_target_metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Treatment Target Metric"
         }
       },
       "required": [

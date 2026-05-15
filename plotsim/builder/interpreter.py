@@ -487,6 +487,9 @@ def _build_archetypes_and_entities(
                     treatment_start_period=(
                         s.treatment.start_period if s.treatment is not None else 0
                     ),
+                    treatment_target_metric=(
+                        s.treatment.target_metric if s.treatment is not None else None
+                    ),
                 )
             )
 

@@ -367,6 +367,7 @@ def _compute_entity_metrics(
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
                 treatment_lift_log_odds=entity.treatment_lift_log_odds,
                 treatment_start_period=entity.treatment_start_period,
+                treatment_target_metric=entity.treatment_target_metric,
             )
         return entity_metrics
 
@@ -468,6 +469,7 @@ def _compute_entity_metrics(
                 entity_seasonal_sensitivity=entity.seasonal_sensitivity,
                 treatment_lift_log_odds=entity.treatment_lift_log_odds,
                 treatment_start_period=entity.treatment_start_period,
+                treatment_target_metric=entity.treatment_target_metric,
             )
     return entity_metrics_v
 

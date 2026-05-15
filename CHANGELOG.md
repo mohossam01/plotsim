@@ -9,6 +9,24 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-metric treatment effects.** New optional `target_metric` field
+  on the treatment surface (set on `SegmentInput.treatment` in the
+  builder; mirrored as `Entity.treatment_target_metric` in the engine).
+  When set, the configured `treatment_lift_log_odds` applies only to
+  the named metric's evaluation for treatment-arm entities — every
+  other metric in the same period is drawn identically to its
+  control-arm counterpart. Lets a single intervention be modelled as
+  shifting one outcome (e.g. revenue) while leaving the rest of the
+  metric set as a placebo. Default `null` preserves the prior
+  trajectory-wide behaviour byte-for-byte. Config-time validation
+  rejects target names that don't match any declared metric.
+  Correlated metrics do not inherit the lift via the copula: the
+  residual transform is centred on each metric's own (un-shifted)
+  centre, so the targeted metric shifts and the correlated metric
+  stays at its control distribution. Manifest schema bumps 1.8 → 1.9
+  with the additive `target_metric` field on the per-entity
+  `treatment` and per-cohort `treatment_cohorts` records.
+
 - **Heteroscedastic gaussian noise.** Optional `scale_with_trajectory`
   flag on `NoiseConfig` (mirror on the builder's `NoiseInput`). When
   `true`, each cell's gaussian standard deviation becomes

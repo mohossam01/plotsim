@@ -1268,6 +1268,7 @@ def generate_metrics_for_period(
     seasonal_global: float = 0.0,
     entity_seasonal_sensitivity: float = 1.0,
     treatment_shift: float = 0.0,
+    treatment_target_metric: Optional[str] = None,
 ) -> dict[str, Optional[float]]:
     """Generate every metric for one entity at one time step.
 
@@ -1285,6 +1286,18 @@ def generate_metrics_for_period(
         6. apply Cholesky correlation on residuals (if correlations given)
         7. apply noise (if noise config given): gaussian → outlier → MCAR
         8. clamp to value_range, round poisson to int
+
+    M24: ``treatment_target_metric`` gates the per-metric shift. When
+    ``None`` (default) every metric in the loop sees the caller's
+    ``treatment_shift`` — the pre-M24 trajectory-wide behaviour, byte-
+    identical to before. When set to a metric name, only that metric's
+    ``_compute_effective_position`` call receives the shift; every other
+    metric in the same period sees ``0.0`` and is byte-identical to its
+    control-arm draw. The validator
+    ``validate_treatment_assignments`` guarantees the named metric
+    exists, so a non-matching name here is silent dead-weight only if
+    the caller bypassed validation (e.g. constructed ``PlotsimConfig``
+    programmatically and pushed it into the engine directly).
     """
     effective = [_apply_archetype_overrides(m, archetype) for m in metrics]
     centers: dict[str, float] = {}
@@ -1292,12 +1305,17 @@ def generate_metrics_for_period(
     correlations_active = bool(correlations)
 
     for em in effective:
+        em_shift = (
+            treatment_shift
+            if (treatment_target_metric is None or em.name == treatment_target_metric)
+            else 0.0
+        )
         eff_pos = _compute_effective_position(
             trajectory_position,
             em,
             lag_buffer,
             period_index,
-            treatment_shift=treatment_shift,
+            treatment_shift=em_shift,
         )
         if lag_buffer is not None:
             # Append this metric's effective position BEFORE moving on to
@@ -1374,6 +1392,7 @@ def generate_entity_metrics(
     entity_seasonal_sensitivity: float = 1.0,
     treatment_lift_log_odds: Optional[float] = None,
     treatment_start_period: int = 0,
+    treatment_target_metric: Optional[str] = None,
 ) -> dict[str, np.ndarray]:
     """Generate every metric's full time series for one entity.
 
@@ -1471,6 +1490,7 @@ def generate_entity_metrics(
             seasonal_global=seasonal_global_t,
             entity_seasonal_sensitivity=entity_seasonal_sensitivity,
             treatment_shift=shift_t,
+            treatment_target_metric=treatment_target_metric,
         )
         for m in sorted_metrics:
             collected[m.name].append(period_out[m.name])

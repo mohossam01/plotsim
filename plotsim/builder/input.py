@@ -388,6 +388,15 @@ class TreatmentConfig(BaseModel):
         positions — the AC for "pre-treatment baseline is identical".
       * ``treatment_label`` / ``control_label`` — cohort labels for the
         manifest. Defaults match the conventional A/B labelling.
+      * ``target_metric`` — optional name of a single metric. When set,
+        the lift only affects that metric's effective-position
+        evaluation; every other metric is byte-identical to its
+        control-arm draw. ``None`` (default) = trajectory-wide
+        application (every metric sees the lift, the pre-M24
+        behaviour). The interpreter copies this value onto every
+        expanded entity in the segment (treatment AND control arms)
+        for ground-truth symmetry; control entities have no lift to
+        gate, so the field is harmless there.
 
     RNG isolation: the interpreter draws treatment assignments from a
     distinct ``np.random.default_rng(seed ^ TREATMENT_SALT)`` stream,
@@ -404,6 +413,7 @@ class TreatmentConfig(BaseModel):
     start_period: int = Field(default=0, ge=0)
     treatment_label: str = Field(default="treatment", min_length=1)
     control_label: str = Field(default="control", min_length=1)
+    target_metric: Optional[str] = None
 
     @field_validator("lift_log_odds")
     @classmethod

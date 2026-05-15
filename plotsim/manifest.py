@@ -117,7 +117,15 @@ MANIFEST_FILENAME = "manifest.json"
 # records the realized noise family whenever it diverges from the
 # historical lane, not only when heteroscedastic amplitude is on.
 # Default-family default-amplitude runs still emit ``noise_config=None``.
-MANIFEST_SCHEMA_VERSION = "1.8"
+# 0.6-M24: bumped 1.8 → 1.9 for the additive ``target_metric`` field on
+# both ``TreatmentAssignment`` (per-entity) and ``TreatmentCohort``
+# (per-cohort). Defaults to ``None`` (trajectory-wide lift, the pre-M24
+# behaviour), so configs without per-metric targeting emit a 1.9
+# manifest byte-equivalent to 1.8 modulo the schema version string and
+# the new field's null default. Populated when the entity's
+# ``treatment_target_metric`` names a metric — the lift then applies
+# only to that metric's effective-position evaluation.
+MANIFEST_SCHEMA_VERSION = "1.9"
 
 
 class _ManifestBase(BaseModel):
@@ -151,7 +159,7 @@ class ActiveWindow(_ManifestBase):
 class TreatmentAssignment(_ManifestBase):
     """0.6-M8c: an entity's treatment / control assignment.
 
-    Three fields, all sourced from the matching ``Entity`` fields:
+    Four fields, all sourced from the matching ``Entity`` fields:
 
       * ``group`` — the cohort label (e.g. ``"treatment"`` /
         ``"control"``). Plotsim treats it as opaque metadata.
@@ -160,16 +168,23 @@ class TreatmentAssignment(_ManifestBase):
       * ``start_period`` — the absolute period index at which the lift
         kicks in. Pre-treatment periods (``period_index < start_period``)
         see the same trajectory as the control arm.
+      * ``target_metric`` — M24 per-metric targeting. ``None`` means
+        the lift applies trajectory-wide (every metric sees it, the
+        pre-M24 default); a metric name restricts the lift to that
+        metric only. Carried on both treatment and control entities
+        for ground-truth symmetry — control arms have no lift to gate.
 
     Emitted only for entities with at least one treatment field set.
-    Default-only entities (no group label, no lift, no start period) get
-    ``treatment=None`` on their ``EntityArchetypeAssignment`` so the
-    M8c manifest field is invisible to non-A/B test datasets.
+    Default-only entities (no group label, no lift, no start period,
+    no target metric) get ``treatment=None`` on their
+    ``EntityArchetypeAssignment`` so the M8c manifest field is
+    invisible to non-A/B test datasets.
     """
 
     group: Optional[str]
     lift_log_odds: Optional[float]
     start_period: int
+    target_metric: Optional[str] = None
 
 
 class EntityArchetypeAssignment(_ManifestBase):
@@ -211,12 +226,22 @@ class TreatmentCohort(_ManifestBase):
         for the cohort. Most A/B tests use one start period per cohort,
         so this is the headline value; if the cohort has heterogeneous
         starts (rare, but supported), pick the most common.
+      * ``target_metric`` — M24 per-metric targeting. ``None`` when
+        every entity in the cohort applies the lift trajectory-wide
+        (the pre-M24 default), or when no entity in the cohort
+        declares a target metric. Otherwise the modal target metric
+        across the cohort — heterogeneous cohorts (rare; segments
+        normally map 1:1 to cohort labels and carry one
+        ``TreatmentConfig.target_metric``) report their most-common
+        value and downstream consumers can cross-reference per-entity
+        records for outliers.
     """
 
     label: str
     n_entities: int
     mean_lift_log_odds: Optional[float]
     start_period: int
+    target_metric: Optional[str] = None
 
 
 class TrajectorySample(_ManifestBase):
@@ -918,12 +943,14 @@ def _treatment_assignment_for(entity: Any) -> Optional[TreatmentAssignment]:
         entity.treatment_group is None
         and entity.treatment_lift_log_odds is None
         and entity.treatment_start_period == 0
+        and entity.treatment_target_metric is None
     ):
         return None
     return TreatmentAssignment(
         group=entity.treatment_group,
         lift_log_odds=entity.treatment_lift_log_odds,
         start_period=entity.treatment_start_period,
+        target_metric=entity.treatment_target_metric,
     )
 
 
@@ -970,12 +997,23 @@ def _build_treatment_cohorts(entities: list) -> list[TreatmentCohort]:
 
         starts = Counter(m.treatment_start_period for m in members)
         modal_start = starts.most_common(1)[0][0]
+        # M24: modal target_metric across the cohort. ``None`` when no
+        # member declares one (the pre-M24 default — trajectory-wide
+        # lift). Counted across non-None values only; if every member
+        # has ``treatment_target_metric=None`` the cohort reports
+        # ``None`` (trajectory-wide), matching the pre-M24 manifest
+        # shape for that cohort.
+        targets = Counter(
+            m.treatment_target_metric for m in members if m.treatment_target_metric is not None
+        )
+        modal_target: Optional[str] = targets.most_common(1)[0][0] if targets else None
         cohorts.append(
             TreatmentCohort(
                 label=label,
                 n_entities=len(members),
                 mean_lift_log_odds=mean_lift,
                 start_period=modal_start,
+                target_metric=modal_target,
             )
         )
     return cohorts
