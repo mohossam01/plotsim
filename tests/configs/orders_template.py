@@ -7,7 +7,7 @@ fact pattern: a per_entity_per_period activity fact exposes the
 out 1..5 line items per order.
 
 Run:
-    >>> from plotsim.configs.templates.orders_template import config
+    >>> from tests.configs.orders_template import config
     >>> from plotsim import generate_tables, write_tables
     >>> tables = generate_tables(config)
     >>> write_tables(tables, config, output_dir="./orders_output")

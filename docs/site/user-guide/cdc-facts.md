@@ -62,13 +62,17 @@ existing user-declared columns stay where they were.
     )
     ```
 
-The bundled `cdc_demo` template runs end-to-end:
+A worked CDC example lives at `tests/configs/cdc_demo.yaml`. Run it
+end-to-end via the create-from-yaml + generate path:
 
 ```bash
-plotsim template cdc_demo -o cdc_demo.yaml
-plotsim run cdc_demo.yaml -o ./cdc_demo_output
+plotsim run tests/configs/cdc_demo.yaml -o ./cdc_demo_output
 head ./cdc_demo_output/fct_billing.csv
 ```
+
+CDC is also wired on the `saas`, `marketing`, `retail`, and `health`
+bundled domain templates — `plotsim run <name>` produces a fact table
+with `_inserted_at` / `_updated_at` / `_op` columns.
 
 ---
 

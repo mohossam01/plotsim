@@ -1,0 +1,259 @@
+# ═══════════════════════════════════════════════════════
+#  plotsim — B2B SaaS customer success + revenue
+# ═══════════════════════════════════════════════════════
+#
+#  A product-led SaaS company's operational warehouse. Companies
+#  subscribe, onboard users, engage with the product, generate
+#  revenue, open support tickets, and eventually churn or expand.
+#  Plan tier is SCD2 (free → starter → growth → enterprise),
+#  revenue gets CDC audit (reconciliation restates prior periods),
+#  and MRR carries heteroscedastic noise (large accounts vary more).
+
+about: "B2B SaaS customer success, engagement and revenue"
+unit: company
+
+seed: 1729
+noise:
+  gaussian_sigma: 0.04
+  outlier_rate: 0.005
+  mcar_rate: 0.0
+  scale_with_trajectory: true   # 0.6-M22 heteroscedastic noise
+
+output:
+  denormalized: true   # 0.6-M14a wide-table companion alongside normalized output
+
+window:
+  start: 2023-01
+  end: 2024-12
+  every: monthly
+
+
+# ── seasonality ─────────────────────────────────────────
+# Enterprise buying patterns: Q4 budget flush (Nov-Dec) and
+# summer slowdown (Jun-Aug) when decision-makers are on PTO.
+seasonality:
+  - { months: [11, 12], strength: 0.30 }
+  - { months: [6, 7, 8], strength: -0.12 }
+
+
+# ── what we measure ─────────────────────────────────────
+
+metrics:
+  - { name: engagement,      label: Product engagement,        type: score, polarity: positive }
+  - { name: feature_adoption,label: Feature adoption breadth,  type: score, polarity: positive }
+  - { name: mrr,             label: Monthly recurring revenue, type: amount, polarity: positive, range: [50, 50000] }
+  - { name: nps,             label: Net promoter score (0-100),type: amount, polarity: positive, range: [0, 100] }
+  - { name: support_tickets, label: Tickets per period,        type: count, polarity: negative }
+  - { name: churn_risk,      label: Churn risk score,          type: score, polarity: negative }
+  - { name: expansion,       label: Expansion likelihood,      type: score, polarity: positive, follows: engagement, delay: 2 }
+
+
+# ── how metrics connect ─────────────────────────────────
+connections:
+  - mrr driven_by engagement
+  - expansion related feature_adoption
+  - churn_risk opposes engagement
+  - "support_tickets -0.40 engagement"
+  - "nps 0.55 engagement"
+
+
+# ── who we're simulating ────────────────────────────────
+
+segments:
+
+  - name: rapid_adopter
+    count: 18
+    archetype: growth
+    label: "Fast onboarding ramp, broad adoption inside the first quarter"
+    attributes:
+      industry: [saas, fintech]
+      region: [na, emea]
+      plan_tier: [growth, enterprise]
+    baseline:
+      engagement: high
+      feature_adoption: high
+      mrr: high
+
+  - name: steady_grower
+    count: 24
+    archetype: accelerating
+    label: "Compounding seat expansion with steady MRR growth"
+    attributes:
+      industry: [saas, ecommerce, education]
+      region: [na, emea, apac]
+      plan_tier: [starter, growth]
+    baseline:
+      engagement: mid
+      mrr: mid
+
+  - name: enterprise_steady
+    count: 14
+    archetype: flat
+    label: "Mature enterprise accounts at stable high baseline"
+    attributes:
+      industry: [healthcare, finance, manufacturing]
+      region: [na, emea]
+      plan_tier: [enterprise]
+    baseline:
+      engagement: high
+      mrr: high
+      nps: high
+
+  - name: churning
+    count: 18
+    archetype: flat > decline @ 10
+    label: "Coasted for the first year, then disengaged and churned"
+    attributes:
+      industry: [retail, ecommerce, media]
+      region: [na, latam]
+      plan_tier: [free, starter]
+    baseline:
+      engagement: low
+      churn_risk: high
+      support_tickets: high
+
+  - name: expansion_play
+    count: 12
+    archetype: flat > growth @ 8
+    label: "Held flat, then expanded after a successful product evaluation"
+    attributes:
+      industry: [saas, fintech]
+      region: [na, emea]
+      plan_tier: [growth, enterprise]
+    baseline:
+      engagement: mid
+      expansion: high
+
+  - name: at_risk
+    count: 14
+    archetype: growth > spike_then_crash > flat @ 6 @ 12
+    label: "Promising start, hit a wall around month 6, never recovered"
+    attributes:
+      industry: [media, retail, education]
+      region: [latam, apac]
+      plan_tier: [starter, growth]
+    baseline:
+      engagement: mid
+      churn_risk: high
+
+
+# ── lifecycle funnel ────────────────────────────────────
+
+lifecycle:
+  track: engagement
+  stages:
+    - trial: 0.0
+    - active: 0.2
+    - engaged: 0.5
+    - power_user: 0.75
+
+
+# ── schema ──────────────────────────────────────────────
+
+dimensions:
+
+  - name: dim_date
+    per: period
+    columns:
+      - {name: date_key, type: id}
+      - {name: date,     type: date}
+      - {name: year,     type: int}
+      - {name: month,    type: int}
+      - {name: quarter,  type: int}
+
+  - name: dim_company
+    per: unit
+    columns:
+      - {name: company_id,   type: id}
+      - {name: company_name, type: faker.company}
+      - {name: signup_year,  type: faker.year}
+      - {name: cohort_size,  type: segment.count}
+      - {name: industry,     type: pool.industry}
+      - {name: region,       type: pool.region}
+      - name: plan_tier
+        type: scd
+        tracks: mrr
+        tiers: [free, starter, growth, enterprise]
+        at: [0.25, 0.55, 0.8]
+
+  - name: dim_user
+    per: unit
+    count: 4    # 4 sub-entity users per company on average
+    columns:
+      - {name: user_id,    type: id}
+      - {name: company_id, type: ref.dim_company}
+      - {name: user_name,  type: faker.name}
+      - {name: user_email, type: faker.email}
+      - {name: user_role,  type: "static.admin,member,member,member,viewer"}
+
+  - name: dim_support_category
+    reference: true
+    columns:
+      - {name: category_id,   type: id}
+      - {name: category_name, type: "static.bug,billing,onboarding,integration,feature_request,access,outage,docs"}
+      - {name: severity_band, type: "static.high,medium,medium,low,low,medium,high,low"}
+
+facts:
+
+  - name: fct_engagement
+    metrics: [engagement, feature_adoption]
+    columns:
+      - {name: date_key,         type: ref.dim_date}
+      - {name: company_id,       type: ref.dim_company}
+      - {name: engagement,       type: metric.engagement}
+      - {name: feature_adoption, type: metric.feature_adoption}
+      - {name: active_seats,     type: range, range: [1, 200]}
+
+  - name: fct_revenue
+    metrics: [mrr, expansion]
+    cdc: true   # revenue restatements during reconciliation
+    columns:
+      - {name: date_key,   type: ref.dim_date}
+      - {name: company_id, type: ref.dim_company}
+      - {name: mrr,        type: metric.mrr}
+      - {name: expansion,  type: metric.expansion}
+      - {name: discount_pct, type: range, range: [0, 25]}
+
+  - name: fct_support
+    metrics: [support_tickets, nps, churn_risk]
+    columns:
+      - {name: date_key,        type: ref.dim_date}
+      - {name: company_id,      type: ref.dim_company}
+      - {name: category_id,     type: ref.dim_support_category}
+      - {name: support_tickets, type: metric.support_tickets}
+      - {name: nps,             type: metric.nps}
+      - {name: churn_risk,      type: metric.churn_risk}
+
+events:
+
+  - name: evt_login
+    trigger: proportional
+    driver: engagement
+    scale: 10.0
+    columns:
+      - {name: event_id,   type: id}
+      - {name: date_key,   type: ref.dim_date}
+      - {name: company_id, type: ref.dim_company}
+      - {name: event_ts,   type: timestamp}
+
+  - name: evt_churn
+    trigger: threshold
+    metric: churn_risk
+    above: 0.7
+    for: 2
+    columns:
+      - {name: event_id,   type: id}
+      - {name: date_key,   type: ref.dim_date}
+      - {name: company_id, type: ref.dim_company}
+      - {name: reason,     type: faker.sentence}
+      - {name: voluntary,  type: flag}
+
+
+# ── data quality ────────────────────────────────────────
+# Realistic SaaS data hygiene: missing engagement during onboarding
+# blackout, duplicate login events from client retry, late-arriving
+# billing reconciliation.
+quality:
+  - { table: fct_engagement, issue: null_injection, rate: 0.03, column: engagement }
+  - { table: evt_login,      issue: duplicate_rows, rate: 0.015 }
+  - { table: fct_revenue,    issue: late_arrival,   rate: 0.02 }

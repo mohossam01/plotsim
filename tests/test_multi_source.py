@@ -10,11 +10,12 @@ Covers the 8 mission acceptance criteria:
      (entity, source) with all drifted fields listed.
   6. Single-source (no multi_source block) configs unchanged.
   7. Deterministic under seed.
-  8. New template passes ``plotsim run`` / ``plotsim validate``.
+  8. The vehicle config passes ``plotsim run`` / ``plotsim validate``.
 
-The 8th criterion is exercised against the bundled
-``crm_billing_overlap`` template; the rest run against minimal
-hand-rolled configs so each AC has a dedicated, narrow assertion.
+The 8th criterion is exercised against the
+``tests/configs/crm_billing_overlap.yaml`` vehicle; the rest run
+against minimal hand-rolled configs so each AC has a dedicated,
+narrow assertion.
 """
 
 from __future__ import annotations
@@ -383,13 +384,15 @@ def test_deterministic_under_seed():
     assert cfg1._source_entity_mappings == cfg2._source_entity_mappings
 
 
-# ── AC8: bundled template passes plotsim run + validate ───────────────────
+# ── AC8: vehicle config passes plotsim run + validate ────────────────────
 
 
-def test_bundled_template_loads_and_validates(tmp_path: Path):
+def test_bundled_vehicle_loads_and_validates(tmp_path: Path):
+    from plotsim import create_from_yaml
     from plotsim.tables import generate_tables_with_state
+    from tests.configs import CONFIGS_DIR
 
-    cfg = plotsim.load_template("crm_billing_overlap")
+    cfg = create_from_yaml(CONFIGS_DIR / "crm_billing_overlap.yaml")
     rng = np.random.default_rng(cfg.seed)
     tables, gen_state = generate_tables_with_state(cfg, rng)
     report = plotsim.validate(cfg, tables)

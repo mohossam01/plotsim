@@ -6,7 +6,7 @@ Mirror of ``cdc_demo.yaml``. A subscription-billing fact table with
 quality layer corrupted.
 
 Run:
-    >>> from plotsim.configs.templates.cdc_demo import config
+    >>> from tests.configs.cdc_demo import config
     >>> from plotsim import generate_tables, write_tables
     >>> tables = generate_tables(config)
     >>> write_tables(tables, config, output_dir="./cdc_demo_output")

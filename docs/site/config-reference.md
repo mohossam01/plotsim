@@ -725,7 +725,7 @@ output:
 |---|---|---|---|
 | `format` | `"csv"` / `"parquet"` / `"jsonl"` / `"sql"` | `"csv"` | `parquet` requires `pip install plotsim[parquet]` (pyarrow) and produces typed binary files ~5–10× smaller than CSV. `jsonl` writes newline-delimited JSON (one self-contained object per row) for streaming-ingestion / schema-on-read consumers. `sql` writes a single `data.sql` file with dialect-aware DDL + batched INSERTs instead of per-table files |
 | `directory` | `str` | `"output"` | Where `write_tables` writes. Override at call time with `write_tables(..., output_dir=...)` |
-| `cell_budget` | `int ≥ 0` / `null` | `null` | Soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and the bundled `lakehouse` template for a worked example |
+| `cell_budget` | `int ≥ 0` / `null` | `null` | Soft cell-count cap consumed by the load-time scale estimator. `null` falls through to `PLOTSIM_CELL_BUDGET` env var, then to the 2,000,000 default. `0` disables the soft cap entirely. See [Cell-count budget](#cell-count-budget) for precedence and `tests/configs/lakehouse.yaml` for a worked example |
 | `denormalized` | `bool` | `false` | Opt-in wide-table companion writer. When `true`, every fact table is left-joined with its FK'd dims (SCD2 dims filtered to current state) and emits `<fct>_wide.<ext>` alongside the normalized output. Under `format: sql` the wide tables emit as trailing blocks inside `data.sql` instead of separate files |
 | `partition_by` | `str` / `null` | `null` | Column name to partition Parquet output on. When set, every table that carries the column is written as a Hive-style directory (`<output_dir>/<table>/<col>=<value>/...`) via `pyarrow.parquet.write_to_dataset`. Tables without the column fall back to single files. Requires `format: parquet`; cross-validated at config load |
 | `sql_dialect` | `"postgresql"` / `"mysql"` / `"sqlite"` | `"postgresql"` | Dialect for the SQL dump writer — selects identifier quoting (`"col"` for PG/SQLite, `` `col` `` for MySQL), type words (PG `NUMERIC` / MySQL `DOUBLE` + `VARCHAR(255)` for string PKs / SQLite `REAL`), and boolean encoding. The default round-trips under any format; explicit `mysql` / `sqlite` requires `format: sql` (cross-validated at config load) |
@@ -894,8 +894,8 @@ precedence order (the first one that resolves wins):
 1. **Config field (recommended)** — set `output.cell_budget: N` in
    the YAML (or pass `output={"cell_budget": N}` to `create()`).
    Reproducible from the config alone — no env vars or flags
-   required, which is the contract the bundled `lakehouse`
-   template relies on.
+   required, which is the contract the `tests/configs/lakehouse.yaml`
+   worked example relies on.
 2. **Environment variable** — `PLOTSIM_CELL_BUDGET=N` sets the
    soft cap to `N` cells when no config field is set.
 3. **Default** — `2,000,000` cells.

@@ -1,31 +1,54 @@
-"""Retail / e-commerce customer analytics — Python builder template.
+"""Retail template — Python form.
 
-Mirror of ``retail_template.yaml``. Demonstrates:
+Mirror of ``retail.yaml``. Omnichannel retail with SCD2 loyalty tier,
+parent/child orders + line items, cross-fact FK on returns, customer
+× promotion M:N bridge, geo bundle on dim_customer, multi-locale
+faker output, narrative reviews, CDC audit on the orders parent fact.
 
-* multi-locale faker (``locale=["en_US", "en_GB", "fr_FR"]``)
-* Q4 holiday-shopping seasonality
-* SCD2 ``customer_tier`` tracking ``loyalty_score``
-* threshold event with ``below`` (churn fires when score crashes)
+Run:
+    >>> from plotsim.configs.templates.retail_template import config
+    >>> from plotsim import generate_tables
+    >>> tables = generate_tables(config)
 """
 
 from plotsim import create
 
+
+_NAR_BLOCK = {
+    "opener": {
+        "low": ["I am disappointed by", "I am frustrated with", "I cannot recommend"],
+        "mid": ["I keep using", "I find myself reaching for", "I keep returning to"],
+        "high": ["I love", "I am thrilled with", "I keep recommending"],
+    },
+    "object": {
+        "low": ["the broken release", "the buggy app", "the unreliable platform"],
+        "mid": ["the product", "the service", "the standard offering"],
+        "high": ["the polished platform", "the smooth experience", "the standout service"],
+    },
+    "comment": {
+        "low": ["Not recommended.", "Going elsewhere.", "Disappointing."],
+        "mid": ["Works as advertised.", "Fair value.", "Meets expectations."],
+        "high": ["Highly recommend.", "Best in class.", "Worth every penny."],
+    },
+}
+
+
 config = create(
-    about="Retail customer purchase and loyalty behavior",
+    about="Omnichannel retail — customers, orders, returns, loyalty",
     unit="customer",
-    seed=90210,
-    noise="realistic",
-    # output={"format": "parquet", "directory": "./out"},  # uncomment if pyarrow installed
-    locale=["en_US", "en_GB", "fr_FR"],
+    seed=39131,
+    noise="slightly_messy",
+    locale=["en_US", "en_GB", "fr_FR", "de_DE"],
     window=("2023-01", "2024-12", "monthly"),
     seasonality=[
         {"months": [11, 12], "strength": 0.45},
-        {"months": [7, 8], "strength": -0.15},
+        {"months": [6, 7, 8], "strength": -0.10},
+        {"months": [1], "strength": -0.25},
     ],
     metrics=[
         {
-            "name": "sessions",
-            "label": "Monthly site sessions",
+            "name": "order_volume",
+            "label": "Orders placed per period",
             "type": "count",
             "polarity": "positive",
         },
@@ -34,162 +57,166 @@ config = create(
             "label": "Average cart value",
             "type": "amount",
             "polarity": "positive",
-            "range": [10, 2000],
+            "range": [10, 500],
+        },
+        {
+            "name": "loyalty_score",
+            "label": "Loyalty engagement",
+            "type": "score",
+            "polarity": "positive",
         },
         {
             "name": "conversion_rate",
-            "label": "Session-to-purchase conversion",
+            "label": "Visit-to-purchase rate",
             "type": "score",
             "polarity": "positive",
         },
         {
             "name": "return_rate",
-            "label": "Purchase return rate",
+            "label": "Return rate (drives evt)",
             "type": "score",
             "polarity": "negative",
         },
         {
-            "name": "loyalty_score",
-            "label": "Customer loyalty index",
-            "type": "score",
+            "name": "nps",
+            "label": "Net promoter score",
+            "type": "amount",
             "polarity": "positive",
+            "range": [0, 100],
         },
         {
             "name": "repeat_purchase_rate",
             "label": "Repeat purchase rate",
             "type": "score",
             "polarity": "positive",
-            "follows": "loyalty_score",
-            "delay": 1,
-        },
-        {
-            "name": "nps",
-            "label": "Net promoter score",
-            "type": "index",
-            "polarity": "positive",
-            "range": [-100, 100],
         },
     ],
     connections=[
-        ("conversion_rate", "driven_by", "loyalty_score"),
-        ("cart_value", "related", "loyalty_score"),
-        ("return_rate", "opposes", "loyalty_score"),
-        ("repeat_purchase_rate", "driven_by", "conversion_rate"),
-        ("nps", "related", "loyalty_score"),
+        "order_volume driven_by loyalty_score",
+        "cart_value related conversion_rate",
+        "loyalty_score 0.55 repeat_purchase_rate",
+        "nps 0.55 loyalty_score",
+        "return_rate opposes loyalty_score",
     ],
     segments=[
         {
-            "name": "loyal_climbers",
-            "count": 25,
-            "archetype": "growth",
-            "label": "Builds loyalty steadily across both years",
+            "name": "loyal_repeat",
+            "count": 22,
+            "archetype": "accelerating",
+            "label": "Compounding loyalty — high repeat rate",
             "attributes": {
-                "tier": ["gold", "platinum"],
-                "channel": ["web", "mobile"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
+                "channel": ["in_store", "web", "mobile_app"],
+                "payment_method": ["credit", "debit", "mobile_wallet", "gift_card"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
                 ],
+                "promo_type": ["loyalty_reward", "member_discount", "free_shipping"],
             },
-            "baseline": {"loyalty_score": "high", "cart_value": "high", "return_rate": "low"},
+            "baseline": {"order_volume": "high", "loyalty_score": "high", "cart_value": "high"},
         },
         {
-            "name": "holiday_shoppers",
-            "count": 30,
-            "archetype": "seasonal",
-            "label": "Cyclical demand around holidays — Q4 surges",
-            "attributes": {
-                "tier": ["silver", "gold"],
-                "channel": ["web", "mobile", "marketplace"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
-                ],
-            },
-            "baseline": {"cart_value": "mid", "conversion_rate": "mid"},
-        },
-        {
-            "name": "cooled_off",
+            "name": "holiday_shopper",
             "count": 18,
-            "archetype": "flat > decline @ 12",
-            "label": "Active first year, gradually disengaged in year two",
+            "archetype": "seasonal",
+            "label": "Cyclical holiday spender — peaks Q4 and back-to-school",
             "attributes": {
-                "tier": ["bronze", "silver"],
-                "channel": ["marketplace"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
+                "channel": ["in_store", "web"],
+                "payment_method": ["credit", "debit", "mobile_wallet", "gift_card"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
                 ],
+                "promo_type": ["seasonal_sale", "doorbuster", "bogo", "free_shipping"],
+            },
+            "baseline": {"order_volume": "mid", "cart_value": "high"},
+        },
+        {
+            "name": "bargain_hunter",
+            "count": 22,
+            "archetype": "flat",
+            "label": "Steady low-value cart, promo-driven",
+            "attributes": {
+                "channel": ["web", "mobile_app"],
+                "payment_method": ["debit", "credit", "mobile_wallet", "gift_card"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
+                ],
+                "promo_type": ["clearance", "doorbuster", "bogo"],
+            },
+            "baseline": {"order_volume": "mid", "cart_value": "low"},
+        },
+        {
+            "name": "churning",
+            "count": 16,
+            "archetype": "flat > decline @ 10",
+            "label": "Coasted then quietly stopped buying",
+            "attributes": {
+                "channel": ["web"],
+                "payment_method": ["credit", "debit", "mobile_wallet"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
+                ],
+                "promo_type": ["loyalty_reward", "member_discount"],
             },
             "baseline": {"loyalty_score": "low", "return_rate": "high"},
         },
         {
-            "name": "one_and_done",
-            "count": 15,
-            "archetype": "growth > spike_then_crash > flat @ 4 @ 8",
-            "label": "Tested the brand for a few months, then never returned",
+            "name": "new_customer",
+            "count": 14,
+            "archetype": "flat > growth @ 4",
+            "label": "Recently acquired — ramping engagement",
             "attributes": {
-                "tier": ["bronze"],
-                "channel": ["web"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
+                "channel": ["mobile_app", "web"],
+                "payment_method": ["credit", "debit", "mobile_wallet"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
                 ],
+                "promo_type": ["welcome_offer", "first_order_discount"],
             },
-            "baseline": {"loyalty_score": "low", "cart_value": "low"},
+            "baseline": {"order_volume": "low", "loyalty_score": "mid"},
         },
         {
-            "name": "winback",
-            "count": 12,
-            "archetype": "decline > flat > growth @ 6 @ 14",
-            "label": "Churned, then reactivated by year-two campaign",
+            "name": "vip",
+            "count": 8,
+            "archetype": "growth",
+            "label": "High-value VIP cohort with rising spend",
             "attributes": {
-                "tier": ["silver"],
-                "channel": ["email", "web"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
+                "channel": ["in_store", "web", "mobile_app"],
+                "payment_method": ["credit", "mobile_wallet"],
+                "return_reason": [
+                    "damaged",
+                    "wrong_size",
+                    "defective",
+                    "no_longer_needed",
+                    "late_arrival",
                 ],
+                "promo_type": ["vip_exclusive", "loyalty_reward"],
             },
-            "baseline": {"loyalty_score": "mid", "conversion_rate": "mid"},
-        },
-        {
-            "name": "escalating_basket",
-            "count": 10,
-            "archetype": "accelerating",
-            "label": "Compounding cart values as trust builds",
-            "attributes": {
-                "tier": ["gold", "platinum"],
-                "channel": ["web"],
-                "churn_reason": [
-                    "account_dormant",
-                    "low_engagement",
-                    "payment_failure",
-                    "service_interruption",
-                ],
-            },
-            "baseline": {"cart_value": "high", "loyalty_score": "high"},
+            "baseline": {"cart_value": "high", "nps": "high"},
         },
     ],
     lifecycle={
         "track": "loyalty_score",
-        "stages": [
-            ("new", 0.0),
-            ("casual", 0.2),
-            ("regular", 0.5),
-            ("loyal", 0.75),
-            ("champion", 0.9),
-        ],
+        "stages": [{"browser": 0.0}, {"first_purchase": 0.15}, {"returning": 0.4}, {"loyal": 0.7}],
     },
     dimensions=[
         {
@@ -209,47 +236,39 @@ config = create(
             "columns": [
                 {"name": "customer_id", "type": "id"},
                 {"name": "customer_name", "type": "faker.name"},
+                {"name": "customer_email", "type": "faker.email"},
                 {"name": "signup_year", "type": "faker.year"},
                 {"name": "cohort_size", "type": "segment.count"},
+                {"name": "preferred_channel", "type": "pool.channel"},
+                {"name": "home_country", "type": "geo.country"},
+                {"name": "home_country_code", "type": "geo.country_code"},
+                {"name": "home_region", "type": "geo.region"},
+                {"name": "home_city", "type": "geo.city"},
                 {
-                    "name": "customer_tier",
+                    "name": "loyalty_tier",
                     "type": "scd",
                     "tracks": "loyalty_score",
-                    "tiers": ["browser", "casual", "loyal"],
-                    "at": [0.3, 0.7],
+                    "tiers": ["bronze", "silver", "gold", "platinum"],
+                    "at": [0.25, 0.55, 0.8],
                 },
             ],
         },
         {
-            "name": "dim_product_category",
+            "name": "dim_product",
             "reference": True,
             "columns": [
-                {"name": "category_id", "type": "id"},
-                {"name": "category_name", "type": "static.electronics,apparel,home,grocery,beauty"},
-                {"name": "margin_tier", "type": "static.high,standard,standard,low,high"},
-                # 0.6-M15: nested struct column (M14c) — see
-                # ``retail_template.yaml`` for the Semi-Structured
-                # Flattening (DE L12) exercise rationale.
+                {"name": "product_id", "type": "id"},
                 {
-                    "name": "catalog_metadata",
-                    "type": "struct",
-                    "nested_schema": {
-                        "aisle": "string",
-                        "seasonality": "string",
-                        "avg_basket_position": "int",
-                    },
+                    "name": "product_name",
+                    "type": "static.widget,gadget,gizmo,sprocket,lantern,doohickey,thingamajig,whatsit",
                 },
-            ],
-        },
-        {
-            "name": "dim_channel",
-            "reference": True,
-            "columns": [
-                {"name": "channel_id", "type": "id"},
-                {"name": "channel_name", "type": "static.web,mobile,marketplace,email,store"},
                 {
-                    "name": "channel_type",
-                    "type": "static.digital,digital,third_party,owned,physical",
+                    "name": "category",
+                    "type": "static.hardware,hardware,hardware,hardware,outdoor,misc,misc,misc",
+                },
+                {
+                    "name": "price_band",
+                    "type": "static.value,value,mid,mid,mid,premium,premium,luxury",
                 },
             ],
         },
@@ -258,66 +277,99 @@ config = create(
             "reference": True,
             "columns": [
                 {"name": "promotion_id", "type": "id"},
+                {"name": "promotion_name", "type": "faker.company"},
                 {
-                    "name": "promo_name",
-                    "type": "static.clearance,seasonal_sale,loyalty_reward,flash_sale",
+                    "name": "promo_type",
+                    "type": "static.seasonal_sale,bogo,clearance,loyalty_reward,welcome_offer,doorbuster,member_discount,vip_exclusive,free_shipping,first_order_discount",
                 },
-                {"name": "discount_type", "type": "static.percentage,percentage,points,percentage"},
+                {
+                    "name": "discount_band",
+                    "type": "static.10pct,20pct,25pct,30pct,40pct,bogo,member_only,vip_only,free_ship,no_promo",
+                },
             ],
         },
     ],
     facts=[
         {
-            "name": "fct_sessions",
-            "metrics": ["sessions", "conversion_rate"],
+            "name": "fct_customer_activity",
+            "metrics": [
+                "loyalty_score",
+                "conversion_rate",
+                "nps",
+                "repeat_purchase_rate",
+                "cart_value",
+                "return_rate",
+            ],
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
-                {"name": "channel_id", "type": "ref.dim_channel"},
-                {"name": "session_count", "type": "metric.sessions"},
+                {"name": "loyalty_score", "type": "metric.loyalty_score"},
                 {"name": "conversion_rate", "type": "metric.conversion_rate"},
+                {"name": "nps", "type": "metric.nps"},
+                {"name": "repeat_purchase_rate", "type": "metric.repeat_purchase_rate"},
+                {"name": "cart_value", "type": "metric.cart_value"},
+                {"name": "return_rate", "type": "metric.return_rate"},
                 {
-                    "name": "shopping_intent",
-                    "type": "bucket",
-                    "labels": ["browsing", "comparing", "purchasing", "loyal_repeat"],
+                    "name": "review_text",
+                    "type": "narrative",
+                    "template": "{opener} {object}. {comment}",
+                    "lexicons": {
+                        "loyal_repeat": _NAR_BLOCK,
+                        "holiday_shopper": _NAR_BLOCK,
+                        "bargain_hunter": _NAR_BLOCK,
+                        "churning": _NAR_BLOCK,
+                        "new_customer": _NAR_BLOCK,
+                        "vip": _NAR_BLOCK,
+                    },
                 },
             ],
         },
         {
-            "name": "fct_purchases",
-            "metrics": ["cart_value", "return_rate", "loyalty_score", "repeat_purchase_rate"],
-            # 0.6-M15: CDC fact-side (M9c) — every row carries
-            # _inserted_at / _updated_at / _op audit columns. Column-
-            # level quality injections (see ``quality=`` below) flip
-            # _op to "U" on touched rows. See ``retail_template.yaml``.
+            "name": "fct_orders",
+            "row_count_driver": "order_volume",
+            "row_count_scale": 1.2,
             "cdc": True,
             "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
+                {"name": "order_id", "type": "id"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
-                {"name": "category_id", "type": "ref.dim_product_category"},
-                {"name": "promotion_id", "type": "ref.dim_promotion"},
-                {"name": "cart_value", "type": "metric.cart_value"},
-                {"name": "return_rate", "type": "metric.return_rate"},
-                {"name": "loyalty_score", "type": "metric.loyalty_score"},
-                {"name": "repeat_purchase_rate", "type": "metric.repeat_purchase_rate"},
+                {"name": "order_date", "type": "ref.dim_date"},
+                {"name": "payment_method", "type": "pool.payment_method"},
+                {"name": "order_channel", "type": "pool.channel"},
             ],
         },
         {
-            "name": "fct_satisfaction",
-            "metrics": ["nps"],
+            "name": "fct_order_items",
+            "parent_table": "fct_orders",
+            "children_per_row": [1, 5],
             "columns": [
-                {"name": "date_key", "type": "ref.dim_date"},
+                {"name": "item_id", "type": "id"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
-                {"name": "nps", "type": "metric.nps"},
+                {"name": "order_date", "type": "ref.dim_date"},
+                {"name": "product_id", "type": "ref.dim_product"},
+                {"name": "quantity", "type": "range", "range": [1, 12]},
+                {"name": "unit_price", "type": "range", "range": [2.99, 499.99]},
+                {"name": "discount_pct", "type": "range", "range": [0, 40]},
+            ],
+        },
+        {
+            "name": "fct_returns",
+            "row_count_driver": "return_rate",
+            "row_count_scale": 0.6,
+            "columns": [
+                {"name": "return_id", "type": "id"},
+                {"name": "order_id", "type": "ref.fct_orders"},
+                {"name": "customer_id", "type": "ref.dim_customer"},
+                {"name": "return_date", "type": "ref.dim_date"},
+                {"name": "return_reason", "type": "pool.return_reason"},
             ],
         },
     ],
     events=[
         {
-            "name": "evt_purchase",
+            "name": "evt_session",
             "trigger": "proportional",
             "driver": "conversion_rate",
-            "scale": 6.0,
+            "scale": 12.0,
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
@@ -326,32 +378,36 @@ config = create(
             ],
         },
         {
-            "name": "evt_churn",
-            "trigger": "threshold",
-            "metric": "loyalty_score",
-            "below": 0.15,
-            "for_periods": 4,
+            "name": "evt_return",
+            "trigger": "proportional",
+            "driver": "return_rate",
+            "scale": 2.0,
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "customer_id", "type": "ref.dim_customer"},
-                {"name": "reason", "type": "pool.churn_reason"},
-                {"name": "churn_flag", "type": "flag"},
+                {"name": "severity", "type": "static.warning,investigation,fraud_review"},
+                {"name": "event_ts", "type": "timestamp"},
             ],
         },
     ],
-    # 0.6-M15: data-quality issues — see ``retail_template.yaml`` for
-    # the Data Quality Testing (DE L25), Data Cleaning (DE L15), and
-    # Data Observability (DE L28) rationale. The volume_anomaly spike
-    # at period 18 is the canonical observability scenario.
-    quality=[
-        {"table": "fct_purchases", "issue": "null_injection", "rate": 0.03, "column": "cart_value"},
+    bridges=[
         {
-            "table": "fct_sessions",
-            "issue": "volume_anomaly",
-            "rate": 0.5,
-            "mode": "spike",
-            "period": 18,
+            "name": "bridge_customer_promotion",
+            "left": "dim_customer",
+            "right": "dim_promotion",
+            "cardinality": [1, 4],
+            "driver": "loyalty_score",
         },
+    ],
+    quality=[
+        {
+            "table": "fct_customer_activity",
+            "issue": "null_injection",
+            "rate": 0.03,
+            "column": "conversion_rate",
+        },
+        {"table": "evt_session", "issue": "duplicate_rows", "rate": 0.015},
+        {"table": "fct_orders", "issue": "late_arrival", "rate": 0.02},
     ],
 )

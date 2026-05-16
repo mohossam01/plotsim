@@ -41,7 +41,7 @@ your config shape:
 
 Steps:
 
-1. Copy an existing template (e.g. `saas_template.yaml` +
+1. Copy an existing template (e.g. `saas.yaml` +
    `saas_template.py`) as a starting point.
 2. Edit metrics, segments / archetypes, dimensions, facts, events, and
    any feature-specific blocks for the new use case.

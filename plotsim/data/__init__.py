@@ -9,6 +9,7 @@ constants.
 from plotsim.data.geo_locations import (
     GEO_BUNDLE_FIELDS,
     GEO_LOCATIONS,
+    GeoEntry,
 )
 
-__all__ = ["GEO_BUNDLE_FIELDS", "GEO_LOCATIONS"]
+__all__ = ["GEO_BUNDLE_FIELDS", "GEO_LOCATIONS", "GeoEntry"]

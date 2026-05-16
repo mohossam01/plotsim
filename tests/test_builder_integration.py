@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -27,8 +27,8 @@ from plotsim.trajectory import compute_trajectory
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE_YAML = REPO_ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-TEMPLATE_PY = REPO_ROOT / "plotsim" / "configs" / "templates" / "saas_template.py"
+TEMPLATE_YAML = REPO_ROOT / "tests" / "configs" / "saas_template.yaml"
+TEMPLATE_PY = REPO_ROOT / "tests" / "configs" / "saas_template.py"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def _saas_py_config() -> PlotsimConfig:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = runpy.run_path(str(TEMPLATE_PY))
-    return result["config"]
+    return cast(PlotsimConfig, result["config"])
 
 
 # ── Bare-minimum acceptance ─────────────────────────────────────────────────
@@ -179,7 +179,7 @@ def saas_dataset() -> dict[str, Any]:
 
 def _entity_engagement_series(fact: pd.DataFrame, entity_id_col: str, entity_id: str) -> np.ndarray:
     rows = fact[fact[entity_id_col] == entity_id].sort_values("date_key")
-    return rows["engagement_score"].to_numpy()
+    return cast(np.ndarray, rows["engagement_score"].to_numpy())
 
 
 def test_pearson_shape_recovery_for_non_plateau_archetypes(saas_dataset):

@@ -14,18 +14,10 @@ from plotsim.config import PlotsimConfig
 
 
 EXPECTED_TEMPLATES = {
-    "ab_trial",
-    "bare_minimum",
-    "cdc_demo",
-    "crm_billing_overlap",
-    "education",
-    "geo_retail",
+    "banking",
+    "health",
     "hr",
-    "lakehouse",
-    "latency_skew",
     "marketing",
-    "narrative_reviews",
-    "orders",
     "retail",
     "saas",
 }

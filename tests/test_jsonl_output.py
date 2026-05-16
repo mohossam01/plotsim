@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _saas_jsonl_config(tmp_path: Path):
     """Load the saas template and switch it to jsonl output."""
-    cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+    cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
     return cfg.model_copy(
         update={
             "output": cfg.output.model_copy(update={"format": "jsonl", "directory": str(tmp_path)}),
@@ -132,7 +132,7 @@ class TestPerLineValidity:
         the same config — both formats consume the same post-CDC /
         post-quality ``tables_to_write`` dict, so any drift is a writer
         bug. Compares CSV minus header against JSONL line count."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         csv_dir = tmp_path / "csv"
         jsonl_dir = tmp_path / "jsonl"
         csv_dir.mkdir()
@@ -292,7 +292,7 @@ class TestNestedColumns:
     can't carry nested types natively)."""
 
     def test_struct_column_serialises_as_object(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "retail_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "retail_template.yaml")
         cfg_j = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(
@@ -386,7 +386,7 @@ class TestFormatLiteral:
             OutputConfig(format="ndjson", directory="out")
 
     def test_resolve_output_format_returns_jsonl(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_j = cfg.model_copy(
             update={"output": cfg.output.model_copy(update={"format": "jsonl"})},
         )
@@ -432,7 +432,7 @@ class TestCsvUnchanged:
     config with the field omitted, run after run."""
 
     def test_csv_output_byte_identical(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         a = tmp_path / "run_a"
         b = tmp_path / "run_b"
         a.mkdir()

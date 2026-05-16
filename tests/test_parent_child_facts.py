@@ -22,7 +22,7 @@ Tests cover:
      count surfaced in the stderr summary.
   6. **Backwards compatibility** — configs without per_parent_row
      tables produce output byte-identical to pre-M18.
-  7. **Bundled template** — ``plotsim.load_template("orders")``
+  7. **Vehicle config** — the ``tests/configs/orders_template.yaml`` vehicle
      produces a working parent/child config end-to-end.
 """
 
@@ -36,9 +36,9 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-import plotsim
-from plotsim import create, generate_tables, load_template
+from plotsim import create, create_from_yaml, generate_tables, load_template
 from plotsim.config import PlotsimConfig
+from tests.configs import CONFIGS_DIR
 
 
 # --- Fixture helpers --------------------------------------------------------
@@ -494,8 +494,8 @@ def test_config_without_per_parent_row_unchanged():
 
 
 def test_orders_template_loads_and_generates():
-    """plotsim.load_template('orders') produces a working config."""
-    cfg = plotsim.load_template("orders")
+    """The orders vehicle config produces a working parent/child config."""
+    cfg = create_from_yaml(CONFIGS_DIR / "orders_template.yaml")
     assert isinstance(cfg, PlotsimConfig)
     tables = generate_tables(cfg)
     assert "fct_orders" in tables
@@ -811,7 +811,7 @@ def test_orders_template_manifest_has_parent_child_relation():
     """The manifest carries one parent_child_relations record per child."""
     from plotsim import build_manifest, generate_tables_with_state
 
-    cfg = plotsim.load_template("orders")
+    cfg = create_from_yaml(CONFIGS_DIR / "orders_template.yaml")
     rng = np.random.default_rng(cfg.seed)
     tables, state = generate_tables_with_state(cfg, rng)
     manifest = build_manifest(

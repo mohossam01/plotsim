@@ -12,7 +12,7 @@
 #  Run:
 #    >>> from plotsim import create_from_yaml, generate_tables
 #    >>> import numpy as np
-#    >>> cfg = create_from_yaml("plotsim/configs/templates/bare_minimum.yaml")
+#    >>> cfg = create_from_yaml("tests/configs/bare_minimum.yaml")
 #    >>> tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
 #
 #  Auto-generated outputs (because the schema section is omitted):

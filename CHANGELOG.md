@@ -7,6 +7,32 @@ Versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Bundled template catalog refreshed.** `plotsim.list_templates()`
+  now returns exactly six domain templates: `banking`, `health`,
+  `hr`, `marketing`, `retail`, `saas`. Each is schema-realistic
+  (real column topology and FK shapes for the domain), output-
+  realistic (pool, range, distribution, correlation, and seasonality
+  choices match the domain's real data shape), and feature-deep —
+  every template exercises SCD2, lifecycle stages, 3+ correlations,
+  causal lag, seasonality, and 2 event tables; CDC on the relevant
+  fact for each domain; per-metric treatment cohorts on `marketing`
+  and `health`; bridge tables on `hr`, `retail`, `banking`, and
+  `health`; parent/child fact grain on `retail`, `banking`, and
+  `health`; cross-fact FK on `retail` and `health`; geo bundle on
+  `retail`, `banking`, and `health`; narrative columns on `hr`,
+  `retail`, `banking`, and `health`; heteroscedastic noise on
+  `saas` and `health`; student-t noise on `banking`; holdout splits
+  on `banking` and `health`; sub-entity dim on `saas`; multi-locale
+  on `retail`. The previous catalog of fourteen mixed-purpose
+  templates — `ab_trial`, `bare_minimum`, `cdc_demo`,
+  `crm_billing_overlap`, `education`, `geo_retail`, `lakehouse`,
+  `latency_skew`, `narrative_reviews`, `orders` — has been demoted
+  from public surface: the feature-vehicle YAMLs and `.py`
+  companions for each now live under `tests/configs/` and continue
+  to power the existing feature-coverage test files unchanged.
+
 ### Added
 
 - **Manifest decomposition + regression sections.** The manifest sidecar

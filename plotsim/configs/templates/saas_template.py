@@ -1,35 +1,35 @@
-"""B2B SaaS customer success — Python-shaped builder template.
+"""SaaS template — Python form.
 
-This is the ``create(**kwargs)`` mirror of ``saas_template.yaml`` —
-both produce identical engine configs given the same seed. Pick
-whichever surface fits your workflow:
+Mirror of ``saas.yaml``. A B2B SaaS warehouse with SCD2 plan tier on
+``dim_company``, sub-entity ``dim_user`` (4 users per company),
+heteroscedastic noise on MRR, CDC audit on the revenue fact, and
+opt-in denormalized output.
 
-* ``saas_template.yaml`` for config-as-data fixtures checked into git
-* this file for code-shaped configs that compose with regular Python
-
-The new builder dials (``noise``, ``output``, ``locale``,
-``seasonality``, custom-coefficient ``connections``) are demonstrated
-inline below; comments mark the pieces that match the YAML 1-1.
+Run:
+    >>> from plotsim.configs.templates.saas_template import config
+    >>> from plotsim import generate_tables
+    >>> tables = generate_tables(config)
 """
 
 from plotsim import create
 
+
 config = create(
-    about="B2B SaaS customer success",
+    about="B2B SaaS customer success, engagement and revenue",
     unit="company",
-    seed=1729,  # determinism
-    noise="perfectly_clean",  # also: slightly_messy, realistic, dirty
-    # locale=["en_US", "en_GB"],                # multi-locale faker mix
-    # 0.6-M15: opt-in denormalization (M14a) — see ``saas_template.yaml``
-    # for the rationale. Each fact is left-joined with its FK'd dims;
-    # ``<fct>_wide.csv`` is emitted alongside the normalized output.
+    seed=1729,
+    noise={
+        "gaussian_sigma": 0.04,
+        "outlier_rate": 0.005,
+        "mcar_rate": 0.0,
+        "scale_with_trajectory": True,
+    },
     output={"denormalized": True},
     window=("2023-01", "2024-12", "monthly"),
     seasonality=[
-        {"months": [11, 12], "strength": 0.30},  # Q4 lift
-        {"months": [6, 7, 8], "strength": -0.10},  # summer dip
+        {"months": [11, 12], "strength": 0.30},
+        {"months": [6, 7, 8], "strength": -0.12},
     ],
-    # ── what we measure ─────────────────────────────────
     metrics=[
         {
             "name": "engagement",
@@ -38,25 +38,30 @@ config = create(
             "polarity": "positive",
         },
         {
+            "name": "feature_adoption",
+            "label": "Feature adoption breadth",
+            "type": "score",
+            "polarity": "positive",
+        },
+        {
             "name": "mrr",
             "label": "Monthly recurring revenue",
             "type": "amount",
             "polarity": "positive",
-            "range": [100, 50000],
+            "range": [50, 50000],
+        },
+        {
+            "name": "nps",
+            "label": "Net promoter score (0-100)",
+            "type": "amount",
+            "polarity": "positive",
+            "range": [0, 100],
         },
         {
             "name": "support_tickets",
-            "label": "Support ticket volume",
+            "label": "Tickets per period",
             "type": "count",
             "polarity": "negative",
-            "follows": "engagement",
-            "delay": 2,
-        },
-        {
-            "name": "feature_adoption",
-            "label": "Feature adoption rate",
-            "type": "score",
-            "polarity": "positive",
         },
         {
             "name": "churn_risk",
@@ -65,110 +70,99 @@ config = create(
             "polarity": "negative",
         },
         {
-            "name": "nps",
-            "label": "Net promoter score",
-            "type": "index",
+            "name": "expansion",
+            "label": "Expansion likelihood",
+            "type": "score",
             "polarity": "positive",
-            "range": [-100, 100],
+            "follows": "engagement",
+            "delay": 2,
         },
     ],
-    # ── how metrics connect ─────────────────────────────
-    # Mix of vocabulary words and explicit numeric coefficients —
-    # both forms parse into the same correlation matrix. Numeric
-    # form is for cases where you've calibrated r from real data.
     connections=[
-        ("engagement", "driven_by", "mrr"),
-        ("engagement", "opposes", "churn_risk"),
-        ("support_tickets", "related", "churn_risk"),
-        ("feature_adoption", 0.42, "mrr"),  # custom coefficient
-        ("nps", 0.18, "engagement"),  # custom coefficient
+        "mrr driven_by engagement",
+        "expansion related feature_adoption",
+        "churn_risk opposes engagement",
+        "support_tickets -0.40 engagement",
+        "nps 0.55 engagement",
     ],
-    # ── who we're simulating ────────────────────────────
     segments=[
         {
-            "name": "promising_client",
-            "count": 20,
-            "archetype": "growth > spike_then_crash > flat @ 8 @ 16",
-            "label": "Strong start, lost champion at month 8, went dormant by 16",
-            "attributes": {
-                "industry": ["Technology", "Finance", "Healthcare"],
-                "region": ["US", "EMEA"],
-                "tier": "enterprise",
-            },
-            "baseline": {"mrr": "high", "engagement": "high", "support_tickets": "low"},
-        },
-        {
-            "name": "steady_enterprise",
-            "count": 25,
+            "name": "rapid_adopter",
+            "count": 18,
             "archetype": "growth",
-            "label": "Reliable accounts, steady climb",
+            "label": "Fast onboarding ramp, broad adoption inside the first quarter",
             "attributes": {
-                "industry": ["Technology", "Finance"],
-                "region": ["US", "APAC"],
-                "tier": "enterprise",
+                "industry": ["saas", "fintech"],
+                "region": ["na", "emea"],
+                "plan_tier": ["growth", "enterprise"],
             },
-            "baseline": {"mrr": "high", "engagement": "high", "support_tickets": "low"},
+            "baseline": {"engagement": "high", "feature_adoption": "high", "mrr": "high"},
         },
         {
-            "name": "slow_churn",
-            "count": 15,
-            "archetype": "flat > decline @ 12",
-            "label": "Coasted for a year, then quietly faded",
+            "name": "steady_grower",
+            "count": 24,
+            "archetype": "accelerating",
+            "label": "Compounding seat expansion with steady MRR growth",
             "attributes": {
-                "industry": ["Media", "Hospitality"],
-                "region": ["EMEA"],
-                "tier": "starter",
+                "industry": ["saas", "ecommerce", "education"],
+                "region": ["na", "emea", "apac"],
+                "plan_tier": ["starter", "growth"],
             },
-            "baseline": {"mrr": "low", "engagement": "low", "support_tickets": "high"},
+            "baseline": {"engagement": "mid", "mrr": "mid"},
         },
         {
-            "name": "seasonal_accounts",
-            "count": 15,
-            "archetype": "growth > seasonal @ 6",
-            "label": "Ramped up first 6 months, settled into quarterly cycles",
-            "attributes": {
-                "industry": ["Retail", "Manufacturing"],
-                "region": ["US"],
-                "tier": "growth",
-            },
-            "baseline": {"mrr": "mid", "engagement": "mid", "support_tickets": "mid"},
-        },
-        {
-            "name": "dormant",
-            "count": 10,
+            "name": "enterprise_steady",
+            "count": 14,
             "archetype": "flat",
-            "label": "Signed up, never activated",
+            "label": "Mature enterprise accounts at stable high baseline",
             "attributes": {
-                "industry": ["Education"],
-                "region": ["APAC"],
-                "tier": "starter",
+                "industry": ["healthcare", "finance", "manufacturing"],
+                "region": ["na", "emea"],
+                "plan_tier": ["enterprise"],
             },
-            "baseline": {"mrr": "low", "engagement": "low", "support_tickets": "low"},
+            "baseline": {"engagement": "high", "mrr": "high", "nps": "high"},
         },
         {
-            "name": "turnaround",
-            "count": 10,
-            "archetype": "decline > flat > growth @ 6 @ 14",
-            "label": "Declining, hit bottom at month 6, turned around at 14",
+            "name": "churning",
+            "count": 18,
+            "archetype": "flat > decline @ 10",
+            "label": "Coasted for the first year, then disengaged and churned",
             "attributes": {
-                "industry": ["Finance", "Healthcare"],
-                "region": ["US"],
-                "tier": "growth",
+                "industry": ["retail", "ecommerce", "media"],
+                "region": ["na", "latam"],
+                "plan_tier": ["free", "starter"],
             },
-            "baseline": {"mrr": "mid", "engagement": "mid", "support_tickets": "mid"},
+            "baseline": {"engagement": "low", "churn_risk": "high", "support_tickets": "high"},
+        },
+        {
+            "name": "expansion_play",
+            "count": 12,
+            "archetype": "flat > growth @ 8",
+            "label": "Held flat, then expanded after a successful product evaluation",
+            "attributes": {
+                "industry": ["saas", "fintech"],
+                "region": ["na", "emea"],
+                "plan_tier": ["growth", "enterprise"],
+            },
+            "baseline": {"engagement": "mid", "expansion": "high"},
+        },
+        {
+            "name": "at_risk",
+            "count": 14,
+            "archetype": "growth > spike_then_crash > flat @ 6 @ 12",
+            "label": "Promising start, hit a wall around month 6, never recovered",
+            "attributes": {
+                "industry": ["media", "retail", "education"],
+                "region": ["latam", "apac"],
+                "plan_tier": ["starter", "growth"],
+            },
+            "baseline": {"engagement": "mid", "churn_risk": "high"},
         },
     ],
-    # ── lifecycle funnel ────────────────────────────────
     lifecycle={
-        "track": "churn_risk",
-        "stages": [
-            ("onboarding", 0.0),
-            ("active", 0.2),
-            ("at_risk", 0.5),
-            ("churned", 0.8),
-        ],
+        "track": "engagement",
+        "stages": [{"trial": 0.0}, {"active": 0.2}, {"engaged": 0.5}, {"power_user": 0.75}],
     },
-    # ── schema ──────────────────────────────────────────
     dimensions=[
         {
             "name": "dim_date",
@@ -187,70 +181,81 @@ config = create(
             "columns": [
                 {"name": "company_id", "type": "id"},
                 {"name": "company_name", "type": "faker.company"},
-                {"name": "industry", "type": "faker.industry"},
-                {"name": "founded_year", "type": "faker.year"},
+                {"name": "signup_year", "type": "faker.year"},
                 {"name": "cohort_size", "type": "segment.count"},
+                {"name": "industry", "type": "pool.industry"},
+                {"name": "region", "type": "pool.region"},
                 {
                     "name": "plan_tier",
                     "type": "scd",
                     "tracks": "mrr",
-                    "tiers": ["starter", "growth", "enterprise"],
-                    "at": [0.4, 0.7],
+                    "tiers": ["free", "starter", "growth", "enterprise"],
+                    "at": [0.25, 0.55, 0.8],
                 },
             ],
         },
         {
             "name": "dim_user",
             "per": "unit",
+            "count": 4,
             "columns": [
                 {"name": "user_id", "type": "id"},
                 {"name": "company_id", "type": "ref.dim_company"},
                 {"name": "user_name", "type": "faker.name"},
-                {"name": "role", "type": "static.member"},
+                {"name": "user_email", "type": "faker.email"},
+                {"name": "user_role", "type": "static.admin,member,member,member,viewer"},
             ],
         },
         {
-            "name": "dim_plan",
+            "name": "dim_support_category",
             "reference": True,
             "columns": [
-                {"name": "plan_id", "type": "id"},
-                {"name": "plan_name", "type": "static.starter"},
-                {"name": "monthly_price", "type": "static.99.00"},
+                {"name": "category_id", "type": "id"},
+                {
+                    "name": "category_name",
+                    "type": "static.bug,billing,onboarding,integration,feature_request,access,outage,docs",
+                },
+                {
+                    "name": "severity_band",
+                    "type": "static.high,medium,medium,low,low,medium,high,low",
+                },
             ],
         },
     ],
     facts=[
         {
             "name": "fct_engagement",
+            "metrics": ["engagement", "feature_adoption"],
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "engagement_score", "type": "metric.engagement"},
+                {"name": "engagement", "type": "metric.engagement"},
                 {"name": "feature_adoption", "type": "metric.feature_adoption"},
-                {
-                    "name": "customer_sentiment",
-                    "type": "bucket",
-                    "labels": ["at_risk", "lukewarm", "satisfied", "delighted"],
-                },
+                {"name": "active_seats", "type": "range", "range": [1, 200]},
             ],
         },
         {
             "name": "fct_revenue",
+            "metrics": ["mrr", "expansion"],
+            "cdc": True,
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "plan_id", "type": "ref.dim_plan"},
                 {"name": "mrr", "type": "metric.mrr"},
+                {"name": "expansion", "type": "metric.expansion"},
+                {"name": "discount_pct", "type": "range", "range": [0, 25]},
             ],
         },
         {
-            "name": "fct_support_tickets",
+            "name": "fct_support",
+            "metrics": ["support_tickets", "nps", "churn_risk"],
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "ticket_count", "type": "metric.support_tickets"},
-                {"name": "churn_risk", "type": "metric.churn_risk"},
+                {"name": "category_id", "type": "ref.dim_support_category"},
+                {"name": "support_tickets", "type": "metric.support_tickets"},
                 {"name": "nps", "type": "metric.nps"},
+                {"name": "churn_risk", "type": "metric.churn_risk"},
             ],
         },
     ],
@@ -259,16 +264,10 @@ config = create(
             "name": "evt_login",
             "trigger": "proportional",
             "driver": "engagement",
-            "scale": 5,
-            # 0.6-M15: log-file writer (M14b) demonstrated on the login
-            # event stream — see ``saas_template.yaml`` for parsing
-            # exercises that join the .log file back to the CSV.
-            "log_format": "{event_ts} INFO user={user_id} company={company_id} action=login",
-            "log_filename": "evt_login.log",
+            "scale": 10.0,
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
-                {"name": "user_id", "type": "ref.dim_user"},
                 {"name": "company_id", "type": "ref.dim_company"},
                 {"name": "event_ts", "type": "timestamp"},
             ],
@@ -278,23 +277,24 @@ config = create(
             "trigger": "threshold",
             "metric": "churn_risk",
             "above": 0.7,
-            "for_periods": 3,
+            "for": 2,
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "company_id", "type": "ref.dim_company"},
-                {"name": "churn_reason", "type": "faker.sentence"},
-                {"name": "churn_flag", "type": "flag"},
+                {"name": "reason", "type": "faker.sentence"},
+                {"name": "voluntary", "type": "flag"},
             ],
         },
     ],
-    # 0.6-M15: data-quality issues for Data Quality Testing (DE L25)
-    # and Data Cleaning (DE L15). Manifest records every injection so
-    # students can score detectors against ground truth. Issue
-    # placement is on event tables here (not facts) — see
-    # ``saas_template.yaml`` for the streaming-parquet rationale.
     quality=[
-        {"table": "evt_churn", "issue": "null_injection", "rate": 0.05, "column": "churn_reason"},
-        {"table": "evt_login", "issue": "duplicate_rows", "rate": 0.02},
+        {
+            "table": "fct_engagement",
+            "issue": "null_injection",
+            "rate": 0.03,
+            "column": "engagement",
+        },
+        {"table": "evt_login", "issue": "duplicate_rows", "rate": 0.015},
+        {"table": "fct_revenue", "issue": "late_arrival", "rate": 0.02},
     ],
 )

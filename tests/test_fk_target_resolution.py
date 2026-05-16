@@ -291,7 +291,7 @@ def _orders_template_parquet_partitioned(tmp_path: Path) -> PlotsimConfig:
     The template's ``fct_orders`` declares ``order_date`` (ref.dim_date)
     rather than a literal ``date_key`` column — exactly the case the
     FK-target resolution unlocks."""
-    cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "orders_template.yaml")
+    cfg = create_from_yaml(ROOT / "tests" / "configs" / "orders_template.yaml")
     return cfg.model_copy(
         update={
             "output": cfg.output.model_copy(
@@ -367,7 +367,7 @@ class TestPartitionByFKTargetResolution:
     def test_validator_rejects_unmatched_partition_key(self):
         """Pre- and post-fix: a partition_by with no literal match AND
         no FK target match still raises at load."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "orders_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "orders_template.yaml")
         payload = cfg.model_dump()
         payload["output"]["format"] = "parquet"
         payload["output"]["partition_by"] = "definitely_nonexistent_col"

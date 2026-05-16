@@ -132,13 +132,17 @@ tables don't have the per-row trajectory plumbing wired.
     )
     ```
 
-The bundled `narrative_reviews` template runs end-to-end:
+A worked narrative example lives at `tests/configs/narrative_reviews.yaml`.
+Run it end-to-end:
 
 ```bash
-plotsim template narrative_reviews -o narrative_reviews.yaml
-plotsim run narrative_reviews.yaml -o ./narrative_out
+plotsim run tests/configs/narrative_reviews.yaml -o ./narrative_out
 head ./narrative_out/fct_reviews.csv
 ```
+
+The `hr`, `retail`, `banking`, and `health` bundled domain templates
+each carry a narrative column with trajectory-aligned domain language
+(review notes, customer reviews, loan officer notes, encounter notes).
 
 ---
 
@@ -183,7 +187,7 @@ dual-use signal:
    shifted, and enough vocabulary that bag-of-words classifiers learn
    token distributions rather than memorizing per-row strings.
 
-The bundled `narrative_reviews` template hits ≥ 0.55 bag-of-words
+The `tests/configs/narrative_reviews.yaml` walkthrough config hits ≥ 0.55 bag-of-words
 classification accuracy on a held-out entity split (chance is 1/3 for
 three segments) while keeping sentiment recoverable per band. Lexicons
 that ship below the segment-classification threshold either have

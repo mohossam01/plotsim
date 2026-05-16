@@ -19,7 +19,7 @@ Covers:
 * Classifier accuracy — hand-rolled multinomial naive Bayes on entity-split
   bag-of-words, accuracy ≥ 0.55 on held-out entities (chance ≈ 0.333 for 3
   segments). Threshold rationale documented inline.
-* Bundled template — load_template / .py-vs-yaml parity / CLI
+* Vehicle config — create_from_yaml / .py-vs-yaml parity / CLI
 """
 
 from __future__ import annotations
@@ -38,11 +38,12 @@ from plotsim import (
     PlotsimConfig,
     SurrogateKeyWarning,
     create,
+    create_from_yaml,
     generate_tables,
     load_config,
-    load_template,
 )
 from plotsim.config import parse_source
+from tests.configs import CONFIGS_DIR
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -403,7 +404,7 @@ def test_cross_config_narrative_on_dim_rejected_at_load(tmp_path):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SurrogateKeyWarning)
-        cfg = load_template("narrative_reviews")
+        cfg = create_from_yaml(CONFIGS_DIR / "narrative_reviews.yaml")
     base = yaml.safe_load(dump_config(cfg))
 
     # Move the narrative column from fct_reviews onto dim_customer.
@@ -447,7 +448,7 @@ def test_narrative_dtype_boolean_rejected_at_load(tmp_path):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SurrogateKeyWarning)
-        cfg = load_template("narrative_reviews")
+        cfg = create_from_yaml(CONFIGS_DIR / "narrative_reviews.yaml")
     base = yaml.safe_load(dump_config(cfg))
     for tbl in base["tables"]:
         if tbl["name"] == "fct_reviews":
@@ -469,7 +470,7 @@ def test_narrative_dtype_boolean_rejected_at_load(tmp_path):
 def reviews_cfg() -> PlotsimConfig:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SurrogateKeyWarning)
-        return load_template("narrative_reviews")
+        return create_from_yaml(CONFIGS_DIR / "narrative_reviews.yaml")
 
 
 @pytest.fixture(scope="module")
@@ -495,7 +496,7 @@ def test_template_text_columns_dtype_string(reviews_tables):
 def test_template_yaml_and_python_produce_identical_text(reviews_cfg):
     """The .py and .yaml templates resolve to byte-identical text columns
     under the same seed."""
-    from plotsim.configs.templates.narrative_reviews import config as cfg_py
+    from tests.configs.narrative_reviews import config as cfg_py
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SurrogateKeyWarning)

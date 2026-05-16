@@ -98,7 +98,7 @@ class TestIterFactChunks:
     independently because it's also a useful seam for analysis tooling."""
 
     def test_chunk_count_matches_archetypes(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
@@ -114,7 +114,7 @@ class TestIterFactChunks:
         assert len(archetype_chunks) == len(unique_archetypes)
 
     def test_chunk_row_counts_match_entity_counts(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
@@ -137,7 +137,7 @@ class TestIterFactChunks:
     def test_chunk_union_equals_unified(self):
         """Concatenating every chunk's fact DataFrame should reconstruct
         the unified DataFrame (row order may differ, but row sets match)."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tables = generate_tables(
@@ -257,7 +257,7 @@ class TestRoundTripEquality:
         """Baseline: with no quality issues configured, the streaming
         Parquet write reads back cell-identical to a single-shot
         ``to_parquet`` write of the same in-memory tables dict."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_v = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -291,7 +291,7 @@ class TestRoundTripEquality:
         place ``null_injection`` / ``type_mismatch`` / ``schema_drift``
         on fact columns without invalidating the streaming path's
         contract."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_v = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -375,7 +375,7 @@ class TestRowGroups:
     batches for ``per_entity_per_period`` facts."""
 
     def test_row_group_count_matches_archetypes(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -392,7 +392,7 @@ class TestRowGroups:
             assert meta.num_row_groups == len(unique_archetypes), fact_name
 
     def test_row_group_sizes_match_entity_counts(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(update={"format": "parquet"}),

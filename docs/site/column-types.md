@@ -144,7 +144,9 @@ Output dtype is `float` for `latitude` / `longitude` and `string`
 for everything else. `geo.<field>` is dim-only; on facts and
 events the engine raises `unsupported generated provider`. See
 [Geo hierarchy](./user-guide/geo-hierarchy.md) for the underlying
-dataset, determinism, and the bundled `geo_retail` template.
+dataset, determinism, and the `tests/configs/geo_retail.yaml`
+worked example; the bundled `retail`, `banking`, and `health`
+domain templates each put a geo bundle on their customer/patient dim.
 
 ---
 
@@ -182,8 +184,10 @@ builder API). `narrative` is fact-only and per_entity_per_period;
 the cell builder forces the scalar fact path because it consumes one
 RNG draw per slot per row. See
 [Narrative text source](./user-guide/narrative-source.md) for the
-lexicon-design playbook, validation gates, and the bundled
-`narrative_reviews` template.
+lexicon-design playbook, validation gates, and the
+`tests/configs/narrative_reviews.yaml` worked example; narrative
+columns also ship on the bundled `hr`, `retail`, `banking`, and
+`health` domain templates.
 
 ---
 
