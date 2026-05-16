@@ -21,6 +21,8 @@ this dataset is the population it samples from.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 # Provider name suffixes that the geo bundle resolves. A column source of
 # ``generated:geo.<field>`` reads the corresponding bundle key. The set is
 # explicit so unknown ``geo.foo`` source strings raise instead of silently
@@ -38,7 +40,19 @@ GEO_BUNDLE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-GEO_LOCATIONS: tuple[dict[str, object], ...] = (
+class GeoEntry(TypedDict):
+    """One row of ``GEO_LOCATIONS``: five string fields + two float coords."""
+
+    country: str
+    country_code: str
+    region: str
+    city: str
+    postcode: str
+    latitude: float
+    longitude: float
+
+
+GEO_LOCATIONS: tuple[GeoEntry, ...] = (
     # --- United States (20) ---
     {
         "country": "United States",

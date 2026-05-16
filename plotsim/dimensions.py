@@ -66,7 +66,7 @@ from plotsim.config import (
     TimeWindow,
     parse_source,
 )
-from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS
+from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS, GeoEntry
 
 
 # --- Helpers ----------------------------------------------------------------
@@ -185,7 +185,7 @@ def _assign_geo_bundles(
     columns: list[Column],
     n_rows: int,
     rng: np.random.Generator,
-) -> Optional[list[dict[str, object]]]:
+) -> Optional[list[GeoEntry]]:
     """Pre-allocate one geo bundle per row, or None if the table has no geo columns.
 
     A single ``rng.integers`` call draws ``n_rows`` indices from
@@ -552,7 +552,7 @@ def _column_value_for_entity(
     entity_pk: str,
     fake: Faker,
     rng: Optional[np.random.Generator] = None,
-    geo_bundle: Optional[dict[str, object]] = None,
+    geo_bundle: Optional[GeoEntry] = None,
 ) -> Any:
     """Resolve one cell on a per_entity dim row.
 

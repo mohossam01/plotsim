@@ -22,6 +22,7 @@ from __future__ import annotations
 import io
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from typing import Literal
 
 
 import plotsim
@@ -180,7 +181,7 @@ def test_info_hr_summary():
 # --- FIX-02 acceptance: _estimate_periods daily branch -----------------------
 
 
-def _estimate_cfg(start: str, end: str, granularity: str):
+def _estimate_cfg(start: str, end: str, granularity: Literal["monthly", "weekly", "daily"]):
     """Build a minimal PlotsimConfig covering only what _estimate_periods reads."""
     from plotsim.config import (
         Archetype,

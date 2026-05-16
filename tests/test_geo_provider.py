@@ -28,7 +28,7 @@ from plotsim import create_from_yaml, generate_tables
 from plotsim.builder import create
 from tests.configs import CONFIGS_DIR
 from plotsim.config import Column, Entity, Table
-from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS
+from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS, GeoEntry
 from plotsim.dimensions import (
     _assign_geo_bundles,
     _geo_provider_field,
@@ -168,12 +168,12 @@ def _full_geo_dim(name: str = "dim_store") -> Table:
     )
 
 
-def _city_lookup() -> dict[tuple[str, str], dict]:
+def _city_lookup() -> dict[tuple[str, str], GeoEntry]:
     """City+postcode is unique in the dataset; country+city is not (e.g.
     Newcastle exists in UK and Australia). Key by (city, postcode) to
     pick the right bundle when verifying coherence on duplicates.
     """
-    out: dict[tuple[str, str], dict] = {}
+    out: dict[tuple[str, str], GeoEntry] = {}
     for entry in GEO_LOCATIONS:
         out[(entry["city"], entry["postcode"])] = entry
     return out
