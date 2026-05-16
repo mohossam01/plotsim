@@ -688,7 +688,7 @@ def test_yaml_reference_template_loads_as_userinput():
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parent.parent
-    template = repo_root / "plotsim" / "configs" / "templates" / "saas_template.yaml"
+    template = repo_root / "plotsim" / "configs" / "templates" / "saas.yaml"
     raw = yaml.safe_load(template.read_text(encoding="utf-8"))
     # YAML parses date-like strings (2023-01) into date objects in some
     # codepaths; coerce window strings back to ISO month form for

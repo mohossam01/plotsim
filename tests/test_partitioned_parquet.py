@@ -42,7 +42,7 @@ def _saas_parquet_config(tmp_path: Path, *, partition_by: str | None = "date_key
     """Load the saas template and switch it to parquet output with the
     requested ``partition_by``. ``partition_by=None`` reverts to single-
     file parquet for the baseline-unchanged test."""
-    cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+    cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
     return cfg.model_copy(
         update={
             "output": cfg.output.model_copy(
@@ -164,9 +164,7 @@ class TestBaselineParity:
 
     def test_partition_by_none_unchanged(self, tmp_path):
         cfg_a = _saas_parquet_config(tmp_path / "with_field", partition_by=None)
-        cfg_b = create_from_yaml(
-            ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-        ).model_copy(
+        cfg_b = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml").model_copy(
             update={
                 "output": OutputConfig(
                     format="parquet",
@@ -200,7 +198,7 @@ class TestNestedColumns:
     between single-file and partitioned writers."""
 
     def test_struct_column_survives_partitioning(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "retail_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "retail_template.yaml")
         cfg_p = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(
@@ -242,7 +240,7 @@ class TestValidators:
             OutputConfig(format="csv", directory="x", partition_by="date_key")
 
     def test_rejects_unknown_column(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         payload = cfg.model_dump()
         payload["output"]["format"] = "parquet"
         payload["output"]["partition_by"] = "nonexistent_col"
@@ -250,7 +248,7 @@ class TestValidators:
             PlotsimConfig.model_validate(payload)
 
     def test_rejects_float_column(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         payload = cfg.model_dump()
         payload["output"]["format"] = "parquet"
         # mrr on fct_revenue is dtype=float — should be rejected as a
@@ -269,7 +267,7 @@ class TestStreamingBypass:
     partitioned configs."""
 
     def test_streaming_eligibility_false_when_partitioned(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_v = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(
@@ -281,7 +279,7 @@ class TestStreamingBypass:
         assert _streaming_parquet_eligible(cfg_v) is False
 
     def test_streaming_eligibility_true_without_partition(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_v = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(update={"format": "parquet"}),
@@ -302,7 +300,7 @@ class TestSidecars:
     """
 
     def test_denormalized_wide_partitions(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_p = cfg.model_copy(
             update={
                 "output": cfg.output.model_copy(

@@ -28,7 +28,8 @@ import warnings
 import numpy as np
 import pytest
 
-from plotsim import generate_tables, load_template
+from plotsim import create_from_yaml, generate_tables
+from tests.configs import CONFIGS_DIR
 from plotsim.config import (
     Archetype,
     Column,
@@ -282,14 +283,14 @@ def test_explicit_pk_prefix_collision_rejected():
         _make_config([dim_a, dim_b])
 
 
-# --- End-to-end: orders template (the canonical collision case) ------------
+# --- End-to-end: orders vehicle (the canonical collision case) ------------
 
 
-def test_orders_template_produces_distinguishable_pks():
-    """``orders`` template has fct_orders + fct_order_items (both
+def test_orders_vehicle_produces_distinguishable_pks():
+    """The orders vehicle has fct_orders + fct_order_items (both
     stripped → ``o``) plus fct_returns (``r``). The first two must
     get distinguishable PKs; fct_returns keeps its single ``r``."""
-    cfg = load_template("orders")
+    cfg = create_from_yaml(CONFIGS_DIR / "orders_template.yaml")
     tables = generate_tables(cfg, np.random.default_rng(cfg.seed))
     orders_pks = tables["fct_orders"]["order_id"].tolist()
     items_pks = tables["fct_order_items"]["item_id"].tolist()

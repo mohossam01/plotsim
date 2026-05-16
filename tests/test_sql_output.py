@@ -45,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def _saas_sql_config(tmp_path: Path, *, dialect: str = "postgresql"):
     """Load the saas template and switch it to sql output."""
-    cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+    cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
     return cfg.model_copy(
         update={
             "output": cfg.output.model_copy(
@@ -286,7 +286,7 @@ class TestTableOrder:
         assert dim_pos < fact_pos, "dim_company CREATE must precede fct_engagement CREATE"
 
     def test_sql_table_order_dims_first(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         order = _sql_table_order(cfg)
         dim_names = {t.name for t in cfg.tables if t.type == "dim"}
         # All dim names appear before the first non-dim.
@@ -468,7 +468,7 @@ class TestEntityFeaturesRejection:
     the single-file SQL dump's star-schema layout."""
 
     def test_entity_features_plus_sql_rejected_at_load(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         payload = cfg.model_dump()
         payload["output"]["format"] = "sql"
         payload["entity_features"] = {"enabled": True}
@@ -478,7 +478,7 @@ class TestEntityFeaturesRejection:
     def test_entity_features_plus_csv_still_allowed(self):
         """Regression guard: the new gate only fires under sql; CSV
         and the other formats continue to support entity_features."""
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         payload = cfg.model_dump()
         # entity_features requires manifest.include=true and zero
         # quality issues — the saas template carries quality issues by
@@ -531,7 +531,7 @@ class TestFormatLiteral:
             assert oc.sql_dialect == "postgresql"
 
     def test_resolve_output_format_returns_sql(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg_s = cfg.model_copy(
             update={"output": cfg.output.model_copy(update={"format": "sql"})},
         )
@@ -636,7 +636,7 @@ class TestCsvUnchanged:
     baseline config with the field omitted, run after run."""
 
     def test_csv_output_byte_identical(self, tmp_path):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         a = tmp_path / "run_a"
         b = tmp_path / "run_b"
         a.mkdir()

@@ -29,7 +29,7 @@ write:
      columns.
   6. **Builder passthrough** — ``FactInput.cdc`` routes onto engine
      ``Table.cdc``.
-  7. **Bundled template** — ``plotsim.load_template("cdc_demo")``
+  7. **Bundled config** — the ``tests/configs/cdc_demo.yaml`` vehicle
      produces a working CDC config end-to-end.
   8. **Determinism** — same ``(config, seed)`` produces the same
      ``_op`` sequence across runs.
@@ -46,15 +46,15 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-import plotsim
 from plotsim import (
     build_manifest,
     create,
+    create_from_yaml,
     generate_tables_with_state,
-    load_template,
     write_tables,
 )
 from plotsim.config import PlotsimConfig
+from tests.configs import CONFIGS_DIR
 
 
 # --- 1. Config-level validation --------------------------------------------
@@ -479,15 +479,11 @@ def test_builder_fact_input_cdc_default_false():
     assert fact.cdc is False
 
 
-# --- 7. Bundled template ---------------------------------------------------
+# --- 7. Bundled config -----------------------------------------------------
 
 
-def test_cdc_demo_template_in_list_templates():
-    assert "cdc_demo" in plotsim.list_templates()
-
-
-def test_cdc_demo_template_loads_and_generates(tmp_path):
-    cfg = load_template("cdc_demo")
+def test_cdc_demo_config_loads_and_generates(tmp_path):
+    cfg = create_from_yaml(CONFIGS_DIR / "cdc_demo.yaml")
     assert isinstance(cfg, PlotsimConfig)
     fact = next(t for t in cfg.tables if t.name == "fct_billing")
     assert fact.cdc is True

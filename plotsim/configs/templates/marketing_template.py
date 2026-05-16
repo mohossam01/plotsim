@@ -1,15 +1,18 @@
-"""Marketing campaign analytics — Python builder template.
+"""Marketing template — Python form.
 
-Mirror of ``marketing_template.yaml``. Demonstrates:
+Mirror of ``marketing.yaml``. Digital marketing campaign analytics with
+per-metric A/B treatment (lift targets conversion_rate specifically),
+CDC on the spend fact (reconciliation restates prior periods), Q4
+seasonality + summer / January dips, and three quality issues.
 
-* mixed-form ``connections`` — vocabulary words AND custom numeric
-  coefficients calibrated from real ad-platform data
-* SCD2 ``campaign_phase`` tracking ``revenue``
-* threshold event with ``below`` (campaign-pause fires when
-  conversion crashes for 3+ periods)
+Run:
+    >>> from plotsim.configs.templates.marketing_template import config
+    >>> from plotsim import generate_tables
+    >>> tables = generate_tables(config)
 """
 
 from plotsim import create
+
 
 config = create(
     about="Marketing campaign performance — spend, reach, conversion, revenue",
@@ -17,6 +20,11 @@ config = create(
     seed=80211,
     noise="slightly_messy",
     window=("2023-01", "2024-12", "monthly"),
+    seasonality=[
+        {"months": [11, 12], "strength": 0.45},
+        {"months": [6, 7, 8], "strength": -0.10},
+        {"months": [1], "strength": -0.25},
+    ],
     metrics=[
         {
             "name": "ad_spend",
@@ -39,7 +47,7 @@ config = create(
         },
         {
             "name": "conversion_rate",
-            "label": "Visit-to-purchase conversion",
+            "label": "Visit-to-purchase rate",
             "type": "score",
             "polarity": "positive",
         },
@@ -71,17 +79,20 @@ config = create(
             "follows": "impressions",
             "delay": 1,
         },
+        {
+            "name": "creative_quality",
+            "label": "Creative quality score",
+            "type": "score",
+            "polarity": "positive",
+        },
     ],
-    # Numeric coefficients calibrated from a real ad-platform dataset.
-    # Mix of vocabulary words and explicit r values — both forms are
-    # interchangeable; the engine collects them into a single matrix.
     connections=[
-        ("click_through_rate", "driven_by", "impressions"),
-        ("conversion_rate", "driven_by", "click_through_rate"),
-        ("bounce_rate", "opposes", "conversion_rate"),
-        ("revenue", 0.62, "conversion_rate"),
-        ("roi", 0.48, "revenue"),
-        ("leads_generated", "related", "click_through_rate"),
+        "click_through_rate driven_by impressions",
+        "conversion_rate driven_by click_through_rate",
+        "bounce_rate opposes conversion_rate",
+        "revenue 0.62 conversion_rate",
+        "roi 0.48 revenue",
+        "leads_generated related click_through_rate",
     ],
     segments=[
         {
@@ -98,16 +109,16 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_cpa", "max_clicks", "max_conversions"],
             },
             "baseline": {"impressions": "high", "ad_spend": "high", "conversion_rate": "low"},
-            # 0.6-M15: A/B treatment cohort (M8c) — see
-            # ``marketing_template.yaml`` for the ATE recovery exercise.
             "treatment": {
                 "fraction": 0.5,
                 "lift_log_odds": 0.5,
                 "start_period": 8,
                 "treatment_label": "new_audience_model",
                 "control_label": "incumbent_audience_model",
+                "target_metric": "conversion_rate",
             },
         },
         {
@@ -124,6 +135,7 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_cpa", "max_conversions"],
             },
             "baseline": {"ad_spend": "high", "impressions": "high", "bounce_rate": "high"},
         },
@@ -141,6 +153,7 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_roas", "max_conversions"],
             },
             "baseline": {"ad_spend": "mid", "revenue": "mid"},
         },
@@ -158,6 +171,7 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_cpa"],
             },
             "baseline": {"ad_spend": "mid", "conversion_rate": "mid"},
         },
@@ -175,14 +189,15 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["max_clicks"],
             },
             "baseline": {"impressions": "high", "revenue": "high", "roi": "high"},
         },
         {
             "name": "end_of_life",
-            "count": 8,
+            "count": 10,
             "archetype": "decline",
-            "label": "Sunsetting campaign — winding down spend over the window",
+            "label": "Sunsetting campaign — winding down spend",
             "attributes": {
                 "objective": ["retention"],
                 "channel": ["email", "retargeting"],
@@ -192,6 +207,7 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_roas"],
             },
             "baseline": {"ad_spend": "low", "conversion_rate": "low"},
         },
@@ -199,7 +215,7 @@ config = create(
             "name": "retarget_revival",
             "count": 10,
             "archetype": "decline > flat > growth @ 6 @ 16",
-            "label": "Stalled, paused, then relaunched with retargeting bump",
+            "label": "Stalled, paused, then relaunched with retargeting",
             "attributes": {
                 "objective": ["retention", "conversion"],
                 "channel": ["retargeting", "email"],
@@ -209,18 +225,14 @@ config = create(
                     "creative_fatigue",
                     "audience_saturation",
                 ],
+                "bid_strategy": ["target_cpa", "max_conversions"],
             },
             "baseline": {"conversion_rate": "mid", "bounce_rate": "mid"},
         },
     ],
     lifecycle={
         "track": "conversion_rate",
-        "stages": [
-            ("launch", 0.0),
-            ("ramping", 0.15),
-            ("performing", 0.4),
-            ("winning", 0.7),
-        ],
+        "stages": [{"launch": 0.0}, {"ramping": 0.15}, {"performing": 0.4}, {"winning": 0.7}],
     },
     dimensions=[
         {
@@ -242,6 +254,9 @@ config = create(
                 {"name": "campaign_name", "type": "faker.company"},
                 {"name": "launch_year", "type": "faker.year"},
                 {"name": "cohort_size", "type": "segment.count"},
+                {"name": "objective", "type": "pool.objective"},
+                {"name": "channel", "type": "pool.channel"},
+                {"name": "bid_strategy", "type": "pool.bid_strategy"},
                 {
                     "name": "campaign_phase",
                     "type": "scd",
@@ -252,54 +267,45 @@ config = create(
             ],
         },
         {
-            "name": "dim_channel",
-            "reference": True,
-            "columns": [
-                {"name": "channel_id", "type": "id"},
-                {
-                    "name": "channel_name",
-                    "type": "static.paid_search,paid_social,display,email,organic_social,referral,retargeting",
-                },
-                {
-                    "name": "channel_type",
-                    "type": "static.paid,paid,paid,owned,organic,organic,paid",
-                },
-            ],
-        },
-        {
             "name": "dim_audience",
             "reference": True,
             "columns": [
                 {"name": "audience_id", "type": "id"},
                 {
                     "name": "audience_name",
-                    "type": "static.lookalike,prospecting,retargeting,loyalty,broad",
+                    "type": "static.lookalike,prospecting,retargeting,loyalty,broad,interest",
                 },
-                {"name": "audience_size", "type": "static.large,large,medium,small,large"},
+                {"name": "audience_size", "type": "static.large,large,medium,small,large,medium"},
             ],
         },
         {
-            "name": "dim_creative",
+            "name": "dim_creative_format",
             "reference": True,
             "columns": [
-                {"name": "creative_id", "type": "id"},
-                {"name": "format", "type": "static.video,static_image,carousel,story,native"},
-                {"name": "variant", "type": "static.A,A,B,C,B"},
+                {"name": "format_id", "type": "id"},
+                {
+                    "name": "format_name",
+                    "type": "static.video,static_image,carousel,story,native,collection",
+                },
             ],
         },
     ],
     facts=[
         {
-            "name": "fct_spend",
-            "metrics": ["ad_spend", "impressions", "click_through_rate"],
+            "name": "fct_campaign_performance",
+            "metrics": ["ad_spend", "impressions", "click_through_rate", "creative_quality"],
+            "cdc": True,
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "campaign_id", "type": "ref.dim_campaign"},
-                {"name": "channel_id", "type": "ref.dim_channel"},
-                {"name": "creative_id", "type": "ref.dim_creative"},
+                {"name": "audience_id", "type": "ref.dim_audience"},
+                {"name": "format_id", "type": "ref.dim_creative_format"},
                 {"name": "ad_spend", "type": "metric.ad_spend"},
                 {"name": "impressions", "type": "metric.impressions"},
                 {"name": "click_through_rate", "type": "metric.click_through_rate"},
+                {"name": "creative_quality", "type": "metric.creative_quality"},
+                {"name": "budget_cap", "type": "range", "range": [1000, 80000]},
+                {"name": "bid_amount", "type": "range", "range": [0.10, 12.0]},
             ],
         },
         {
@@ -308,7 +314,6 @@ config = create(
             "columns": [
                 {"name": "date_key", "type": "ref.dim_date"},
                 {"name": "campaign_id", "type": "ref.dim_campaign"},
-                {"name": "audience_id", "type": "ref.dim_audience"},
                 {"name": "conversion_rate", "type": "metric.conversion_rate"},
                 {"name": "bounce_rate", "type": "metric.bounce_rate"},
                 {"name": "leads_generated", "type": "metric.leads_generated"},
@@ -348,7 +353,7 @@ config = create(
             "trigger": "threshold",
             "metric": "conversion_rate",
             "below": 0.1,
-            "for_periods": 3,
+            "for": 3,
             "columns": [
                 {"name": "event_id", "type": "id"},
                 {"name": "date_key", "type": "ref.dim_date"},
@@ -358,11 +363,14 @@ config = create(
             ],
         },
     ],
-    # 0.6-M15: data-quality issues for Data Quality Testing (DE L25)
-    # and Data Cleaning (DE L15). Manifest records every injection so
-    # students can score detectors against ground truth.
     quality=[
-        {"table": "fct_spend", "issue": "null_injection", "rate": 0.03, "column": "ad_spend"},
-        {"table": "evt_click", "issue": "late_arrival", "rate": 0.02},
+        {
+            "table": "fct_campaign_performance",
+            "issue": "null_injection",
+            "rate": 0.04,
+            "column": "ad_spend",
+        },
+        {"table": "evt_click", "issue": "late_arrival", "rate": 0.03},
+        {"table": "fct_funnel", "issue": "duplicate_rows", "rate": 0.01},
     ],
 )

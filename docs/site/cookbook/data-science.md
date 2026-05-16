@@ -50,8 +50,9 @@ multi-metric dataset with archetype ground truth.
     ```
 
 The [`saas_template.py`](https://github.com/mohossam01/plotsim/blob/main/plotsim/configs/templates/saas_template.py)
-companion shows the same template authored as a `create(**kwargs)`
-call — every YAML field maps 1-1 to a Python keyword.
+companion (paired with `saas.yaml` in the same directory) shows the
+same SaaS template authored as a `create(**kwargs)` call — every YAML
+field maps 1-1 to a Python keyword.
 
 ---
 
@@ -228,9 +229,9 @@ time, not just larger ones.
 
 All six builder distribution families (`lognorm`, `gamma`,
 `weibull`, `beta`, `normal`, `poisson`) are pinnable the same way
-via `MetricInput.distribution` + `distribution_params`. The bundled
-`latency_skew` template (`plotsim template latency_skew`) exercises
-all six on a single config. Full mechanics:
+via `MetricInput.distribution` + `distribution_params`. The
+`tests/configs/latency_skew.yaml` worked example exercises all six
+on a single config. Full mechanics:
 [`metrics-and-connections.md` §pinning the distribution explicitly](../user-guide/metrics-and-connections.md#pinning-the-distribution-explicitly).
 
 ---

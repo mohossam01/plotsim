@@ -139,15 +139,18 @@ need to agree, because they answer different questions ("a
 plausible-looking city name" vs "a real city we have lat/lng
 for").
 
-## Bundled template
+## Worked example
 
-`plotsim run geo_retail` generates a 40-store retail chain with
-the full geo hierarchy. The template is paired:
+`tests/configs/geo_retail.yaml` generates a 40-store retail chain
+with the full geo hierarchy. The config is paired:
 
-- `plotsim/configs/templates/geo_retail.py` — builder surface
-- `plotsim/configs/templates/geo_retail.yaml` — engine surface
+- `tests/configs/geo_retail.py` — Python builder surface
+- `tests/configs/geo_retail.yaml` — YAML form
 
-Both produce identical tables given the same seed.
+Both produce identical tables given the same seed. The geo bundle
+itself is exercised by the bundled `retail`, `banking`, and
+`health` domain templates — each puts a coherent country / region /
+city onto its customer or patient dim.
 
 ## Reference dataset
 

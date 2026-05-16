@@ -565,7 +565,7 @@ def test_cli_relative_output_dir_unchanged_behavior(tmp_path: Path, monkeypatch)
 # --- M124: builder-YAML dispatch in CLI commands ----------------------------
 
 BUILDER_DIR = ROOT / "plotsim" / "configs" / "templates"
-BUILDER_SAAS_YAML = BUILDER_DIR / "saas_template.yaml"
+BUILDER_SAAS_YAML = BUILDER_DIR / "saas.yaml"
 
 
 def test_list_builder_templates_finds_directory():
@@ -574,7 +574,6 @@ def test_list_builder_templates_finds_directory():
     names = {name for name, _ in builder}
     # Every YAML in plotsim/configs/templates/ should appear; saas is the canonical.
     assert "saas" in names
-    assert "bare_minimum" in names
     for _name, path in builder:
         assert path.exists()
         assert path.suffix == ".yaml"
@@ -658,13 +657,13 @@ def test_is_builder_yaml_handles_malformed_input(tmp_path: Path):
 
 
 def test_find_template_resolves_builder_when_no_engine_match():
-    """M124: ``find_template('bare_minimum')`` finds the builder template
-    when no engine-direct match exists. Engine-direct still wins for
-    overlapping names like ``saas``.
+    """M124: ``find_template('banking')`` finds the builder template when
+    no engine-direct match exists (no ``sample_banking.yaml``). Engine-
+    direct still wins for overlapping names like ``saas``.
     """
-    bare = cli.find_template("bare_minimum")
-    assert bare is not None
-    assert bare.parent.name == "templates"
+    banking = cli.find_template("banking")
+    assert banking is not None
+    assert banking.parent.name == "templates"
     saas = cli.find_template("saas")
     assert saas is not None
     # Engine-direct precedence: ``saas`` resolves to ``sample_saas.yaml``.

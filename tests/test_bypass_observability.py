@@ -80,7 +80,7 @@ class TestManifestFieldShape:
         # so the keys-are-archetype-names invariant is vacuously true.
         # Kept as a regression guard against the field gaining un-
         # validated keys in a future change.
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         archetype_names = {e.archetype for e in cfg.entities}
@@ -89,7 +89,7 @@ class TestManifestFieldShape:
     def test_counts_are_nonnegative_ints(self):
         # M127b: vacuously true on an empty dict; kept as a stable shape
         # invariant for any future repopulation.
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         for arch, count in m.bypass_fallback_counts.items():
@@ -343,7 +343,7 @@ class TestManifestRoundTrip:
     the new model via the field defaults)."""
 
     def test_round_trip_preserves_bypass_counts(self):
-        cfg = create_from_yaml(ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml")
+        cfg = create_from_yaml(ROOT / "tests" / "configs" / "saas_template.yaml")
         cfg = cfg.model_copy(update={"generation_mode": "vectorized"})
         m = _build_manifest_for(cfg)
         from plotsim.manifest import ManifestSchema

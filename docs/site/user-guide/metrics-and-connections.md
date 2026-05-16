@@ -161,8 +161,8 @@ create(metrics=[{
 }])
 ```
 
-The bundled `latency_skew` template (`plotsim template latency_skew`)
-showcases all six families on a single config.
+The `tests/configs/latency_skew.yaml` worked example showcases all
+six families on a single config.
 
 ---
 

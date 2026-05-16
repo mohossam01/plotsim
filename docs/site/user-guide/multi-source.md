@@ -121,23 +121,24 @@ manifest.json            # carries source_entity_mappings
 ```
 
 YAML form mirrors the keyword form 1:1; see
-`plotsim/configs/templates/crm_billing_overlap.yaml` for the bundled
-template.
+`tests/configs/crm_billing_overlap.yaml` for the worked example
+config (multi-source is exercised by the test suite rather than a
+bundled domain template).
 
 ## Entity resolution walkthrough
 
-The canonical use case is teaching record linkage. Load the bundled
-template, generate, then write a notebook that joins `dim_company_crm`
-to `dim_company_billing` and scores its predictions against the
-manifest's `source_entity_mappings`:
+The canonical use case is teaching record linkage. Load the worked
+example config, generate, then write a notebook that joins
+`dim_company_crm` to `dim_company_billing` and scores its predictions
+against the manifest's `source_entity_mappings`:
 
 ```python
 import json
 import pandas as pd
-import plotsim
+from plotsim import create_from_yaml, generate_tables
 
-cfg = plotsim.load_template("crm_billing_overlap")
-tables = plotsim.generate_tables(cfg)
+cfg = create_from_yaml("tests/configs/crm_billing_overlap.yaml")
+tables = generate_tables(cfg)
 
 crm = tables["dim_company_crm"]
 billing = tables["dim_company_billing"]

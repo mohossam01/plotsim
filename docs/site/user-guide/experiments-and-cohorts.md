@@ -289,9 +289,9 @@ Rejected at config load:
 
 ---
 
-## Bundled template
+## Worked example
 
-`plotsim run ab_trial` produces a SaaS trial-conversion A/B test
+`tests/configs/ab_trial.yaml` is a SaaS trial-conversion A/B test
 dataset that exercises all three features together: a legacy cohort
 present from period 0, organic trial signups arriving via a
 back-loaded linear ramp, paid-ad trial signups arriving in two step
@@ -302,12 +302,13 @@ analysis can recover the configured effect from the generated data
 via difference-in-means.
 
 ```bash
-plotsim run ab_trial --output ./datasets/ab_trial
+plotsim run tests/configs/ab_trial.yaml --output ./datasets/ab_trial
 ```
 
-The template's source (`ab_trial.yaml` + `ab_trial.py`) is the
-recommended starting point for adapting plotsim to your own A/B test
-scenarios.
+The paired `ab_trial.py` in the same directory is the recommended
+starting point for adapting plotsim to your own A/B test scenarios.
+Per-metric treatment also ships on the bundled `marketing` and
+`health` domain templates if you want a turnkey example.
 
 ---
 

@@ -56,8 +56,9 @@ whichever fits your workflow.
 
     Or skip the YAML round-trip entirely — the
     [`saas_template.py`](https://github.com/mohossam01/plotsim/blob/main/plotsim/configs/templates/saas_template.py)
-    bundled with plotsim shows the same template authored as
-    `create(**kwargs)` directly.
+    bundled with plotsim shows the same SaaS template authored as
+    `create(**kwargs)` directly, paired with `saas.yaml` in the
+    same directory.
 
 Pin `seed:` in the YAML (or pass `seed=42` to `create`) and the fixture
 is byte-stable across CI runs.
@@ -351,8 +352,8 @@ in the config (recommended; reproducible from YAML alone),
 `output.cell_budget: 0` (or `PLOTSIM_CELL_BUDGET=0`) disables the soft
 cap entirely; only the `50,000,000`-cell hard ceiling still applies.
 See [Limits](../config-reference.md#limits-and-performance-gates) for
-the full ladder and the bundled `lakehouse` template for a worked
-example of a 1.5M-cell config.
+the full ladder; `tests/configs/lakehouse.yaml` in the repo is a
+worked example of a config near the 1.5M-cell range.
 
 ---
 

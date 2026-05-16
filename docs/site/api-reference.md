@@ -131,12 +131,10 @@ Return the names of bundled builder templates.
 def list_templates() -> list[str]
 ```
 
-Names round-trip through [`load_template`](#load_template). Templates
-whose filename ends in `_template` strip that suffix; `bare_minimum`
-and the single-feature templates keep their full stems. Sorted
-alphabetically.
+Names round-trip through [`load_template`](#load_template). The bundled
+catalog covers six domains, sorted alphabetically.
 
-**Returns** — e.g. `["ab_trial", "bare_minimum", "cdc_demo", "crm_billing_overlap", "education", "geo_retail", "hr", "lakehouse", "latency_skew", "marketing", "narrative_reviews", "retail", "saas"]`.
+**Returns** — `["banking", "health", "hr", "marketing", "retail", "saas"]`.
 
 **Example**
 

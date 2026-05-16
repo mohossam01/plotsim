@@ -27,8 +27,8 @@ from plotsim.trajectory import compute_trajectory
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE_YAML = REPO_ROOT / "plotsim" / "configs" / "templates" / "saas_template.yaml"
-TEMPLATE_PY = REPO_ROOT / "plotsim" / "configs" / "templates" / "saas_template.py"
+TEMPLATE_YAML = REPO_ROOT / "tests" / "configs" / "saas_template.yaml"
+TEMPLATE_PY = REPO_ROOT / "tests" / "configs" / "saas_template.py"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

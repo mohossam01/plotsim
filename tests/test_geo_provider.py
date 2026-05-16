@@ -13,8 +13,8 @@ Covers:
   - Unknown ``geo.<field>`` strings are rejected with a clear message.
   - Builder shortcut ``geo.<field>`` translates to the correct
     engine source + dtype.
-  - Bundled ``geo_retail`` template loads, runs end-to-end, and produces
-    a coherent dim_store frame.
+  - The ``tests/configs/geo_retail.yaml`` vehicle loads, runs end-to-end,
+    and produces a coherent dim_store frame.
 """
 
 from __future__ import annotations
@@ -24,8 +24,9 @@ import pandas as pd
 import pytest
 
 import plotsim
-from plotsim import generate_tables, list_templates, load_template
+from plotsim import create_from_yaml, generate_tables
 from plotsim.builder import create
+from tests.configs import CONFIGS_DIR
 from plotsim.config import Column, Entity, Table
 from plotsim.data import GEO_BUNDLE_FIELDS, GEO_LOCATIONS
 from plotsim.dimensions import (
@@ -435,23 +436,19 @@ def test_builder_geo_unknown_field_rejected_at_interpret_time():
         _builder_dim_with_geo([("planet", "geo.planet")])
 
 
-# ── Bundled geo_retail template ────────────────────────────────────────
+# ── geo_retail test-vehicle config ─────────────────────────────────────
 
 
-def test_geo_retail_template_in_list():
-    assert "geo_retail" in list_templates()
-
-
-def test_geo_retail_template_loads():
-    cfg = load_template("geo_retail")
+def test_geo_retail_config_loads():
+    cfg = create_from_yaml(CONFIGS_DIR / "geo_retail.yaml")
     table_names = [t.name for t in cfg.tables]
     assert "dim_store" in table_names
     assert "fct_footfall" in table_names
     assert "fct_sales" in table_names
 
 
-def test_geo_retail_template_runs_end_to_end_with_zero_mismatches():
-    cfg = load_template("geo_retail")
+def test_geo_retail_config_runs_end_to_end_with_zero_mismatches():
+    cfg = create_from_yaml(CONFIGS_DIR / "geo_retail.yaml")
     tables = generate_tables(cfg)
     dim_store = tables["dim_store"]
     assert len(dim_store) == 40  # 12 flagship + 28 standard
@@ -465,9 +462,9 @@ def test_geo_retail_template_runs_end_to_end_with_zero_mismatches():
         assert expected["longitude"] == pytest.approx(row["longitude"])
 
 
-def test_geo_retail_template_deterministic_under_seed():
-    a = generate_tables(load_template("geo_retail"))
-    b = generate_tables(load_template("geo_retail"))
+def test_geo_retail_config_deterministic_under_seed():
+    a = generate_tables(create_from_yaml(CONFIGS_DIR / "geo_retail.yaml"))
+    b = generate_tables(create_from_yaml(CONFIGS_DIR / "geo_retail.yaml"))
     pd.testing.assert_frame_equal(a["dim_store"], b["dim_store"])
     pd.testing.assert_frame_equal(
         a["fct_footfall"].reset_index(drop=True),

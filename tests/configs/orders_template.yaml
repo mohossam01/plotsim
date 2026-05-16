@@ -27,7 +27,7 @@
 #  Run:
 #    >>> from plotsim import create_from_yaml, generate_tables, write_tables
 #    >>> cfg = create_from_yaml(
-#    ...     "plotsim/configs/templates/orders_template.yaml"
+#    ...     "tests/configs/orders_template.yaml"
 #    ... )
 #    >>> tables = generate_tables(cfg)
 #    >>> write_tables(tables, cfg, output_dir="./orders_output")

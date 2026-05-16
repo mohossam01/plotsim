@@ -22,7 +22,7 @@ Three surfaces today:
 |---|---|---|
 | Library | `plotsim.create`, `create_from_yaml`, `generate_tables`, `write_tables` | Python users in an IDE or notebook |
 | CLI | `plotsim run`, `validate`, `info`, `template`, `schema` | Terminal, CI, scripts |
-| YAML | bundled templates: `ab_trial`, `bare_minimum`, `cdc_demo`, `crm_billing_overlap`, `education`, `geo_retail`, `hr`, `lakehouse`, `latency_skew`, `marketing`, `narrative_reviews`, `retail`, `saas` | Anyone who wants to hand-edit a config |
+| YAML | bundled domain templates: `banking`, `health`, `hr`, `marketing`, `retail`, `saas` | Anyone who wants to hand-edit a config |
 
 ---
 
@@ -39,7 +39,7 @@ integrity / provenance tooling.
 |---|---|---|
 | Trajectory-first metric generation | Every metric for an entity at time *t* is derived from one archetype-curve position | `generate_tables(cfg)` |
 | Determinism | Single seeded `numpy.random.Generator` flows through every random draw | YAML `seed:` (integer) |
-| Cell-budget scale gate | Soft pre-flight guard that aborts runs above the configured cell ceiling. Precedence: `output.cell_budget` field > `PLOTSIM_CELL_BUDGET` env > 2M default; `0` disables. Bundled template `lakehouse` exercises a 1.5M-cell config. | YAML `output.cell_budget: <int>`; env override `PLOTSIM_CELL_BUDGET` / `PLOTSIM_ALLOW_LARGE_DATASET` |
+| Cell-budget scale gate | Soft pre-flight guard that aborts runs above the configured cell ceiling. Precedence: `output.cell_budget` field > `PLOTSIM_CELL_BUDGET` env > 2M default; `0` disables. `tests/configs/lakehouse.yaml` is a worked example near the 1.5M-cell range. | YAML `output.cell_budget: <int>`; env override `PLOTSIM_CELL_BUDGET` / `PLOTSIM_ALLOW_LARGE_DATASET` |
 
 #### Tables emitted
 
@@ -114,7 +114,7 @@ is no longer byte-identical to a pre-flag run of the same file.
 |---|---|---|
 | Lifecycle stages | Per-entity stage sequence with stage-specific archetype overrides | YAML `lifecycle:` |
 | Cohort arrival distribution | Per-segment entity arrival shape — `uniform` / `linear` / `step` / `explicit` — driving `Entity.start_period`, so the entity body grows or contracts across the window. Cold-start cells are NaN-filled and dropped pre-write. Validator enforces every entity has ≥2 active periods. | builder kwarg `arrival:` on segments (4-shape discriminated union); YAML `Entity.start_period` directly |
-| Treatment / control cohorts | Per-entity treatment assignment with a logit-shift on trajectory position from `treatment_start_period` onward (`treatment_lift_log_odds`). Known effect → A/B test analysis, uplift modeling, causal inference. Manifest carries `TreatmentAssignment` per entity + `TreatmentCohort` per segment. Bundled template `ab_trial`. | YAML `Entity.treatment_group` / `treatment_lift_log_odds` / `treatment_start_period` |
+| Treatment / control cohorts | Per-entity treatment assignment with a logit-shift on trajectory position from `treatment_start_period` onward (`treatment_lift_log_odds`). Known effect → A/B test analysis, uplift modeling, causal inference. Manifest carries `TreatmentAssignment` per entity + `TreatmentCohort` per segment. Demonstrated on bundled `marketing` and `health` (per-metric lifts) and `banking` (whole-trajectory lift); `tests/configs/ab_trial.yaml` is the dedicated worked example. | YAML `Entity.treatment_group` / `treatment_lift_log_odds` / `treatment_start_period` |
 
 ### 6. Dim columns + fact-grain text — fill non-metric cells with realistic content
 
@@ -124,7 +124,7 @@ is no longer byte-identical to a pre-flag run of the same file.
 | Faker-backed text + identifiers | PII-shape providers wired into the engine: `name`, `email`, `phone_number`, `company`, `address`, `postcode`, `country`, `city`, `latitude`, `longitude`, `sentence`. Deterministic under the run seed. Useful for masking exercises and regex-validation scenarios; **does not read entity, archetype, or trajectory** (each call is an independent draw). |
 | Range source | `type: range` with `range: [min, max]` on fact / event columns produces a per-row uniform draw between the bounds. Integer bounds → `dtype: int` and inclusive upper bound; float bounds → `dtype: float` and exclusive upper bound (numpy conventions). Use it for `quantity ∈ [1, 5]`, `unit_price ∈ [10.0, 500.0]`, and similar shape constraints that `faker.random_int` / `faker.pyfloat` express less precisely. Deterministic under seed. |
 | Pool source on facts and events | `type: pool.<attribute>` lifts the per-entity value pool (previously dim-only) onto per_entity_per_period facts, variable-grain facts, per_parent_row child facts, and event tables. Every row resolves to its entity's segment, then draws uniformly from `attributes[<attr>]` — so a `loyal` cohort customer's `channel` always lands in `[app, web]` while a `casual` customer's lands in `[sms, email]`. Per_period facts (the `dim_date`-style grain) remain out of scope — those rows have no per-row entity binding. |
-| Narrative text source (trajectory-aware) | Per-archetype lexicons + a sentence template rendered into a `narrative` column on a fact table. Output vocabulary tracks the entity's trajectory position (a high-position `growth` entity produces systematically different text than a low-position `decline` entity); a simple bag-of-words classifier hits ≥0.55 accuracy on archetype prediction. Deterministic under seed; preserves the trajectory-first invariant. **Fact-only** (rejected on dim / event tables at config load). **Performance:** forces the scalar fact builder path (~3-10× slower than vectorized metric-only facts), so keep narrative on tables that genuinely need text. Bundled template `narrative_reviews`. See [Narrative source](./user-guide/narrative-source.md). |
+| Narrative text source (trajectory-aware) | Per-archetype lexicons + a sentence template rendered into a `narrative` column on a fact table. Output vocabulary tracks the entity's trajectory position (a high-position `growth` entity produces systematically different text than a low-position `decline` entity); a simple bag-of-words classifier hits ≥0.55 accuracy on archetype prediction. Deterministic under seed; preserves the trajectory-first invariant. **Fact-only** (rejected on dim / event tables at config load). **Performance:** forces the scalar fact builder path (~3-10× slower than vectorized metric-only facts), so keep narrative on tables that genuinely need text. Demonstrated on bundled `hr`, `retail`, `banking`, `health`; `tests/configs/narrative_reviews.yaml` is the dedicated lexicon-design walkthrough. See [Narrative source](./user-guide/narrative-source.md). |
 
 ### 7. Audit + downstream-pipeline outputs
 
@@ -132,12 +132,12 @@ is no longer byte-identical to a pre-flag run of the same file.
 |---|---|
 | SCD Type 2 | `dim_<entity>` expanded to N×versions with `valid_from_period` and band-crossing events surfaced in the manifest |
 | SCD Type 1 | default (no-op) |
-| Fact-side CDC | `facts[].cdc: true` emits `_inserted_at` / `_updated_at` / `_op` audit columns; column-level quality issues flip `_op` to `"U"` on affected rows. Demonstrated in `cdc_demo` (dedicated) and `retail` (realistic POS purchase ledger). |
+| Fact-side CDC | `facts[].cdc: true` emits `_inserted_at` / `_updated_at` / `_op` audit columns; column-level quality issues flip `_op` to `"U"` on affected rows. Demonstrated on bundled `saas` (revenue restatement), `marketing` (spend attribution), `retail` (purchase ledger), `banking` (loan disbursement), `health` (encounter chart amendment); `tests/configs/cdc_demo.yaml` is the dedicated minimal walkthrough. |
 | Holdout splits | `output.holdout: {fraction\|periods}` writes `{table}_train.<csv\|parquet>` + `{table}_holdout.<csv\|parquet>` instead of one file per fact, split by period index |
 | Denormalization | `output.denormalized: true` joins each fact with its FK'd dims (SCD2 current-only, audit columns excluded, dim columns prefixed `<dim>__<col>`); emits `<fct>_wide.{csv\|parquet}` alongside normalized output for 1NF–3NF decomposition exercises. Demonstrated in `saas`. |
-| Log-file writer | Event tables with `log_format: "{ts} ... "` + `log_filename: "..."` emit a structured `.log` file alongside the CSV/Parquet event table. Format string is `template.format(**row.to_dict())` per row; unknown placeholders raise. Demonstrated in `saas` (`evt_login` as syslog-flavoured lines). |
-| Multi-source / overlap | `multi_source:` block emits per-source dim copies with controlled drift (casing / abbreviation / swap) and per-source key schemes; `source_entity_mappings` ground truth in the manifest. Demonstrated in `crm_billing_overlap` (CRM + billing dual-source, 40 mapping records). |
-| Nested / JSON columns | `dtype: struct` (with `nested_schema`) or `dtype: array` (with `array_element_type`) paired with `source: nested` on dim columns. Parquet preserves native nested schema (`pa.struct(...)`); CSV serializes as JSON string. Dim-only, one level of nesting, primitive leaves in V1. Demonstrated in `retail` (`dim_product_category.catalog_metadata`). |
+| Log-file writer | Event tables with `log_format: "{ts} ... "` + `log_filename: "..."` emit a structured `.log` file alongside the CSV/Parquet event table. Format string is `template.format(**row.to_dict())` per row; unknown placeholders raise. `tests/configs/saas_template.yaml` (`evt_login` as syslog-flavoured lines) is the worked example. |
+| Multi-source / overlap | `multi_source:` block emits per-source dim copies with controlled drift (casing / abbreviation / swap) and per-source key schemes; `source_entity_mappings` ground truth in the manifest. `tests/configs/crm_billing_overlap.yaml` is the worked example (CRM + billing dual-source, 40 mapping records). |
+| Nested / JSON columns | `dtype: struct` (with `nested_schema`) or `dtype: array` (with `array_element_type`) paired with `source: nested` on dim columns. Parquet preserves native nested schema (`pa.struct(...)`); CSV serializes as JSON string. Dim-only, one level of nesting, primitive leaves in V1. `tests/configs/retail_template.yaml` (`dim_product_category.catalog_metadata`) is the worked example. |
 
 ### 8. Validation, manifest, and provenance (advanced)
 
@@ -223,7 +223,7 @@ convenience shapes:
 - `window=("2024-01", "2024-12", "monthly")` shorthand.
 
 Templates: `plotsim.list_templates()` →
-`["ab_trial", "bare_minimum", "cdc_demo", "crm_billing_overlap", "education", "geo_retail", "hr", "lakehouse", "latency_skew", "marketing", "narrative_reviews", "retail", "saas"]`.
+`["banking", "health", "hr", "marketing", "retail", "saas"]`.
 `plotsim.load_template("saas")` returns a `PlotsimConfig` ready to mutate
 or pass to `generate_tables`.
 
