@@ -1,0 +1,35 @@
+/* plotsim · Material palette adapter
+ * Bridges tokens.css brand vars -> Material's --md-* palette.
+ * Required because mkdocs-material's palette only honors custom CSS
+ * overrides when theme.palette.primary == "custom" in mkdocs.yml.
+ */
+
+/* Light scheme — ink header with deepened-teal accent (AA contrast) */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:             var(--ps-ink);
+  --md-primary-fg-color--light:      var(--ps-ink-raised);
+  --md-primary-fg-color--dark:       var(--ps-ink-deep);
+  --md-primary-bg-color:             var(--ps-text);
+  --md-primary-bg-color--light:      var(--ps-text-muted);
+
+  --md-accent-fg-color:              var(--ps-teal-light);
+  --md-accent-fg-color--transparent: rgba(26, 154, 140, 0.1);
+  --md-accent-bg-color:              var(--ps-paper);
+  --md-accent-bg-color--light:       var(--ps-paper-alt);
+
+  --md-typeset-a-color:              var(--ps-teal-light);
+}
+
+/* Dark (slate) scheme — deeper ink header with bright teal accent */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:             var(--ps-ink-deep);
+  --md-primary-fg-color--light:      var(--ps-ink-raised);
+  --md-primary-fg-color--dark:       #000000;
+  --md-primary-bg-color:             var(--ps-text);
+  --md-primary-bg-color--light:      var(--ps-text-muted);
+
+  --md-accent-fg-color:              var(--ps-teal);
+  --md-accent-fg-color--transparent: rgba(62, 207, 193, 0.1);
+
+  --md-typeset-a-color:              var(--ps-teal);
+}

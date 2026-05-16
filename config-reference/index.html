@@ -1,0 +1,4786 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Generate multi-table synthetic datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required.">
+      
+      
+        <meta name="author" content="Mohamed Hossam">
+      
+      
+        <link rel="canonical" href="https://mohossam01.github.io/plotsim/config-reference/">
+      
+      
+        <link rel="prev" href="../cli-reference/">
+      
+      
+        <link rel="next" href="../column-types/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/brand/favicon-32.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Config fields - plotsim</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/brand/tokens.css">
+    
+      <link rel="stylesheet" href="../assets/brand/palette.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <meta name="google-site-verification" content="0vWrEPMzE5LLXAz2b_LXZvv2Psrttgrn_uRdw5QtLrE" />
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#config-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="plotsim" class="md-header__button md-logo" aria-label="plotsim" data-md-component="logo">
+      
+  <img src="../assets/brand/favicon.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            plotsim
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Config fields
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mohossam01/plotsim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mohossam01/plotsim
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../user-guide/how-it-works/" class="md-tabs__link">
+          
+  
+  
+  User guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tutorial-notebooks/getting_started/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cookbook/data-engineering/" class="md-tabs__link">
+          
+  
+  
+  Cookbook
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../feature-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="plotsim" class="md-nav__button md-logo" aria-label="plotsim" data-md-component="logo">
+      
+  <img src="../assets/brand/favicon.svg" alt="logo">
+
+    </a>
+    plotsim
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mohossam01/plotsim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mohossam01/plotsim
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/archetypes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archetypes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/metrics-and-connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics & connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/seasonality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seasonality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/experiments-and-cohorts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experiments & cohorts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/schema-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/geo-hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Geo hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/multi-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-source overlap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/cdc-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CDC fact-side
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/parent-child-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parent/child fact grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/narrative-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Narrative text
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/output-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/denormalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Denormalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/log-writer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Log-file writer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature surfaces
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Feature surfaces
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/designing_archetypes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing archetypes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/seasonality_and_correlations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seasonality & correlations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/schema_and_dimensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema & dimensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/bridges_and_advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bridges & advanced
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/data_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/pipeline_testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/ml_readiness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ML readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use cases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Use cases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/de_use_cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data engineer recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/ds_use_cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data scientist recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cookbook
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cookbook
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/data-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For data engineers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/data-science/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For data scientists
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../feature-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config fields
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#builder-input-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder input shape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-level-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-level fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Top-level fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#about" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        about
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        seed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metric-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metric fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metric-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metric types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#causal-lag-follows-delay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Causal lag (follows / delay)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        segments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="segments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#segment-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archetype-dsl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archetype DSL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#baseline-vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        connections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="connections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relationship-vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seasonality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        seasonality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-overrides-dimensions-facts-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema overrides — dimensions, facts, events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schema overrides — dimensions, facts, events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dim-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dim fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fact-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fact fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-field-pk_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared field — pk_prefix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bridges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bridges
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="bridges">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        quality
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="quality">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#holdout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        holdout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="holdout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entity_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        entity_features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="entity_features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        noise
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        locale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#engine-direct-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine-direct fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Engine-direct fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compensate_correlations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compensate_correlations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generation_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generation_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-entity-overrides-cross_dim_fks-and-inflection_month" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-entity overrides — cross_dim_fks and inflection_month
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-archetype-overrides-curve_segments-and-metric_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-archetype overrides — curve_segments and metric_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits-and-performance-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits and performance gates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Limits and performance gates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cell-count-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cell-count budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quality-injection-row-growth-in-the-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality-injection row growth in the budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../column-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Column types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifest-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manifest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#builder-input-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder input shape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#top-level-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-level fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Top-level fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#about" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        about
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        unit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        window
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        seed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metric-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metric fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metric-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metric types
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#causal-lag-follows-delay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Causal lag (follows / delay)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#segments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        segments
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="segments">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#segment-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segment fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archetype-dsl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archetype DSL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#baseline-vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Baseline vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        connections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="connections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#relationship-vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seasonality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        seasonality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-overrides-dimensions-facts-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema overrides — dimensions, facts, events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schema overrides — dimensions, facts, events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dim-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dim fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fact-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fact fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shared-field-pk_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared field — pk_prefix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bridges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        bridges
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="bridges">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        quality
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="quality">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#holdout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        holdout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="holdout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entity_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        entity_features
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="entity_features">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-to-enable_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to enable
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-example_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        noise
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        output
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#locale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        locale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#engine-direct-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine-direct fields
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Engine-direct fields">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#compensate_correlations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        compensate_correlations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generation_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generation_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-entity-overrides-cross_dim_fks-and-inflection_month" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-entity overrides — cross_dim_fks and inflection_month
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-archetype-overrides-curve_segments-and-metric_overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-archetype overrides — curve_segments and metric_overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limits-and-performance-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits and performance gates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Limits and performance gates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cell-count-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cell-count budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quality-injection-row-growth-in-the-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quality-injection row growth in the budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="config-reference">Config Reference<a class="headerlink" href="#config-reference" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Every input field accepted by <code>create()</code> / <code>create_from_yaml()</code>.
+Source of truth is the code; this page is the field map.</p>
+<p>For column types see <a href="../column-types/"><code>column-types.md</code></a>.</p>
+</blockquote>
+<hr />
+<h2 id="builder-input-shape">Builder input shape<a class="headerlink" href="#builder-input-shape" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">about</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;one-line description&gt;</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;singular noun&gt;</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">start</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">end</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">every</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nt">segments</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nt">connections</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nt">lifecycle</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">track</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">stages</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">enforce_order</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">downgrade_delay</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nt">dimensions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nt">facts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="nt">events</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="nt">seasonality</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="nt">bridges</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="nt">quality</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="w"> </span><span class="nv">...</span><span class="w"> </span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="nt">holdout</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="w"> </span><span class="nv">target</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">periods</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">min_training_periods</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="nt">entity_features</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true | false | { metrics, include_labels }</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="nt">noise</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;preset_name&gt; | { gaussian_sigma, outlier_rate, mcar_rate, scale_with_trajectory, noise_family, degrees_of_freedom }</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">csv | parquet | jsonl | sql | { format, directory, cell_budget, denormalized, partition_by, sql_dialect }</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nt">locale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;faker locale or list of locales&gt;</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;int&gt;</span>
+</span></code></pre></div>
+<p>Required keys: <code>about</code>, <code>unit</code>, <code>window</code>, <code>metrics</code> (at least one),
+<code>segments</code> (at least one). Everything else is optional. The same shape
+is accepted from both <code>create(**kwargs)</code> and <code>create_from_yaml(path)</code>.</p>
+<hr />
+<h2 id="top-level-fields">Top-level fields<a class="headerlink" href="#top-level-fields" title="Permanent link">&para;</a></h2>
+<h3 id="about"><code>about</code><a class="headerlink" href="#about" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>str</code></td>
+</tr>
+<tr>
+<td>Required</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Constraints</td>
+<td>non-empty</td>
+</tr>
+</tbody>
+</table>
+<p>One-line description of what the dataset represents. Surfaces in
+<code>config.domain.description</code>.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">about</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Subscription</span><span class="nv"> </span><span class="s">customers</span><span class="nv"> </span><span class="s">churning</span><span class="nv"> </span><span class="s">across</span><span class="nv"> </span><span class="s">24</span><span class="nv"> </span><span class="s">months&quot;</span>
+</span></code></pre></div>
+<h3 id="unit"><code>unit</code><a class="headerlink" href="#unit" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>str</code></td>
+</tr>
+<tr>
+<td>Required</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Constraints</td>
+<td>non-empty; lowercase singular noun recommended</td>
+</tr>
+</tbody>
+</table>
+<p>The thing each entity represents. Used to name the auto-generated entity
+dim table (<code>dim_&lt;unit&gt;</code>) and to label the entity FK column.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">customer</span><span class="w">    </span><span class="c1"># auto-generates dim_customer, customer_id</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">unit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">employee</span><span class="w">    </span><span class="c1"># auto-generates dim_employee, employee_id</span>
+</span></code></pre></div>
+<h3 id="window"><code>window</code><a class="headerlink" href="#window" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td>object or &#8532;-tuple</td>
+</tr>
+<tr>
+<td>Required</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>Time span and granularity. Three accepted shapes:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Object form</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">window</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2024-01</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">end</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2024-12</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">every</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">monthly</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Two-tuple (default granularity = monthly)</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;2024-01&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;2024-12&quot;</span><span class="p p-Indicator">]</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1"># Three-tuple</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="nt">window</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;2024-01&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;2024-12&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;monthly&quot;</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>start</code></td>
+<td><code>str</code></td>
+<td>required</td>
+<td><code>YYYY-MM</code> or <code>YYYY-MM-DD</code></td>
+</tr>
+<tr>
+<td><code>end</code></td>
+<td><code>str</code></td>
+<td>required</td>
+<td>same format as <code>start</code></td>
+</tr>
+<tr>
+<td><code>every</code></td>
+<td><code>"daily"</code> / <code>"weekly"</code> / <code>"monthly"</code></td>
+<td><code>"monthly"</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>YAML's relaxed scalar parser turns <code>2024-01</code> into a date object; the
+builder coerces it back to a string before validation, so both quoted
+and unquoted forms work.</p>
+<h3 id="seed"><code>seed</code><a class="headerlink" href="#seed" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>int</code></td>
+</tr>
+<tr>
+<td>Required</td>
+<td>no</td>
+</tr>
+<tr>
+<td>Default</td>
+<td>drawn from <code>secrets.randbelow(2**32)</code></td>
+</tr>
+<tr>
+<td>Constraints</td>
+<td><code>0 ≤ seed ≤ 2**32 - 1</code></td>
+</tr>
+</tbody>
+</table>
+<p>Pin this for reproducible output. Same <code>(config, seed)</code> always produces
+byte-identical files. When omitted, the builder draws a fresh seed from
+the system CSPRNG.</p>
+<hr />
+<h2 id="metrics"><code>metrics</code><a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h2>
+<p>Array of metric declarations. At least one required, max 50.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">metrics</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">engagement</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">score</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">polarity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">positive</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mrr</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">amount</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">polarity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">positive</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">range</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">10</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">5000</span><span class="p p-Indicator">]</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">churn_risk</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">score</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">polarity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">negative</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">follows</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">engagement</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">    </span><span class="nt">seasonal_sensitivity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+</span></code></pre></div>
+<h3 id="metric-fields">Metric fields<a class="headerlink" href="#metric-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Alphanumeric / underscore only</td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td>enum</td>
+<td>yes</td>
+<td>—</td>
+<td><code>score</code>, <code>amount</code>, <code>count</code>, <code>index</code></td>
+</tr>
+<tr>
+<td><code>polarity</code></td>
+<td>enum</td>
+<td>yes</td>
+<td>—</td>
+<td><code>positive</code> (high position → high value) or <code>negative</code> (high position → low value)</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td><code>str</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Display label; defaults to <code>name</code></td>
+</tr>
+<tr>
+<td><code>range</code></td>
+<td><code>[float, float]</code></td>
+<td>conditional</td>
+<td><code>None</code></td>
+<td>Required for <code>amount</code> and <code>index</code>; forbidden for <code>count</code></td>
+</tr>
+<tr>
+<td><code>follows</code></td>
+<td><code>str</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Name of another metric this one lags behind. Must pair with <code>delay</code></td>
+</tr>
+<tr>
+<td><code>delay</code></td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Lag in periods. Must be <code>≥ 1</code> and pair with <code>follows</code></td>
+</tr>
+<tr>
+<td><code>decay_window</code></td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Spread the lagged read over <code>N</code> periods ending at <code>t-delay</code>. Requires <code>follows</code> / <code>delay</code></td>
+</tr>
+<tr>
+<td><code>decay_kernel</code></td>
+<td>enum</td>
+<td>no</td>
+<td><code>"geometric"</code></td>
+<td><code>geometric</code> (half-life one period) or <code>linear</code> weight shape; ignored without <code>decay_window</code></td>
+</tr>
+<tr>
+<td><code>seasonal_sensitivity</code></td>
+<td><code>float</code></td>
+<td>no</td>
+<td><code>1.0</code></td>
+<td>Per-metric multiplier on global seasonality. <code>0.0</code> immune; <code>-0.5</code> halves and inverts</td>
+</tr>
+</tbody>
+</table>
+<h3 id="metric-types">Metric types<a class="headerlink" href="#metric-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Distribution</th>
+<th>Range</th>
+<th>Use for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>score</code></td>
+<td>beta(2, 5)</td>
+<td>implicit <code>[0, 1]</code></td>
+<td>Health scores, engagement indices, satisfaction</td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td>poisson(λ=5)</td>
+<td>non-negative integers</td>
+<td>Logins, transactions, ticket counts</td>
+</tr>
+<tr>
+<td><code>amount</code></td>
+<td>lognorm or beta (auto-picked)</td>
+<td>required</td>
+<td>Money, weights, durations</td>
+</tr>
+<tr>
+<td><code>index</code></td>
+<td>normal</td>
+<td>required</td>
+<td>Bounded indicators where mean matters</td>
+</tr>
+</tbody>
+</table>
+<p>For <code>amount</code>, the builder picks <code>lognorm</code> when <code>min == 0</code> or
+<code>max / min ≥ 10</code>, else <code>beta</code>. The <code>index</code> distribution is centered on
+the range midpoint with sigma chosen to keep ~99.7% of draws inside the
+range.</p>
+<h3 id="causal-lag-follows-delay">Causal lag (<code>follows</code> / <code>delay</code>)<a class="headerlink" href="#causal-lag-follows-delay" title="Permanent link">&para;</a></h3>
+<p><code>follows: &lt;other_metric&gt;</code> and <code>delay: &lt;int&gt;</code> declare that this metric
+trails the named driver by <code>delay</code> periods. The two must appear together
+or not at all. A metric cannot follow itself, and the chain must be
+acyclic — both are checked at construction time.</p>
+<hr />
+<h2 id="segments"><code>segments</code><a class="headerlink" href="#segments" title="Permanent link">&para;</a></h2>
+<p>Array of cohort declarations — each segment is a count of entities all
+sharing one archetype. At least one required.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">segments</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">growers</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">archetype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">growth</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decliners</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">archetype</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decline</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">baseline</span><span class="p">:</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">      </span><span class="nt">mrr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">high</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">engagement</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mid</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="nt">attributes</span><span class="p">:</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">      </span><span class="nt">industry</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;tech&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;retail&quot;</span><span class="p p-Indicator">]</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hybrids</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="nt">count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">25</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="nt">archetype</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;growth</span><span class="nv"> </span><span class="s">&gt;</span><span class="nv"> </span><span class="s">decline</span><span class="nv"> </span><span class="s">@</span><span class="nv"> </span><span class="s">0.6&quot;</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">    </span><span class="nt">seasonal_sensitivity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
+</span></code></pre></div>
+<h3 id="segment-fields">Segment fields<a class="headerlink" href="#segment-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Alphanumeric / underscore</td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td><code>int</code></td>
+<td>yes</td>
+<td>—</td>
+<td><code>3 ≤ count ≤ 5000</code> per segment</td>
+</tr>
+<tr>
+<td><code>archetype</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Shape word or composition DSL — see below</td>
+</tr>
+<tr>
+<td><code>label</code></td>
+<td><code>str</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Display label</td>
+</tr>
+<tr>
+<td><code>attributes</code></td>
+<td><code>dict[str, str \| list[str]]</code></td>
+<td>no</td>
+<td><code>{}</code></td>
+<td>Per-segment static attributes; doubles as the source for <code>pool.{attr}</code> columns</td>
+</tr>
+<tr>
+<td><code>baseline</code></td>
+<td><code>dict[str, str]</code></td>
+<td>no</td>
+<td><code>{}</code></td>
+<td>Per-metric value-range narrowing — <code>high</code> / <code>mid</code> / <code>low</code></td>
+</tr>
+<tr>
+<td><code>seasonal_sensitivity</code></td>
+<td><code>float</code></td>
+<td>no</td>
+<td><code>1.0</code></td>
+<td>Per-segment multiplier on global seasonality</td>
+</tr>
+</tbody>
+</table>
+<h3 id="archetype-dsl">Archetype DSL<a class="headerlink" href="#archetype-dsl" title="Permanent link">&para;</a></h3>
+<p>Six base shapes, listed in <code>BASELINE_RECIPES</code> / <code>SHAPE_RECIPES</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>growth</code></td>
+<td>Sigmoid rise from low to high</td>
+</tr>
+<tr>
+<td><code>decline</code></td>
+<td>Exponential decay from high to low</td>
+</tr>
+<tr>
+<td><code>seasonal</code></td>
+<td>Oscillating around 0.5</td>
+</tr>
+<tr>
+<td><code>flat</code></td>
+<td>Constant around 0.15</td>
+</tr>
+<tr>
+<td><code>spike_then_crash</code></td>
+<td>Sigmoid rise → step drop → low plateau</td>
+</tr>
+<tr>
+<td><code>accelerating</code></td>
+<td>Compounding growth with acceleration</td>
+</tr>
+</tbody>
+</table>
+<p>Shapes compose with two operators:</p>
+<ul>
+<li><strong>Sequence</strong> <code>&gt;</code> — chain shapes in order. Default split is even.
+  <code>growth &gt; decline</code> is half growth, half decline.</li>
+<li><strong>Anchor</strong> <code>@</code> — explicit transition period. <code>growth &gt; decline @ 8</code>
+  spends periods 0–7 on growth then transitions to decline at period 8.
+  With N shapes, supply N-1 <code>@</code> clauses (one between every pair).</li>
+</ul>
+<p>Examples: <code>growth</code>, <code>growth &gt; decline</code>, <code>flat &gt; growth &gt; seasonal @ 4 @ 12</code>,
+<code>growth &gt; spike_then_crash @ 6</code>. See
+<a href="../user-guide/archetypes/"><code>user-guide/archetypes.md</code></a> for the full
+DSL.</p>
+<h3 id="baseline-vocabulary">Baseline vocabulary<a class="headerlink" href="#baseline-vocabulary" title="Permanent link">&para;</a></h3>
+<p>Three words that narrow the metric's value range to a third of its
+declared band:</p>
+<table>
+<thead>
+<tr>
+<th>Word</th>
+<th>Range fraction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>high</code></td>
+<td>upper third — <code>(2/3, 1)</code> of <code>[min, max]</code></td>
+</tr>
+<tr>
+<td><code>mid</code></td>
+<td>middle third — <code>(1/3, 2/3)</code></td>
+</tr>
+<tr>
+<td><code>low</code></td>
+<td>lower third — <code>(0, 1/3)</code></td>
+</tr>
+</tbody>
+</table>
+<p>Useful for "this segment runs hot" / "this segment runs cold" without
+authoring a full archetype variant.</p>
+<hr />
+<h2 id="connections"><code>connections</code><a class="headerlink" href="#connections" title="Permanent link">&para;</a></h2>
+<p>Array of correlation pairs. Optional. Each entry has three slots —
+left metric, relationship-or-coefficient, right metric — and accepts
+six shorthand forms:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">connections</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="c1"># Word form</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;mrr</span><span class="nv"> </span><span class="s">driven_by</span><span class="nv"> </span><span class="s">engagement&quot;</span><span class="w">                        </span><span class="c1"># 3-token string</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;churn_risk&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;inverts&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;mrr&quot;</span><span class="p p-Indicator">]</span><span class="w">                  </span><span class="c1"># tuple</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">metric_a</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;support_tickets&quot;</span><span class="p p-Indicator">,</span><span class="nt"> relationship</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;related&quot;</span><span class="p p-Indicator">,</span><span class="nt"> metric_b</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;churn_risk&quot;</span><span class="p p-Indicator">}</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="c1"># Numeric form (any coefficient in [-1.0, 1.0])</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;engagement</span><span class="nv"> </span><span class="s">0.42</span><span class="nv"> </span><span class="s">retention&quot;</span><span class="w">                       </span><span class="c1"># numeric middle token</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;mrr&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">-0.31</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;support_tickets&quot;</span><span class="p p-Indicator">]</span><span class="w">                  </span><span class="c1"># numeric in tuple</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">metric_a</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;nps&quot;</span><span class="p p-Indicator">,</span><span class="nt"> coefficient</span><span class="p">:</span><span class="w"> </span><span class="nv">0.18</span><span class="p p-Indicator">,</span><span class="nt"> metric_b</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;feature_adoption&quot;</span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<p>The middle slot is parsed as a number when it tokenizes to a float;
+otherwise it's looked up against the relationship vocabulary. Each
+canonical entry sets <em>exactly one</em> of <code>relationship</code> / <code>coefficient</code>
+— passing both raises at construction time, since the word already
+implies a coefficient.</p>
+<h3 id="relationship-vocabulary">Relationship vocabulary<a class="headerlink" href="#relationship-vocabulary" title="Permanent link">&para;</a></h3>
+<p>Nine words spanning <code>-0.75</code> to <code>+0.75</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Word</th>
+<th>Coefficient</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mirrors</code></td>
+<td>+0.75</td>
+</tr>
+<tr>
+<td><code>driven_by</code></td>
+<td>+0.55</td>
+</tr>
+<tr>
+<td><code>related</code></td>
+<td>+0.40</td>
+</tr>
+<tr>
+<td><code>hints_at</code></td>
+<td>+0.20</td>
+</tr>
+<tr>
+<td><code>independent</code></td>
+<td>0.00</td>
+</tr>
+<tr>
+<td><code>hints_against</code></td>
+<td>-0.20</td>
+</tr>
+<tr>
+<td><code>resists</code></td>
+<td>-0.40</td>
+</tr>
+<tr>
+<td><code>opposes</code></td>
+<td>-0.55</td>
+</tr>
+<tr>
+<td><code>inverts</code></td>
+<td>-0.75</td>
+</tr>
+</tbody>
+</table>
+<p>The numeric form accepts any value in <code>[-1.0, 1.0]</code> — useful when you've
+calibrated the coefficient from a real dataset and the nine-word
+vocabulary doesn't land on the right magnitude. Coefficients of exactly
+<code>0.0</code> are dropped (treated as "independent") with a warning, matching
+the engine's redundant-pair contract.</p>
+<p>Both endpoints must reference declared metrics. Self-pairs and connections
+on metrics named in <code>lifecycle.track</code> are rejected at construction time.</p>
+<p>If your declared correlation matrix is not positive semi-definite, the
+engine projects it to the nearest valid matrix using Higham's algorithm
+and records the adjustment in the manifest under
+<code>correlation_adjustments</code>.</p>
+<hr />
+<h2 id="lifecycle"><code>lifecycle</code><a class="headerlink" href="#lifecycle" title="Permanent link">&para;</a></h2>
+<p>Optional ladder of named thresholds against a chosen metric. When set,
+the engine emits a stage column on the relevant fact table.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">lifecycle</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">track</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">engagement</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">stages</span><span class="p">:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> onboarding</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> active</span><span class="p">:</span><span class="w"> </span><span class="nv">0.3</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> at_risk</span><span class="p">:</span><span class="w"> </span><span class="nv">0.6</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> churned</span><span class="p">:</span><span class="w"> </span><span class="nv">0.9</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">enforce_order</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">        </span><span class="c1"># default — stateless free-mode</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nt">downgrade_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">       </span><span class="c1"># ignored when enforce_order is false</span>
+</span></code></pre></div>
+<p>Stage entries accept four shapes:
+<code>{onboarding: 0.0}</code>, <code>(onboarding, 0.0)</code>,
+<code>{name: onboarding, threshold: 0.0}</code>, or canonical form. Each thresh
+must be in <code>[0, 1]</code>; thresholds must be strictly ascending; stage names
+must be unique.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>track</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Must be a declared metric</td>
+</tr>
+<tr>
+<td><code>stages</code></td>
+<td>array</td>
+<td>yes</td>
+<td>—</td>
+<td>At least 2 entries</td>
+</tr>
+<tr>
+<td><code>enforce_order</code></td>
+<td><code>bool</code></td>
+<td>no</td>
+<td><code>false</code></td>
+<td>When <code>false</code>, every period independently picks the highest threshold the realised value satisfies — stateless free-mode. When <code>true</code>, the cursor advances only and an entity can't jump back on a transient dip — a monotonic stage walk</td>
+</tr>
+<tr>
+<td><code>downgrade_delay</code></td>
+<td><code>int</code> or <code>null</code></td>
+<td>no</td>
+<td><code>null</code></td>
+<td>Hysteresis under <code>enforce_order: true</code>. The cursor steps back once the entity has sat below the demote threshold for <code>downgrade_delay</code> consecutive periods. <code>null</code> keeps strict monotonicity. Range <code>1</code>–<code>120</code></td>
+</tr>
+</tbody>
+</table>
+<p>The keyword <code>lifecycle</code> is canonical; <code>stages</code> is also accepted as the
+outer block name as an alias (a back-compat path for the early-spec
+keyword — both forms parse identically).</p>
+<hr />
+<h2 id="seasonality"><code>seasonality</code><a class="headerlink" href="#seasonality" title="Permanent link">&para;</a></h2>
+<p>Optional global seasonal effects, each spanning a set of calendar months.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">seasonality</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> months</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">11</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">12</span><span class="p p-Indicator">],</span><span class="nt"> strength</span><span class="p">:</span><span class="w"> </span><span class="nv">0.30</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w">   </span><span class="c1"># +30% in Nov-Dec</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> months</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">6</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">7</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">8</span><span class="p p-Indicator">],</span><span class="nt"> strength</span><span class="p">:</span><span class="w"> </span><span class="nv">-0.10</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="c1"># -10% in summer</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>months</code></td>
+<td>tuple of int</td>
+<td>yes</td>
+<td>Values in <code>1..12</code>, unique within one effect, max 12 entries</td>
+</tr>
+<tr>
+<td><code>strength</code></td>
+<td><code>float</code></td>
+<td>yes</td>
+<td>Multiplier added to <code>1.0</code> at each named month</td>
+</tr>
+</tbody>
+</table>
+<p>Multiple effects may overlap — strengths sum at each period. The summed
+effect is then multiplied by per-metric <code>seasonal_sensitivity</code> and
+per-segment <code>seasonal_sensitivity</code> before being applied to the metric's
+distribution center.</p>
+<p>The empty default <code>[]</code> produces output byte-identical to runs without a
+seasonality block.</p>
+<hr />
+<h2 id="schema-overrides-dimensions-facts-events">Schema overrides — <code>dimensions</code>, <code>facts</code>, <code>events</code><a class="headerlink" href="#schema-overrides-dimensions-facts-events" title="Permanent link">&para;</a></h2>
+<p>When you want named columns that aren't auto-generated. Each entry uses
+the same shape:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">dimensions</span><span class="p">:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dim_customer</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_id</span><span class="p p-Indicator">,</span><span class="nt"> type</span><span class="p">:</span><span class="w"> </span><span class="nv">id</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">signup_date</span><span class="p p-Indicator">,</span><span class="nt"> type</span><span class="p">:</span><span class="w"> </span><span class="nv">date</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">industry</span><span class="p p-Indicator">,</span><span class="nt">    type</span><span class="p">:</span><span class="w"> </span><span class="nv">pool.industry</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="nt">facts</span><span class="p">:</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fct_engagement</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">engagement</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">mrr</span><span class="p p-Indicator">]</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_id</span><span class="p p-Indicator">,</span><span class="nt"> type</span><span class="p">:</span><span class="w"> </span><span class="nv">ref.dim_customer</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">date_key</span><span class="p p-Indicator">,</span><span class="nt">    type</span><span class="p">:</span><span class="w"> </span><span class="nv">ref.dim_date</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="nt">events</span><span class="p">:</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">evt_login</span>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">    </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">proportional</span>
+</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">engagement</span>
+</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">    </span><span class="nt">scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</span><span id="__span-9-20"><a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">    </span><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-9-21"><a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_id</span><span class="p p-Indicator">,</span><span class="nt"> type</span><span class="p">:</span><span class="w"> </span><span class="nv">ref.dim_customer</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">timestamp</span><span class="p p-Indicator">,</span><span class="nt">   type</span><span class="p">:</span><span class="w"> </span><span class="nv">timestamp</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<p>See <a href="../column-types/"><code>column-types.md</code></a> for every supported <code>type</code>.</p>
+<h3 id="dim-fields">Dim fields<a class="headerlink" href="#dim-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Table name; conventionally <code>dim_&lt;thing&gt;</code></td>
+</tr>
+<tr>
+<td><code>columns</code></td>
+<td>array</td>
+<td>yes</td>
+<td>—</td>
+<td>At least one column</td>
+</tr>
+<tr>
+<td><code>per</code></td>
+<td><code>"period"</code> / <code>"unit"</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Cardinality hint — one row per period or per unit</td>
+</tr>
+<tr>
+<td><code>reference</code></td>
+<td><code>bool</code></td>
+<td>no</td>
+<td><code>false</code></td>
+<td>Pure lookup table (no per-entity / per-period rows)</td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>1</code></td>
+<td>Sub-entity multiplier (e.g. <code>dim_user</code> with <code>count=3</code> produces 3 users per customer)</td>
+</tr>
+</tbody>
+</table>
+<p><code>reference: true</code> and <code>per</code> are mutually exclusive.</p>
+<h3 id="fact-fields">Fact fields<a class="headerlink" href="#fact-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Conventionally <code>fct_&lt;thing&gt;</code></td>
+</tr>
+<tr>
+<td><code>columns</code></td>
+<td>array</td>
+<td>yes</td>
+<td>—</td>
+<td>At least one column</td>
+</tr>
+<tr>
+<td><code>metrics</code></td>
+<td>array of <code>str</code></td>
+<td>no</td>
+<td><code>[]</code></td>
+<td>Metric names whose <code>metric.{name}</code> columns are added automatically</td>
+</tr>
+<tr>
+<td><code>cdc</code></td>
+<td><code>bool</code></td>
+<td>no</td>
+<td><code>false</code></td>
+<td>Emit <code>_inserted_at</code> / <code>_updated_at</code> / <code>_op</code> audit columns. Column-level quality issues mutate <code>_op</code> to <code>"U"</code> on affected rows. See <a href="../user-guide/cdc-facts/">user-guide → CDC fact-side</a></td>
+</tr>
+</tbody>
+</table>
+<h3 id="event-fields">Event fields<a class="headerlink" href="#event-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Conventionally <code>evt_&lt;thing&gt;</code></td>
+</tr>
+<tr>
+<td><code>columns</code></td>
+<td>array</td>
+<td>yes</td>
+<td>—</td>
+<td>At least one column</td>
+</tr>
+<tr>
+<td><code>trigger</code></td>
+<td><code>"proportional"</code> / <code>"threshold"</code></td>
+<td>yes</td>
+<td>—</td>
+<td>How row count is determined</td>
+</tr>
+<tr>
+<td><code>driver</code></td>
+<td><code>str</code></td>
+<td>proportional only</td>
+<td>—</td>
+<td>Metric whose value drives row count</td>
+</tr>
+<tr>
+<td><code>scale</code></td>
+<td><code>float</code></td>
+<td>proportional only</td>
+<td>—</td>
+<td><code>≥ 0</code>. Rows per entity per period = <code>metric_value × scale</code></td>
+</tr>
+<tr>
+<td><code>metric</code></td>
+<td><code>str</code></td>
+<td>threshold only</td>
+<td>—</td>
+<td>Metric to watch</td>
+</tr>
+<tr>
+<td><code>above</code></td>
+<td><code>float</code></td>
+<td>threshold only</td>
+<td>—</td>
+<td>Fire when value crosses above this</td>
+</tr>
+<tr>
+<td><code>below</code></td>
+<td><code>float</code></td>
+<td>threshold only</td>
+<td>—</td>
+<td>Fire when value crosses below this</td>
+</tr>
+<tr>
+<td><code>for_periods</code> (alias <code>for</code>)</td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Hold the threshold for N periods before firing</td>
+</tr>
+</tbody>
+</table>
+<p><code>above</code> and <code>below</code> are mutually exclusive on a single event.</p>
+<h3 id="shared-field-pk_prefix">Shared field — <code>pk_prefix</code><a class="headerlink" href="#shared-field-pk_prefix" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pk_prefix</code></td>
+<td><code>str</code> / <code>null</code></td>
+<td>no</td>
+<td><code>null</code></td>
+<td>Override for the per-row sequential PK prefix (e.g. <code>c-001</code>, <code>orders-001</code>). When unset the engine derives the prefix from the table's stripped name — first character when unique, full stripped name when two tables would otherwise collide (<code>dim_company</code> + <code>evt_churn</code>, <code>fct_orders</code> + <code>fct_order_items</code>). Set explicitly to pin a custom short code; format is 1-12 chars starting with a letter, letters/digits/underscores only. Available on every dim, fact, and event table.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="bridges"><code>bridges</code><a class="headerlink" href="#bridges" title="Permanent link">&para;</a></h2>
+<p>Many-to-many associations between two dimension tables.</p>
+<h3 id="how-to-enable">How to enable<a class="headerlink" href="#how-to-enable" title="Permanent link">&para;</a></h3>
+<p>Append to any config that has (or auto-generates) at least two dim
+tables. Replace <code>dim_a</code> / <code>dim_b</code> with the names of two distinct dims
+already in your config — <code>dim_date</code> and <code>dim_{unit}</code> are auto-generated
+and always valid targets.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">bridges</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">a_b</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">left</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dim_a</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">right</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dim_b</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span><span class="nt">cardinality</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<h3 id="detailed-example">Detailed example<a class="headerlink" href="#detailed-example" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">bridges</span><span class="p">:</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">customer_subscription</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">left</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dim_customer</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">right</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dim_subscription</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">cardinality</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">]</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mrr</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="nv">weight</span><span class="p p-Indicator">,</span><span class="nt"> type</span><span class="p">:</span><span class="w"> </span><span class="nv">metric.mrr</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Alphanumeric / underscore</td>
+</tr>
+<tr>
+<td><code>left</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Dim table name; auto-dims (<code>dim_date</code>, <code>dim_&lt;unit&gt;</code>) are valid</td>
+</tr>
+<tr>
+<td><code>right</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Same; must differ from <code>left</code></td>
+</tr>
+<tr>
+<td><code>cardinality</code></td>
+<td><code>[int, int]</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Inclusive <code>[min, max]</code> second-dim entries per left entity</td>
+</tr>
+<tr>
+<td><code>driver</code></td>
+<td><code>str</code></td>
+<td>no</td>
+<td><code>None</code></td>
+<td>Optional metric — non-null biases sampling toward trajectory position</td>
+</tr>
+<tr>
+<td><code>columns</code></td>
+<td>array</td>
+<td>no</td>
+<td><code>[]</code></td>
+<td>Up to 20 bridge-row columns (<code>metric.{name}</code>, <code>static.{value}</code>, <code>faker.{kind}</code> only)</td>
+</tr>
+</tbody>
+</table>
+<p>Limit: 20 bridges per config.</p>
+<hr />
+<h2 id="quality"><code>quality</code><a class="headerlink" href="#quality" title="Permanent link">&para;</a></h2>
+<p>Post-generation data corruption — null injection, duplicates, type
+mismatches, late arrivals, schema drift, volume anomalies.</p>
+<h3 id="how-to-enable_1">How to enable<a class="headerlink" href="#how-to-enable_1" title="Permanent link">&para;</a></h3>
+<p>Append to any config. Replace <code>&lt;fact&gt;</code> with one of your fact-table
+names and <code>&lt;metric_col&gt;</code> with a column on that fact. Mutually exclusive
+with <code>holdout</code> and <code>entity_features</code> — the three blocks are pairwise
+incompatible, so a config may opt into at most one of them.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">quality</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;fact&gt;</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">null_injection</span><span class="p p-Indicator">,</span><span class="nt"> rate</span><span class="p">:</span><span class="w"> </span><span class="nv">0.02</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;metric_col&gt;</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">&lt;fact&gt;</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">duplicate_rows</span><span class="p p-Indicator">,</span><span class="nt"> rate</span><span class="p">:</span><span class="w"> </span><span class="nv">0.01</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<h3 id="detailed-example_1">Detailed example<a class="headerlink" href="#detailed-example_1" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">quality</span><span class="p">:</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">fct_engagement</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">null_injection</span><span class="p p-Indicator">,</span><span class="nt">  rate</span><span class="p">:</span><span class="w"> </span><span class="nv">0.02</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">engagement</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">fct_engagement</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">duplicate_rows</span><span class="p p-Indicator">,</span><span class="nt"> rate</span><span class="p">:</span><span class="w"> </span><span class="nv">0.01</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">fct_engagement</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">volume_anomaly</span><span class="p p-Indicator">,</span><span class="nt"> rate</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">,</span><span class="nt"> mode</span><span class="p">:</span><span class="w"> </span><span class="nv">spike</span><span class="p p-Indicator">,</span><span class="nt"> period</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">fct_engagement</span><span class="p p-Indicator">,</span><span class="nt"> issue</span><span class="p">:</span><span class="w"> </span><span class="nv">volume_anomaly</span><span class="p p-Indicator">,</span><span class="nt"> rate</span><span class="p">:</span><span class="w"> </span><span class="nv">0.5</span><span class="p p-Indicator">,</span><span class="nt"> mode</span><span class="p">:</span><span class="w"> </span><span class="nv">drop</span><span class="p p-Indicator">,</span><span class="nt">  periods</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">11</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">17</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>table</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Target table</td>
+</tr>
+<tr>
+<td><code>issue</code></td>
+<td>enum</td>
+<td>yes</td>
+<td>—</td>
+<td><code>null_injection</code>, <code>duplicate_rows</code>, <code>type_mismatch</code>, <code>late_arrival</code>, <code>schema_drift</code>, <code>volume_anomaly</code></td>
+</tr>
+<tr>
+<td><code>rate</code></td>
+<td><code>float</code></td>
+<td>yes</td>
+<td>—</td>
+<td><code>0.0 ≤ rate ≤ 1.0</code>. For <code>volume_anomaly</code> it scales per-period (rows at the target period), not whole-table</td>
+</tr>
+<tr>
+<td><code>column</code></td>
+<td><code>str</code></td>
+<td>conditional</td>
+<td><code>None</code></td>
+<td>Required for <code>null_injection</code>, <code>type_mismatch</code>, <code>schema_drift</code>. Forbidden on <code>volume_anomaly</code> (row-level)</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>enum</td>
+<td>conditional</td>
+<td><code>None</code></td>
+<td><code>volume_anomaly</code> only. <code>spike</code> appends duplicate rows; <code>drop</code> removes rows</td>
+</tr>
+<tr>
+<td><code>period</code></td>
+<td><code>int</code></td>
+<td>conditional</td>
+<td><code>None</code></td>
+<td><code>volume_anomaly</code> only. 0-based period index. Exactly one of <code>period</code> / <code>periods</code></td>
+</tr>
+<tr>
+<td><code>periods</code></td>
+<td><code>list[int]</code></td>
+<td>conditional</td>
+<td><code>None</code></td>
+<td><code>volume_anomaly</code> only. List form for multiple target periods</td>
+</tr>
+<tr>
+<td><code>seed_offset</code></td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>0</code></td>
+<td>Sub-seed offset to vary which rows are corrupted under the same config seed</td>
+</tr>
+</tbody>
+</table>
+<p>Limit: 50 quality issues per config. The clean copy of the data is
+preserved in memory; the manifest's <code>quality_injections</code> list records
+exactly which rows / columns / clean values were corrupted so a downstream
+consumer can recover ground truth.</p>
+<p><code>quality</code> is mutually exclusive with <code>entity_features</code> and with
+<code>holdout</code> — both rules raise at config load.</p>
+<hr />
+<h2 id="holdout"><code>holdout</code><a class="headerlink" href="#holdout" title="Permanent link">&para;</a></h2>
+<p>Temporal train/holdout split for ML target workflows.</p>
+<h3 id="how-to-enable_2">How to enable<a class="headerlink" href="#how-to-enable_2" title="Permanent link">&para;</a></h3>
+<p>Append to any config. Replace <code>&lt;metric&gt;</code> with any numeric metric
+emitted on a per-entity-per-period fact table. The minimum is two
+lines (<code>target</code> + <code>periods</code>); <code>min_training_periods</code> defaults to 3.
+Requires <code>quality: []</code> — the splits work on the clean tables.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">holdout</span><span class="p">:</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;metric&gt;</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="nt">periods</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</span></code></pre></div>
+<h3 id="detailed-example_2">Detailed example<a class="headerlink" href="#detailed-example_2" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">holdout</span><span class="p">:</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mrr</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">  </span><span class="nt">periods</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="nt">min_training_periods</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>target</code></td>
+<td><code>str</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Metric you intend to predict</td>
+</tr>
+<tr>
+<td><code>periods</code></td>
+<td><code>int</code></td>
+<td>yes</td>
+<td>—</td>
+<td>Trailing periods reserved for evaluation. <code>1 ≤ periods ≤ 10000</code></td>
+</tr>
+<tr>
+<td><code>min_training_periods</code></td>
+<td><code>int</code></td>
+<td>no</td>
+<td><code>3</code></td>
+<td>Floor on <code>n_periods - periods</code>; rejected at load if violated</td>
+</tr>
+</tbody>
+</table>
+<p>When set, every per-entity-per-period fact table writes two extra files:
+<code>&lt;fact&gt;_train.&lt;ext&gt;</code> (<code>[0, n - periods)</code>) and <code>&lt;fact&gt;_holdout.&lt;ext&gt;</code>
+(<code>[n - periods, n)</code>). The unsplit fact is also written. Dim, bridge, and
+event tables are not split.</p>
+<p>When entity features are also enabled, aggregation restricts to the
+training window and the target metric's six aggregate columns are
+dropped to prevent label leakage.</p>
+<hr />
+<h2 id="entity_features"><code>entity_features</code><a class="headerlink" href="#entity_features" title="Permanent link">&para;</a></h2>
+<p>Per-entity flat feature table emission.</p>
+<h3 id="how-to-enable_3">How to enable<a class="headerlink" href="#how-to-enable_3" title="Permanent link">&para;</a></h3>
+<p>Append one line to any config. Defaults to "every numeric metric
+emitted on a fact table, with archetype + final-trajectory labels."
+Requires <code>quality: []</code> and <code>manifest.include: true</code> (the default).</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">entity_features</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<h3 id="detailed-example_3">Detailed example<a class="headerlink" href="#detailed-example_3" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Narrow the metric set or strip labels for unsupervised pipelines</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="nt">entity_features</span><span class="p">:</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">metrics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">engagement</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">mrr</span><span class="p p-Indicator">]</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span><span class="nt">include_labels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>metrics</code></td>
+<td>array of <code>str</code></td>
+<td>no</td>
+<td><code>[]</code> (every numeric metric on a fact table)</td>
+<td>Each name must reference a numeric fact metric. Max 50</td>
+</tr>
+<tr>
+<td><code>include_labels</code></td>
+<td><code>bool</code></td>
+<td>no</td>
+<td><code>true</code></td>
+<td>Emits <code>archetype</code> and <code>final_trajectory_position</code> columns</td>
+</tr>
+</tbody>
+</table>
+<p>For every selected metric, six aggregate columns are added per entity:
+<code>&lt;m&gt;_mean</code>, <code>&lt;m&gt;_std</code>, <code>&lt;m&gt;_slope</code>, <code>&lt;m&gt;_first</code>, <code>&lt;m&gt;_last</code>,
+<code>&lt;m&gt;_peak_period</code>. See <a href="../api-reference/#build_entity_features"><code>build_entity_features</code></a>.</p>
+<p>Pre-conditions enforced at load: <code>manifest.include</code> must be True;
+<code>quality.quality_issues</code> must be empty.</p>
+<hr />
+<h2 id="noise"><code>noise</code><a class="headerlink" href="#noise" title="Permanent link">&para;</a></h2>
+<p>Distributional noise applied on top of the trajectory-driven distribution
+center. Three independent dials, all defaulting to zero (no noise — the
+default produces clean output identical to pre-noise baselines).</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Preset shorthand</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="nt">noise</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">realistic</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Detailed</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="nt">noise</span><span class="p">:</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">  </span><span class="nt">gaussian_sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">  </span><span class="nt">outlier_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.02</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="w">  </span><span class="nt">mcar_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
+</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="w">  </span><span class="nt">scale_with_trajectory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="w">  </span><span class="nt">noise_family</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gaussian</span>
+</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="w">  </span><span class="nt">degrees_of_freedom</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># required when noise_family is &quot;student_t&quot;</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Range</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gaussian_sigma</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td><code>0.0</code>–<code>5.0</code></td>
+<td>Multiplicative log-normal jitter on each draw — <code>value *= exp(N(0, σ²))</code>. Bigger σ = wider spread. Used by every <code>noise_family</code> as the scale parameter</td>
+</tr>
+<tr>
+<td><code>outlier_rate</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+<td>Probability per cell of replacing the value with a 3-σ tail draw</td>
+</tr>
+<tr>
+<td><code>mcar_rate</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td><code>0.0</code>–<code>1.0</code></td>
+<td>Probability per cell of dropping the value to NaN (missing-completely-at-random)</td>
+</tr>
+<tr>
+<td><code>scale_with_trajectory</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>—</td>
+<td>When <code>true</code>, the gaussian standard deviation at each cell becomes <code>gaussian_sigma × trajectory_position</code> instead of <code>gaussian_sigma × \|value\|</code>. Position-zero cells receive zero gaussian noise; position-one cells receive the full σ. Outlier and MCAR branches are unchanged. Use when the dataset's noise model should be heteroscedastic — e.g. high-engagement entities exhibit larger observation variance — rather than proportional to the value magnitude. Composes orthogonally with <code>noise_family</code></td>
+</tr>
+<tr>
+<td><code>noise_family</code></td>
+<td><code>str</code></td>
+<td><code>"gaussian"</code></td>
+<td><code>"gaussian"</code> / <code>"student_t"</code> / <code>"laplace"</code></td>
+<td>Distribution of the additive jitter. <code>"gaussian"</code> (default) preserves the historical behavior byte-for-byte. <code>"student_t"</code> draws from a Student-t with <code>degrees_of_freedom</code> and produces heavier tails (outlier-prone residuals without explicit <code>outlier_rate</code>). <code>"laplace"</code> draws from a Laplace distribution — sharper peak, heavier tails than Gaussian. Composes with <code>scale_with_trajectory</code>: the resolved scale is the same for every family</td>
+</tr>
+<tr>
+<td><code>degrees_of_freedom</code></td>
+<td><code>float</code> or <code>null</code></td>
+<td><code>null</code></td>
+<td>≥ <code>1.0</code></td>
+<td>Required when <code>noise_family: student_t</code>; forbidden otherwise (a non-null value with any other family raises at load time). Lower values yield heavier tails; <code>df = 1</code> is the Cauchy limit (no finite mean). Typical values: <code>df = 3</code>–<code>5</code> for visibly heavy tails, <code>df = 10</code>–<code>30</code> for mild Gaussian-like residuals</td>
+</tr>
+</tbody>
+</table>
+<p>Four named presets accept the lower-case canonical name OR a friendly
+alias — pick whichever reads naturally:</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th><code>gaussian_sigma</code></th>
+<th><code>outlier_rate</code></th>
+<th><code>mcar_rate</code></th>
+<th>Aliases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>perfectly_clean</code> <em>(default — same as omitting <code>noise</code>)</em></td>
+<td>0.00</td>
+<td>0.00</td>
+<td>0.000</td>
+<td><code>clean</code></td>
+</tr>
+<tr>
+<td><code>slightly_messy</code></td>
+<td>0.03</td>
+<td>0.01</td>
+<td>0.005</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>realistic</code></td>
+<td>0.05</td>
+<td>0.02</td>
+<td>0.010</td>
+<td><code>messy</code></td>
+</tr>
+<tr>
+<td><code>dirty</code></td>
+<td>0.10</td>
+<td>0.05</td>
+<td>0.030</td>
+<td><code>very_messy</code></td>
+</tr>
+</tbody>
+</table>
+<p>The same constants are exported from <code>plotsim</code> for engine-direct
+mutation: <code>PERFECTLY_CLEAN</code>, <code>SLIGHTLY_MESSY</code>, <code>REALISTIC</code>, <code>DIRTY</code>.
+Presets always set <code>scale_with_trajectory: false</code> and
+<code>noise_family: gaussian</code>; opt into the heteroscedastic lane or a
+heavy-tailed family by passing the explicit dict form.</p>
+<p><strong>Picking a heavy-tailed family.</strong> <code>student_t</code> with low <code>df</code> (3–5)
+models occasional large deviations driven by a heavy-tailed underlying
+process — sensor failures, financial return spikes, support-ticket
+volume after an outage. <code>laplace</code> is similar but with a sharper peak
+around the center and exponential (rather than power-law) tails — a
+good fit when most residuals are small but a non-negligible minority
+are several scales out. Both compose with <code>outlier_rate</code> if you also
+want explicit "blow up the value by 3–10×" injection on top of the
+heavy-tailed jitter.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Heavy-tailed noise from a Student-t</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nt">noise</span><span class="p">:</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span><span class="nt">gaussian_sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.10</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="nt">noise_family</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">student_t</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="w">  </span><span class="nt">degrees_of_freedom</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="c1"># Laplace residuals, heteroscedastic amplitude</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="nt">noise</span><span class="p">:</span>
+</span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">  </span><span class="nt">gaussian_sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span>
+</span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="w">  </span><span class="nt">scale_with_trajectory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-19-11"><a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="w">  </span><span class="nt">noise_family</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">laplace</span>
+</span></code></pre></div>
+<p><code>noise</code> is independent of the <code>quality</code> block — <code>noise</code> perturbs metric
+values <em>during</em> generation (correlations and trajectory still hold);
+<code>quality</code> corrupts the output table <em>after</em> generation.</p>
+<hr />
+<h2 id="output"><code>output</code><a class="headerlink" href="#output" title="Permanent link">&para;</a></h2>
+<p>Output-format selector, target directory, and per-format knobs.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Word shorthand (uses default directory ./output)</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">parquet</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Detailed</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="nt">output</span><span class="p">:</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">parquet</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">  </span><span class="nt">directory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./fixtures</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">  </span><span class="nt">cell_budget</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5_000_000</span>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a><span class="w">  </span><span class="nt">denormalized</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">  </span><span class="nt">partition_by</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">date_key</span>
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">  </span><span class="nt">sql_dialect</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgresql</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>format</code></td>
+<td><code>"csv"</code> / <code>"parquet"</code> / <code>"jsonl"</code> / <code>"sql"</code></td>
+<td><code>"csv"</code></td>
+<td><code>parquet</code> requires <code>pip install plotsim[parquet]</code> (pyarrow) and produces typed binary files ~5–10× smaller than CSV. <code>jsonl</code> writes newline-delimited JSON (one self-contained object per row) for streaming-ingestion / schema-on-read consumers. <code>sql</code> writes a single <code>data.sql</code> file with dialect-aware DDL + batched INSERTs instead of per-table files</td>
+</tr>
+<tr>
+<td><code>directory</code></td>
+<td><code>str</code></td>
+<td><code>"output"</code></td>
+<td>Where <code>write_tables</code> writes. Override at call time with <code>write_tables(..., output_dir=...)</code></td>
+</tr>
+<tr>
+<td><code>cell_budget</code></td>
+<td><code>int ≥ 0</code> / <code>null</code></td>
+<td><code>null</code></td>
+<td>Soft cell-count cap consumed by the load-time scale estimator. <code>null</code> falls through to <code>PLOTSIM_CELL_BUDGET</code> env var, then to the 2,000,000 default. <code>0</code> disables the soft cap entirely. See <a href="#cell-count-budget">Cell-count budget</a> for precedence and <code>tests/configs/lakehouse.yaml</code> for a worked example</td>
+</tr>
+<tr>
+<td><code>denormalized</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Opt-in wide-table companion writer. When <code>true</code>, every fact table is left-joined with its FK'd dims (SCD2 dims filtered to current state) and emits <code>&lt;fct&gt;_wide.&lt;ext&gt;</code> alongside the normalized output. Under <code>format: sql</code> the wide tables emit as trailing blocks inside <code>data.sql</code> instead of separate files</td>
+</tr>
+<tr>
+<td><code>partition_by</code></td>
+<td><code>str</code> / <code>null</code></td>
+<td><code>null</code></td>
+<td>Column name to partition Parquet output on. When set, every table that carries the column is written as a Hive-style directory (<code>&lt;output_dir&gt;/&lt;table&gt;/&lt;col&gt;=&lt;value&gt;/...</code>) via <code>pyarrow.parquet.write_to_dataset</code>. Tables without the column fall back to single files. Requires <code>format: parquet</code>; cross-validated at config load</td>
+</tr>
+<tr>
+<td><code>sql_dialect</code></td>
+<td><code>"postgresql"</code> / <code>"mysql"</code> / <code>"sqlite"</code></td>
+<td><code>"postgresql"</code></td>
+<td>Dialect for the SQL dump writer — selects identifier quoting (<code>"col"</code> for PG/SQLite, <code>`col`</code> for MySQL), type words (PG <code>NUMERIC</code> / MySQL <code>DOUBLE</code> + <code>VARCHAR(255)</code> for string PKs / SQLite <code>REAL</code>), and boolean encoding. The default round-trips under any format; explicit <code>mysql</code> / <code>sqlite</code> requires <code>format: sql</code> (cross-validated at config load)</td>
+</tr>
+</tbody>
+</table>
+<p>When <code>format: parquet</code> and <code>pyarrow</code> is missing, <code>write_tables</code> raises
+<code>ImportError</code> naming the install command — fail-fast at the write call
+rather than mid-iteration. See <a href="../user-guide/output-formats/">Output formats</a>
+for per-format conventions, partitioned-Parquet layout, the JSONL
+streaming-ingestion contract, and the SQL dump's dialect comparison.</p>
+<hr />
+<h2 id="locale"><code>locale</code><a class="headerlink" href="#locale" title="Permanent link">&para;</a></h2>
+<p>Faker locale (or list of locales) threaded to every <code>faker.*</code> column.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nt">locale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">en_GB</span><span class="w">                   </span><span class="c1"># single locale</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="nt">locale</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">en_US</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">ja_JP</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">de_DE</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># multi-locale mix</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>str</code> or <code>list[str]</code></td>
+<td><code>"en_US"</code></td>
+<td>Any locale supported by your installed <code>faker</code> package. Lists round-robin across providers — useful when seeded fixtures should look multinational</td>
+</tr>
+</tbody>
+</table>
+<p>Locale only affects <code>faker.*</code> columns; <code>static.*</code>, <code>metric.*</code>, and
+<code>pool.*</code> columns are unaffected.</p>
+<hr />
+<h2 id="engine-direct-fields">Engine-direct fields<a class="headerlink" href="#engine-direct-fields" title="Permanent link">&para;</a></h2>
+<p>A handful of <code>PlotsimConfig</code> fields are not surfaced in the builder YAML
+above. They live on the engine config — set them with
+<code>load_config()</code>/<code>dump_config()</code> round-trips, or by passing them to a
+hand-authored engine-direct YAML.</p>
+<h3 id="compensate_correlations"><code>compensate_correlations</code><a class="headerlink" href="#compensate_correlations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>bool</code></td>
+</tr>
+<tr>
+<td>Default (engine-direct)</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td>Default (builder)</td>
+<td><code>True</code></td>
+</tr>
+</tbody>
+</table>
+<p>When <code>True</code>, the engine pre-compensates the trajectory-driven mean shift
+so the realized Pearson correlations land closer to the declared
+<code>connections</code> coefficients on configs with strong archetype mixes.
+Records each adjustment in <code>manifest.correlation_compensations</code>. The
+builder layer sets <code>True</code> explicitly because <code>connections</code> is a
+table-wide intent contract; engine-direct configs default to <code>False</code>
+to preserve byte-identical output for legacy YAML on disk.</p>
+<h3 id="generation_mode"><code>generation_mode</code><a class="headerlink" href="#generation_mode" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>"serial"</code> / <code>"vectorized"</code> / <code>"auto"</code></td>
+</tr>
+<tr>
+<td>Default (engine-direct)</td>
+<td><code>"serial"</code></td>
+</tr>
+<tr>
+<td>Default (builder)</td>
+<td><code>"auto"</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>"vectorized"</code> batches all entities in an archetype group through one
+copula draw — large speedups on configs above ~5,000 entities, identical
+results modulo the deliberate copula bypass-fallback contract.
+<code>"auto"</code> picks per archetype group by entity count; <code>create()</code> /
+<code>create_from_yaml()</code> set <code>"auto"</code> explicitly. Manifest records the
+mode and any bypass-fallback counts under <code>bypass_fallback_counts</code>.</p>
+<h3 id="per-entity-overrides-cross_dim_fks-and-inflection_month">Per-entity overrides — <code>cross_dim_fks</code> and <code>inflection_month</code><a class="headerlink" href="#per-entity-overrides-cross_dim_fks-and-inflection_month" title="Permanent link">&para;</a></h3>
+<p>Both fields live on individual <code>Entity</code> objects (the resolved
+counterpart to a builder <code>segment</code>). They steer per-entity behavior
+that doesn't belong at the segment level:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">plotsim.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">EntityOverrides</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="n">cfg</span><span class="o">.</span><span class="n">entities</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">cross_dim_fks</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;plan_id&quot;</span><span class="p">:</span> <span class="s2">&quot;plan_enterprise&quot;</span><span class="p">}</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">cfg</span><span class="o">.</span><span class="n">entities</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">overrides</span> <span class="o">=</span> <span class="n">EntityOverrides</span><span class="p">(</span><span class="n">inflection_month</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cross_dim_fks</code></td>
+<td><code>dict[str, str]</code></td>
+<td><code>{}</code></td>
+<td>Pin specific FK column values to specific PKs in another dim — e.g. bind expansion-champion accounts to a specific plan row. Bypasses the column's <code>distribution</code> for that entity</td>
+</tr>
+<tr>
+<td><code>overrides.inflection_month</code></td>
+<td><code>int</code> or <code>None</code></td>
+<td><code>None</code></td>
+<td>Shift the archetype's curve segments so its canonical inflection lands on this period index. Per-entity narrative timing (e.g. "this account turned around in March")</td>
+</tr>
+</tbody>
+</table>
+<h3 id="manifest"><code>manifest</code><a class="headerlink" href="#manifest" title="Permanent link">&para;</a></h3>
+<p>The manifest emission config. Defaults to <code>include: true</code>,
+<code>trajectory_sample_rate: 1.0</code> — every run lands a <code>manifest.json</code> next
+to the table files. Set <code>manifest: {include: false}</code> for microbenchmarks
+or sandboxed CI runs that don't need the ground-truth payload. See
+<a href="../manifest-reference/">Manifest reference</a>.</p>
+<h3 id="per-archetype-overrides-curve_segments-and-metric_overrides">Per-archetype overrides — <code>curve_segments</code> and <code>metric_overrides</code><a class="headerlink" href="#per-archetype-overrides-curve_segments-and-metric_overrides" title="Permanent link">&para;</a></h3>
+<p>Two mechanisms let an archetype diverge from the global metric defaults.</p>
+<p><strong><code>Archetype.curve_segments</code></strong> — per-archetype list of <code>CurveSegment</code>
+entries defining the full <code>[0.0, 1.0]</code> trajectory shape. Segments must
+cover the range without gaps or overlaps (validated at config load).
+Every metric reads its position from this curve; there is no
+per-metric curve override.</p>
+<p><strong><code>Archetype.metric_overrides</code></strong> — <code>dict[str, MetricOverride]</code> keyed
+by metric name. Each entry can override <code>distribution</code>, <code>params</code>, or
+<code>value_range</code> for that metric <em>only when sampled for entities of this
+archetype</em>. <code>polarity</code> and <code>causal_lag</code> are never overridable.</p>
+<p><code>value_range</code> overrides must be a <em>subset</em> of the global range —
+overrides narrow, never expand. Subset enforcement runs at config
+load.</p>
+<p><strong>Resolution order:</strong> for each <code>(entity, metric)</code> draw, the engine
+looks up <code>archetype.metric_overrides[metric.name]</code>. If present, listed
+fields replace the global <code>Metric</code> fields; unset fields fall through
+to the global metric. Partial overrides compose cleanly via
+<code>model_copy(update=…)</code>.</p>
+<p>The builder API surfaces <code>metric_overrides.value_range</code> only;
+<code>distribution</code> and <code>params</code> overrides require an engine-direct config.</p>
+<hr />
+<h2 id="limits-and-performance-gates">Limits and performance gates<a class="headerlink" href="#limits-and-performance-gates" title="Permanent link">&para;</a></h2>
+<p>Every config is checked against per-field caps and a global
+cell-count budget at load time. The bounds are intentionally
+conservative — well above any realistic dashboard dataset, well
+below the point where a single laptop run becomes painful.</p>
+<table>
+<thead>
+<tr>
+<th>Limit</th>
+<th>Cap</th>
+<th>Behavior on breach</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>metrics</code> count</td>
+<td>50</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td>Per-segment <code>count</code></td>
+<td>5000</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td>Total entities (<code>Σ segments.count</code>)</td>
+<td>100,000</td>
+<td>Custom validator rejects at load</td>
+</tr>
+<tr>
+<td><code>quality</code> issues</td>
+<td>50</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td><code>bridges</code> count</td>
+<td>20</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td>Per-bridge <code>columns</code></td>
+<td>20</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td><code>seasonality</code> effects</td>
+<td>12</td>
+<td>Pydantic rejects at load</td>
+</tr>
+<tr>
+<td>Causal lag <code>delay</code></td>
+<td><code>1</code>–<code>10000</code> periods</td>
+<td>Pydantic rejects at load</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cell-count-budget">Cell-count budget<a class="headerlink" href="#cell-count-budget" title="Permanent link">&para;</a></h3>
+<p>The cell count (<code>Σ segments.count × n_periods</code>) drives a tiered
+budget. The thresholds protect against runaway configs while keeping
+big datasets a real feature for users who deliberately want them.</p>
+<table>
+<thead>
+<tr>
+<th>Cell count</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>≤ 500,000</td>
+<td>Silent (just the always-printed summary line)</td>
+</tr>
+<tr>
+<td>&gt; 500,000</td>
+<td>Stderr <strong>advisory</strong> recommending <code>output.format: parquet</code> and <code>generation_mode: auto</code></td>
+</tr>
+<tr>
+<td>&gt; soft budget (default 2,000,000)</td>
+<td><code>ValueError</code> at load with instructions to opt in</td>
+</tr>
+<tr>
+<td>&gt; soft budget, opt-in given</td>
+<td>Stderr <strong>large-dataset notice</strong>, generation proceeds</td>
+</tr>
+<tr>
+<td>&gt; 50,000,000</td>
+<td>Hard ceiling — <code>ValueError</code> regardless of opt-in</td>
+</tr>
+</tbody>
+</table>
+<p>Two ways to opt into above-soft-budget runs:</p>
+<ol>
+<li><strong>CLI flag</strong> — <code>--allow-large-dataset</code> on <code>plotsim run</code>,
+   <code>plotsim validate</code>, or <code>plotsim info</code>.</li>
+<li><strong>Environment variable</strong> — <code>PLOTSIM_ALLOW_LARGE_DATASET=1</code> for
+   library callers and CI scripts.</li>
+</ol>
+<p>Three ways to change the soft-budget threshold itself, in
+precedence order (the first one that resolves wins):</p>
+<ol>
+<li><strong>Config field (recommended)</strong> — set <code>output.cell_budget: N</code> in
+   the YAML (or pass <code>output={"cell_budget": N}</code> to <code>create()</code>).
+   Reproducible from the config alone — no env vars or flags
+   required, which is the contract the <code>tests/configs/lakehouse.yaml</code>
+   worked example relies on.</li>
+<li><strong>Environment variable</strong> — <code>PLOTSIM_CELL_BUDGET=N</code> sets the
+   soft cap to <code>N</code> cells when no config field is set.</li>
+<li><strong>Default</strong> — <code>2,000,000</code> cells.</li>
+</ol>
+<p><code>output.cell_budget: 0</code> (or <code>PLOTSIM_CELL_BUDGET=0</code>) disables the
+soft cap entirely; only the 50,000,000-cell hard ceiling still
+applies. Setting <code>output.cell_budget</code> past the projected cell
+count is the YAML-only equivalent of <code>--allow-large-dataset</code>:
+because the cap is raised, the run no longer "exceeds" it and no
+opt-in is needed.</p>
+<p>The hard ceiling is non-configurable. Configs above 50,000,000 cells
+should be split or chunked rather than coerced through a single run.</p>
+<p>A summary line is <em>always</em> printed to stderr at load time so the
+projected cell count and peak memory estimate are visible even on
+runs well below the threshold:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>Config summary: 80 entities × 24 periods = 1,920 cells, 4 metrics, 6 tables. Estimated peak memory: ~100 MB.
+</span></code></pre></div>
+<h3 id="quality-injection-row-growth-in-the-budget">Quality-injection row growth in the budget<a class="headerlink" href="#quality-injection-row-growth-in-the-budget" title="Permanent link">&para;</a></h3>
+<p><code>quality.quality_issues</code> of type <code>duplicate_rows</code> (and
+<code>volume_anomaly</code> with <code>mode: spike</code>) grow the post-injection row
+count of their target table. The scale estimator now factors that
+growth into the soft-budget check: a config whose base
+<code>entities × periods</code> count sits under the budget but whose
+configured injections would push the post-injection total over it
+rejects at load with a message naming the post-injection estimate.
+Configs with no <code>duplicate_rows</code> or <code>volume_anomaly: spike</code> issues
+are unaffected. When growth is present the summary line appends:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>Quality injection adds ~25,000 rows (post-injection cells: ~525,000).
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../cli-reference/" class="md-footer__link md-footer__link--prev" aria-label="Previous: CLI">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                CLI
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../column-types/" class="md-footer__link md-footer__link--next" aria-label="Next: Column types">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Column types
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache-2.0 licensed.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mohossam01/plotsim" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://pypi.org/project/plotsim/" target="_blank" rel="noopener" title="pypi.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

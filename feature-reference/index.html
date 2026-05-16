@@ -1,0 +1,3015 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Generate multi-table synthetic datasets with behavioral trajectories, correlations, and causal lags. Config-driven, deterministic, no real data required.">
+      
+      
+        <meta name="author" content="Mohamed Hossam">
+      
+      
+        <link rel="canonical" href="https://mohossam01.github.io/plotsim/feature-reference/">
+      
+      
+        <link rel="prev" href="../cookbook/data-science/">
+      
+      
+        <link rel="next" href="../api-reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/brand/favicon-32.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Feature catalog - plotsim</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/brand/tokens.css">
+    
+      <link rel="stylesheet" href="../assets/brand/palette.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <meta name="google-site-verification" content="0vWrEPMzE5LLXAz2b_LXZvv2Psrttgrn_uRdw5QtLrE" />
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#feature-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="plotsim" class="md-header__button md-logo" aria-label="plotsim" data-md-component="logo">
+      
+  <img src="../assets/brand/favicon.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            plotsim
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Feature catalog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mohossam01/plotsim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mohossam01/plotsim
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../user-guide/how-it-works/" class="md-tabs__link">
+          
+  
+  
+  User guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../tutorial-notebooks/getting_started/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../cookbook/data-engineering/" class="md-tabs__link">
+          
+  
+  
+  Cookbook
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="plotsim" class="md-nav__button md-logo" aria-label="plotsim" data-md-component="logo">
+      
+  <img src="../assets/brand/favicon.svg" alt="logo">
+
+    </a>
+    plotsim
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mohossam01/plotsim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mohossam01/plotsim
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How it works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/archetypes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archetypes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/metrics-and-connections/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics & connections
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/seasonality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seasonality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/experiments-and-cohorts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experiments & cohorts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/schema-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/geo-hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Geo hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/multi-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-source overlap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/cdc-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CDC fact-side
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/parent-child-facts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parent/child fact grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/narrative-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Narrative text
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/output-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/denormalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Denormalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/log-writer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Log-file writer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature surfaces
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Feature surfaces
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/designing_archetypes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing archetypes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/seasonality_and_correlations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Seasonality & correlations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/schema_and_dimensions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema & dimensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/bridges_and_advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bridges & advanced
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/data_quality/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data quality
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Workflows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/pipeline_testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/ml_readiness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ML readiness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use cases
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Use cases
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/de_use_cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data engineer recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tutorial-notebooks/ds_use_cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data scientist recipes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cookbook
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cookbook
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/data-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For data engineers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cookbook/data-science/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    For data scientists
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature catalog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Feature catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capability-catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capability catalog
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capability catalog">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-foundations-automatic-on-every-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Foundations — automatic on every run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Foundations — automatic on every run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tables-emitted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tables emitted
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-shape-metrics-pick-the-curve-and-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Shape metrics — pick the curve and distribution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-add-realism-noise-and-messiness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Add realism — noise and messiness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-relate-metrics-across-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Relate metrics across time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Relate metrics across time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trajectory-coupling-and-realized-correlation-magnitude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trajectory coupling and realized correlation magnitude
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-entity-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Entity lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-dim-columns-fact-grain-text-fill-non-metric-cells-with-realistic-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Dim columns + fact-grain text — fill non-metric cells with realistic content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-audit-downstream-pipeline-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Audit + downstream-pipeline outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-validation-manifest-and-provenance-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Validation, manifest, and provenance (advanced)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Validation, manifest, and provenance (advanced)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manifest-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspect-trace-one-cell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspect — trace one cell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-options-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config options at a glance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config options at a glance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#top-level-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-level sections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#builder-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-produced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output produced
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../column-types/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Column types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../manifest-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Manifest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        At a glance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capability-catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capability catalog
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Capability catalog">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-foundations-automatic-on-every-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Foundations — automatic on every run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Foundations — automatic on every run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tables-emitted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tables emitted
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-shape-metrics-pick-the-curve-and-distribution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Shape metrics — pick the curve and distribution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-add-realism-noise-and-messiness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Add realism — noise and messiness
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-relate-metrics-across-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Relate metrics across time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Relate metrics across time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trajectory-coupling-and-realized-correlation-magnitude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trajectory coupling and realized correlation magnitude
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-entity-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Entity lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-dim-columns-fact-grain-text-fill-non-metric-cells-with-realistic-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Dim columns + fact-grain text — fill non-metric cells with realistic content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-audit-downstream-pipeline-outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Audit + downstream-pipeline outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-validation-manifest-and-provenance-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Validation, manifest, and provenance (advanced)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Validation, manifest, and provenance (advanced)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manifest-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manifest sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspect-trace-one-cell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inspect — trace one cell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-options-at-a-glance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config options at a glance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config options at a glance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#top-level-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Top-level sections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#builder-shortcuts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Builder shortcuts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-produced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output produced
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="feature-reference">Feature reference<a class="headerlink" href="#feature-reference" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>What plotsim can do today, what config knobs exist, and what lands on
+disk after a run. High-level catalog — for syntax see
+<a href="../api-reference/">API</a>, <a href="../config-reference/">Config fields</a>,
+<a href="../column-types/">Column types</a>, <a href="../manifest-reference/">Manifest</a>.</p>
+<p>Snapshot against <code>plotsim</code> <code>0.6.1</code> on <code>main</code>.</p>
+</blockquote>
+<hr />
+<h2 id="at-a-glance">At a glance<a class="headerlink" href="#at-a-glance" title="Permanent link">&para;</a></h2>
+<p>plotsim takes one YAML (or one <code>create(...)</code> call) and writes a
+multi-table relational dataset where every metric value, on every row of
+every table, is derived from one shared archetype trajectory per entity.
+Same seed in → byte-identical files out. Generation is fully offline.</p>
+<p>Three surfaces today:</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Entry point</th>
+<th>Audience</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Library</td>
+<td><code>plotsim.create</code>, <code>create_from_yaml</code>, <code>generate_tables</code>, <code>write_tables</code></td>
+<td>Python users in an IDE or notebook</td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><code>plotsim run</code>, <code>validate</code>, <code>info</code>, <code>template</code>, <code>schema</code></td>
+<td>Terminal, CI, scripts</td>
+</tr>
+<tr>
+<td>YAML</td>
+<td>bundled domain templates: <code>banking</code>, <code>health</code>, <code>hr</code>, <code>marketing</code>, <code>retail</code>, <code>saas</code></td>
+<td>Anyone who wants to hand-edit a config</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="capability-catalog">Capability catalog<a class="headerlink" href="#capability-catalog" title="Permanent link">&para;</a></h2>
+<p>Grouped by typical journey — start at the top with what every run
+produces and what most beginners reach for first, work down toward
+correlations, lifecycle, audit columns, and the advanced
+integrity / provenance tooling.</p>
+<h3 id="1-foundations-automatic-on-every-run">1. Foundations — automatic on every run<a class="headerlink" href="#1-foundations-automatic-on-every-run" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it produces</th>
+<th>Public API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trajectory-first metric generation</td>
+<td>Every metric for an entity at time <em>t</em> is derived from one archetype-curve position</td>
+<td><code>generate_tables(cfg)</code></td>
+</tr>
+<tr>
+<td>Determinism</td>
+<td>Single seeded <code>numpy.random.Generator</code> flows through every random draw</td>
+<td>YAML <code>seed:</code> (integer)</td>
+</tr>
+<tr>
+<td>Cell-budget scale gate</td>
+<td>Soft pre-flight guard that aborts runs above the configured cell ceiling. Precedence: <code>output.cell_budget</code> field &gt; <code>PLOTSIM_CELL_BUDGET</code> env &gt; 2M default; <code>0</code> disables. <code>tests/configs/lakehouse.yaml</code> is a worked example near the 1.5M-cell range.</td>
+<td>YAML <code>output.cell_budget: &lt;int&gt;</code>; env override <code>PLOTSIM_CELL_BUDGET</code> / <code>PLOTSIM_ALLOW_LARGE_DATASET</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="tables-emitted">Tables emitted<a class="headerlink" href="#tables-emitted" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Table type</th>
+<th>Grain</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dim_date</code></td>
+<td>one row per period</td>
+<td>engine — always emitted</td>
+</tr>
+<tr>
+<td><code>dim_&lt;entity&gt;</code></td>
+<td>one row per entity (or N rows under SCD2)</td>
+<td>engine <code>dimensions.build_dim_entity</code></td>
+</tr>
+<tr>
+<td><code>dim_&lt;reference&gt;</code></td>
+<td>one row per category / plan / region</td>
+<td>YAML <code>dims[]</code></td>
+</tr>
+<tr>
+<td><code>fct_&lt;metric&gt;</code></td>
+<td>one row per entity per period</td>
+<td>trajectory + metric pipeline</td>
+</tr>
+<tr>
+<td><code>evt_&lt;event&gt;</code></td>
+<td>variable rows per entity per period (event firings)</td>
+<td>trajectory-driven Poisson</td>
+</tr>
+<tr>
+<td>Parent fact (<code>variable</code> grain)</td>
+<td>one row per discrete instance; count driven by a metric × scale</td>
+<td>YAML <code>facts[]</code> with <code>row_count_driver</code> + <code>row_count_scale</code></td>
+</tr>
+<tr>
+<td>Child fact (<code>per_parent_row</code> grain)</td>
+<td>one row per parent row × uniform fan-out; inherits parent's entity + period. Parent FK column auto-synthesized from <code>parent_table</code> (bridge pattern).</td>
+<td>YAML <code>facts[]</code> with <code>parent_table</code> + <code>children_per_row</code>. See <a href="../user-guide/parent-child-facts/">Parent/child fact grain</a>.</td>
+</tr>
+<tr>
+<td>Sibling-fact reference</td>
+<td>A second variable-grain fact references the parent via <code>ref.&lt;other_fact&gt;</code> with same-entity FK draw (e.g. <code>fct_returns</code> referencing <code>fct_orders</code>)</td>
+<td>YAML <code>facts[]</code> column <code>{type: ref.&lt;fact_name&gt;}</code>. See <a href="../user-guide/parent-child-facts/">Parent/child fact grain — sibling references</a>.</td>
+</tr>
+<tr>
+<td>Bridge tables</td>
+<td>M:N join tables between entities</td>
+<td>YAML <code>bridges[]</code></td>
+</tr>
+<tr>
+<td><code>_entity_features.csv</code></td>
+<td>one row per entity, six aggregates per metric</td>
+<td><code>plotsim.entity_features.build_entity_features</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="2-shape-metrics-pick-the-curve-and-distribution">2. Shape metrics — pick the curve and distribution<a class="headerlink" href="#2-shape-metrics-pick-the-curve-and-distribution" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it produces</th>
+<th>Public API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Composable archetype curves</td>
+<td>8 curves (sigmoid, exp_decay, step, logistic, plateau, oscillating, compound, sawtooth) chained as time-windowed segments</td>
+<td>YAML <code>archetypes[].curve_segments</code>; archetype DSL string</td>
+</tr>
+<tr>
+<td>Archetype DSL</td>
+<td>One-line phrase like <code>growth: sigmoid then plateau</code> parsed to segments</td>
+<td><code>MetricInput.archetype</code> shorthand; YAML <code>segments[].archetype</code></td>
+</tr>
+<tr>
+<td>Six metric distributions</td>
+<td><code>lognorm</code>, <code>normal</code>, <code>beta</code>, <code>poisson</code>, <code>gamma</code>, <code>weibull</code> shaping values around the trajectory position</td>
+<td>YAML <code>metrics[].distribution</code> (advanced); auto-picked by <code>type</code> otherwise</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3-add-realism-noise-and-messiness">3. Add realism — noise and messiness<a class="headerlink" href="#3-add-realism-noise-and-messiness" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it produces</th>
+<th>Public API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Noise presets</td>
+<td><code>PERFECTLY_CLEAN</code>, <code>SLIGHTLY_MESSY</code>, <code>REALISTIC</code>, <code>DIRTY</code> numeric bundles</td>
+<td>constants on <code>plotsim</code>; YAML <code>noise:</code> numeric form</td>
+</tr>
+<tr>
+<td>Quality issues</td>
+<td>Targeted MCAR nulls, duplicates, type mismatches, late arrivals, schema drift, and per-period volume anomalies (spike / drop)</td>
+<td>YAML <code>quality_issues[]</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-relate-metrics-across-time">4. Relate metrics across time<a class="headerlink" href="#4-relate-metrics-across-time" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it produces</th>
+<th>Public API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Connections (correlations)</td>
+<td>Cholesky-induced cross-metric correlation between two metrics — a single coefficient held across the whole time window</td>
+<td>YAML <code>connections[]</code></td>
+</tr>
+<tr>
+<td>Time-varying correlations</td>
+<td>Phase-keyed Cholesky: declare period windows where a different correlation matrix applies (regime change, market shock, treatment rollout). The engine resolves the active factor per period; the baseline <code>connections[]</code> covers periods outside any phase. Each phase runs through the same Higham nearest-PD projection and trajectory-aware compensation as the baseline.</td>
+<td>YAML <code>correlation_phases[]</code>; builder kwarg <code>connection_phases</code></td>
+</tr>
+<tr>
+<td>Causal lag (cause → effect)</td>
+<td>Metric A at <em>t-k</em> drives metric B at <em>t</em></td>
+<td>YAML <code>metrics[].causal_lag</code></td>
+</tr>
+<tr>
+<td>Seasonality</td>
+<td>Period-of-year multipliers on metrics (<code>oscillating</code> curve + <code>seasonal_effects:</code>)</td>
+<td>YAML <code>metrics[].seasonal_effects</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="trajectory-coupling-and-realized-correlation-magnitude">Trajectory coupling and realized correlation magnitude<a class="headerlink" href="#trajectory-coupling-and-realized-correlation-magnitude" title="Permanent link">&para;</a></h4>
+<p>Two metrics that ride the same archetype trajectory share variance
+from the trajectory itself, on top of whatever the copula injects.
+A declared <code>connections: [a driven_by b: 0.5]</code> therefore realizes a
+table-wide Pearson somewhat <strong>higher</strong> than 0.5 when the entity body
+is concentrated in a single archetype, and closer to 0.5 as the
+archetype mix broadens.</p>
+<p>Plotsim exposes <code>compensate_correlations</code> (see
+<a href="../config-reference/#compensate_correlations">Config fields</a>)
+to pre-subtract the trajectory contribution from declared targets
+before the copula runs. Defaults are split by entry point:</p>
+<table>
+<thead>
+<tr>
+<th>Entry point</th>
+<th><code>compensate_correlations</code> default</th>
+<th>Realized magnitude vs. declared</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Builder (<code>create</code> / <code>create_from_yaml</code>)</td>
+<td><code>True</code></td>
+<td>Within ±0.15 across documented distribution pairs</td>
+</tr>
+<tr>
+<td>Engine-direct (<code>load_config</code> on a YAML)</td>
+<td><code>False</code></td>
+<td>Higher than declared on mono-archetype configs; widens to ±0.20–0.25 on mixed sweeps</td>
+</tr>
+</tbody>
+</table>
+<p>Each compensation is recorded in <code>manifest.correlation_compensations</code>
+so the realized-vs-declared delta is auditable per pair. The
+compensation cap is 20 metrics — configs with more metrics skip
+compensation (with a <code>UserWarning</code>) because the additive
+trajectory + copula decomposition gets noisy above that count.
+Engine-direct configs that need the tight magnitude envelope can
+opt in by setting <code>compensate_correlations: true</code> in YAML; output
+is no longer byte-identical to a pre-flag run of the same file.</p>
+<h3 id="5-entity-lifecycle">5. Entity lifecycle<a class="headerlink" href="#5-entity-lifecycle" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>What it produces</th>
+<th>Public API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lifecycle stages</td>
+<td>Per-entity stage sequence with stage-specific archetype overrides</td>
+<td>YAML <code>lifecycle:</code></td>
+</tr>
+<tr>
+<td>Cohort arrival distribution</td>
+<td>Per-segment entity arrival shape — <code>uniform</code> / <code>linear</code> / <code>step</code> / <code>explicit</code> — driving <code>Entity.start_period</code>, so the entity body grows or contracts across the window. Cold-start cells are NaN-filled and dropped pre-write. Validator enforces every entity has ≥2 active periods.</td>
+<td>builder kwarg <code>arrival:</code> on segments (4-shape discriminated union); YAML <code>Entity.start_period</code> directly</td>
+</tr>
+<tr>
+<td>Treatment / control cohorts</td>
+<td>Per-entity treatment assignment with a logit-shift on trajectory position from <code>treatment_start_period</code> onward (<code>treatment_lift_log_odds</code>). Known effect → A/B test analysis, uplift modeling, causal inference. Manifest carries <code>TreatmentAssignment</code> per entity + <code>TreatmentCohort</code> per segment. Demonstrated on bundled <code>marketing</code> and <code>health</code> (per-metric lifts) and <code>banking</code> (whole-trajectory lift); <code>tests/configs/ab_trial.yaml</code> is the dedicated worked example.</td>
+<td>YAML <code>Entity.treatment_group</code> / <code>treatment_lift_log_odds</code> / <code>treatment_start_period</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-dim-columns-fact-grain-text-fill-non-metric-cells-with-realistic-content">6. Dim columns + fact-grain text — fill non-metric cells with realistic content<a class="headerlink" href="#6-dim-columns-fact-grain-text-fill-non-metric-cells-with-realistic-content" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Geo bundle provider</td>
+<td><code>geo.&lt;field&gt;</code> column types pull country / region / city / postcode / lat-lng from a curated 200-entry, 17-country reference dataset. All fields on the same dim row come from a single bundle, so the city is in the stated country, the postcode looks right for that country, and lat/lng land on the named city. Dim-only; the engine rejects geo on facts/events. See <a href="../user-guide/geo-hierarchy/">Geo hierarchy</a>.</td>
+</tr>
+<tr>
+<td>Faker-backed text + identifiers</td>
+<td>PII-shape providers wired into the engine: <code>name</code>, <code>email</code>, <code>phone_number</code>, <code>company</code>, <code>address</code>, <code>postcode</code>, <code>country</code>, <code>city</code>, <code>latitude</code>, <code>longitude</code>, <code>sentence</code>. Deterministic under the run seed. Useful for masking exercises and regex-validation scenarios; <strong>does not read entity, archetype, or trajectory</strong> (each call is an independent draw).</td>
+</tr>
+<tr>
+<td>Range source</td>
+<td><code>type: range</code> with <code>range: [min, max]</code> on fact / event columns produces a per-row uniform draw between the bounds. Integer bounds → <code>dtype: int</code> and inclusive upper bound; float bounds → <code>dtype: float</code> and exclusive upper bound (numpy conventions). Use it for <code>quantity ∈ [1, 5]</code>, <code>unit_price ∈ [10.0, 500.0]</code>, and similar shape constraints that <code>faker.random_int</code> / <code>faker.pyfloat</code> express less precisely. Deterministic under seed.</td>
+</tr>
+<tr>
+<td>Pool source on facts and events</td>
+<td><code>type: pool.&lt;attribute&gt;</code> lifts the per-entity value pool (previously dim-only) onto per_entity_per_period facts, variable-grain facts, per_parent_row child facts, and event tables. Every row resolves to its entity's segment, then draws uniformly from <code>attributes[&lt;attr&gt;]</code> — so a <code>loyal</code> cohort customer's <code>channel</code> always lands in <code>[app, web]</code> while a <code>casual</code> customer's lands in <code>[sms, email]</code>. Per_period facts (the <code>dim_date</code>-style grain) remain out of scope — those rows have no per-row entity binding.</td>
+</tr>
+<tr>
+<td>Narrative text source (trajectory-aware)</td>
+<td>Per-archetype lexicons + a sentence template rendered into a <code>narrative</code> column on a fact table. Output vocabulary tracks the entity's trajectory position (a high-position <code>growth</code> entity produces systematically different text than a low-position <code>decline</code> entity); a simple bag-of-words classifier hits ≥0.55 accuracy on archetype prediction. Deterministic under seed; preserves the trajectory-first invariant. <strong>Fact-only</strong> (rejected on dim / event tables at config load). <strong>Performance:</strong> forces the scalar fact builder path (~3-10× slower than vectorized metric-only facts), so keep narrative on tables that genuinely need text. Demonstrated on bundled <code>hr</code>, <code>retail</code>, <code>banking</code>, <code>health</code>; <code>tests/configs/narrative_reviews.yaml</code> is the dedicated lexicon-design walkthrough. See <a href="../user-guide/narrative-source/">Narrative source</a>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="7-audit-downstream-pipeline-outputs">7. Audit + downstream-pipeline outputs<a class="headerlink" href="#7-audit-downstream-pipeline-outputs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SCD Type 2</td>
+<td><code>dim_&lt;entity&gt;</code> expanded to N×versions with <code>valid_from_period</code> and band-crossing events surfaced in the manifest</td>
+</tr>
+<tr>
+<td>SCD Type 1</td>
+<td>default (no-op)</td>
+</tr>
+<tr>
+<td>Fact-side CDC</td>
+<td><code>facts[].cdc: true</code> emits <code>_inserted_at</code> / <code>_updated_at</code> / <code>_op</code> audit columns; column-level quality issues flip <code>_op</code> to <code>"U"</code> on affected rows. Demonstrated on bundled <code>saas</code> (revenue restatement), <code>marketing</code> (spend attribution), <code>retail</code> (purchase ledger), <code>banking</code> (loan disbursement), <code>health</code> (encounter chart amendment); <code>tests/configs/cdc_demo.yaml</code> is the dedicated minimal walkthrough.</td>
+</tr>
+<tr>
+<td>Holdout splits</td>
+<td><code>output.holdout: {fraction\|periods}</code> writes <code>{table}_train.&lt;csv\|parquet&gt;</code> + <code>{table}_holdout.&lt;csv\|parquet&gt;</code> instead of one file per fact, split by period index</td>
+</tr>
+<tr>
+<td>Denormalization</td>
+<td><code>output.denormalized: true</code> joins each fact with its FK'd dims (SCD2 current-only, audit columns excluded, dim columns prefixed <code>&lt;dim&gt;__&lt;col&gt;</code>); emits <code>&lt;fct&gt;_wide.{csv\|parquet}</code> alongside normalized output for 1NF–3NF decomposition exercises. Demonstrated in <code>saas</code>.</td>
+</tr>
+<tr>
+<td>Log-file writer</td>
+<td>Event tables with <code>log_format: "{ts} ... "</code> + <code>log_filename: "..."</code> emit a structured <code>.log</code> file alongside the CSV/Parquet event table. Format string is <code>template.format(**row.to_dict())</code> per row; unknown placeholders raise. <code>tests/configs/saas_template.yaml</code> (<code>evt_login</code> as syslog-flavoured lines) is the worked example.</td>
+</tr>
+<tr>
+<td>Multi-source / overlap</td>
+<td><code>multi_source:</code> block emits per-source dim copies with controlled drift (casing / abbreviation / swap) and per-source key schemes; <code>source_entity_mappings</code> ground truth in the manifest. <code>tests/configs/crm_billing_overlap.yaml</code> is the worked example (CRM + billing dual-source, 40 mapping records).</td>
+</tr>
+<tr>
+<td>Nested / JSON columns</td>
+<td><code>dtype: struct</code> (with <code>nested_schema</code>) or <code>dtype: array</code> (with <code>array_element_type</code>) paired with <code>source: nested</code> on dim columns. Parquet preserves native nested schema (<code>pa.struct(...)</code>); CSV serializes as JSON string. Dim-only, one level of nesting, primitive leaves in V1. <code>tests/configs/retail_template.yaml</code> (<code>dim_product_category.catalog_metadata</code>) is the worked example.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-validation-manifest-and-provenance-advanced">8. Validation, manifest, and provenance (advanced)<a class="headerlink" href="#8-validation-manifest-and-provenance-advanced" title="Permanent link">&para;</a></h3>
+<h4 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Catches</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FK integrity</td>
+<td>orphan rows, missing parents</td>
+</tr>
+<tr>
+<td>Null rates</td>
+<td>configured <code>noise.missing</code> exceeded</td>
+</tr>
+<tr>
+<td>Date spine</td>
+<td>gaps, dupes</td>
+</tr>
+<tr>
+<td>Distribution range</td>
+<td>values outside <code>metrics[].range</code></td>
+</tr>
+<tr>
+<td>Causal-lag fidelity</td>
+<td>xcorr peak at the configured lag</td>
+</tr>
+<tr>
+<td>PK uniqueness</td>
+<td>duplicate primary keys</td>
+</tr>
+</tbody>
+</table>
+<p>Run via <code>plotsim.validate(tables, cfg)</code> → <code>ValidationReport</code> with
+<code>ValidationIssue</code> records. Same checks gate <code>plotsim run</code> (non-zero exit
+on critical issues).</p>
+<h4 id="manifest-sidecar">Manifest sidecar<a class="headerlink" href="#manifest-sidecar" title="Permanent link">&para;</a></h4>
+<p><code>manifest.json</code> accompanies every run. Captures: schema, run metadata,
+seed, archetype assignments per entity, sampled trajectory positions
+(rate-controlled), event firings, SCD-2 band crossings, treatment
+assignments + cohort definitions, bridge associations, and configured
+quality-issue rates. Plus three ground-truth sections that turn the
+manifest into a scoreable answer key:</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>What it carries</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>causal_graph</code></td>
+<td>One <code>CausalEdge</code> record per non-None <code>causal_lag</code> in the config (source metric → target metric, lag, decay window when set)</td>
+<td>DE lineage / cataloging exercises; AE semantic-layer modeling</td>
+</tr>
+<tr>
+<td><code>correlations</code></td>
+<td>One <code>CorrelationEntry</code> per metric pair (projected coefficient after Higham nearest-PD); time-varying <code>correlation_phases</code> add per-phase entries tagged by <code>phase_index</code></td>
+<td>DS/ML feature-engineering guidance; correlation-recovery exercises</td>
+</tr>
+<tr>
+<td><code>outlier_injections</code></td>
+<td>Per-cell log of where the noise outlier branch fired (<code>None</code> when skipped — zero outlier rate or above the <code>OUTLIER_DETECTION_CELL_BUDGET</code> of 1M cells)</td>
+<td>DS/ML anomaly-detection scoring (Isolation Forest, LOF); DE data-quality testing</td>
+</tr>
+</tbody>
+</table>
+<p>The "what was true at generation time" record.</p>
+<h4 id="inspect-trace-one-cell">Inspect — trace one cell<a class="headerlink" href="#inspect-trace-one-cell" title="Permanent link">&para;</a></h4>
+<p><code>plotsim.inspect.trace_metric_cell(state, table, row_index, column)</code>
+returns a <code>TraceResult</code> containing the trajectory position, curve
+segment, archetype, distribution call, noise application, and final
+written value for one cell. The differentiator the manifest can't give.</p>
+<hr />
+<h2 id="config-options-at-a-glance">Config options at a glance<a class="headerlink" href="#config-options-at-a-glance" title="Permanent link">&para;</a></h2>
+<p>A <code>PlotsimConfig</code> is built from a YAML file (<code>create_from_yaml</code>) or
+Python kwargs (<code>create(...)</code>). The two forms are equivalent — same
+fields, same validation, same output. Below is the section-level map;
+field-level shape lives in <a href="../config-reference/">Config fields</a>.</p>
+<h3 id="top-level-sections">Top-level sections<a class="headerlink" href="#top-level-sections" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Controls</th>
+<th>Required?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>about</code>, <code>unit</code></td>
+<td>Domain text and the entity noun</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>window</code></td>
+<td>Start, end, granularity (<code>monthly</code>, <code>weekly</code>, <code>daily</code>)</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>seed</code></td>
+<td>Determinism root</td>
+<td>optional (defaults provided)</td>
+</tr>
+<tr>
+<td><code>metrics</code></td>
+<td>What numeric series exist + their type/polarity/range/distribution/causal_lag</td>
+<td>yes (≥1)</td>
+</tr>
+<tr>
+<td><code>archetypes</code></td>
+<td>Named curve compositions</td>
+<td>yes (≥1)</td>
+</tr>
+<tr>
+<td><code>segments</code></td>
+<td>Entity counts per archetype</td>
+<td>yes (≥1)</td>
+</tr>
+<tr>
+<td><code>connections</code></td>
+<td>Pairwise metric correlations</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>lifecycle</code></td>
+<td>Stage sequence with per-stage overrides</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>dims</code></td>
+<td>Reference dimension tables (plans, regions, …)</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>facts</code></td>
+<td>Custom fact-table layout overrides</td>
+<td>optional (auto-derived)</td>
+</tr>
+<tr>
+<td><code>events</code></td>
+<td>Event firing definitions (<code>evt_*</code> tables)</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>bridges</code></td>
+<td>M:N join tables</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>quality_issues</code></td>
+<td>Targeted nulls / outliers / overrides</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>noise</code></td>
+<td>Global gaussian σ, MCAR rate, outlier rate</td>
+<td>optional (presets available)</td>
+</tr>
+<tr>
+<td><code>holdout</code></td>
+<td>Train/holdout split parameters</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>entity_features</code></td>
+<td>Whether to emit the per-entity rollup CSV</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>output</code></td>
+<td>Format (<code>csv</code> or <code>parquet</code>), filenames, <code>cell_budget</code> env gating</td>
+<td>optional</td>
+</tr>
+<tr>
+<td><code>manifest</code></td>
+<td>Whether to emit, sample rate, schema version</td>
+<td>optional</td>
+</tr>
+</tbody>
+</table>
+<h3 id="builder-shortcuts">Builder shortcuts<a class="headerlink" href="#builder-shortcuts" title="Permanent link">&para;</a></h3>
+<p><code>create(...)</code> accepts the same sections as kwargs, plus a few
+convenience shapes:</p>
+<ul>
+<li><code>metrics=[{"name": "x", "type": "score|amount|count|rate", "polarity": "positive|negative"}]</code> — engine picks distribution.</li>
+<li><code>segments=[{"name": "...", "count": N, "archetype": "growth"}]</code> — DSL string parsed into a curve.</li>
+<li><code>noise="realistic"</code> resolves through <code>NOISE_PRESETS</code>.</li>
+<li><code>window=("2024-01", "2024-12", "monthly")</code> shorthand.</li>
+</ul>
+<p>Templates: <code>plotsim.list_templates()</code> →
+<code>["banking", "health", "hr", "marketing", "retail", "saas"]</code>.
+<code>plotsim.load_template("saas")</code> returns a <code>PlotsimConfig</code> ready to mutate
+or pass to <code>generate_tables</code>.</p>
+<hr />
+<h2 id="output-produced">Output produced<a class="headerlink" href="#output-produced" title="Permanent link">&para;</a></h2>
+<p>Default <code>./output/</code> after <code>plotsim run config.yaml</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>output/
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>├── dim_date.csv             # date spine
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>├── dim_&lt;entity&gt;.csv         # one row per entity (or N rows under SCD2)
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├── dim_&lt;ref&gt;.csv            # zero or more reference dims
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>├── fct_&lt;metric&gt;.csv         # one row per entity per period
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>├── evt_&lt;event&gt;.csv          # zero or more event tables
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├── &lt;bridge&gt;.csv             # zero or more M:N bridges
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>├── _entity_features.csv     # optional per-entity rollup
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>├── config.yaml              # exact config used (round-trip)
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>├── validation_report.txt    # human-readable validation
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>├── validation.json          # structured validation
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>└── manifest.json            # ground-truth sidecar
+</span></code></pre></div>
+<p>Format conventions:</p>
+<ul>
+<li>UTF-8, <code>pd.NA</code> written as empty string, <code>%.4f</code> floats (4 decimal
+  places, fixed-point).</li>
+<li><code>output.format</code> selects the per-table encoding: <code>csv</code> (default),
+  <code>parquet</code> (requires <code>plotsim[parquet]</code> extra), <code>jsonl</code> (one JSON
+  object per line), or <code>sql</code> (single <code>data.sql</code> with dialect-aware DDL</li>
+<li>INSERTs). Columns and dtypes identical across encodings.</li>
+<li><code>output.holdout</code> swaps each <code>fct_*</code> and <code>evt_*</code> for paired
+  <code>_train</code> / <code>_holdout</code> files.</li>
+</ul>
+<p>Reproducibility contract: run <code>plotsim run output/config.yaml</code> against
+the same plotsim version → byte-identical output.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../cookbook/data-science/" class="md-footer__link md-footer__link--prev" aria-label="Previous: For data scientists">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                For data scientists
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../api-reference/" class="md-footer__link md-footer__link--next" aria-label="Next: API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache-2.0 licensed.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/mohossam01/plotsim" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://pypi.org/project/plotsim/" target="_blank" rel="noopener" title="pypi.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
